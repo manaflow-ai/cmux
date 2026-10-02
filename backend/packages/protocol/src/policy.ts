@@ -31,7 +31,8 @@ export const policyKeySchemas = {
   // Same values as TeamIntegrationPolicy (integrations.ts), which ConnectionDO enforces as TeamDO's projection.
   "github.repoScope": Schema.Literals(["linking_user_repos", "installation"]),
   "github.requireOrgAdmin": Schema.Boolean,
-  "github.repoAllowList": Schema.Array(RepoPattern).check(Schema.isMaxLength(500)),
+  /** Extra limit on repositories: a list (empty = no extra limit), or "none" to deny every repository. */
+  "github.repoAllowList": Schema.Union([Schema.Literal("none"), Schema.Array(RepoPattern).check(Schema.isMaxLength(500))]),
   "integrations.allowedProviders": Schema.Union([Schema.Literal("all"), Schema.Array(IntegrationProvider)]),
   "mcp.server": Schema.Literals(["user_choice", "disabled"]),
   "mcp.remoteTransport": Schema.Boolean,

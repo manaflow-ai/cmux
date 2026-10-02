@@ -18,6 +18,8 @@ export type PolicyVersion = typeof TeamPolicyVersion.Type
 
 /** Versions kept in TeamDO state (and so in every snapshot) for get and rollback; the full history is the audit projection (audit_events). */
 export const POLICY_HISTORY_LIMIT = 20
+/** All TeamDO state is one SQLite row (2 MB); the policy and its 20 history copies must stay far below it. */
+export const MAX_POLICY_BYTES = 64 * 1024
 
 export const initialPolicy = (): Policy => ({ version: 0, values: {}, updated_at: null, updated_by: null })
 
@@ -96,6 +98,8 @@ export const reducePolicyUpdate = <S extends PolicyState>(state: S, params: unkn
     }
     next[change.key] = exit.value
   }
+  const size = canonicalJson(next).length
+  if (size > MAX_POLICY_BYTES) return invalid(`team policy is ${size} bytes; the limit is ${MAX_POLICY_BYTES}`)
   const values = next as PolicyValues
   const bad = checkInvariants(values, ssoFacts)
   if (bad) return { ok: false, ...bad }
@@ -139,7 +143,8 @@ export const integrationSlice = (values: PolicyValues) => {
     github: {
       scope: values["github.repoScope"]?.value ?? "linking_user_repos",
       require_org_admin: values["github.requireOrgAdmin"]?.value ?? false,
-      repo_allowlist: allow === undefined || allow.length === 0 ? null : [...allow]
+      // "none" denies every repository ([] in ConnectionDO); an empty list adds no limit (null).
+      repo_allowlist: allow === "none" ? [] : allow === undefined || allow.length === 0 ? null : [...allow]
     }
   }
 }

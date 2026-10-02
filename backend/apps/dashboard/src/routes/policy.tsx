@@ -24,7 +24,7 @@ interface PolicyVersion {
   rollback_of: number | null
 }
 
-type Kind = { t: "enum"; values: Array<string> } | { t: "bool" } | { t: "int"; min: number; max: number } | { t: "list" } | { t: "listOrAll" } | { t: "text" }
+type Kind = { t: "enum"; values: Array<string> } | { t: "bool" } | { t: "int"; min: number; max: number } | { t: "list" } | { t: "listOrAll" } | { t: "listOrNone" } | { t: "text" }
 
 /**
  * Editor metadata. The record's types and validation live in @cmux/protocol
@@ -37,7 +37,7 @@ const GROUPS: Array<{ title: string; keys: Array<[string, Kind, string]> }> = [
     keys: [
       ["github.repoScope", { t: "enum", values: ["linking_user_repos", "installation"] }, "linking_user_repos"],
       ["github.requireOrgAdmin", { t: "bool" }, "false"],
-      ["github.repoAllowList", { t: "list" }, "none (no extra limit)"]
+      ["github.repoAllowList", { t: "listOrNone" }, "no extra limit (type none to deny every repository)"]
     ]
   },
   { title: "Integrations", keys: [["integrations.allowedProviders", { t: "listOrAll" }, "all"]] },
@@ -107,6 +107,8 @@ const parse = (kind: Kind, text: string): Json => {
       return text.split(",").map((s) => s.trim()).filter(Boolean)
     case "listOrAll":
       return text.trim() === "all" ? "all" : text.split(",").map((s) => s.trim()).filter(Boolean)
+    case "listOrNone":
+      return text.trim() === "none" ? "none" : text.split(",").map((s) => s.trim()).filter(Boolean)
     default:
       return text
   }

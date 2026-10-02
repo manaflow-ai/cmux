@@ -17,4 +17,12 @@ describe("outbox projection statements", () => {
     for (const v of values) expect(String(v)).not.toContain("\u0000")
     expect(statement!("unknown.kind", {}, "s", 1)).toBeUndefined()
   })
+
+  it("make lone surrogates well-formed, in values and keys (review P2-3)", () => {
+    const statement = (projection as unknown as { projectionStatement: (kind: string, payload: unknown, stream: string, seq: number) => [string, Array<unknown>] }).projectionStatement
+    const [, values] = statement("audit.append", {
+      team: "t", n: 1, op: "x", actor: "u", on_behalf_of: null, tx: "t", at: 1, summary: "bad \ud800 end", detail: { ["k\udc00"]: "v\ud800" }, prev_hash: "p", hash: "h"
+    }, "team:t", 1)
+    for (const v of values) expect(String(v)).not.toMatch(/\\ud[89ab][0-9a-f]{2}|[\ud800-\udfff]/i)
+  })
 })

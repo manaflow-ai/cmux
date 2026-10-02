@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, type OutboxItem, type Principal, type ReduceContext } from "@cmux/ownership"
+import { pgSafe } from "../text-safe.ts"
 
 /**
  * Tamper-evident audit chain (spec/enterprise.md section 6). TeamDO appends
@@ -51,8 +52,9 @@ export const appendAudit = <S extends AuditState>(
     on_behalf_of: ctx.principal.agent ? (ctx.principal.user ?? null) : null,
     tx: ctx.tx,
     at: ctx.now,
-    summary,
-    detail,
+    // Cleaned before hashing: the projection stores exactly this record (review P3).
+    summary: pgSafe(summary) as string,
+    detail: pgSafe(detail),
     prev_hash: prev
   }
   const hash = createHash("sha256").update(prev).update(canonicalJson(body)).digest("base64url")

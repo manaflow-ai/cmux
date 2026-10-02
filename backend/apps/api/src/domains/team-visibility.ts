@@ -28,7 +28,8 @@ export const teamSubscriberView = (state: TeamState, principal: Principal): Team
   return { ...rest, managed_devices: own }
 }
 
-const ADMIN_ONLY_PREFIXES = ["team.enrollment_token.", "team.device.", "team.policy.integration_"]
+/** The seed bumps the policy version, so members see it; the sync ack is admin-only bookkeeping. */
+const ADMIN_ONLY_PREFIXES = ["team.enrollment_token.", "team.device.", "team.policy.integration_synced"]
 
 export const teamEventVisible = (state: TeamState, event: EventFrame, principal: Principal): boolean => {
   if (!ADMIN_ONLY_PREFIXES.some((p) => event.op.startsWith(p))) return true

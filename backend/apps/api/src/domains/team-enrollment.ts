@@ -121,11 +121,12 @@ export const reduceDeviceEnroll = <S extends EnrollmentState>(state: S, params: 
 }
 
 export const reduceDeviceRelease = <S extends EnrollmentState>(state: S, params: unknown, ctx: ReduceContext, isAdmin: boolean): Result<S> => {
+  // Before any lookup, so an agent cannot learn whether an install is managed.
+  if (ctx.principal.kind === "agent" || ctx.principal.agent) return reject("auth.forbidden", "agents cannot release devices")
   const d = decodeParams<typeof DeviceRelease.params.Type>(DeviceRelease, params)
   if (!d.ok) return d
   const device = state.managed_devices?.[d.value.install]
   if (!device) return reject("selector.not_found", "install is not managed by this team")
-  if (ctx.principal.kind === "agent" || ctx.principal.agent) return reject("auth.forbidden", "agents cannot release devices")
   // An MDM-enrolled install belongs to the admin's enrollment: only admins release it (decision a).
   if (device.via === "token" && !isAdmin) return reject("auth.forbidden", "only a team admin may release an install enrolled by an MDM token")
   if (device.user !== ctx.principal.user && !isAdmin) return reject("auth.forbidden", "only the install's user or a team admin may release it")

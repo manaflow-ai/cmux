@@ -1,4 +1,4 @@
-import type { EventFrame, Principal } from "@cmux/ownership"
+import type { EventFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
 import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
@@ -82,22 +82,30 @@ export class TeamDO extends OwnerDO<TeamState> {
     const stub = this.env.CONNECTION_DO.get(this.env.CONNECTION_DO.idFromName(team))
     try {
       if (!state.integration_seeded) {
-        const existing = (await stub.integrationPolicy(team)) as IntegrationFields
-        this.submitSystem("team.policy.integration_seed", { policy: existing }, `integration-seed:${team}`)
+        const adopted = (await stub.adoptIntegrationPolicy(team)) as { ok: true; policy: IntegrationFields } | { ok: false; message: string }
+        if (!adopted.ok) throw new Error(`adopt refused: ${adopted.message}`)
+        this.requireCommitted(this.submitSystem("team.policy.integration_seed", { policy: adopted.policy }, `integration-seed:v2:${team}`))
         state = this.boundEngine!.currentState
+        if (!state.integration_seeded) throw new Error("seed did not commit")
         if (!integrationSyncPending(state)) return this.resetSyncBackoff()
       }
       const policy = currentPolicy(state)
       const slice = integrationSlice(policy.values)
-      const r = (await stub.applyTeamPolicy(team, { policy: slice, applied_by: `team_policy:v${policy.version}` }, `team-policy:${team}:v${policy.version}`)) as { ok: boolean; message?: string }
+      const r = (await stub.applyTeamPolicy(team, { policy: slice, applied_by: `team_policy:v${policy.version}` }, `team-policy:v2:${team}:v${policy.version}`)) as { ok: boolean; message?: string }
       if (!r.ok) throw new Error(r.message ?? "refused")
-      this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice) }, `integration-synced:${policy.version}`)
+      this.requireCommitted(this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice) }, `integration-synced:v2:${policy.version}`))
       this.resetSyncBackoff()
     } catch (e) {
       this.syncAttempts += 1
       this.syncRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.syncAttempts)
       throw e
     }
+  }
+
+  /** A rejected system op must back off, not re-fire the alarm at once (review P2-1). */
+  private requireCommitted(res: { frames: ReadonlyArray<OwnerFrame> }) {
+    const rej = res.frames.find((f) => f.t === "reject")
+    if (rej && rej.t === "reject") throw new Error(`${rej.code}: ${rej.message}`)
   }
 
   private resetSyncBackoff() {

@@ -7,11 +7,13 @@ import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, type PolicyState
 /**
  * TeamDO -> ConnectionDO integration projection (spec/enterprise.md 4.6).
  *
- * Before its first push, TeamDO copies the integration values ConnectionDO
- * enforces today into TeamPolicy (keys the admin has not set there), so the
- * first TeamPolicy version can never widen repository access (review HIGH 1,
- * decision b). After that, TeamDO pushes only when the integration slice
- * changes, so an unrelated key (telemetry.level) never touches ConnectionDO.
+ * Before its first push, TeamDO adopts ConnectionDO's policy: one ConnectionDO
+ * RPC returns the current values and locks them (source team_policy), so no
+ * admin edit can land between the read and the push and ConnectionDO has one
+ * writer from then on (review P1-1). TeamDO copies those values into TeamPolicy
+ * (keys the admin has not set there), so the first version never widens
+ * repository access (review HIGH 1, P1-2), then pushes once. After that it
+ * pushes only when the integration slice changes.
  */
 export interface IntegrationSyncState extends PolicyState {
   readonly integration_seeded?: boolean
@@ -47,7 +49,8 @@ export const keysFromConnectionPolicy = (fields: IntegrationFields): Partial<Rec
   if (fields.allowed_providers !== null) set("integrations.allowedProviders", fields.allowed_providers)
   if (fields.github.scope !== "linking_user_repos") set("github.repoScope", fields.github.scope)
   if (fields.github.require_org_admin) set("github.requireOrgAdmin", true)
-  if (fields.github.repo_allowlist && fields.github.repo_allowlist.length > 0) set("github.repoAllowList", fields.github.repo_allowlist)
+  // [] in ConnectionDO denies every repository: copy it as "none", never drop it.
+  if (fields.github.repo_allowlist) set("github.repoAllowList", fields.github.repo_allowlist.length === 0 ? "none" : fields.github.repo_allowlist)
   return out
 }
 
@@ -63,7 +66,8 @@ export const reduceIntegrationSeed = <S extends IntegrationSyncState>(state: S, 
   const added = (Object.keys(copied) as Array<PolicyKey>).filter((k) => current.values[k] === undefined).sort()
   const values = { ...current.values } as Record<string, unknown>
   for (const k of added) values[k] = copied[k]
-  const seededState = { ...state, integration_seeded: true, integration_synced_hash: sliceHash(fields) }
+  // No acknowledged hash: the first push always follows, so ConnectionDO holds exactly TeamPolicy's slice.
+  const seededState = { ...state, integration_seeded: true, integration_synced_hash: undefined }
   if (added.length === 0) return { ok: true, state: seededState, value: { seeded: true, copied: [] } }
   const actor = ctx.principal.identity
   const policy = { version: current.version + 1, values: values as PolicyValues, updated_at: ctx.now, updated_by: actor }

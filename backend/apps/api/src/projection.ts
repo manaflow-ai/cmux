@@ -1,5 +1,6 @@
 import type { OutboxRow } from "@cmux/ownership"
 import type { Env } from "./env.ts"
+import { pgSafe } from "./text-safe.ts"
 
 /**
  * Projection writes into PlanetScale `cmux-next`. A DO never writes Postgres in
@@ -101,19 +102,6 @@ const statements: Record<string, (p: Record<string, unknown>, stream: string, se
     `UPDATE hosts SET deleted_at = now(), source_stream = $2, source_seq = $3, updated_at = now() WHERE id = $1 AND source_seq < $3`,
     [p.id, stream, seq]
   ]
-}
-
-/**
- * Postgres text and jsonb reject U+0000, and one such row would fail the
- * drain's transaction forever, blocking every later row of the owner. Owners
- * accept any string, so the projection replaces U+0000 with U+FFFD in every
- * string of the payload (the DO keeps the exact value).
- */
-const pgSafe = (value: unknown): unknown => {
-  if (typeof value === "string") return value.includes("\u0000") ? value.replaceAll("\u0000", "\uFFFD") : value
-  if (Array.isArray(value)) return value.map(pgSafe)
-  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [pgSafe(k) as string, pgSafe(v)]))
-  return value
 }
 
 /** The SQL for one outbox row, or undefined for a kind this drain does not know. */

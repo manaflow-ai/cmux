@@ -86,7 +86,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
       if (!a?.subscribed) continue
-      if (frame.t === "event" && state !== undefined && !this.mayReceive(state, frame, a.principal)) continue
+      // A hidden event would leave the subscriber's mirror stale until its next
+      // visible event (clients repair only on a seq gap): send it a filtered snapshot instead.
+      if (frame.t === "event" && state !== undefined && this.engine && !this.mayReceive(state, frame, a.principal)) {
+        safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
+        continue
+      }
       safeSend(ws, text)
     }
   }

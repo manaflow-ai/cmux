@@ -1572,11 +1572,22 @@
               "value": {
                 "required": true,
                 "type": {
-                  "kind": "array",
-                  "items": {
-                    "kind": "ref",
-                    "name": "RepoPattern"
-                  }
+                  "kind": "union",
+                  "variants": [
+                    {
+                      "kind": "enum",
+                      "values": [
+                        "none"
+                      ]
+                    },
+                    {
+                      "kind": "array",
+                      "items": {
+                        "kind": "ref",
+                        "name": "RepoPattern"
+                      }
+                    }
+                  ]
                 }
               },
               "mode": {
@@ -12641,11 +12652,21 @@
                 "type": "object",
                 "properties": {
                   "value": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/$defs/RepoPattern"
-                    },
-                    "maxItems": 500
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none"
+                        ]
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/RepoPattern"
+                        },
+                        "maxItems": 500
+                      }
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -13341,11 +13362,21 @@
                 "type": "object",
                 "properties": {
                   "value": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/$defs/RepoPattern"
-                    },
-                    "maxItems": 500
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none"
+                        ]
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/RepoPattern"
+                        },
+                        "maxItems": 500
+                      }
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -14091,11 +14122,21 @@
                 "type": "object",
                 "properties": {
                   "value": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/$defs/RepoPattern"
-                    },
-                    "maxItems": 500
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none"
+                        ]
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/RepoPattern"
+                        },
+                        "maxItems": 500
+                      }
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -14867,11 +14908,21 @@
                 "type": "object",
                 "properties": {
                   "value": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/$defs/RepoPattern"
-                    },
-                    "maxItems": 500
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "none"
+                        ]
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/RepoPattern"
+                        },
+                        "maxItems": 500
+                      }
+                    ]
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"

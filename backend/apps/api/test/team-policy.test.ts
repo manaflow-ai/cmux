@@ -90,6 +90,11 @@ describe("team policy reducer (TeamDO single writer)", () => {
     ).toEqual({ allowed_providers: ["github"], github: { scope: "installation", require_org_admin: true, repo_allowlist: ["manaflow-ai/*"] } })
   })
 
+  it("refuses a policy larger than 64 KB (review P2-4: TeamDO state is one SQLite row)", () => {
+    const big = Object.fromEntries(Array.from({ length: 150 }, (_, i) => [`ui.k${i}`, { value: "x".repeat(600), mode: "enforced" }]))
+    expect(run(baseState(), "team.policy.update", { changes: [set("device.settings", big)], expected_version: 0 })).toMatchObject({ ok: false, code: "policy.invalid" })
+  })
+
   it("a change that sets the current values is a no-op (no new version, no event)", () => {
     const r1 = run(baseState(), "team.policy.update", { changes: [set("mcp.server", "disabled")], expected_version: 0 })
     if (!r1.ok) throw new Error("setup")

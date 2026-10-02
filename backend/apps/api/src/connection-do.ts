@@ -176,11 +176,23 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * The Worker authenticated the principal and, for complete, verified the
    * signed state and that it names this principal.
    */
-  /** RPC from TeamDO: the integration fields this projection enforces now (for the one-time seed). */
-  async integrationPolicy(team: string): Promise<{ allowed_providers: ReadonlyArray<string> | null; github: { scope: string; require_org_admin: boolean; repo_allowlist: ReadonlyArray<string> | null } }> {
+  /**
+   * RPC from TeamDO, once per team: returns the integration fields this
+   * projection enforces and, in the same commit, locks them as source
+   * team_policy, so from then on only TeamDO's pushes change them (review P1-1).
+   * Idempotent: a repeated call replays the lock and returns the locked values.
+   */
+  async adoptIntegrationPolicy(team: string): Promise<{ ok: true; policy: { allowed_providers: ReadonlyArray<string> | null; github: { scope: string; require_org_admin: boolean; repo_allowlist: ReadonlyArray<string> | null } } } | { ok: false; message: string }> {
     const engine = this.bind(team)
-    const p = policyOf(engine.currentState)
-    return { allowed_providers: p.allowed_providers, github: { scope: p.github.scope, require_org_admin: p.github.require_org_admin, repo_allowlist: p.github.repo_allowlist } }
+    const fields = (p: ReturnType<typeof policyOf>) => ({
+      allowed_providers: p.allowed_providers,
+      github: { scope: p.github.scope, require_org_admin: p.github.require_org_admin, repo_allowlist: p.github.repo_allowlist }
+    })
+    const current = fields(policyOf(engine.currentState))
+    const res = this.submitSystem("integration.policy.apply_managed", { source: "team_policy", policy: current, applied_by: "team_policy:adopt" }, `integration-adopt:${team}`)
+    const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
+    if (rej) return { ok: false, message: rej.message }
+    return { ok: true, policy: fields(policyOf(engine.currentState)) }
   }
 
   /**
