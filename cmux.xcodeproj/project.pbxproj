@@ -58,6 +58,7 @@
 		A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000002 /* AgentExecutableResolverError.swift */; };
 		A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000005 /* AgentExecutableResolverTests.swift */; };
 		FANOUTSRC000000000000001 /* AgentFanOutOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FANOUTREF00000000000001 /* AgentFanOutOperation.swift */; };
+		FANOUTTEST000000000001 /* AgentFanOutOperation.swift in cmuxTests */ = {isa = PBXBuildFile; fileRef = FANOUTREF00000000000001 /* AgentFanOutOperation.swift */; };
 		9209713CE86CA29E979B579E /* AgentFanOutOperationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEC49836A7D6BBF5B6B5DA43 /* AgentFanOutOperationTests.swift */; };
 		FANOUTSRC000000000000002 /* AgentFanOutSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = FANOUTREF00000000000002 /* AgentFanOutSocketCommands.swift */; };
 		95E8A230263D43FC4643B904 /* AgentFeedSemanticInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B17F904F7764F1CA16D27F3 /* AgentFeedSemanticInput.swift */; };
@@ -16876,6 +16877,7 @@
 				88A8F9C77DFA3ECF80805D22 /* AgentChatTranscriptServiceLifetimeTests.swift in Sources */,
 				93800001AA11BB22CC33EE01 /* AgentDeliveryTTYBindingTests.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
+				FANOUTTEST000000000001 /* AgentFanOutOperation.swift in cmuxTests */,
 				9209713CE86CA29E979B579E /* AgentFanOutOperationTests.swift in Sources */,
 				D686A8C1DBD4EABD91766211 /* AgentHibernationBackgroundWorkTests.swift in Sources */,
 				8740E0018740E0018740E001 /* AgentHibernationEvaluationSchedulingTests.swift in Sources */,
