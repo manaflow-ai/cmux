@@ -225,7 +225,7 @@ export function DiffPanel({
           type="button"
           className="acpmux-diff-back"
           aria-label="Back to transcript"
-          title="Back to transcript (Esc)"
+          title="Back to transcript"
           onClick={onClose}
         >
           <ChevronLeft />
