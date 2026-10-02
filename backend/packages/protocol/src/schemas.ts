@@ -47,7 +47,9 @@ export const Install = Schema.Struct({
   thumbprint: Schema.String,
   grant: GrantId,
   created_at: Schema.Int,
-  revoked_at: Schema.NullOr(Schema.Int)
+  revoked_at: Schema.NullOr(Schema.Int),
+  /** The team whose TeamDO may revoke this install (a paired cmux server; plans/cmux-next/server.md 6.5). */
+  bound_team: Schema.optionalKey(TeamId)
 }).annotate({ identifier: "Install" })
 
 export const Grant = Schema.Struct({

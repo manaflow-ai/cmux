@@ -215,15 +215,12 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const scopes = c.scopes_requested.length > 0 ? c.scopes_requested : impl.defaultScopes
           return { ...response, value: { connection: c, authorize_url: impl.authorizeUrl(env, state, scopes, callbackUrl()) } }
         }
-        // A revoked server also loses its install key (owner only; a team admin removes the directory entry).
+        // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
         if (payload.op === "server.revoke" && response.ok) {
-          const v = response.value as { host: string; install: string; owner_user: string }
-          let installRevoked = false
-          if (v.owner_user === principal.user) {
-            const r = yield* submitTo("cloud:UserDO", principal, { op: "install.revoke", params: { install: v.install }, idempotency_key: `${frame.idempotency_key}:install`, origin: "user" })
-            installRevoked = toResponse("install.revoke", r.frames).ok
-          }
-          return { ...response, value: { host: v.host, install_revoked: installRevoked } }
+          const v = response.value as { host: string; install: string }
+          const team = principal.team!
+          const flushed = yield* Effect.tryPromise({ try: () => rpc<{ revoked: Array<string> }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).flushServerRevocations(team)), catch: unreachable })
+          return { ...response, value: { host: v.host, install_revoked: flushed.revoked.includes(v.install) } }
         }
         // The personal team exists once the user exists (a team of one, identity spec section 2).
         if (payload.op === "user.ensure" && response.ok) {

@@ -144,7 +144,7 @@ export const pairApprove = async (
   const rec = pending.record
   const reg = await submit("cloud:UserDO", principal, {
     op: "install.register",
-    params: { public_jwk: rec.public_jwk, kind: "daemon", name, device_name: rec.info.name, platform: rec.info.platform, op_classes: ["read", "mutate-own"] },
+    params: { public_jwk: rec.public_jwk, kind: "daemon", name, device_name: rec.info.name, platform: rec.info.platform, op_classes: ["read", "mutate-own"], bound_team: principal.team },
     idempotency_key: `pair:${code}:${rec.thumbprint}:install`,
     origin: "user"
   })

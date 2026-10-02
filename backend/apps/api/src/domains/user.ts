@@ -39,6 +39,8 @@ export const userDomain: Domain<UserState> = {
   initial: () => ({ user: null, installs: {}, grants: {} }),
 
   authorize: (state, op, _params, principal) => {
+    // A system principal exists only inside a DO (TeamDO's revoke of a bound install); internal ops only.
+    if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now())
     if (state.user && principal.user !== state.user.id) return { code: "auth.forbidden", message: "not this user" }
     if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
     return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
@@ -101,7 +103,8 @@ export const userDomain: Domain<UserState> = {
           thumbprint,
           grant,
           created_at: ctx.now,
-          revoked_at: null
+          revoked_at: null,
+          ...(v.bound_team ? { bound_team: v.bound_team } : {})
         }
         return {
           ok: true,
@@ -123,6 +126,27 @@ export const userDomain: Domain<UserState> = {
         return {
           ok: true,
           state: { ...state, installs: { ...state.installs, [cur.id]: next } },
+          value: next,
+          outbox: [{ kind: "install.upsert", entity: cur.id, payload: { ...next, public_jwk: undefined, user: state.user?.id } }]
+        }
+      }
+      case "install.revoke_by_team": {
+        // Only the bound team's TeamDO (system:team:<team>), when that team revoked the server.
+        const v = params as { install: string; team: string; by: string }
+        if (p.kind !== "system" || p.identity !== `system:team:${v.team}`) return reject("auth.forbidden", "internal op of the bound team")
+        const cur = state.installs[v.install]
+        if (!cur) return reject("selector.not_found", "install not found")
+        if (cur.bound_team !== v.team) return reject("auth.forbidden", "install is not bound to this team")
+        if (cur.revoked_at !== null) return { ok: true, state, value: cur, changed: false }
+        const next = { ...cur, revoked_at: ctx.now }
+        const g = state.grants[cur.grant]
+        return {
+          ok: true,
+          state: {
+            ...state,
+            installs: { ...state.installs, [cur.id]: next },
+            grants: g ? { ...state.grants, [g.id]: { ...g, revoked_at: ctx.now } } : state.grants
+          },
           value: next,
           outbox: [{ kind: "install.upsert", entity: cur.id, payload: { ...next, public_jwk: undefined, user: state.user?.id } }]
         }

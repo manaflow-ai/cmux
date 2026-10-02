@@ -4,6 +4,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { beginProofMessage, codeFromRandom, displayCode, normalizeCode } from "../src/domains/pairing.ts"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
+import { userDomain, type UserState } from "../src/domains/user.ts"
 
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; ENVIRONMENT: string }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -62,7 +63,37 @@ describe("servers in the team directory (TeamDO reducer)", () => {
     if (!gone.ok) throw new Error(gone.message)
     expect(gone.value).toEqual({ host, install: INSTALL, owner_user: OWNER })
     expect((gone.state as TeamState).hosts[host]).toBeUndefined()
+    expect((gone.state as TeamState).server_revocations?.[INSTALL]).toMatchObject({ install: INSTALL, owner_user: OWNER, by: OWNER })
+    const confirmed = teamDomain.reduce(gone.state as TeamState, "server.install_revoked", { install: INSTALL }, ctx(null))
+    if (!confirmed.ok) throw new Error(confirmed.message)
+    expect((confirmed.state as TeamState).server_revocations?.[INSTALL]).toBeUndefined()
     expect(gone.outbox?.map((o) => o.kind)).toEqual(["host.delete", "audit.append"])
+  })
+})
+
+describe("install.revoke_by_team (UserDO reducer)", () => {
+  const user = (bound?: string): UserState =>
+    ({
+      user: { id: OWNER, stack_user_id: "s", email: null, display_name: "o", personal_team: TEAM },
+      installs: {
+        [INSTALL]: {
+          id: INSTALL, device: "dev_00000000000000000001", kind: "daemon", name: "Studio", device_name: "Studio", platform: "linux",
+          public_jwk: { kty: "EC", crv: "P-256", x: "x".repeat(43), y: "y".repeat(43) }, thumbprint: "t", grant: "grant_00000000000000000001",
+          created_at: 1, revoked_at: null, ...(bound ? { bound_team: bound } : {})
+        }
+      },
+      grants: { grant_00000000000000000001: { id: "grant_00000000000000000001", grantee: INSTALL, op_classes: ["read", "mutate-own"], approval: "none", expires_at: null, revoked_at: null, created_from: "install" } }
+    }) as unknown as UserState
+  const sys = (identity: string): ReduceContext => ({ principal: { identity, kind: "system" }, now: 5, tx: "t", newId: (p) => `${p}_x` })
+  it("revokes install and grant only for the bound team's TeamDO", () => {
+    const params = { install: INSTALL, team: TEAM, by: OWNER }
+    const r = userDomain.reduce(user(TEAM), "install.revoke_by_team", params, sys(`system:team:${TEAM}`))
+    if (!r.ok) throw new Error(r.message)
+    expect((r.state as UserState).installs[INSTALL]!.revoked_at).toBe(5)
+    expect((r.state as UserState).grants["grant_00000000000000000001"]!.revoked_at).toBe(5)
+    expect(userDomain.reduce(user(), "install.revoke_by_team", params, sys(`system:team:${TEAM}`))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(userDomain.reduce(user(TEAM), "install.revoke_by_team", params, sys("system:team:team_00000000000000000099"))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(userDomain.reduce(user(TEAM), "install.revoke_by_team", params, ctx(OWNER))).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 })
 
@@ -175,10 +206,16 @@ describe("server pairing over the API (workerd)", () => {
 
     // A server cannot approve or revoke (install token), and an agent cannot either.
     expect((await op(tok.json.access_token, "server.revoke", { host: result.host })).json.ok).toBe(false)
+    expect(inst.bound_team).toBe(teamId)
+    expect((await read(tok.json.access_token, "install.list", {})).status).toBe(200)
+    expect((await read(tok.json.access_token, "team.directory", {})).status).toBe(200)
 
     const revoked = await op(owner, "server.revoke", { host: result.host })
     expect(revoked.json).toMatchObject({ ok: true, value: { host: result.host, install_revoked: true } })
     expect((await call("/v1/auth/challenge", undefined, { user: result.user, install: result.install })).status).toBe(403)
+    // The token minted before the revoke fails its next request.
+    expect((await read(tok.json.access_token, "install.list", {})).status).toBe(403)
+    expect((await read(tok.json.access_token, "team.directory", {})).status).toBe(403)
   })
 
   it("refuses a begin without proof of possession or with a stale timestamp, and an unknown code", async () => {

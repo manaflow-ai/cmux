@@ -58,7 +58,9 @@ export const InstallRegister = def({
     platform: Platform,
     device: Schema.optionalKey(DeviceId),
     /** Narrows the install's default grant (never widens it); a paired cmux server registers with read and mutate-own only. */
-    op_classes: Schema.optionalKey(Schema.Array(OpClass))
+    op_classes: Schema.optionalKey(Schema.Array(OpClass)),
+    /** Lets this team's TeamDO revoke the install (a paired server); only the user can bind it. */
+    bound_team: Schema.optionalKey(TeamId)
   }),
   result: Install,
   errors: mutationErrors,

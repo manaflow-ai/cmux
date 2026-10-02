@@ -82,6 +82,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6). */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
     if (!state.team) return null
+    if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
     const recheck = nextRecheckAt(state)
     const sync = integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null
     return sync === null ? recheck : recheck === null ? sync : Math.min(sync, recheck)
@@ -94,6 +95,7 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
+    if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
     await this.recheckDomains(now)
     const engine = this.boundEngine
     let state = engine?.currentState
@@ -268,6 +270,42 @@ export class TeamDO extends OwnerDO<TeamState> {
     const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
     return { ok: true, host: (reply.value as { id: string }).id }
+  }
+
+  /** Backoff after a failed revocation push (in memory: a restart retries at once). */
+  private revokeRetryAt: number | null = null
+  private revokeAttempts = 0
+
+  /**
+   * Pushes every pending server install revocation to its owner's UserDO
+   * (`install.revoke_by_team`, which also closes the install's sockets), then
+   * records the confirmation. Called by the Worker right after `server.revoke`
+   * and by the alarm until it succeeds. Returns the installs revoked now.
+   */
+  async flushServerRevocations(entity: string): Promise<{ revoked: Array<string> }> {
+    if (!entity) return { revoked: [] }
+    const engine = this.bind(entity)
+    const pending = Object.values(engine.currentState.server_revocations ?? {})
+    const revoked: Array<string> = []
+    for (const r of pending) {
+      const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(r.owner_user))
+      const res = (await user.revokeByTeam(r.owner_user, entity, r.install, r.by, `team-revoke:${entity}:${r.install}`)) as { ok: boolean; code?: string }
+      // Done or permanently impossible (not bound, unknown): stop retrying either way; failures are logged.
+      if (!res.ok && res.code !== "auth.forbidden" && res.code !== "selector.not_found") {
+        this.revokeAttempts += 1
+        this.revokeRetryAt = Date.now() + Math.min(5 * 60_000, 1000 * 2 ** this.revokeAttempts)
+        console.error(JSON.stringify({ msg: "server install revocation failed", install: r.install, code: res.code }))
+        continue
+      }
+      if (!res.ok) console.error(JSON.stringify({ msg: "server install revocation refused", install: r.install, code: res.code }))
+      this.requireCommitted(this.submitSystem("server.install_revoked", { install: r.install }, `server-install-revoked:${r.install}`))
+      if (res.ok) revoked.push(r.install)
+    }
+    if (Object.keys(this.boundEngine?.currentState.server_revocations ?? {}).length === 0) {
+      this.revokeAttempts = 0
+      this.revokeRetryAt = null
+    }
+    return { revoked }
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {

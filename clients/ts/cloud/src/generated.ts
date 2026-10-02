@@ -290,6 +290,7 @@ export type Install = {
   readonly grant: GrantId
   readonly created_at: number
   readonly revoked_at: number | null
+  readonly bound_team?: TeamId
 }
 
 /** One app, CLI or daemon install with its own keypair. */
@@ -1145,6 +1146,7 @@ export interface CloudOps {
       readonly platform: Platform
       readonly device?: DeviceId
       readonly op_classes?: ReadonlyArray<OpClass>
+      readonly bound_team?: TeamId
     }
     readonly result: Install
   }

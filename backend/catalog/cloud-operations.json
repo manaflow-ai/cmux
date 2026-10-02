@@ -1702,6 +1702,13 @@
               "name": "int64"
             }
           }
+        },
+        "bound_team": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
         }
       }
     },
@@ -17997,6 +18004,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "bound_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -18159,6 +18169,13 @@
               }
             }
           },
+          "bound_team": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -18241,6 +18258,9 @@
             "items": {
               "$ref": "#/$defs/OpClass"
             }
+          },
+          "bound_team": {
+            "$ref": "#/$defs/TeamId"
           }
         },
         "required": [
@@ -18324,6 +18344,11 @@
               "money",
               "destructive"
             ]
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
           }
         }
       },
@@ -18401,6 +18426,11 @@
             "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -18447,6 +18477,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "bound_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -18646,6 +18679,11 @@
             "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -18692,6 +18730,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "bound_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -18875,6 +18916,11 @@
             "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -18921,6 +18967,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "bound_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [

@@ -29,6 +29,22 @@ export const mayEnrollServer = (state: TeamState, user: string | undefined): boo
 
 export const SERVER_TAG = "tag:server"
 
+/** A removed server's install that its owner's UserDO must still revoke. */
+export interface ServerRevocation {
+  readonly install: string
+  readonly owner_user: string
+  readonly by: string
+  readonly at: number
+}
+
+/** UserDO confirmed the revocation: drop it from the retry set. */
+export const reduceServerInstallRevoked = (state: TeamState, params: unknown): Out => {
+  const install = (params as { install: string }).install
+  if (!state.server_revocations?.[install]) return { ok: true, state, value: { install }, changed: false }
+  const { [install]: _done, ...rest } = state.server_revocations
+  return { ok: true, state: { ...state, server_revocations: rest }, value: { install } }
+}
+
 export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
   if (!state.team) return reject("validation.invalid", "team not initialized")
   const v = params as { install: string; name: string; platform: typeof Host.Type["platform"]; wg_public_key: string; owner_user: string; approved_by: string }
@@ -68,7 +84,10 @@ export const reduceServerRevoke = (state: TeamState, params: unknown, ctx: Reduc
   const role = p.user ? state.members[p.user]?.role : undefined
   if (host.owner_user !== p.user && role !== "owner" && role !== "admin") return reject("auth.forbidden", "only the server owner or a team admin may revoke it")
   const { [host.id]: _gone, ...rest } = state.hosts
-  return audited({ ...state, hosts: rest }, ctx, "server.revoke", { host: host.id, install: host.enrolled_by, owner_user: host.owner_user }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }, `server ${host.name} revoked`, {
+  // The install revocation commits here as a pending item; TeamDO pushes it to the owner's UserDO and retries until confirmed.
+  const pending: ServerRevocation = { install: host.enrolled_by, owner_user: host.owner_user, by: p.user!, at: ctx.now }
+  const next = { ...state, hosts: rest, server_revocations: { ...(state.server_revocations ?? {}), [host.enrolled_by]: pending } }
+  return audited(next, ctx, "server.revoke", { host: host.id, install: host.enrolled_by, owner_user: host.owner_user }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }, `server ${host.name} revoked`, {
     host: host.id,
     install: host.enrolled_by,
     by: p.user
