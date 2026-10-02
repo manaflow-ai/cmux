@@ -64,7 +64,21 @@ extension CmuxTuiSurfaceProvider {
               let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
             throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
         }
-        guard let resolvedWorkspaceID = created.workspaceID ?? (workspaceID == "current" ? nil : workspaceID) else {
+        let resolvedWorkspaceID: String?
+        if let createdWorkspaceID = created.workspaceID {
+            resolvedWorkspaceID = createdWorkspaceID
+        } else if workspaceID == "current" {
+            // A daemon starting its first session can acknowledge `run` with
+            // the terminal receipt before it has filled the response's
+            // workspace field. The mutation still committed. Refresh the
+            // authoritative graph and recover the focused workspace instead
+            // of turning a successful create into a yellow placement error.
+            _ = await refreshCurrentGraph(force: true)
+            resolvedWorkspaceID = cloudState?.workspaces.first(where: \.focused)?.id
+        } else {
+            resolvedWorkspaceID = workspaceID
+        }
+        guard let resolvedWorkspaceID else {
             throw ProviderError.noWorkspaceOnMachine(machineID)
         }
         return recordCreatedTerminal(created, workspaceID: resolvedWorkspaceID, name: name, cwd: cwd)
