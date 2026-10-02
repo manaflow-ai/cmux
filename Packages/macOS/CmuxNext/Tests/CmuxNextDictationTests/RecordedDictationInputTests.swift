@@ -46,10 +46,13 @@ import Testing
 
         let buffers = Mutex(0)
         let playback = try RecordedDictationInput.play(url, meter: nil) { _, _ in buffers.withLock { $0 += 1 } }
+        // Partway through: two of the clip's 40 buffers played.
+        await eventually("two buffers played") { buffers.withLock { $0 } >= 2 }
+        let played = buffers.withLock { $0 }
         playback.cancel()
         await playback.value
-        // Ten seconds of audio, but at most the buffer in flight was fed.
-        #expect(buffers.withLock { $0 } <= 1)
+        // Ten seconds of audio, but nothing past the buffer in flight was fed.
+        #expect(buffers.withLock { $0 } <= played + 1)
     }
 }
 #endif
