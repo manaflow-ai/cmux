@@ -10,7 +10,7 @@ import Testing
 struct CodexForkMonitorArgumentTests {
     @Test
     func forwardsForkParentClaimToDetachedMonitor() {
-        let arguments = CMUXCLI.codexForkMonitorArguments(environment: [
+        let arguments = CmuxTuiRemoteRouting.codexForkMonitorArguments(environment: [
             "CMUX_AGENT_FORK_PARENT_SESSION_ID": "parent-session",
             "CMUX_AGENT_FORK_LAUNCH_ID": "launch-id",
             "CMUX_CODEX_PID": "1234",
@@ -25,20 +25,20 @@ struct CodexForkMonitorArgumentTests {
 
     @Test
     func omitsForkArgumentsForNormalCodexMonitor() {
-        #expect(CMUXCLI.codexForkMonitorArguments(environment: [:]).isEmpty)
+        #expect(CmuxTuiRemoteRouting.codexForkMonitorArguments(environment: [:]).isEmpty)
     }
     @Test
     func omitsForkArgumentsWithoutValidParent() {
         for parent in [String?.none, ""] {
             var environment = ["CMUX_AGENT_FORK_LAUNCH_ID": "launch-id", "CMUX_CODEX_PID": "1234"]
             environment["CMUX_AGENT_FORK_PARENT_SESSION_ID"] = parent
-            #expect(CMUXCLI.codexForkMonitorArguments(environment: environment).isEmpty)
+            #expect(CmuxTuiRemoteRouting.codexForkMonitorArguments(environment: environment).isEmpty)
         }
     }
 
     @Test
     func omitsEmptyOptionalForkMetadata() {
-        #expect(CMUXCLI.codexForkMonitorArguments(environment: [
+        #expect(CmuxTuiRemoteRouting.codexForkMonitorArguments(environment: [
             "CMUX_AGENT_FORK_PARENT_SESSION_ID": "parent-session",
             "CMUX_AGENT_FORK_LAUNCH_ID": "",
             "CMUX_CODEX_PID": "",
