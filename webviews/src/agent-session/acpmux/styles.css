@@ -157,3 +157,17 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-edited-base{flex:none}
 .acpmux-edited-more{display:flex;align-items:center;gap:8px;width:100%;height:34px;box-sizing:border-box;padding:0 12px;border:0;background:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg));color:var(--agent-muted);font:inherit;cursor:pointer}
 .acpmux-edited-more:hover{color:var(--agent-text)}
+.acpmux-main{position:relative}
+.acpmux-sidebar-search-chats{flex:none;display:grid;place-items:center;width:24px;height:24px;margin-right:-4px;padding:0;border:0;border-radius:6px;background:none;color:var(--agent-muted);cursor:pointer}
+.acpmux-sidebar-search-chats:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.acpmux-sidebar-search-chats:focus-visible{outline:2px solid var(--agent-accent);outline-offset:-2px}
+.acpmux-sidebar-search-chats svg{width:15px;height:15px}
+.acpmux-search-chats{position:absolute;z-index:20;top:max(48px,18%);left:50%;display:flex;flex-direction:column;width:min(560px,calc(100% - 32px));max-height:min(440px,70%);margin:0;padding:6px;box-sizing:border-box;transform:translateX(-50%);border:0;border-radius:14px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 18px 48px var(--agent-shadow,rgb(0 0 0/.4));color:var(--agent-text)}
+.acpmux-search-chats>input{flex:none;height:38px;margin:0 0 4px;padding:0 10px;border:0;outline:none;background:none;color:var(--agent-text);font:inherit;font-size:14px}
+.acpmux-search-chats>input::placeholder{color:var(--acpmux-composer-dim)}
+.acpmux-search-chats>[role=listbox]{overflow-y:auto}
+.acpmux-chat-result{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;font-size:13px;cursor:pointer}
+.acpmux-chat-title{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.acpmux-chat-project{flex:none;max-width:35%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+.acpmux-chat-key{flex:none;min-width:22px;color:var(--acpmux-composer-dim);font:inherit;font-size:12px;text-align:right}
+.acpmux-chat-note{display:block;padding:10px;color:var(--acpmux-composer-dim);font-size:13px}

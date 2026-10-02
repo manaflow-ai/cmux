@@ -60,6 +60,7 @@ export function SessionSidebar({
   openIds,
   onSelect,
   onNewChat,
+  onSearchChats,
   account,
 }: {
   sessions: AcpmuxSessionEntry[];
@@ -68,6 +69,8 @@ export function SessionSidebar({
   openIds?: ReadonlySet<string>;
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
+  /** Opens the Search chats palette; the button beside the filter shows only when it is given. */
+  onSearchChats?: () => void;
   account?: SidebarAccount;
 }) {
   const [view, setView] = useState<SidebarView>("sessions");
@@ -118,6 +121,7 @@ export function SessionSidebar({
                 selectedId={selectedId}
                 onSelect={onSelect}
                 onNewChat={onNewChat}
+                onSearchChats={onSearchChats}
                 query={query}
                 onQuery={setQuery}
                 expanded={expanded}
@@ -179,6 +183,7 @@ function SessionsView({
   selectedId,
   onSelect,
   onNewChat,
+  onSearchChats,
   query,
   onQuery,
   expanded,
@@ -188,6 +193,7 @@ function SessionsView({
   selectedId?: string;
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
+  onSearchChats?: () => void;
   query: string;
   onQuery: (query: string) => void;
   expanded: Set<string>;
@@ -236,6 +242,18 @@ function SessionsView({
             onKeyDown={onSearchKey}
           />
         </label>
+        {onSearchChats && (
+          <button
+            type="button"
+            className="acpmux-sidebar-search-chats"
+            aria-label="Search chats"
+            title="Search chats (⌘K)"
+            aria-keyshortcuts="Meta+K"
+            onClick={onSearchChats}
+          >
+            <ChatsIcon />
+          </button>
+        )}
       </search>
       {/* Always present, so a screen reader announces the text when it appears. */}
       <output className="acpmux-sidebar-empty">

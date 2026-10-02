@@ -25,6 +25,7 @@ import { ScrollPacing } from "./pacing";
 import { Composer } from "./Composer";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
+import { isSearchChatsKey, SearchChats } from "./SearchChats";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import { DiffPanel } from "./DiffPanel";
@@ -731,6 +732,18 @@ function AcpmuxPane() {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
     void callNative("chat.select", { sessionId });
   }, []);
+  // Search chats: the sidebar's search button or Cmd+K, while the pane has focus, open it.
+  const [searchingChats, setSearchingChats] = useState(false);
+  const openSearchChats = useCallback(() => setSearchingChats(true), []);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!isSearchChatsKey(event)) return;
+      event.preventDefault();
+      setSearchingChats((open) => !open);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
   const newChat = useCallback(() => {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
     void callNative("chat.new").catch(() => undefined);
@@ -925,6 +938,7 @@ function AcpmuxPane() {
         selectedId={snapshot.sessionId}
         onSelect={selectSession}
         onNewChat={newChat}
+        onSearchChats={openSearchChats}
         account={account}
       />
       {sidebar === "open" && (
@@ -987,6 +1001,17 @@ function AcpmuxPane() {
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
         />
+        {searchingChats && (
+          <SearchChats
+            sessions={snapshot.sessions}
+            selectedId={snapshot.sessionId}
+            onPick={(sessionId) => {
+              setSearchingChats(false);
+              selectSession(sessionId);
+            }}
+            onClose={() => setSearchingChats(false)}
+          />
+        )}
       </div>
     </section>
   );
