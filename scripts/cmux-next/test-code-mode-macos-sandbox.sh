@@ -76,7 +76,7 @@ fi
 env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
   HOME="$tmp/host-home" TMPDIR="$tmp/run" \
   SMOKE_SOCKET="$proxy_socket" SMOKE_DENIED="$tmp/host-home/secret" \
-  "$sandbox_exec" -p "$profile" "$bun" "$script"
+  "$sandbox_exec" -f "$profile" "$bun" "$script"
 
 [[ -f "$tmp/run/allowed.txt" ]]
 echo "macOS Seatbelt smoke passed on $(sw_vers -productVersion)"

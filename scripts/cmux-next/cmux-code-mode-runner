@@ -141,7 +141,7 @@ if [ "$(uname -s)" = Darwin ]; then
     HOME="$run_tmp" TMPDIR="$run_tmp" \
     CMUX_TUI_SOCKET="$proxy_socket" CMUX_TUI_SESSION="$session" \
     ${cloud_relay_pid:+CMUX_CLOUD_SOCKET="$cloud_socket"} \
-    "$sandbox_exec" -p "$profile" \
+    "$sandbox_exec" -f "$profile" \
     "$bun" "$sdk/code-mode/run.ts" "$script" "$@" &
   sandbox_pid=$!
   if wait "$sandbox_pid"; then
