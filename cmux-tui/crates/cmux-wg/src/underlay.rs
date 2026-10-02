@@ -11,19 +11,48 @@
 
 use std::collections::VecDeque;
 use std::io;
+use std::future::Future;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use cmux_transport::PathId;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
-use tokio::time::Instant;
+use tokio::time::{Instant, Sleep};
 
 /// Datagrams kept while a socket is unwritable. The driver stops feeding
 /// data the moment anything is queued and waits for writability, so the
 /// queue holds at most one TCP segment plus the odd handshake or keepalive;
 /// the bound only guards memory against a socket that never drains.
 const SEND_QUEUE_DEPTH: usize = 1024;
+/// First and longest wait before retrying after the interface refused a
+/// datagram (ENOBUFS). The socket stays writable then, so readiness cannot
+/// signal the retry; a short timer does, doubling while refusals repeat.
+const INTERFACE_RETRY_MIN: Duration = Duration::from_millis(1);
+const INTERFACE_RETRY_MAX: Duration = Duration::from_millis(50);
+
+/// Why a send was refused without being an error to drop on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Refusal {
+    /// The socket buffer is full: wait for writability.
+    SocketFull,
+    /// The interface queue is full (ENOBUFS, common for UDP on macOS):
+    /// retry after a short wait.
+    InterfaceFull,
+}
+
+fn refusal(error: &io::Error) -> Option<Refusal> {
+    if error.kind() == io::ErrorKind::WouldBlock {
+        return Some(Refusal::SocketFull);
+    }
+    #[cfg(unix)]
+    if error.raw_os_error() == Some(libc::ENOBUFS) {
+        return Some(Refusal::InterfaceFull);
+    }
+    None
+}
 
 /// Where a received datagram came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,6 +189,9 @@ pub struct SocketPath<S> {
     socket: S,
     peer: Option<SocketAddr>,
     pending: VecDeque<(Vec<u8>, SocketAddr)>,
+    /// Armed after the interface refused a datagram.
+    retry: Option<Pin<Box<Sleep>>>,
+    retry_after: Duration,
 }
 
 /// The default underlay: one UDP socket, one peer address.
@@ -167,7 +199,13 @@ pub type UdpUnderlay = SocketPath<UdpSocket>;
 
 impl<S: DatagramSocket> SocketPath<S> {
     pub fn new(socket: S, peer: Option<SocketAddr>) -> Self {
-        Self { socket, peer, pending: VecDeque::new() }
+        Self {
+            socket,
+            peer,
+            pending: VecDeque::new(),
+            retry: None,
+            retry_after: INTERFACE_RETRY_MIN,
+        }
     }
 
     pub fn socket(&self) -> &S {
@@ -195,7 +233,7 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
         }
         match self.socket.try_send_to(datagram, peer) {
             Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            Err(error) if refusal(&error).is_some() => {
                 self.pending.push_back((datagram.to_vec(), peer));
             }
             Err(error) => eprintln!("wireguard UDP send to {peer} failed: {error}"),
@@ -203,12 +241,14 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
     }
 
     fn flush(&mut self) {
-        while let Some((datagram, peer)) = self.pending.front() {
+        while self.retry.is_none()
+            && let Some((datagram, peer)) = self.pending.front()
+        {
             match self.socket.try_send_to(datagram, *peer) {
                 Ok(_) => {
                     self.pending.pop_front();
                 }
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) if refusal(&error).is_some() => break,
                 Err(error) => {
                     eprintln!("wireguard UDP send to {peer} failed: {error}");
                     self.pending.pop_front();
@@ -223,6 +263,12 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
 
     fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         while let Some((datagram, peer)) = self.pending.front() {
+            if let Some(retry) = &mut self.retry {
+                if retry.as_mut().poll(cx).is_pending() {
+                    return Poll::Pending;
+                }
+                self.retry = None;
+            }
             match self.socket.poll_send_ready(cx) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(error)) => {
@@ -235,13 +281,20 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
             match self.socket.try_send_to(datagram, *peer) {
                 Ok(_) => {
                     self.pending.pop_front();
+                    self.retry_after = INTERFACE_RETRY_MIN;
                 }
-                // Readiness was stale; the next poll registers interest.
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
-                Err(error) => {
-                    eprintln!("wireguard UDP send to {peer} failed: {error}");
-                    self.pending.pop_front();
-                }
+                Err(error) => match refusal(&error) {
+                    // Readiness was stale; the next poll registers interest.
+                    Some(Refusal::SocketFull) => {}
+                    Some(Refusal::InterfaceFull) => {
+                        self.retry = Some(Box::pin(tokio::time::sleep(self.retry_after)));
+                        self.retry_after = (self.retry_after * 2).min(INTERFACE_RETRY_MAX);
+                    }
+                    None => {
+                        eprintln!("wireguard UDP send to {peer} failed: {error}");
+                        self.pending.pop_front();
+                    }
+                },
             }
         }
         Poll::Ready(())
@@ -284,8 +337,6 @@ pub(crate) fn is_transient(error: &io::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
-
-    use std::time::Duration;
 
     use super::*;
 
