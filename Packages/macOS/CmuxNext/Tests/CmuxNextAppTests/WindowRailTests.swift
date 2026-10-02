@@ -43,7 +43,15 @@ struct WindowRailTests {
         withExtendedLifetime(services) {}
     }
 
-    @Test func toolTipsShowTheBoundShortcut() throws {
+    /// Waits (bounded) for main-actor observation hops.
+    private func eventually(line: Int = #line, _ condition: () -> Bool) async throws {
+        for _ in 0..<100 where !condition() { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(condition(), "line \(line)")
+    }
+
+    /// Tooltips follow a rebind on their own (the rail observes the
+    /// registry's shortcuts; the test never refreshes them by hand).
+    @Test func toolTipsShowTheBoundShortcut() async throws {
         let services = Coverage.boundServices()
         let registry = services.registry
         let rail = WindowRailView(registry: registry)
@@ -57,11 +65,9 @@ struct WindowRailTests {
         #expect(tip("accounts.show") == "Accounts")
 
         registry.setShortcutOverride(Shortcut("t", modifiers: [.control, .option, .command]), for: "newSurface")
-        rail.refreshToolTips()
-        #expect(tip("newSurface") == "New Terminal Tab (⌃⌥⌘T)")
+        try await eventually { tip("newSurface") == "New Terminal Tab (⌃⌥⌘T)" }
         registry.setShortcutOverride(nil, for: "openBrowser")
-        rail.refreshToolTips()
-        #expect(tip("openBrowser") == "New Browser Tab")
+        try await eventually { tip("openBrowser") == "New Browser Tab" }
         withExtendedLifetime(services) {}
     }
 
@@ -109,8 +115,9 @@ struct WindowRailTests {
         withExtendedLifetime(services) {}
     }
 
-    /// A cmux.json change re-lays out an open window.
-    @Test func changingThePlacementRelaysOutAnOpenWindow() {
+    /// A cmux.json change re-lays out an open window on its own (the root
+    /// observes the setting; the test never applies it by hand).
+    @Test func changingThePlacementRelaysOutAnOpenWindow() async throws {
         let services = Coverage.boundServices()
         let saved = DesignSettings.shared.rail
         defer { DesignSettings.shared.rail = saved }
@@ -118,21 +125,22 @@ struct WindowRailTests {
         let root = controller.root
         let before = root.contentHost.frame
         DesignSettings.shared.rail = .afterSidebar
-        root.applyRail()
+        try await eventually { root.rail.superview === root }
         root.layoutSubtreeIfNeeded()
         #expect(root.contentHost.frame.minX == before.minX + WindowRail.width)
         DesignSettings.shared.rail = .off
-        root.applyRail()
+        try await eventually { root.rail.superview == nil }
         root.layoutSubtreeIfNeeded()
-        #expect(root.rail.superview == nil)
         #expect(root.contentHost.frame == before)
         close(controller)
         withExtendedLifetime(services) {}
     }
 
-    /// At the window's leading edge the rail is under the traffic lights:
-    /// its buttons start below them in both titlebar styles.
-    @Test func leadingRailButtonsClearTheTrafficLights() throws {
+    /// At the window's leading edge, or after a hidden sidebar, the rail is
+    /// under the traffic lights: its buttons start below them in both
+    /// titlebar styles, even with a top row shorter than the lights (a
+    /// tuned titlebar height), so the lights check itself is what holds.
+    @Test func railButtonsClearTheTrafficLights() throws {
         let services = Coverage.boundServices()
         let savedRail = DesignSettings.shared.rail
         let savedTitlebar = DesignSettings.shared.titlebar
@@ -141,15 +149,27 @@ struct WindowRailTests {
             DesignSettings.shared.titlebar = savedTitlebar
         }
         for style in TitlebarStyle.allCases {
-            DesignSettings.shared.titlebar = style
-            let controller = makeWindow(services, .leading)
-            let window = try #require(controller.window)
-            let lights = try #require(WindowTitlebar.trafficLightsFrame(in: window))
-            for button in controller.root.rail.buttons {
-                let frame = button.convert(button.bounds, to: nil)
-                #expect(frame.maxY <= lights.minY, "\(style): \(button.item.action) at \(frame) overlaps the lights at \(lights)")
+            for placement in [WindowRailPlacement.leading, .afterSidebar] {
+                DesignSettings.shared.titlebar = style
+                let controller = makeWindow(services, placement)
+                if placement == .afterSidebar {
+                    controller.sidebar.container.restore(width: nil, presentation: .hidden)
+                    controller.root.layoutSubtreeIfNeeded()
+                    #expect(controller.root.rail.frame.minX == 0, "\(style): rail not at the leading edge")
+                }
+                let window = try #require(controller.window)
+                let lights = try #require(WindowTitlebar.trafficLightsFrame(in: window))
+                for inset in [controller.root.rail.topInset, 0] {
+                    controller.root.rail.topInset = inset
+                    controller.root.layoutSubtreeIfNeeded()
+                    for button in controller.root.rail.buttons {
+                        let frame = button.convert(button.bounds, to: nil)
+                        #expect(frame.maxY <= lights.minY,
+                                "\(style) \(placement) inset \(inset): \(button.item.action) at \(frame) overlaps the lights at \(lights)")
+                    }
+                }
+                close(controller)
             }
-            close(controller)
         }
         withExtendedLifetime(services) {}
     }
