@@ -55,6 +55,7 @@ public final class Commands {
     public static final CommandMetadata DELETE_PROFILE = new CommandMetadata("delete-profile", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_SAVED_SCREEN_GROUP = new CommandMetadata("delete-saved-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_SAVED_TAB_GROUP = new CommandMetadata("delete-saved-tab-group", Authority.CONTROL, 12, "saved-tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata DELETE_TERMINAL_COMMANDS = new CommandMetadata("delete-terminal-commands", Authority.LOCAL_ADMIN, 12, "terminal-command-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_WORKSPACE_GROUP = new CommandMetadata("delete-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DETACH_ATTACHED_VIEW = new CommandMetadata("detach-attached-view", Authority.FRONTEND, 10, "view-attachment-detach-v1", StreamKind.NONE, Map.ofEntries(Map.entry("view", 12L)), Map.ofEntries(Map.entry("view", "shared-sizing-v1")));
     public static final CommandMetadata DETACH_CLIENT = new CommandMetadata("detach-client", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("by", 12L), Map.entry("surface", 12L)), Map.ofEntries(Map.entry("by", "shared-sizing-v1"), Map.entry("surface", "shared-sizing-v1")));
@@ -77,6 +78,7 @@ public final class Commands {
     public static final CommandMetadata LIST_SAVED_SCREEN_GROUPS = new CommandMetadata("list-saved-screen-groups", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_SAVED_TAB_GROUPS = new CommandMetadata("list-saved-tab-groups", Authority.CONTROL, 12, "saved-tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_TAB_GROUPS = new CommandMetadata("list-tab-groups", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata LIST_TERMINAL_COMMANDS = new CommandMetadata("list-terminal-commands", Authority.LOCAL_ADMIN, 12, "terminal-command-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_TERMINALS = new CommandMetadata("list-terminals", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_WORKSPACE_GROUPS = new CommandMetadata("list-workspace-groups", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_WORKSPACES = new CommandMetadata("list-workspaces", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
@@ -166,7 +168,7 @@ public final class Commands {
     public static final CommandMetadata SET_SIZE_POLICY = new CommandMetadata("set-size-policy", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SPLIT_RATIO = new CommandMetadata("set-split-ratio", Authority.CONTROL, 8, null, StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
     public static final CommandMetadata SET_TAB_PINNED = new CommandMetadata("set-tab-pinned", Authority.CONTROL, 12, "tab-metadata-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SET_TERMINAL_COMMAND_HISTORY = new CommandMetadata("set-terminal-command-history", Authority.LOCAL_ADMIN, 12, "terminal-command-journal-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SET_TERMINAL_COMMAND_HISTORY = new CommandMetadata("set-terminal-command-history", Authority.LOCAL_ADMIN, 12, "terminal-command-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_TERMINAL_IDLE_POLICY = new CommandMetadata("set-terminal-idle-policy", Authority.CONTROL, 12, "terminal-idle-close-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_TERMINAL_KEEP = new CommandMetadata("set-terminal-keep", Authority.CONTROL, 12, "terminal-reap-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_VIEWPORT_PANE_WIDTH = new CommandMetadata("set-viewport-pane-width", Authority.CONTROL, 9, "viewport-column-resize-v1", StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
@@ -249,6 +251,7 @@ public final class Commands {
         values.put("delete-profile", DELETE_PROFILE);
         values.put("delete-saved-screen-group", DELETE_SAVED_SCREEN_GROUP);
         values.put("delete-saved-tab-group", DELETE_SAVED_TAB_GROUP);
+        values.put("delete-terminal-commands", DELETE_TERMINAL_COMMANDS);
         values.put("delete-workspace-group", DELETE_WORKSPACE_GROUP);
         values.put("detach-attached-view", DETACH_ATTACHED_VIEW);
         values.put("detach-client", DETACH_CLIENT);
@@ -271,6 +274,7 @@ public final class Commands {
         values.put("list-saved-screen-groups", LIST_SAVED_SCREEN_GROUPS);
         values.put("list-saved-tab-groups", LIST_SAVED_TAB_GROUPS);
         values.put("list-tab-groups", LIST_TAB_GROUPS);
+        values.put("list-terminal-commands", LIST_TERMINAL_COMMANDS);
         values.put("list-terminals", LIST_TERMINALS);
         values.put("list-workspace-groups", LIST_WORKSPACE_GROUPS);
         values.put("list-workspaces", LIST_WORKSPACES);

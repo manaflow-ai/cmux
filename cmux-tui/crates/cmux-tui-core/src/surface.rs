@@ -1701,7 +1701,7 @@ pub struct PtyTerminalRuntime {
     /// or roster knowledge, so userland plugins can consume it through the
     /// resource API without moving detection policy into core.
     terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
-    /// OSC 133 command tracking (`terminal-command-journal-v1`); idle unless
+    /// OSC 133 command tracking (`terminal-command-history-v1`); idle unless
     /// the daemon records terminal commands.
     command_tracker: Mutex<crate::shell_history::CommandTracker>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
