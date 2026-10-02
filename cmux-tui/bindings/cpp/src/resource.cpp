@@ -128,6 +128,7 @@ struct OperationInfo {
     X(screen_close, "screen.close", mutation)                                         \
     X(screen_layout_export, "screen.layout.export", read)                             \
     X(screen_layout_undo, "screen.layout.undo", mutation)                             \
+    X(screen_column_update, "column.update", mutation)                                \
     X(pane_list, "pane.list", read)                                                   \
     X(pane_get, "pane.get", read)                                                     \
     X(pane_create, "pane.create", mutation)                                           \
@@ -2628,6 +2629,26 @@ Result<MutationResult<ScreenSnapshot>> Screen::clear_name(MutationOptions option
         Operation::screen_rename,
         Json::Object{{"name", Json(nullptr)}},
         std::move(options));
+}
+
+Result<MutationResult<ScreenSnapshot>> Screen::update_column(
+    SplitId column,
+    ColumnUpdateOptions update,
+    MutationOptions options) const {
+    Json::Object params{{"column", Json(column.value())}};
+    if (update.sticky) {
+        params.emplace("sticky", Json(*update.sticky));
+    }
+    if (update.edge) {
+        params.emplace("edge", Json(std::move(*update.edge)));
+    }
+    if (update.mode) {
+        params.emplace("mode", Json(std::move(*update.mode)));
+    }
+    if (update.width) {
+        params.emplace("width", Json(*update.width));
+    }
+    return mutate(Operation::screen_column_update, std::move(params), std::move(options));
 }
 
 Result<MutationResult<ScreenSnapshot>> Screen::focus(MutationOptions options) const {

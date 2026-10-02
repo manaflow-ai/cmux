@@ -88,6 +88,7 @@ enum class Operation {
     screen_close,
     screen_layout_export,
     screen_layout_undo,
+    screen_column_update,
     pane_list,
     pane_get,
     pane_create,
@@ -434,6 +435,16 @@ struct CreateBrowserTabOptions {
     std::optional<std::string> correlation_key;
 
     [[nodiscard]] Result<Json::Object> to_params() const;
+};
+
+/// `column.update`: set `sticky`, `width`, or both. `edge` ("left" or
+/// "right") and `mode` ("docked" or "overlay") apply only when `sticky` is
+/// true.
+struct ColumnUpdateOptions {
+    std::optional<bool> sticky;
+    std::optional<std::string> edge;
+    std::optional<std::string> mode;
+    std::optional<double> width;
 };
 
 struct UndoLayoutOptions {
@@ -2135,6 +2146,11 @@ public:
     [[nodiscard]] Result<LayoutDocument> export_layout() const;
     [[nodiscard]] Result<MutationResult<ScreenSnapshot>> undo_layout(
         UndoLayoutOptions undo = {},
+        MutationOptions options = MutationOptions::unique()) const;
+    /// Pins, unpins, or resizes the viewport column `column` (`column.update`).
+    [[nodiscard]] Result<MutationResult<ScreenSnapshot>> update_column(
+        SplitId column,
+        ColumnUpdateOptions update,
         MutationOptions options = MutationOptions::unique()) const;
 };
 

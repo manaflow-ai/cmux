@@ -15,6 +15,7 @@ mod lifecycle;
 mod mcp;
 mod raw;
 mod resolve;
+mod screen_help;
 mod shorthand;
 mod surface;
 mod wire;
@@ -25,6 +26,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use command::{CommandPlan, ParsedCommand};
+use screen_help::SCREEN_HELP;
 
 const PUBLIC_SCOPES: &[&str] = &[
     "machine",
@@ -821,30 +823,6 @@ starts with a dash goes after --. --ephemeral creates an incognito workspace
 the session closes at its next start. Workspace groups and rooms are
 personal: they live in this Mac's home session. A group or room is named by
 its id or exact name.
-";
-
-const SCREEN_HELP: &str = "\
-USAGE
-  cmux screen list
-  cmux screen create [--correlation-key <value>]
-  cmux screen <selector> show|rename|focus|close
-  cmux screen <selector> pin|unpin
-  cmux screen <selector> update [--pinned <bool>] [--color <value>|--clear-color]
-    [--icon <value>|--clear-icon]
-  cmux screen <selector> move --index <n>
-  cmux screen <selector> layout export
-  cmux screen <selector> layout undo [--confirm-close]
-    [--confirmation-token <value>]
-  cmux screen <selector> pane ...
-  cmux screen group list [--workspace <selector>]
-  cmux screen group create --screens <screen_…,...> [--name <value>] [--color <color>]
-  cmux screen group <group> show|ungroup
-  cmux screen group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
-  cmux screen group <group> add --screens <screen_…,...>
-  cmux screen group remove --screens <screen_…,...>
-
-Pinned screens sort first and leave their group. Group colors: grey, blue,
-red, yellow, green, pink, purple, cyan, orange.
 ";
 
 const PANE_HELP: &str = "\

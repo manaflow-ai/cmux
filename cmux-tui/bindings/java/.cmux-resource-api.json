@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "b7f15e13d00bdf49127444f640663bdb08c500077778bdd48e61d0dde5cd247e",
+  "catalog_sha256": "ef8df5e7e260f1175596c202a397783dd45e4b6dea3589f568f23710b2098c62",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -77,6 +77,9 @@
       "class": "read"
     },
     "closed.reopen": {
+      "class": "mutation"
+    },
+    "column.update": {
       "class": "mutation"
     },
     "frontend_projection.get": {

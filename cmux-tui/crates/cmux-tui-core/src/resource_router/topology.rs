@@ -11,6 +11,9 @@ use crate::resource::{RequestEnvelope, ResourceError, ResourceOperation};
 use crate::resource_api::public_session_snapshot;
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget, WorkspaceMutation};
 
+mod workspace_mutations;
+use workspace_mutations::{move_workspace, rename_workspace};
+
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -43,6 +46,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::PaneZoom
             | ResourceOperation::PaneSplitRatioSet
             | ResourceOperation::PaneViewportWidthSet
+            | ResourceOperation::ColumnUpdate
             | ResourceOperation::PaneClose
             | ResourceOperation::PaneRun
             | ResourceOperation::TabList
@@ -297,40 +301,6 @@ fn create_workspace(
     )
 }
 
-fn rename_workspace(
-    mux: &Arc<Mux>,
-    request: ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    let mutation = mutation(&request.envelope)?;
-    let commit = mux
-        .resource_rename_workspace_selected(
-            request.selectors,
-            required_string(&request.fields, "name")?.to_string(),
-            None,
-            expected_revision(&request.fields)?,
-            &mutation,
-        )
-        .map_err(resource_operation_error)?;
-    snapshot_mutation_result(mux, commit, "workspace.rename", "workspace")
-}
-
-fn move_workspace(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
-    let mutation = mutation(&request.envelope)?;
-    let index = required_u64(&request.fields, "index")?
-        .try_into()
-        .map_err(|_| validation_error("workspace index exceeds usize", json!({})))?;
-    let commit = mux
-        .resource_move_workspace_selected(
-            request.selectors,
-            index,
-            None,
-            expected_revision(&request.fields)?,
-            &mutation,
-        )
-        .map_err(resource_operation_error)?;
-    snapshot_mutation_result(mux, commit, "workspace.move", "workspace")
-}
-
 fn dispatch_exact_topology_mutation(
     mux: &Arc<Mux>,
     operation: ResourceOperation,
@@ -353,7 +323,8 @@ fn dispatch_exact_topology_mutation(
         }
         ResourceOperation::ScreenRename
         | ResourceOperation::ScreenFocus
-        | ResourceOperation::ScreenLayoutUndo => {
+        | ResourceOperation::ScreenLayoutUndo
+        | ResourceOperation::ColumnUpdate => {
             snapshot_mutation_result(mux, commit, &super::operation_name(operation), "screen")
         }
         ResourceOperation::PaneRename
@@ -682,6 +653,7 @@ mod tests {
             ResourceOperation::PaneZoom,
             ResourceOperation::PaneSplitRatioSet,
             ResourceOperation::PaneViewportWidthSet,
+            ResourceOperation::ColumnUpdate,
             ResourceOperation::PaneClose,
             ResourceOperation::PaneRun,
             ResourceOperation::TabList,
