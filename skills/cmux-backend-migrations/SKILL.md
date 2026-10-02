@@ -63,9 +63,10 @@ Also run `bun run test` in `backend/apps/api` when the drain or a read changes.
    they reach `main`.
 2. Review the migration with a review subagent (correctness: expand rules, locks on large
    tables, idempotent backfill).
-3. Add the label `backend:apply-migrations` (no human step). It applies to `staging`, then to
-   production (`main` branch of `cmux-next`) only if staging succeeded, then removes the label.
-   Any later push that changes migrations needs the label again.
+3. Add the label `backend:apply-migrations` (no human step). Adding it starts the apply, which
+   first removes the label, then applies to `staging`, then to production (`main` branch of
+   `cmux-next`) only if staging succeeded. A later push never applies by itself: add the label
+   again. Only PRs into `main` or `feat-cmux-next` from this repository can apply.
 4. Wait for the required check `backend migrations applied`, then merge. It passes at once for
    PRs without migration changes; otherwise the tree's migrations must equal what staging and
    production have. A push to `feat-cmux-next` deploys staging; a push to `main` (or
