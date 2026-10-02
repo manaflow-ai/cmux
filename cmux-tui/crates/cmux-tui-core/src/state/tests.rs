@@ -891,6 +891,191 @@ fn ephemeral_workspace_create_commits_the_flag_with_the_workspace() {
     mux.shutdown();
 }
 
+/// Window records have one writer each: puts and deletes compare the
+/// record's own revision, publish `state_upsert`/`state_delete`, replay by
+/// key, and never touch another window's record.
+#[test]
+fn window_records_compare_and_swap_per_record_and_publish_their_changes() {
+    let mux = Mux::new_for_test("state-window-records", SurfaceOptions::default());
+    let before = revision(&mux);
+    let put = |key: &str, install: &str, window: &str, record: Value, expected: Option<&str>| {
+        let mut params = json!({"install_id": install, "window_id": window, "record": record});
+        if let Some(expected) = expected {
+            params["expected_revision"] = json!(expected);
+        }
+        send(&mux, "window_record.put", params, Some(key))
+    };
+    let first =
+        put("w-1", "install_a", "win_1", json!({"workspace_key": "k1"}), Some("0")).unwrap();
+    assert_eq!(first["replayed"], false);
+    assert_eq!(first["value"]["owner"], "install_a");
+    assert_eq!(first["value"]["revision"], "1");
+    assert_eq!(first["value"]["record"]["workspace_key"], "k1");
+    // A second window of the same install and a window of another install
+    // are independent records.
+    put("w-2", "install_a", "win_2", json!({"workspace_key": "k2"}), None).unwrap();
+    put("b-1", "install_b", "win_1", json!({"workspace_key": "k3"}), Some("0")).unwrap();
+    // A stale revision is a conflict and writes nothing.
+    let stale = put("w-3", "install_a", "win_1", json!({"workspace_key": "lost"}), Some("0"));
+    assert_eq!(error_code(stale), "revision.conflict");
+    let second =
+        put("w-4", "install_a", "win_1", json!({"workspace_key": "k4"}), Some("1")).unwrap();
+    assert_eq!(second["value"]["revision"], "2");
+    // The same key replays without writing again.
+    let replay =
+        put("w-4", "install_a", "win_1", json!({"workspace_key": "k4"}), Some("1")).unwrap();
+    assert_eq!(replay["replayed"], true);
+    let listed = read(&mux, "window_record.list", json!({}));
+    let ids = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|record| record["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["install_a/win_1", "install_a/win_2", "install_b/win_1"]);
+    assert_eq!(listed[0]["record"]["workspace_key"], "k4");
+    assert_eq!(listed[2]["record"]["workspace_key"], "k3");
+    // The reserved placeholder install cannot write, and records must be objects.
+    assert_eq!(
+        error_code(put("p-1", "install_unadopted", "win_9", json!({}), None)),
+        "validation.invalid"
+    );
+    assert_eq!(
+        error_code(put("p-2", "install_a", "win_9", json!([1]), None)),
+        "validation.invalid"
+    );
+
+    let delete = |key: &str, install: &str, window: &str, expected: &str| {
+        send(
+            &mux,
+            "window_record.delete",
+            json!({"install_id": install, "window_id": window, "expected_revision": expected}),
+            Some(key),
+        )
+    };
+    assert_eq!(error_code(delete("d-1", "install_a", "win_1", "1")), "revision.conflict");
+    let deleted = delete("d-2", "install_a", "win_1", "2").unwrap();
+    assert_eq!(deleted["value"]["id"], "install_a/win_1");
+    assert_eq!(error_code(delete("d-3", "install_a", "win_1", "2")), "resource.not_found");
+    assert_eq!(read(&mux, "window_record.list", json!({})).as_array().unwrap().len(), 2);
+
+    let changes = changes_after(&mux, before)
+        .into_iter()
+        .filter(|change| change["resource"] == "window_record")
+        .map(|change| {
+            (
+                change["kind"].as_str().unwrap().to_string(),
+                change["id"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        changes,
+        [
+            ("state_upsert".to_string(), "install_a/win_1".to_string()),
+            ("state_upsert".to_string(), "install_a/win_2".to_string()),
+            ("state_upsert".to_string(), "install_b/win_1".to_string()),
+            ("state_upsert".to_string(), "install_a/win_1".to_string()),
+            ("state_delete".to_string(), "install_a/win_1".to_string()),
+        ]
+    );
+    assert_eq!(snapshot(&mux)["extra"]["state"]["window_records"].as_array().unwrap().len(), 2);
+}
+
+/// The `windows` frontend projection becomes unadopted records once; the
+/// first put of a window adopts its record, and the projection keeps
+/// working for older apps.
+#[test]
+fn window_projection_migrates_to_unadopted_records_that_the_app_adopts() {
+    let session = Session::new("window-records-migration");
+    let mux = session.open();
+    let document = json!({
+        "windows": [
+            {"id": "w1", "workspace_key": "k1", "order": 0},
+            {"id": "w2", "workspace_key": "k2", "order": 1},
+            {"workspace_key": "no-id"},
+        ],
+        "collapsed_groups": {},
+    });
+    mux.put_frontend_projection(
+        &WorkspaceMutation::new("seed-windows", "cmux-next").unwrap(),
+        "cmux-next",
+        "personal",
+        "windows",
+        1,
+        None,
+        &document,
+    )
+    .unwrap();
+    // A registry from before window records: no migration flag yet.
+    mux.read_registry_state(|connection| {
+        connection.execute("DELETE FROM meta WHERE key = 'window_records_v1'", [])?;
+        Ok(())
+    })
+    .unwrap();
+    drop(mux);
+
+    let mux = session.open();
+    let listed = read(&mux, "window_record.list", json!({}));
+    let listed = listed.as_array().unwrap();
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0]["id"], "install_unadopted/w1");
+    assert_eq!(listed[0]["owner"], "install_unadopted");
+    assert_eq!(listed[0]["revision"], "1");
+    assert_eq!(listed[0]["record"]["workspace_key"], "k1");
+
+    let before = revision(&mux);
+    let adopted = send(
+        &mux,
+        "window_record.put",
+        json!({"install_id": "install_mac", "window_id": "w1", "record": {"workspace_key": "k1b"}, "expected_revision": "1"}),
+        Some("adopt-w1"),
+    )
+    .unwrap();
+    assert_eq!(adopted["value"]["id"], "install_mac/w1");
+    assert_eq!(adopted["value"]["owner"], "install_mac");
+    assert_eq!(adopted["value"]["revision"], "2");
+    let changes = changes_after(&mux, before)
+        .into_iter()
+        .map(|change| {
+            (
+                change["kind"].as_str().unwrap().to_string(),
+                change["id"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        changes,
+        [
+            ("state_delete".to_string(), "install_unadopted/w1".to_string()),
+            ("state_upsert".to_string(), "install_mac/w1".to_string()),
+        ]
+    );
+    // An unadopted record the app does not want is deleted.
+    send(
+        &mux,
+        "window_record.delete",
+        json!({"install_id": "install_unadopted", "window_id": "w2"}),
+        Some("drop-w2"),
+    )
+    .unwrap();
+    let ids = read(&mux, "window_record.list", json!({}))
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|record| record["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["install_mac/w1"]);
+    // Older apps still read and write the projection.
+    let projection =
+        mux.get_frontend_projection("cmux-next", "personal", "windows").unwrap().unwrap();
+    assert_eq!(projection.projection, document);
+    drop(mux);
+    // The migration runs once: a reopen does not bring w2 back.
+    let mux = session.open();
+    assert_eq!(read(&mux, "window_record.list", json!({})).as_array().unwrap().len(), 1);
+}
+
 #[test]
 fn workspace_status_progress_and_bounded_log() {
     let mux = Mux::new_for_test("state-status", SurfaceOptions::default());

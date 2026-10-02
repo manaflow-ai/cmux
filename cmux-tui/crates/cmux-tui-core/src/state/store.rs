@@ -79,6 +79,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
          );",
     )?;
     super::closed_history_store::create_closed_history_schema(transaction)?;
+    super::window_record_store::create_window_record_schema(transaction)?;
     Ok(())
 }
 
@@ -291,6 +292,7 @@ pub(crate) fn state_snapshot(connection: &Connection) -> anyhow::Result<Value> {
         "screen_groups": super::screen_state_store::screen_group_snapshots(connection, None)?,
         "closed": super::closed_history_store::closed_items(connection)?,
         "workspace_status": super::workspace_status_store::status_snapshots(connection)?,
+        "window_records": super::window_record_store::record_snapshots(connection)?,
     }))
 }
 

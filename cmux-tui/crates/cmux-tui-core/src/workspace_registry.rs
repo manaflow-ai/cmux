@@ -2739,6 +2739,7 @@ impl WorkspaceRegistry {
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
         personal_store::migrate_personal_v1(&connection, &registry_id, &session_name)?;
         crate::state::store::migrate_saved_tab_groups_to_personal(&connection)?;
+        crate::state::window_record_store::migrate_window_projection(&connection)?;
         let quick_check: String =
             connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
         if quick_check != "ok" {

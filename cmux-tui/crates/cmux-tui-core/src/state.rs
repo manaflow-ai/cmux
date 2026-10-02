@@ -25,6 +25,8 @@ pub(crate) mod tabs;
 #[cfg(test)]
 mod tests;
 pub(crate) mod values;
+pub(crate) mod window_record_store;
+pub(crate) mod window_records;
 pub(crate) mod workspace;
 pub(crate) mod workspace_status_store;
 

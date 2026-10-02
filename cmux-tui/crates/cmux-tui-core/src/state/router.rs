@@ -15,8 +15,10 @@ use crate::resource_router::{
 };
 use crate::state::store::StateCommit;
 use crate::state::tab_state_store::TabStateUpdate;
+use crate::state::window_records::WindowRecordChange;
 use crate::state::{
     closed_history_store, personal_state_store, screen_state_store, tab_state_store,
+    window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
@@ -68,6 +70,9 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::ScreenGroupUngroup
             | Op::ClosedList
             | Op::ClosedReopen
+            | Op::WindowRecordList
+            | Op::WindowRecordPut
+            | Op::WindowRecordDelete
             | Op::WorkspaceStatusList
             | Op::WorkspaceStatusSet
             | Op::WorkspaceStatusClear
@@ -453,6 +458,32 @@ pub(crate) fn dispatch(
             let closed = string(fields, "closed").unwrap_or_default();
             let commit = mux
                 .state_reopen_closed(&mutation(&request)?, expected_revision(fields)?, &closed)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        // Window records (personal, one writer per record)
+        Op::WindowRecordList => {
+            ensure_session(mux, selectors)?;
+            read(mux, window_record_store::record_snapshots).map(Value::Array)
+        }
+        Op::WindowRecordPut | Op::WindowRecordDelete => {
+            ensure_session(mux, selectors)?;
+            let change = if operation == Op::WindowRecordPut {
+                WindowRecordChange::Put {
+                    record: fields.get("record").cloned().unwrap_or_default(),
+                }
+            } else {
+                WindowRecordChange::Delete
+            };
+            let commit = mux
+                .state_window_record(
+                    &mutation(&request)?,
+                    &operation_name(operation),
+                    &string(fields, "install_id").unwrap_or_default(),
+                    &string(fields, "window_id").unwrap_or_default(),
+                    expected_revision(fields)?,
+                    change,
+                )
                 .map_err(state_error)?;
             state_result(mux, commit)
         }
