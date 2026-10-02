@@ -65,26 +65,28 @@ describe("network namespace", () => {
 describe("user network CIDR", () => {
   // Freestyle derives a /24 (254 members) when no CIDR is named, and a VPC's
   // CIDR cannot change after create. Every Mac tunnel holds one address, so a
-  // /24 filled up; production names a /16 instead.
-  test("is a stable, aligned /16 inside 10.192.0.0/10", () => {
+  // /24 filled up; production names a /20 instead.
+  test("is a stable, aligned /20 inside 10.192.0.0/10", () => {
     const cidrs = ["user-1", "user-2", "a-much-longer-stack-user-id"].map((userId) => userNetworkCidr(userId));
     expect(userNetworkCidr("user-1")).toBe(cidrs[0]);
     const low = ipv4ToInt("10.192.0.0");
     const high = ipv4ToInt("10.255.255.255");
     for (const cidr of cidrs) {
       const [address, prefix] = cidr.split("/");
-      expect(prefix).toBe("16");
+      expect(prefix).toBe("20");
       const base = ipv4ToInt(address!);
-      expect(base % 65536).toBe(0);
+      expect(base % 4096).toBe(0);
       expect(base).toBeGreaterThanOrEqual(low);
-      expect(base + 65535).toBeLessThanOrEqual(high);
+      expect(base + 4095).toBeLessThanOrEqual(high);
     }
   });
 });
 
 const NEW_NETWORK: ProviderNetwork = { id: "vpc-new", slug: "ignored", cidr: null, cidrV6: "fd00:1::/64" };
 
-async function provisionWith(env: Record<string, string | undefined>) {
+type ExistingRow = { readonly providerNetworkId: string; readonly slug: string | null };
+
+async function provisionWith(env: Record<string, string | undefined>, existing: ExistingRow | null = null) {
   const requests: Array<{ slug: string; cidr?: string }> = [];
   const gateway = {
     supportsPrivateNetworking: () => true,
@@ -94,7 +96,16 @@ async function provisionWith(env: Record<string, string | undefined>) {
     }),
   } as unknown as VmProviderGatewayShape;
   const repo = {
-    findNetwork: () => Effect.succeed(null),
+    findNetwork: () => Effect.succeed(existing && {
+      id: "00000000-0000-4000-8000-0000000000aa",
+      userId: "user-1",
+      provider: "freestyle",
+      cidr: "10.16.162.0/24",
+      cidrV6: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...existing,
+    }),
     upsertNetwork: (input: { providerNetworkId: string; slug: string; cidr: string | null }) => Effect.succeed({
       id: "00000000-0000-4000-8000-0000000000aa",
       userId: "user-1",
@@ -120,7 +131,7 @@ async function provisionWith(env: Record<string, string | undefined>) {
 }
 
 describe("first network provisioning", () => {
-  test("production asks for the user's /16 under the production slug", async () => {
+  test("production asks for the user's /20 under the production slug", async () => {
     const { requests, network } = await provisionWith(PRODUCTION);
     expect(requests).toEqual([expect.objectContaining({
       slug: networkSlugForUser("user-1", PRODUCTION),
@@ -134,5 +145,29 @@ describe("first network provisioning", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]!.slug).toBe(networkSlugForUser("user-1", DEV));
     expect(requests[0]!.cidr).toBeUndefined();
+  });
+
+  // Dev databases created before namespaces hold a row that points at the
+  // user's production network, so their tunnels kept landing there.
+  test("a namespaced deployment replaces a row outside its namespace", async () => {
+    const { requests, network } = await provisionWith(DEV, { providerNetworkId: "vpc-production", slug: networkSlugForUser("user-1", PRODUCTION) });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.slug).toBe(networkSlugForUser("user-1", DEV));
+    expect(network.providerNetworkId).toBe("vpc-new");
+    expect(network.slug).toBe(networkSlugForUser("user-1", DEV));
+  });
+
+  test("a namespaced deployment reuses its own row", async () => {
+    const { requests, network } = await provisionWith(DEV, { providerNetworkId: "vpc-dev", slug: networkSlugForUser("user-1", DEV) });
+    expect(requests).toEqual([]);
+    expect(network.providerNetworkId).toBe("vpc-dev");
+  });
+
+  test("production reuses its row whatever the stored slug", async () => {
+    for (const slug of [networkSlugForUser("user-1", PRODUCTION), null, "legacy-slug"]) {
+      const { requests, network } = await provisionWith(PRODUCTION, { providerNetworkId: "vpc-production", slug });
+      expect(requests).toEqual([]);
+      expect(network.providerNetworkId).toBe("vpc-production");
+    }
   });
 });
