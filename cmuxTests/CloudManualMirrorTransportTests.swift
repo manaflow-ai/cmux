@@ -653,7 +653,7 @@ struct CloudManualMirrorTransportTests {
         session.inputRouter.send(.bytes(Data("first".utf8)))
         session.reconnect(socketPath: fixture.socketPath)
         let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
-        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-identity-v1", "view-attachment-lease-v1"]]])
+        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-identity-v1", "view-attachment-lease-v1", "terminal-pending-sequence-v1"]]])
         let registration = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(registration.cmd == "set-client-info")
         fixture.send(["id": registration.id, "ok": true, "data": [:]])
@@ -728,6 +728,7 @@ struct CloudManualMirrorTransportTests {
                     "view-attachment-lease-v1",
                     "view-attachment-detach-v1",
                     "attach-initial-size",
+                    "terminal-pending-sequence-v1",
                 ],
             ],
         ])
