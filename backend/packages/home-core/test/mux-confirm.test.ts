@@ -14,10 +14,10 @@ const owner = () => {
   let head: MuxHead = INITIAL_MUX_HEAD
   const rows = new MemoryRows()
   let n = 0
-  const submit = (op: string, params: Record<string, unknown>, p: Principal, now = NOW) => {
+  const submit = (op: string, params: Record<string, unknown>, p: Principal, now = NOW, origin: "user" | "cli" = "user") => {
     const denied = muxDomain.authorize?.(head, op, params, p)
     if (denied) return { ok: false as const, code: denied.code }
-    const r = muxDomain.reduce(head, op, params, { principal: p, now, tx: `t${++n}`, newId: (x) => `${x}_${n}`, rows })
+    const r = muxDomain.reduce(head, op, params, { principal: p, now, tx: `t${++n}`, newId: (x) => `${x}_${n}`, rows, origin })
     if (!r.ok) return { ok: false as const, code: r.code }
     head = r.state
     rows.apply(r.writes ?? [])
@@ -34,7 +34,9 @@ describe("text confirmation rule", () => {
     expect(needsConfirmation({ channel: "text", risk: "money" })).toBe(true)
     expect(needsConfirmation({ channel: "text", risk: "execute", irreversible: true })).toBe(true)
     expect(needsConfirmation({ channel: "text", risk: "execute" })).toBe(false)
-    expect(needsConfirmation({ channel: "text", risk: "send-external" })).toBe(false)
+    expect(needsConfirmation({ channel: "text", risk: "send-external" })).toBe(true)
+    expect(needsConfirmation({ channel: "text", risk: "access" })).toBe(true)
+    expect(needsConfirmation({ channel: "text", risk: "mutate-shared" })).toBe(false)
     expect(needsConfirmation({ channel: "app", risk: "destructive" })).toBe(false)
     expect(needsConfirmation({ channel: "text", risk: "destructive", setting: "off" })).toBe(false)
   })
@@ -61,6 +63,13 @@ describe("pending confirmations in MuxDO", () => {
     for (const p of [chief, system, stranger, { identity: "x", kind: "agent" as const, agent: "agent_other", user: "user_owner" }])
       expect(o.submit("mux.confirm.decide", { confirm: id, approve: true }, p)).toEqual({ ok: false, code: "forbidden" })
     expect(o.submit("mux.confirm.request", ask, ownerApp)).toEqual({ ok: false, code: "forbidden" })
+    // The owner's daemon or CLI install (where a chief may run) and automation origins cannot decide.
+    const daemon: Principal = { identity: "inst_d", kind: "install", install: "inst_d", install_kind: "daemon", user: "user_owner" }
+    const macApp: Principal = { identity: "inst_m", kind: "install", install: "inst_m", install_kind: "mac", user: "user_owner" }
+    expect(o.submit("mux.confirm.decide", { confirm: id, approve: true }, daemon)).toEqual({ ok: false, code: "forbidden" })
+    expect(o.submit("mux.confirm.decide", { confirm: id, approve: true }, { ...macApp, agent: "agent_chief" })).toEqual({ ok: false, code: "forbidden" })
+    expect(o.submit("mux.confirm.decide", { confirm: id, approve: true }, macApp, NOW, "cli")).toEqual({ ok: false, code: "forbidden" })
+    expect(o.submit("mux.confirm.decide", { confirm: id, approve: true }, macApp)).toMatchObject({ ok: true })
     expect(o.submit("mux.text_confirm.set", { setting: "off" }, chief)).toEqual({ ok: false, code: "forbidden" })
   })
 
@@ -80,6 +89,15 @@ describe("pending confirmations in MuxDO", () => {
     for (let i = 0; i < MAX_PENDING_CONFIRMS; i++) expect(o.submit("mux.confirm.request", ask, chief).ok).toBe(true)
     expect(o.submit("mux.confirm.request", ask, chief)).toEqual({ ok: false, code: "confirm.too_many" })
     expect(o.submit("mux.confirm.request", ask, chief, NOW + CONFIRM_TTL_MS).ok).toBe(true)
+  })
+
+  it("keeps at most 64 rows; an evicted approval fails closed", () => {
+    const o = owner()
+    const first = o.submit("mux.confirm.request", ask, chief)
+    const id = first.ok ? (first.value.id as string) : ""
+    o.submit("mux.confirm.decide", { confirm: id, approve: true }, ownerApp)
+    for (let i = 0; i < 70; i++) expect(o.submit("mux.confirm.request", ask, chief, NOW + (i + 1) * CONFIRM_TTL_MS).ok).toBe(true)
+    expect(o.submit("mux.confirm.consume", { confirm: id, op: "vm.delete", params_hash: "h1" }, chief, NOW + 1)).toEqual({ ok: false, code: "confirm.unknown" })
   })
 
   it("stores the owner's setting and refuses malformed requests", () => {

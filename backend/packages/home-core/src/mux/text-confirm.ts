@@ -7,8 +7,11 @@ import { rowsOf } from "../conversation/engine-types.ts"
  * everything by default; when a request arrived over the text channel and the
  * action is destructive or irreversible, the Chief first records a pending
  * confirmation here and the user approves or declines it in the app (a
- * session or install of the chief's owner, never a text). An approval is
- * single use: the Chief consumes it when it runs the action. The owner can
+ * session or the Mac, iPhone or web app install of the chief's owner, with
+ * origin "user"; never a text, a daemon or CLI install, or the chief). An
+ * approval is single use within 15 minutes of the request. Executor contract:
+ * the action's idempotency key derives from the confirm id, so a replayed
+ * consume cannot run the action twice. The owner can
  * turn the rule off (`text_confirm: off`). MuxDO hosts it; pure.
  */
 export const TABLE_CONFIRM = "confirm"
@@ -17,13 +20,19 @@ export const CONFIRM_TTL_MS = 15 * 60_000
 export const MAX_PENDING_CONFIRMS = 20
 const PENDING_SCAN = 64
 
-export type RiskClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
+/** `access`: grants, installs, addresses, tokens, invites into teams, the text channel itself. */
+export type RiskClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "access"
 export type Channel = "app" | "text"
 export type TextConfirm = "destructive" | "off"
 
-/** The decision rule: which actions need the in-app confirmation. */
+/**
+ * The decision rule: which actions need the in-app confirmation. Destructive and irreversible
+ * by class (destructive, money, send-external: a sent message cannot be recalled, access:
+ * what a stolen number would change first), plus any action flagged irreversible.
+ */
+const CONFIRMED_RISKS: ReadonlySet<RiskClass> = new Set(["destructive", "money", "send-external", "access"])
 export const needsConfirmation = (input: { readonly channel: Channel; readonly risk: RiskClass; readonly irreversible?: boolean; readonly setting?: TextConfirm }): boolean =>
-  input.channel === "text" && (input.setting ?? "destructive") !== "off" && (input.risk === "destructive" || input.risk === "money" || input.irreversible === true)
+  input.channel === "text" && (input.setting ?? "destructive") !== "off" && (CONFIRMED_RISKS.has(input.risk) || input.irreversible === true)
 
 export type ConfirmState = "pending" | "approved" | "declined" | "consumed" | "expired"
 
@@ -53,7 +62,9 @@ export interface ConfirmHeadPart {
 
 type Params = Readonly<Record<string, unknown>>
 const str = (v: unknown, max = 256): v is string => typeof v === "string" && v.length > 0 && v.length <= max
-const RISKS = new Set<RiskClass>(["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"])
+const RISKS = new Set<RiskClass>(["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive", "access"])
+/** Installs that are a person's app (never a daemon, CLI or VM install, where a chief may run). */
+const USER_APP_KINDS: ReadonlySet<string> = new Set(["mac", "ios", "web"])
 
 export const CONFIRM_OPS = new Set(["mux.confirm.request", "mux.confirm.decide", "mux.confirm.consume", "mux.text_confirm.set"])
 
@@ -62,7 +73,8 @@ const userOf = (p: Principal) => (p.user ? (p.user.startsWith("user_") ? p.user 
 /** Who may call each op: the chief requests and consumes; only the owner's app decides or changes the setting. */
 export const authorizeConfirm = (head: ConfirmHeadPart, op: string, p: Principal): boolean => {
   const isChief = p.kind === "agent" && p.agent !== undefined && p.agent === head.agent
-  const isOwnerApp = (p.kind === "session" || p.kind === "install") && head.owner_user !== null && userOf(p) === head.owner_user
+  const isPersonApp = p.kind === "session" || (p.kind === "install" && !p.agent && USER_APP_KINDS.has(p.install_kind ?? ""))
+  const isOwnerApp = isPersonApp && head.owner_user !== null && userOf(p) === head.owner_user
   if (op === "mux.confirm.request" || op === "mux.confirm.consume") return isChief
   if (op === "mux.confirm.decide" || op === "mux.text_confirm.set") return isOwnerApp
   return false
@@ -77,6 +89,8 @@ export const reduceConfirm = <H extends ConfirmHeadPart>(head: H, op: string, pa
   const live = (c: Confirmation): Confirmation => (c.state === "pending" && ctx.now >= c.expires_at ? { ...c, state: "expired" } : c)
   switch (op) {
     case "mux.text_confirm.set": {
+      // Only a person's own action in the app, never automation acting with their identity.
+      if (ctx.origin !== "user") return refuse("forbidden")
       const { setting } = params
       if (setting !== "destructive" && setting !== "off") return refuse("invalid_params")
       if ((head.text_confirm ?? "destructive") === setting) return { ok: true, state: head, value: { setting }, changed: false }
@@ -102,9 +116,13 @@ export const reduceConfirm = <H extends ConfirmHeadPart>(head: H, op: string, pa
         created_at: ctx.now,
         expires_at: ctx.now + CONFIRM_TTL_MS
       }
-      return { ok: true, state: { ...head, confirm_n: n }, value: c, writes: [write(c, n)] }
+      // The table never holds more than PENDING_SCAN rows, so the pending cap is exact; an evicted
+      // approval then consumes as confirm.unknown (fails closed).
+      const evict = rows.range<Confirmation>(TABLE_CONFIRM, { before: n - PENDING_SCAN + 1, limit: 1, desc: true })
+      return { ok: true, state: { ...head, confirm_n: n }, value: c, writes: [write(c, n), ...evict.map((r) => ({ table: TABLE_CONFIRM, op: "delete" as const, key: r.key }))] }
     }
     case "mux.confirm.decide": {
+      if (ctx.origin !== "user") return refuse("forbidden")
       const stored = load(params.confirm)
       if (!stored) return refuse("confirm.unknown")
       if (typeof params.approve !== "boolean") return refuse("invalid_params")
@@ -120,7 +138,8 @@ export const reduceConfirm = <H extends ConfirmHeadPart>(head: H, op: string, pa
       const c = live(stored.row)
       if (c.state !== "approved") return refuse(c.state === "pending" ? "confirm.pending" : c.state === "expired" ? "confirm.expired" : "confirm.not_approved")
       if (params.op !== c.op || params.params_hash !== c.params_hash) return refuse("confirm.mismatch")
-      if (ctx.now >= c.expires_at + CONFIRM_TTL_MS) return refuse("confirm.expired")
+      // One window for everything: request, decision and use within CONFIRM_TTL_MS.
+      if (ctx.now >= c.expires_at) return refuse("confirm.expired")
       const next: Confirmation = { ...c, state: "consumed" }
       return { ok: true, state: head, value: next, writes: [write(next, stored.n ?? 0)] }
     }
