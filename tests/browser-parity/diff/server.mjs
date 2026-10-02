@@ -103,6 +103,12 @@ function handler(ctx) {
       }
       return html(200, "Authed", "<h1>Digest authed as parity</h1>");
     }
+    if (p === "/headers") {
+      // The request headers a session's browser-context options set.
+      const seen = { userAgent: req.headers["user-agent"] || null, parity: req.headers["x-parity"] || null };
+      if (url.searchParams.has("asset")) return send(200, TYPES[".js"], `window.__assetHeaders = ${JSON.stringify(seen)};`);
+      return html(200, "Headers", `<pre id="headers">${JSON.stringify(seen)}</pre><script src="/headers?asset=1"></script>`);
+    }
     if (p === "/status/404") return html(404, "Missing", "<h1>Not here</h1>");
     if (p === "/status/500") return html(500, "Broken", "<h1>Server error</h1>");
     if (p === "/redirect-loop") return send(302, "text/plain", "", { location: "/redirect-loop" });

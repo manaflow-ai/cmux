@@ -136,4 +136,71 @@ return { userClick, status: await page.locator("#status").innerText(), typedInta
     scope: { aside: "a person acting in the user's own Aside or Chrome window is outside the approved scope", chatgpt: "a person acting in the user's own Aside or Chrome window is outside the approved scope" },
     expect: { userClick: true, status: "clicked", typedIntact: true },
   },
+  {
+    id: "edge.context-options",
+    edge: "context-options",
+    appOnly: true,
+    // session.configure: user agent, extra headers on navigations, granted
+    // permissions, and a proxy for tabs opened afterwards (a CONNECT proxy in
+    // this process that counts the tunnels it opened).
+    custom: {
+      async cmux(ctx) {
+        const net = await import("node:net");
+        const tunnels = [];
+        const proxy = net.createServer((client) => {
+          client.once("data", (head) => {
+            const m = /^CONNECT ([^ ]+) HTTP/.exec(head.toString("latin1"));
+            if (!m) return client.destroy();
+            tunnels.push(m[1]);
+            const [host, port] = m[1].split(":");
+            const upstream = net.connect(Number(port), host === "a.lvh.me" || host === "b.lvh.me" ? "127.0.0.1" : host, () => {
+              client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+              upstream.pipe(client);
+              client.pipe(upstream);
+            });
+            upstream.on("error", () => client.destroy());
+          });
+          client.on("error", () => {});
+        });
+        await new Promise((r) => proxy.listen(0, "127.0.0.1", r));
+        const S = ctx.session("context");
+        try {
+          const r = await ctx.repl(ctx.wrap({ path: null, code: `const until = async (f) => { for (let i = 0; i < 60; i++) { const v = await f(); if (v) return v; await sleep(50); } return null; };
+const configured = await session.configure({ userAgent: "cmux-parity-agent/1.0", extraHTTPHeaders: { "X-Parity": "on" }, permissions: ["notifications"] });
+await page.goto(U("/headers"));
+const nav = JSON.parse(await page.locator("#headers").innerText());
+const asset = await until(() => page.evaluate(() => window.__assetHeaders));
+const ua = await page.evaluate(() => navigator.userAgent);
+const notify = await page.evaluate(() => Notification.requestPermission());
+const camera = await page.evaluate(() => navigator.mediaDevices.getUserMedia({ video: true }).then(() => "granted", (e) => e.name));
+await session.configure({ userAgent: null, extraHTTPHeaders: null, permissions: null });
+await page.goto(U("/headers") + "?after");
+const after = JSON.parse(await page.locator("#headers").innerText());
+await session.configure({ proxy: { server: "http://127.0.0.1:${proxy.address().port}" } });
+const proxied = await tabs.open(U("/diff/next.html", "sub"));
+const proxiedTitle = await proxied.title();
+await proxied.close();
+await session.configure({ proxy: null });
+return { configured, nav, asset, ua, notify, camera, after: { userAgent: after.userAgent === "cmux-parity-agent/1.0" ? "still set" : "restored", parity: after.parity }, proxiedTitle };` }), { session: S });
+          const v = r.value ?? r;
+          if (v && typeof v === "object" && "proxiedTitle" in v) v.proxied = tunnels.some((t) => t.startsWith("a.lvh.me:")) ? "through the proxy" : `direct (${tunnels.join(", ") || "no tunnels"})`;
+          return v;
+        } finally {
+          proxy.close();
+        }
+      },
+    },
+    scope: { aside: "browser-context options of a running Aside session are fixed at launch", chatgpt: "ChatGPT for Chrome drives the user's Chrome profile and exposes no context options" },
+    expect: {
+      configured: { userAgent: "cmux-parity-agent/1.0", extraHTTPHeaders: { "X-Parity": "on" }, permissions: ["notifications"] },
+      nav: { userAgent: "cmux-parity-agent/1.0", parity: "on" },
+      asset: { userAgent: "cmux-parity-agent/1.0", parity: null },
+      ua: "cmux-parity-agent/1.0",
+      notify: "granted",
+      camera: "NotAllowedError",
+      after: { userAgent: "restored", parity: null },
+      proxiedTitle: "Next page",
+      proxied: "through the proxy",
+    },
+  },
 ];

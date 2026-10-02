@@ -44,6 +44,7 @@ processes or on a person's window run in the cmux app only.
 | `permission-notifications` | `Notification.requestPermission()` | Settles without a prompt blocking the driven tab | `edge.permission-notifications` |
 | `permission-camera` | `getUserMedia({ video: true })` | Settles (denied) without a prompt blocking the driven tab | `edge.permission-camera` |
 | `permission-clipboard-read` | `navigator.clipboard.readText()` | Settles without a prompt blocking the driven tab | `edge.permission-clipboard-read` |
+| `context-options` | `session.configure` with a user agent, an extra header, a granted permission, then a proxy | The user agent shows in requests and `navigator.userAgent`; the header is on navigations, not subresources; a granted permission is granted and the rest denied at once; clearing restores the tab; a tab opened after `proxy` connects through the proxy | `edge.context-options` |
 
 ## Downloads and files
 
