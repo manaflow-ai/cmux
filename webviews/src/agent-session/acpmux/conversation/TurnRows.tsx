@@ -49,7 +49,9 @@ function toolIcon(kind?: string): ReactNode {
 function ToolRow({ item }: { item: AcpmuxActivity }) {
   const [open, setOpen] = useState(false);
   const tool = item.tool!;
-  const files = useMemo(() => (tool.diffs?.length ? toolFiles([tool]) : []), [tool]);
+  const hasDiff = Boolean(tool.diffs?.length);
+  // Diffed only while open: a closed edit row costs nothing on each transcript update.
+  const files = useMemo(() => (open && hasDiff ? toolFiles([tool]) : []), [open, hasDiff, tool]);
   const label = tool.title || tool.inputSummary || item.text;
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed";
@@ -65,7 +67,7 @@ function ToolRow({ item }: { item: AcpmuxActivity }) {
   );
   return (
     <>
-      {body || files.length ? (
+      {body || hasDiff ? (
         <button
           type="button"
           className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
