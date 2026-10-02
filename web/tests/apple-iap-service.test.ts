@@ -331,6 +331,22 @@ describe("App Store Server Notifications", () => {
     expect(eventNames()).toEqual(["subscription_started", "subscription_refunded"]);
   });
 
+  test("an older copy of a refunded transaction never clears the refund in the ledger", async () => {
+    const bought = transaction({ transactionId: "refunded-2", signedDate: NOW.getTime() - DAY });
+    await recordClientAppleTransaction({ userId: "user-a", signedTransactionInfo: signer.sign(bought) }, deps());
+    await receiveAppleNotification(notification({
+      type: "REFUND", status: 5, signedDate: NOW.getTime(),
+      tx: { transactionId: "refunded-2", revocationDate: NOW.getTime(), revocationReason: 0 },
+    }), deps());
+    expect(store.transactions.get("refunded-2")?.revokedAt).not.toBeNull();
+
+    // The app posts its cached, pre-refund JWS of the same transaction.
+    await recordClientAppleTransaction({ userId: "user-a", signedTransactionInfo: signer.sign(bought) }, deps());
+
+    expect(store.transactions.get("refunded-2")?.revokedAt).not.toBeNull();
+    expect(store.transactions.get("refunded-2")?.payload.signedDate).toBe(NOW.getTime());
+  });
+
   test("REVOKE (Family Sharing) removes the grant and emits subscription_revoked", async () => {
     await subscribe();
     await receiveAppleNotification(notification({ type: "REVOKE", status: 5, tx: { revocationDate: NOW.getTime() } }), deps());

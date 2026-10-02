@@ -140,6 +140,23 @@ describe("Apple IAP store", () => {
     expect(Number(rows[0]!.price_milliunits)).toBe(74990);
   });
 
+  dbTest("an older signed copy of a transaction never replaces a newer one", async () => {
+    const row = {
+      transactionId: "tx-1", originalTransactionId: "otx-1", userId: "user-a", productId: "com.cmux.app.pro.monthly",
+      planId: "pro", environment: "Production", type: "PURCHASE", purchaseDate: new Date(NOW), expiresAt: null,
+      priceMilliunits: 74990, currency: "USD", storefront: "USA", offerType: null, revokedAt: null,
+    };
+    await store.recordTransaction({ ...row, revokedAt: new Date(NOW), payload: { signedDate: NOW } });
+    await store.recordTransaction({ ...row, payload: { signedDate: NOW - DAY } });
+    const [refunded] = await sql!`select revoked_at, payload from apple_transactions`;
+    expect(refunded!.revoked_at).not.toBeNull();
+    expect(Number(refunded!.payload.signedDate)).toBe(NOW);
+    // A newer copy (a refund reversal) still applies.
+    await store.recordTransaction({ ...row, payload: { signedDate: NOW + 1000 } });
+    const [reversed] = await sql!`select revoked_at from apple_transactions`;
+    expect(reversed!.revoked_at).toBeNull();
+  });
+
   dbTest("the notification ledger is idempotent and lists only unfinished rows", async () => {
     const ledger = {
       notificationUuid: "n-1", notificationType: "DID_RENEW", subtype: null, environment: "Production",
