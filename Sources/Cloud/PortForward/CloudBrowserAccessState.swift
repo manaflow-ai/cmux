@@ -214,7 +214,13 @@ final class CloudBrowserAccessState {
     }
 
     func desktopConnectionIsConnecting(url: URL) {
-        guard isDesktop, hasCommittedNavigation, url == navigationURL else { return }
+        desktopConnectionIsConnecting(url: url, documentIdentity: nil)
+    }
+
+    func desktopConnectionIsConnecting(url: URL, documentIdentity: String?) {
+        guard isDesktop, hasCommittedNavigation,
+              let navigationURL, url == navigationURL,
+              documentIdentity.map({ $0 == self.documentIdentity }) ?? true else { return }
         desktopConnected = false
         desktopConnection = .reconnecting
         desktopFailure = nil
@@ -329,7 +335,9 @@ final class CloudBrowserAccessState {
     func didStart(url: URL?, navigationID: ObjectIdentifier? = nil) {
         guard let url, navigationURL != nil else { return }
         activeNavigationID = navigationID
-        if isDesktop { documentIdentity = UUID().uuidString }
+        // Desktop navigations mint and install their identity before WebKit
+        // starts loading. Replacing it here would leave the document-start
+        // bridge carrying the previous identity.
         guard owns(url) else { return }
         hasCommittedNavigation = false
         loaded = false

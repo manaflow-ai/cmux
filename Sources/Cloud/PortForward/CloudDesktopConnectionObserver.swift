@@ -74,13 +74,13 @@ final class CloudDesktopConnectionObserver: NSObject, WKScriptMessageHandler {
     static func install(
         on webView: WKWebView,
         documentIdentity: String,
-        onConnecting: (@MainActor (URL) -> Void)? = nil,
+        onConnecting: (@MainActor (URL, String) -> Void)? = nil,
         onChange: @escaping @MainActor (URL, CloudDesktopConnectionState, String) -> Void
     ) {
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: name, contentWorld: contentWorld)
         controller.add(CloudDesktopConnectionObserver(webView: webView) { url, state, identity in
-            if state == .reconnecting { onConnecting?(url) }
+            if state == .reconnecting { onConnecting?(url, identity) }
             onChange(url, state, identity)
         }, contentWorld: contentWorld, name: name)
         installDocumentScript(on: webView, documentIdentity: documentIdentity)
@@ -92,7 +92,9 @@ final class CloudDesktopConnectionObserver: NSObject, WKScriptMessageHandler {
         onConnecting: (@MainActor (URL) -> Void)? = nil,
         onChange: @escaping @MainActor (URL, Bool) -> Void
     ) {
-        install(on: webView, documentIdentity: UUID().uuidString, onConnecting: onConnecting) { url, state, _ in
+        install(on: webView, documentIdentity: UUID().uuidString, onConnecting: { url, _ in
+            onConnecting?(url)
+        }) { url, state, _ in
             guard state != .reconnecting else { return }
             onChange(url, state.isConnected)
         }

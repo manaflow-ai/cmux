@@ -142,9 +142,9 @@ extension BrowserPanel {
 
     func installCloudDesktopConnectionObserver(on webView: WKWebView) {
         let isCurrent = webViewObservationValidator(for: webView)
-        CloudDesktopConnectionObserver.install(on: webView, documentIdentity: cloudAccess.documentIdentity, onConnecting: { [weak self] url in
+        CloudDesktopConnectionObserver.install(on: webView, documentIdentity: cloudAccess.documentIdentity, onConnecting: { [weak self] url, documentIdentity in
             guard let self, isCurrent() else { return }
-            self.cloudAccess.desktopConnectionIsConnecting(url: url)
+            self.cloudAccess.desktopConnectionIsConnecting(url: url, documentIdentity: documentIdentity)
         }) { [weak self] url, state, documentIdentity in
             guard let self, isCurrent() else { return }
             self.applyCloudDesktopRecovery(

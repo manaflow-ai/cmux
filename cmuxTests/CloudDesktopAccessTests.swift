@@ -88,6 +88,31 @@ struct CloudDesktopAccessTests {
         await model.retire()
     }
 
+    @Test("A stale document cannot publish a reconnecting desktop state")
+    func staleDesktopConnectingReportIsIgnored() async throws {
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState()
+        let url = URL(string: "http://10.0.0.7:6901/vnc.html")!
+        state.configure(model: model, url: url)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let local = try #require(state.nextURL())
+        _ = state.beginDesktopNavigationIdentity()
+        let currentIdentity = state.documentIdentity
+        state.didStart(url: local)
+        #expect(state.documentIdentity == currentIdentity)
+        state.didCommit(url: local)
+
+        state.desktopConnectionIsConnecting(url: local, documentIdentity: "stale-document")
+        #expect(state.desktopConnection == nil)
+        state.desktopConnectionIsConnecting(url: local, documentIdentity: currentIdentity)
+        #expect(state.desktopConnection == .reconnecting)
+
+        state.leave()
+        await model.retire()
+    }
+
     @Test("A cancelled old navigation cannot cancel a newer display attempt")
     func cancellationUsesNavigationIdentity() async throws {
         let old = NSObject(), current = NSObject()
