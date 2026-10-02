@@ -2082,7 +2082,7 @@ extension CMUXCLI {
             if let remoteWorkspaceOption { fanOutParams["remote_workspace_id"] = remoteWorkspaceOption }
             // Fan-out children are first-class sessions by default. The
             // explicit shared-workspace mode still targets the caller's pane.
-            if let remoteWorkspaceOption,
+            if remoteWorkspaceOption != nil,
                let callerWorkspace = try? normalizeWorkspaceHandle(ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"], client: client) {
                 fanOutParams["workspace_id"] = callerWorkspace
             }
