@@ -134,6 +134,7 @@ nonisolated extension ActionSurfaceCatalog {
             "history.search", "bookmark.toggleBar", "bookmark.manager",
         ],
         .liveInput: [
+            "palette.toggleDictation",
             "taskManager.killProcess", "toggleChecklistItemComplete", "groupSelectedWorkspaces", "canvasAlignLeft",
             "canvasAlignRight", "canvasAlignTop", "canvasAlignBottom", "canvasEqualizeWidths", "canvasEqualizeHeights",
             "canvasDistributeHorizontally", "canvasDistributeVertically", "simulatorHome", "simulatorRotateLeft",
@@ -286,6 +287,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.extension.remove", "browser.extension.command", "palette.attemptUpdate",
         ],
         .liveInput: [
+            "palette.toggleDictation",
             "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
             "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",
             "findPrevious", "hideFind", "toggleUnread",
