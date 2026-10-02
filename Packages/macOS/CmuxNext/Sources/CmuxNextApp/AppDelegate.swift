@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let environment: AppEnvironment
     /// The daemon's first connect attempt, begun in `main`.
     private let daemonPrestart: DaemonPrestart?
+    /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
+    private let launchSettle = LaunchSettle()
     private var services: AppServices!
     private var settings: SettingsController?
     private let control = AppControl()
@@ -51,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
+        launchSettle.install(daemon: services.daemon)
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(), prestart: daemonPrestart)
         cloudContext = services.startCloud()
@@ -61,17 +64,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services?.crashRecovery.showRestartNotice(on: controller.window)
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
-        services.windows.onFirstWindow = { [palette = services.palette] _ in
-            // Once the first window's frame is committed, the palette panel
-            // is made at the next idle moment, so the first open costs what
-            // later opens cost (Spotlight and Chrome's omnibox open in one frame).
+        services.windows.onFirstWindow = { _ in
             CATransaction.setCompletionBlock {
-                MainActor.assumeIsolated {
-                    DebugTimings.markLaunch("first_window_frame_committed")
-                    Self.preparePalette(palette, step: 0)
-                }
+                MainActor.assumeIsolated { DebugTimings.markLaunch("first_window_frame_committed") }
             }
         }
+        // Once the first terminal frame is drawn, the palette panel is made
+        // at the next idle moment, so the first open costs what later opens
+        // cost (Spotlight and Chrome's omnibox open in one frame), without
+        // delaying that frame.
+        launchSettle.whenSettled { [palette = services.palette] in Self.preparePalette(palette, step: 0) }
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)

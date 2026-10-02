@@ -43,8 +43,8 @@ enum DebugTimings {
 
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread.
-    nonisolated static func markLaunch(_ name: String) {
-        let ms = sinceProcessStart
+    nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
+        let ms = date.timeIntervalSince(processStart) * 1_000
         let first = launchMarks.withLock { marks in
             guard !marks.contains(where: { $0.name == name }) else { return false }
             marks.append((name, ms))
@@ -54,18 +54,11 @@ enum DebugTimings {
     }
 
     static func install() {
-        DaemonLaunchTimings.shared.install { markLaunch($0) }
+        DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }
             markLaunch("first_terminal_surface_created")
-        }
-        TerminalTimings.onContentApplied = {
-            // The first content reached a surface; the next committed frame
-            // shows it (Ghostty presents on its own layer in that commit).
-            TerminalTimings.onContentApplied = nil
-            markLaunch("first_terminal_content_applied")
-            CATransaction.setCompletionBlock { markLaunch("first_terminal_frame") }
         }
     }
 
