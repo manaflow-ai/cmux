@@ -196,7 +196,7 @@
     "paddingLeading", "paddingTrailing", "paddingTop", "paddingBottom",
     "fixed", "block", "layoutPriority", "marginLeading",
     "showOnHover", "hideOnHover", "dragBackground", "dragSet", "rotation",
-    "fade", "marquee", "fixedSize",
+    "fade", "marquee", "fixedSize", "cursor",
   ];
 
   function makeHandle(id) {
