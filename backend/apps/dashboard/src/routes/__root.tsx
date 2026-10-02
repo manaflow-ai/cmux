@@ -16,7 +16,7 @@ table { width:100%; border-collapse: collapse; } th, td { text-align:left; paddi
 code, .mono { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 button { font: inherit; padding: 4px 10px; border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:6px; cursor:pointer; }
 button.danger { color: var(--bad); }
-input { font: inherit; padding: 6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
+input, select { font: inherit; padding: 6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
 .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; margin: 12px 0; overflow-x:auto; }
 .muted { color: var(--muted); } .error { color: var(--bad); }
 `
@@ -55,6 +55,12 @@ function Layout() {
         </Link>
         <Link to="/team" activeProps={{ className: "active" }}>
           Team
+        </Link>
+        <Link to="/automations" activeProps={{ className: "active" }}>
+          Automations
+        </Link>
+        <Link to="/integrations" activeProps={{ className: "active" }}>
+          Integrations
         </Link>
         <span style={{ flex: 1 }} />
         {signedIn ? (

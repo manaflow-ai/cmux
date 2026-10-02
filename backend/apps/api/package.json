@@ -13,6 +13,7 @@
   "dependencies": {
     "@cmux/ownership": "workspace:*",
     "@cmux/protocol": "workspace:*",
+    "croner": "10.0.1",
     "effect": "4.0.0-rc.117",
     "jose": "6.2.12",
     "pg": "8.23.0"

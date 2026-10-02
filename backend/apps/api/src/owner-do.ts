@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers"
-import { OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
+import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { drainOutbox } from "./projection.ts"
 
@@ -21,6 +21,7 @@ export interface SubmitResult {
 export type ReadResult = { readonly ok: true; readonly value: unknown; readonly revision: string } | ({ readonly ok: false } & Reject)
 
 const MAX_BACKOFF_MS = 5 * 60_000
+const PRUNE_SLACK_MS = 60 * 60_000
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
 const safeSend = (ws: WebSocket, text: string) => {
@@ -101,8 +102,68 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   /** Hook after each committed op (for example: close a revoked install's sockets). */
   protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>) {}
 
+  /**
+   * When this owner next needs its alarm for its own work (for example the next
+   * cron fire), from committed state only; null for never. The one DO alarm is
+   * shared with the outbox drain: it fires at the earlier of the two.
+   */
+  protected nextWakeAt(_state: S, _now: number): number | null {
+    return null
+  }
+
+  /** Subclasses prune their own side tables older than `before` (same replay window). */
+  protected onPrune(_before: number): void {}
+
+  /** The owner's wake and the ledger's next prune (oldest key + retention), whichever is first. */
+  private wakeAt(now: number): number | null {
+    if (!this.engine) return null
+    const wake = this.nextWakeAt(this.engine.currentState, now)
+    const oldest = this.engine.oldestLedgerAt()
+    // One hour of slack so one wake prunes a batch instead of one wake per expiring key.
+    const prune = oldest === null ? null : oldest + LEDGER_RETENTION_MS + PRUNE_SLACK_MS
+    return wake === null ? prune : prune === null ? wake : Math.min(wake, prune)
+  }
+
+  /** Runs in the alarm after the outbox drain. A throw is logged and the alarm is rescheduled. */
+  protected async onWake(_now: number): Promise<void> {}
+
+  /** The bound entity's engine, for subclasses that read state outside an op. */
+  protected get boundEngine(): OwnerEngine<S> | undefined {
+    return this.engine
+  }
+
+  /**
+   * Commits this owner's own op (alarm fires, Workflow reports) through the same
+   * engine: same ledger, commit before publish, events to subscribers. The
+   * principal is built here and nowhere else; the key must be deterministic so a
+   * repeated alarm replays instead of applying twice.
+   */
+  protected submitSystem(op: string, params: unknown, idempotencyKey: string): SubmitResult {
+    if (!this.engine) throw new Error("submitSystem before the object is bound")
+    const principal: Principal = { identity: `system:${this.streamPrefix}`, kind: "system" }
+    const frames: Array<OwnerFrame> = []
+    this.engine.submit(principal, { t: "op", op, params, idempotency_key: idempotencyKey, origin: "script" }, (target, f) =>
+      target === "all" ? this.broadcast(f) : frames.push(f)
+    )
+    this.afterCommit()
+    this.afterOp(principal, op, frames)
+    return { frames }
+  }
+
+  /**
+   * Moves the alarm earlier when needed: to now for a pending outbox (unless a
+   * failed drain is backing off; its retry alarm stays), or to the owner's next
+   * wake. Never moves it later: the alarm handler computes the next time itself.
+   */
   private afterCommit() {
-    if (this.engine && this.engine.outboxPending(1).length > 0) void this.ctx.storage.getAlarm().then((t) => (t === null ? this.ctx.storage.setAlarm(Date.now()) : undefined))
+    if (!this.engine) return
+    const now = Date.now()
+    const backingOff = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_entity WHERE id = 1`)[0]?.attempts ?? 0) > 0
+    const outboxAt = !backingOff && this.engine.outboxPending(1).length > 0 ? now : null
+    const wake = this.wakeAt(now)
+    const want = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
+    if (want === null) return
+    void this.ctx.storage.getAlarm().then((t) => (t === null || t > want ? this.ctx.storage.setAlarm(want) : undefined))
   }
 
   /** RPC: one op from an authenticated principal. Requester frames return; events fan out to subscribers. */
@@ -193,21 +254,40 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     } catch {}
   }
 
-  /** Drains the outbox into PlanetScale with idempotent upserts keyed by (stream, seq). */
+  /**
+   * Drains the outbox into PlanetScale with idempotent upserts keyed by
+   * (stream, seq), then runs the owner's own wake work, then sets the alarm to
+   * the earlier of the drain retry and the owner's next wake.
+   */
   override async alarm() {
     if (!this.engine) return
+    let outboxAt: number | null = null
     const rows = this.engine.outboxPending(100)
-    if (rows.length === 0) return
-    try {
-      await drainOutbox(this.env, this.engine.stream, rows)
-      this.engine.outboxMarkSent(rows.map((r) => r.id))
-      this.store.exec(`UPDATE do_entity SET attempts = 0 WHERE id = 1`)
-      if (this.engine.outboxPending(1).length > 0) await this.ctx.storage.setAlarm(Date.now())
-    } catch (e) {
-      const attempts = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_entity WHERE id = 1`)[0]?.attempts ?? 0) + 1
-      this.store.exec(`UPDATE do_entity SET attempts = ? WHERE id = 1`, attempts)
-      console.error(JSON.stringify({ msg: "outbox drain failed", stream: this.engine.stream, attempts, error: String(e) }))
-      await this.ctx.storage.setAlarm(Date.now() + Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempts))
+    if (rows.length > 0) {
+      try {
+        await drainOutbox(this.env, this.engine.stream, rows)
+        this.engine.outboxMarkSent(rows.map((r) => r.id))
+        this.store.exec(`UPDATE do_entity SET attempts = 0 WHERE id = 1`)
+        if (this.engine.outboxPending(1).length > 0) outboxAt = Date.now()
+      } catch (e) {
+        const attempts = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_entity WHERE id = 1`)[0]?.attempts ?? 0) + 1
+        this.store.exec(`UPDATE do_entity SET attempts = ? WHERE id = 1`, attempts)
+        console.error(JSON.stringify({ msg: "outbox drain failed", stream: this.engine.stream, attempts, error: String(e) }))
+        outboxAt = Date.now() + Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempts)
+      }
     }
+    // Bounded prune; if more remain, the oldest is still past the window and the alarm comes back at once.
+    this.engine.pruneLedger(Date.now() - LEDGER_RETENTION_MS)
+    this.onPrune(Date.now() - LEDGER_RETENTION_MS)
+    try {
+      await this.onWake(Date.now())
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "owner wake failed", stream: this.engine.stream, error: String(e) }))
+    }
+    // Ops committed during the wake may have added outbox rows (their afterCommit saw the running alarm).
+    if (outboxAt === null && this.engine.outboxPending(1).length > 0) outboxAt = Date.now()
+    const wake = this.wakeAt(Date.now())
+    const at = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
+    if (at !== null) await this.ctx.storage.setAlarm(at)
   }
 }

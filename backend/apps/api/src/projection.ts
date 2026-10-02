@@ -45,6 +45,52 @@ const statements: Record<string, (p: Record<string, unknown>, stream: string, se
      WHERE hosts.source_seq < excluded.source_seq`,
     [p.id, p.team, p.owner_user, p.enrolled_by, p.name, p.platform, p.enrolled_at, stream, seq]
   ],
+  "automation.upsert": (p, stream, seq) => [
+    `INSERT INTO automations (id, team_id, name, enabled, version, definition, created_by, created_at, updated_at, next_run_at, deleted_at, source_stream, source_seq)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8 / 1000.0), to_timestamp($9 / 1000.0),
+       CASE WHEN $10::bigint IS NULL THEN NULL ELSE to_timestamp($10 / 1000.0) END, NULL, $11, $12)
+     ON CONFLICT (id) DO UPDATE SET name = excluded.name, enabled = excluded.enabled, version = excluded.version, definition = excluded.definition,
+       updated_at = excluded.updated_at, next_run_at = excluded.next_run_at, deleted_at = NULL,
+       source_stream = excluded.source_stream, source_seq = excluded.source_seq
+     WHERE automations.source_seq < excluded.source_seq`,
+    [p.id, p.owner, p.name, p.enabled, p.version, JSON.stringify(p), p.created_by, p.created_at, p.updated_at, p.next_run_at ?? null, stream, seq]
+  ],
+  "automation.delete": (p, stream, seq) => [
+    `UPDATE automations SET deleted_at = now(), source_stream = $2, source_seq = $3 WHERE id = $1 AND source_seq < $3`,
+    [p.id, stream, seq]
+  ],
+  "automation_run.upsert": (p, stream, seq) => {
+    const trigger = p.trigger as { type: string }
+    const ts = (v: unknown) => (typeof v === "number" ? v : null)
+    return [
+      `INSERT INTO automation_runs (id, team_id, automation_id, automation_version, trigger_type, trigger, state, step, error, outcome, created_at, started_at, finished_at, source_stream, source_seq, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11 / 1000.0),
+         CASE WHEN $12::bigint IS NULL THEN NULL ELSE to_timestamp($12 / 1000.0) END,
+         CASE WHEN $13::bigint IS NULL THEN NULL ELSE to_timestamp($13 / 1000.0) END, $14, $15, now())
+       ON CONFLICT (id) DO UPDATE SET state = excluded.state, step = excluded.step, error = excluded.error, outcome = excluded.outcome,
+         started_at = excluded.started_at, finished_at = excluded.finished_at, source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
+       WHERE automation_runs.source_seq < excluded.source_seq`,
+      [
+        p.id, p.owner, p.automation, p.automation_version, trigger.type, JSON.stringify(p.trigger), p.state, p.step,
+        p.error == null ? null : JSON.stringify(p.error), p.outcome == null ? null : JSON.stringify(p.outcome),
+        p.created_at, ts(p.started_at), ts(p.finished_at), stream, seq
+      ]
+    ]
+  },
+  "connection.upsert": (p, stream, seq) => {
+    const account = p.account as { key?: string; name?: string } | null
+    return [
+      `INSERT INTO connections (id, team_id, created_by, provider, account_key, account_name, scopes_requested, scopes_granted, status, sharing, created_at, updated_at, source_stream, source_seq)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11 / 1000.0), to_timestamp($12 / 1000.0), $13, $14)
+       ON CONFLICT (id) DO UPDATE SET account_key = excluded.account_key, account_name = excluded.account_name, scopes_granted = excluded.scopes_granted,
+         status = excluded.status, sharing = excluded.sharing, updated_at = excluded.updated_at, source_stream = excluded.source_stream, source_seq = excluded.source_seq
+       WHERE connections.source_seq < excluded.source_seq`,
+      [
+        p.id, p.owner, p.created_by, p.provider, account?.key ?? null, account?.name ?? null,
+        JSON.stringify(p.scopes_requested ?? []), JSON.stringify(p.scopes_granted ?? []), p.status, p.sharing, p.created_at, p.updated_at, stream, seq
+      ]
+    ]
+  },
   "host.delete": (p, stream, seq) => [
     `UPDATE hosts SET deleted_at = now(), source_stream = $2, source_seq = $3, updated_at = now() WHERE id = $1 AND source_seq < $3`,
     [p.id, stream, seq]

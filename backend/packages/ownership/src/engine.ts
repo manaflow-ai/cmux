@@ -48,6 +48,14 @@ export interface EngineOptions {
   readonly eventActor?: (p: Principal) => Principal
 }
 
+/**
+ * Replay window of the request ledger (7 days). Decided keys older than this
+ * are pruned (`pruneLedger`); a request with a pruned key applies again. Safe
+ * because clients never resend a key older than INTENT_TTL_MS (24 h,
+ * client.ts) and owners derive their own system keys from state checks.
+ */
+export const LEDGER_RETENTION_MS = 7 * 24 * 3600_000
+
 const SCHEMA_VERSION = 1
 const ORIGINS = new Set(["user", "cli", "mcp", "script", "remote"])
 
@@ -83,7 +91,9 @@ const MIGRATIONS: ReadonlyArray<string> = [
      entity TEXT NOT NULL,
      payload TEXT NOT NULL,
      created_at INTEGER NOT NULL,
-     sent_at INTEGER)`
+     sent_at INTEGER)`,
+  // Ledger pruning finds the oldest key without a scan.
+  `CREATE INDEX IF NOT EXISTS own_ledger_created ON own_ledger (created_at)`
 ]
 
 /** Canonical JSON (sorted keys) so equal params hash equally. */
@@ -338,6 +348,29 @@ export class OwnerEngine<S, P = unknown> {
         origin: r.origin as Origin,
         at: Number(r.at)
       }))
+  }
+
+  /** When the oldest decided key was recorded (ms), or null for an empty ledger. */
+  oldestLedgerAt(): number | null {
+    const row = this.sql.exec<{ at: number | null }>(`SELECT MIN(created_at) AS at FROM own_ledger`)[0]
+    return row?.at === null || row?.at === undefined ? null : Number(row.at)
+  }
+
+  /**
+   * Forgets decided keys recorded before `before` (the replay window): a retry
+   * with such a key applies again, and snapshots stop listing it. Bounded per
+   * call; returns how many rows went.
+   */
+  pruneLedger(before: number, limit = 1000): number {
+    return this.sql.transaction(() => {
+      const rows = this.sql.exec<{ identity: string; idempotency_key: string }>(
+        `SELECT identity, idempotency_key FROM own_ledger WHERE created_at < ? ORDER BY created_at LIMIT ?`,
+        before,
+        limit
+      )
+      for (const r of rows) this.sql.exec(`DELETE FROM own_ledger WHERE identity = ? AND idempotency_key = ?`, r.identity, r.idempotency_key)
+      return rows.length
+    })
   }
 
   outboxPending(limit = 100): Array<OutboxRow> {
