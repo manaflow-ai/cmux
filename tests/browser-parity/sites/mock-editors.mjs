@@ -114,7 +114,9 @@ function xlsx(file) {
       const { r } = parseRef(ref);
       if (!rows.has(r)) rows.set(r, []);
       const value = evalCell(sheet, raw);
-      const cell = typeof raw === "string" && raw.startsWith("=") ? `<c r="${ref}"><f>${esc(raw.slice(1))}</f><v>${esc(value)}</v></c>` : /^-?\d+(\.\d+)?$/.test(raw) ? `<c r="${ref}"><v>${raw}</v></c>` : `<c r="${ref}" t="s"><v>${si(raw)}</v></c>`;
+      // As Google writes them: whole numbers with ".0".
+      const num = (x) => (/^-?\d+$/.test(x) ? x + ".0" : x);
+      const cell = typeof raw === "string" && raw.startsWith("=") ? `<c r="${ref}"><f>${esc(raw.slice(1))}</f><v>${esc(num(value))}</v></c>` : /^-?\d+(\.\d+)?$/.test(raw) ? `<c r="${ref}"><v>${num(raw)}</v></c>` : `<c r="${ref}" t="s"><v>${si(raw)}</v></c>`;
       rows.get(r).push(cell);
     }
     const body = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([r, cells]) => `<row r="${r + 1}">${cells.join("")}</row>`).join("");
