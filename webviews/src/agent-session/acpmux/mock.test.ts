@@ -2,20 +2,26 @@ import { describe, expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "./direct";
 import { MockAcpmuxSocket, mockHost, mockReply } from "./mock";
 import type { AcpmuxSnapshot } from "./model";
+import { GROUP_ROWS, groupByProject, sessionMark } from "./sessionList";
 
 describe("mock transport", () => {
+  const connectMock = async (snapshots: AcpmuxSnapshot[], delay: (ms: number) => Promise<void> = () => Promise.resolve()) => {
+    (globalThis as any).window ??= globalThis;
+    return AcpmuxDirectClient.connect(mockHost, (snapshot) => snapshots.push(snapshot), undefined, () => new MockAcpmuxSocket(delay) as unknown as WebSocket);
+  };
+  const until = async (done: () => boolean) => { for (let tries = 0; tries < 50 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0)); };
+
   /// Mock mode runs the real client against the in-page daemon, so a mock turn goes through the
   /// same event folding as an agent's.
   test("a prompt streams a scripted turn through the real client", async () => {
     const snapshots: AcpmuxSnapshot[] = [];
     (globalThis as any).window ??= globalThis;
     const client = await AcpmuxDirectClient.connect(mockHost, (snapshot) => snapshots.push(snapshot), undefined, () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket);
-    client.snapshot();
-    expect(snapshots.at(-1)?.rows.map((row) => row.kind)).toEqual(["assistant"]);
     expect(snapshots.at(-1)?.summary?.harness).toBe("claude");
     expect(snapshots.at(-1)?.commands?.map((command) => command.name)).toContain("compact");
     expect((await client.harnesses()).map((harness) => harness.id)).toEqual(["claude", "codex"]);
-
+    // The scripted turn runs in a new chat, so its rows are the only ones.
+    await client.create();
     await client.send("hello");
     for (let tries = 0; tries < 20 && !snapshots.at(-1)?.rows.some((row) => row.kind === "turnSummary"); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0));
     const rows = snapshots.at(-1)!.rows;
@@ -26,8 +32,54 @@ describe("mock transport", () => {
     const diffs = rows.flatMap((row) => row.items ?? []).flatMap((item) => item.tool?.diffs ?? []);
     expect(diffs.map((diff) => diff.path)).toEqual(["/mock/project/src/greeting.ts", "/mock/project/NOTES.md"]);
     // The reply splits around its tool calls, and the summary counts all three.
-    expect(rows.map((row) => row.kind)).toEqual(["assistant", "user", "assistant", "activity", "assistant", "activity", "assistant", "turnSummary"]);
+    expect(rows.map((row) => row.kind)).toEqual(["user", "assistant", "activity", "assistant", "activity", "assistant", "turnSummary"]);
     expect(rows.find((row) => row.kind === "turnSummary")?.toolCount).toBe(3);
+    // The new chat has had a turn now.
+    await until(() => snapshots.at(-1)?.summary?.turnCount === 1);
+    expect(snapshots.at(-1)?.summary?.turnCount).toBe(1);
+    client.close();
+  });
+
+  test("the pane opens on a seeded workspace with a worked turn", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const client = await connectMock(snapshots);
+    client.snapshot();
+    const snapshot = snapshots.at(-1)!;
+    // Five projects and 18 sessions, in every state the sidebar draws.
+    expect(snapshot.sessions).toHaveLength(18);
+    expect(new Set(snapshot.sessions.map((entry) => entry.cwd)).size).toBe(5);
+    const marks = snapshot.sessions.map((entry) => sessionMark(entry, false));
+    for (const mark of ["input", "running", "error", "unread"] as const) expect(marks).toContain(mark);
+    expect(snapshot.sessions.filter((entry) => entry.pinned).map((entry) => entry.displayTitle)).toEqual(["Add retry backoff to the fleet uploader", "Resume sessions after a daemon restart"]);
+    expect(new Set(snapshot.sessions.map((entry) => entry.hostKind))).toEqual(new Set(["local", "cloud"]));
+    expect(snapshot.sessions.filter((entry) => entry.pullRequest?.reviewReady).map((entry) => entry.pullRequest!.number)).toEqual([16642, 212, 88]);
+    expect(snapshot.sessions.every((entry) => entry.preview)).toBe(true);
+    // The largest project is long enough to fold behind Show more.
+    expect(groupByProject(snapshot.sessions).find((group) => group.label === "cmux")!.sessions.length).toBeGreaterThan(GROUP_ROWS + 1);
+    // The worked session: its context, one finished turn with tools and three edited files.
+    expect(snapshot.summary).toMatchObject({ cwd: "~/code/cmux", turnCount: 1, host: "This Mac", hostKind: "local", branch: "feat-upload-retry", worktree: "~/code/cmux-worktrees/upload-retry", model: "claude-opus-5-5", effort: "medium" });
+    expect(snapshot.summary?.modes?.currentModeId).toBe("bypassPermissions");
+    const rows = snapshot.rows;
+    expect(rows[0]?.kind).toBe("user");
+    expect(rows.at(-1)?.kind).toBe("turnSummary");
+    expect(rows.find((row) => row.kind === "turnSummary")?.toolCount).toBe(7);
+    // The answer outside the fold carries a code block too, so a capture shows one.
+    expect(rows.filter((row) => row.kind === "assistant").at(-1)?.text).toContain("```ts");
+    const diffs = rows.flatMap((row) => row.items ?? []).flatMap((item) => item.tool?.diffs ?? []).map((diff) => diff.path);
+    expect(diffs).toEqual(["~/code/cmux/Sources/Fleet/retry.ts", "~/code/cmux/Sources/Fleet/upload.ts", "~/code/cmux/Sources/Fleet/upload.test.ts"]);
+    client.close();
+  });
+
+  test("every seeded session opens on its own history", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const client = await connectMock(snapshots);
+    await client.select("mock-sidebar-flicker");
+    await until(() => snapshots.at(-1)?.sessionId === "mock-sidebar-flicker" && snapshots.at(-1)!.rows.length > 0);
+    const snapshot = snapshots.at(-1)!;
+    expect(snapshot.rows.find((row) => row.kind === "user")?.text).toBe("Fix sidebar flicker on theme change");
+    // Its turn is still running on a cloud machine.
+    expect(snapshot.isWorking).toBe(true);
+    expect(snapshot.summary).toMatchObject({ host: "hearty-beige-elk", hostKind: "cloud" });
     client.close();
   });
 
@@ -46,12 +98,6 @@ describe("mock transport", () => {
     expect(steps).toBe(1);
   });
 
-  const connectMock = async (snapshots: AcpmuxSnapshot[], delay: (ms: number) => Promise<void> = () => Promise.resolve()) => {
-    (globalThis as any).window ??= globalThis;
-    return AcpmuxDirectClient.connect(mockHost, (snapshot) => snapshots.push(snapshot), undefined, () => new MockAcpmuxSocket(delay) as unknown as WebSocket);
-  };
-  const until = async (done: () => boolean) => { for (let tries = 0; tries < 50 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0)); };
-
   test("Stop ends the scripted turn as cancelled", async () => {
     const snapshots: AcpmuxSnapshot[] = [];
     let release: () => void = () => {};
@@ -61,8 +107,10 @@ describe("mock transport", () => {
     await client.cancel();
     release();
     await sent;
-    await until(() => snapshots.at(-1)?.rows.some((row) => row.kind === "turnSummary") === true);
-    expect(snapshots.at(-1)?.rows.find((row) => row.kind === "turnSummary")?.status).toBe("cancelled");
+    // The seeded turn has its own summary; the stopped turn's comes after it.
+    const summaries = () => snapshots.at(-1)?.rows.filter((row) => row.kind === "turnSummary") ?? [];
+    await until(() => summaries().length === 2);
+    expect(summaries().map((row) => row.status)).toEqual(["completed", "cancelled"]);
     expect(snapshots.at(-1)?.isWorking).toBe(false);
     client.close();
   });
@@ -75,6 +123,8 @@ describe("mock transport", () => {
     expect(created).not.toBe(mockHost.sessionId);
     expect(snapshots.at(-1)?.sessionId).toBe(created);
     expect(snapshots.at(-1)?.rows).toEqual([]);
+    // It opens in the current project with no turns, so the pane can show its empty state.
+    expect(snapshots.at(-1)?.summary).toMatchObject({ cwd: "~/code/cmux", turnCount: 0 });
     expect(snapshots.at(-1)?.sessions.map((entry) => entry.sessionId)).toContain(created);
     client.close();
   });

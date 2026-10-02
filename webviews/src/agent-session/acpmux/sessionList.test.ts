@@ -68,8 +68,15 @@ describe("row marks", () => {
 
 describe("summary entries", () => {
   test("keep the fields the sidebar needs from acpmux's summary", () => {
-    expect(sessionEntry({ sessionId: "s", name: "codex", harness: "codex", title: "Hi", cwd: "/p", updatedAt: 7, status: "waiting", pendingPermissions: 2, unread: true, preview: "dropped" })).toEqual({
-      sessionId: "s", displayTitle: "Hi", title: "Hi", name: "codex", harness: "codex", status: "waiting", model: undefined, cwd: "/p", updatedAt: 7, pendingPermissions: 2, unread: true,
+    expect(sessionEntry({ sessionId: "s", name: "codex", harness: "codex", title: "Hi", cwd: "/p", updatedAt: 7, status: "waiting", pendingPermissions: 2, unread: true, preview: "Last reply", queue: ["dropped"] })).toEqual({
+      sessionId: "s", displayTitle: "Hi", title: "Hi", name: "codex", harness: "codex", status: "waiting", model: undefined, cwd: "/p", updatedAt: 7, pendingPermissions: 2, unread: true, pinned: false, preview: "Last reply",
     });
+  });
+
+  test("keep where a session runs and its pull request, and drop malformed ones", () => {
+    const entry = sessionEntry({ sessionId: "s", host: "hearty-beige-elk", hostKind: "cloud", branch: "fix", worktree: "~/w/fix", pinned: true, pullRequest: { number: 12, title: "Fix", state: "open", reviewReady: true } });
+    expect(entry).toMatchObject({ host: "hearty-beige-elk", hostKind: "cloud", branch: "fix", worktree: "~/w/fix", pinned: true, pullRequest: { number: 12, title: "Fix", state: "open", reviewReady: true } });
+    const odd = sessionEntry({ sessionId: "s", host: "", hostKind: "mars", pullRequest: { title: "no number" } });
+    expect([odd.host, odd.hostKind, odd.pullRequest]).toEqual([undefined, undefined, undefined]);
   });
 });

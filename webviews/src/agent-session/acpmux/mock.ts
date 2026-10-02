@@ -1,15 +1,18 @@
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
+import { claudeModels, codexModels, mockSessions, newSessionSummary, sessionHistory, sessionSummary, workedTurn, WORKED_SESSION, type SeedStep } from "./mockFixture";
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
 // real acpmux client against this in-page daemon, which speaks the daemon's
 // JSON-RPC and streams a scripted turn as ACP events, so every frame of a mock
-// turn goes through the same reducer and renderers as a real agent's.
+// turn goes through the same reducer and renderers as a real agent's. It starts seeded with
+// the workspace in mockFixture.ts, so the pane opens populated.
 
-const sessionId = "mock-session";
-const harnesses = [{ id: "claude", name: "Claude Code", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] }, { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] }];
+const sessionId = WORKED_SESSION;
+const harnesses = [{ id: "claude", name: "Claude Code", models: claudeModels }, { id: "codex", name: "Codex", models: codexModels }];
 const commands = [{ name: "compact", description: "Clear conversation history but keep a summary in context", input: { hint: "optional custom summarization instructions" } }, { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" }, { name: "pr-comments", description: "Get comments from a GitHub pull request" }, { name: "review", description: "Review a pull request" }];
-const session = { sessionId, title: "Mock session", harness: "claude", model: "claude-sonnet", status: "idle" };
+/// The one empty session a recorded MockScript replays into.
+const scriptSession = { sessionId, title: "Mock session", harness: "claude", model: claudeModels[0]!.id, status: "idle", turnCount: 0 };
 
 /// The host config the page connects with in mock mode.
 export const mockHost: AcpmuxHostConfig = { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://mock.invalid/acp", token: "mock", sessionId };
@@ -54,7 +57,7 @@ export class MockAcpmuxSocket {
   onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
-  private sessions = [{ ...session }];
+  private sessions: Record<string, any>[] = [];
   private events: EventRecord[] = [];
   private seq = 0;
   private turns = 0;
@@ -66,12 +69,19 @@ export class MockAcpmuxSocket {
   /// `delay` paces the scripted turn; tests pass one that resolves at once.
   constructor(private readonly delay: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)), private readonly script?: MockScript) {
     // A replayed turn starts from an empty session, as the recording did.
-    if (!script) {
-      // What Claude lists at start, so the composer's + and `/` menu have something to show.
-      this.record(sessionId, { update: { sessionUpdate: "available_commands_update", availableCommands: commands } });
-      this.record(sessionId, { update: text("Mock agent session. Type a prompt to see the pane render a turn.") });
-    }
+    if (script) this.sessions = [{ ...scriptSession }];
+    else this.seed(Date.now());
     queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
+  }
+
+  /// The fixture's sessions, each with its history; the worked session also lists Claude's commands.
+  private seed(now: number): void {
+    for (const entry of mockSessions) {
+      this.sessions.push(sessionSummary(entry, now, 1));
+      if (entry.sessionId === sessionId) this.record(sessionId, { update: { sessionUpdate: "available_commands_update", availableCommands: commands } }, now - 7 * 60_000);
+      const steps: SeedStep[] = entry.sessionId === sessionId ? workedTurn : sessionHistory(entry);
+      for (const { ago, ...step } of steps) this.record(entry.sessionId, step as Step, now - ago);
+    }
   }
 
   send(raw: string): void {
@@ -98,7 +108,9 @@ export class MockAcpmuxSocket {
       case "_acpmux/attach": return { session: this.sessions.find((entry) => entry.sessionId === target), events: this.events.filter((event) => event.sessionId === target) };
       case "_acpmux/events": return { events: this.events.filter((event) => event.sessionId === target && event.seq > Number(params.afterSeq ?? 0)) };
       case "session/new": {
-        const created = { ...session, sessionId: `mock-session-${this.sessions.length + 1}`, title: "New chat" };
+        // A new chat opens in the project of the session it was started from.
+        const from = this.sessions.find((entry) => entry.sessionId === sessionId) ?? this.sessions[0];
+        const created = newSessionSummary(`mock-session-${this.sessions.length + 1}`, String(params.cwd ?? from?.cwd ?? "~/code/cmux"), Date.now());
         this.sessions.push(created);
         this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
         return { sessionId: created.sessionId };
@@ -116,6 +128,7 @@ export class MockAcpmuxSocket {
     // A prompt queued behind a closed daemon never starts.
     if (this.closed) return { stopReason: "cancelled" };
     this.turns += 1;
+    this.touch(target, { turnCount: Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1, unread: false });
     const running = { cancelled: false };
     this.running = running;
     const started = Date.now();
@@ -131,6 +144,15 @@ export class MockAcpmuxSocket {
     this.emit(target, { mux: "turn_result", msg: { status: running.cancelled ? "cancelled" : "completed" } }, endAt !== undefined ? started + endAt : undefined);
     this.running = undefined;
     return { stopReason: running.cancelled ? "cancelled" : "end_turn" };
+  }
+
+  /// Updates a session's summary and tells the client, as the daemon does.
+  private touch(target: string, fields: Record<string, unknown>): void {
+    const index = this.sessions.findIndex((entry) => entry.sessionId === target);
+    if (index < 0) return;
+    const changed = { ...this.sessions[index], ...fields, updatedAt: Date.now() };
+    this.sessions[index] = changed;
+    this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: changed } });
   }
 
   private record(target: string, step: Step, at = Date.now()): EventRecord {

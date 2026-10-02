@@ -15,7 +15,21 @@ export type AcpmuxSessionEntry = {
   updatedAt?: number;
   pendingPermissions?: number;
   unread?: boolean;
+  /** The machine the session runs on ("This Mac", or a cloud machine's name), and which kind it is. */
+  host?: string;
+  hostKind?: "local" | "cloud";
+  branch?: string;
+  /** Set only when the session runs in a git worktree: the worktree's path. */
+  worktree?: string;
+  pinned?: boolean;
+  pullRequest?: SessionPullRequest;
+  /** A line of the session's latest reply, for previews. */
+  preview?: string;
 };
+
+export type SessionPullRequest = { number: number; title: string; state: "open" | "draft" | "merged"; reviewReady?: boolean };
+
+const text = (value: unknown) => typeof value === "string" && value ? value : undefined;
 
 export type SessionGroup = { key: string; label: string; cwd?: string; sessions: AcpmuxSessionEntry[] };
 
@@ -40,7 +54,20 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     updatedAt: typeof session.updatedAt === "number" ? session.updatedAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
+    host: text(session.host),
+    hostKind: session.hostKind === "local" || session.hostKind === "cloud" ? session.hostKind : undefined,
+    branch: text(session.branch),
+    worktree: text(session.worktree),
+    pinned: session.pinned === true,
+    pullRequest: pullRequest(session.pullRequest),
+    preview: text(session.preview),
   };
+}
+
+function pullRequest(value: any): SessionPullRequest | undefined {
+  if (typeof value?.number !== "number" || typeof value.title !== "string") return undefined;
+  const state = value.state === "draft" || value.state === "merged" ? value.state : "open";
+  return { number: value.number, title: value.title, state, reviewReady: value.reviewReady === true || undefined };
 }
 
 /** The title (the first prompt) when the name was generated (`codex`, `codex-3`), else the name the user gave. */
