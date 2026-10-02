@@ -144,7 +144,6 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.newSimulatorPane": [p(.pane, .create, 100)],
         "newTab.sameKind": [p(.tab, .create, -1)],
         "newSurface": [p(.tab, .create, 0), p(.newTab, .create, 0)],
-        "openBrowser.webkit": [p(.tab, .create, 1), p(.newTab, .create, 1)],
         "openBrowser.chromium": [p(.tab, .create, 2), p(.newTab, .create, 2)],
         "closeTab": [p(.tab, .close, 604)],
         "closeOtherTabsInPane": [p(.tab, .close, 603)],

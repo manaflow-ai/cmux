@@ -60267,127 +60267,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New WebKit Tab"
+            "value": "New WebKit Tab (experimental)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "علامة تبويب WebKit جديدة"
+            "value": "علامة تبويب WebKit جديدة (تجريبي)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Novi WebKit tab"
+            "value": "Novi WebKit tab (eksperimentalno)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny WebKit-fane"
+            "value": "Ny WebKit-fane (eksperimentel)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neuer WebKit-Tab"
+            "value": "Neuer WebKit-Tab (experimentell)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nueva pestaña de WebKit"
+            "value": "Nueva pestaña de WebKit (experimental)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouvel onglet WebKit"
+            "value": "Nouvel onglet WebKit (expérimental)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuova scheda WebKit"
+            "value": "Nuova scheda WebKit (sperimentale)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規 WebKit タブ"
+            "value": "新規 WebKit タブ（試験的）"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ថេប WebKit ថ្មី"
+            "value": "ថេប WebKit ថ្មី (សាកល្បង)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 WebKit 탭"
+            "value": "새 WebKit 탭 (실험적)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny WebKit-fane"
+            "value": "Ny WebKit-fane (eksperimentell)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowa karta WebKit"
+            "value": "Nowa karta WebKit (eksperymentalna)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova Aba WebKit"
+            "value": "Nova Aba WebKit (experimental)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новая вкладка WebKit"
+            "value": "Новая вкладка WebKit (экспериментальная)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แท็บ WebKit ใหม่"
+            "value": "แท็บ WebKit ใหม่ (ทดลอง)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni WebKit Sekmesi"
+            "value": "Yeni WebKit Sekmesi (deneysel)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нова вкладка WebKit"
+            "value": "Нова вкладка WebKit (експериментальна)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tab WebKit mới"
+            "value": "Tab WebKit mới (thử nghiệm)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新建 WebKit 标签页"
+            "value": "新建 WebKit 标签页（实验性）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新增 WebKit 分頁"
+            "value": "新增 WebKit 分頁（實驗性）"
           }
         }
       }
@@ -60398,127 +60398,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Chromium Tab"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "علامة تبويب Chromium جديدة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Novi Chromium tab"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ny Chromium-fane"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Neuer Chromium-Tab"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nueva pestaña de Chromium"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nouvel onglet Chromium"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nuova scheda Chromium"
+            "value": "New Browser Tab"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規 Chromium タブ"
+            "value": "新規ブラウザタブ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "علامة تبويب متصفح جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi tab preglednika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny browserfane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuer Browser-Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nueva pestaña de navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouvel onglet de navigateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuova scheda browser"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ថេប Chromium ថ្មី"
+            "value": "ថេបកម្មវិធីរុករកថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 Chromium 탭"
+            "value": "새 브라우저 탭"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny Chromium-fane"
+            "value": "Ny nettleserfane"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowa karta Chromium"
+            "value": "Nowa karta przeglądarki"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova Aba Chromium"
+            "value": "Nova Aba de Navegador"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новая вкладка Chromium"
+            "value": "Новая вкладка браузера"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แท็บ Chromium ใหม่"
+            "value": "แท็บเบราว์เซอร์ใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni Chromium Sekmesi"
+            "value": "Yeni Tarayıcı Sekmesi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нова вкладка Chromium"
+            "value": "Нова вкладка браузера"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tab Chromium mới"
+            "value": "Tab trình duyệt mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新建 Chromium 标签页"
+            "value": "新建浏览器标签页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新增 Chromium 分頁"
+            "value": "新增瀏覽器標籤頁"
           }
         }
       }
