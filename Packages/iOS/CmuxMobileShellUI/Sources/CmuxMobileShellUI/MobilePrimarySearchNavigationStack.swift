@@ -10,34 +10,23 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
     @Binding var path: [MobileWorkspacePreview.ID]
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
-    var isActive = true
-    var hidesRootNavigationBar = false
-    var managesTabBarVisibility = true
     @ViewBuilder let root: () -> Root
     @ViewBuilder let destination: (MobileWorkspacePreview.ID) -> Destination
 
     var body: some View {
         NavigationStack(path: $path) {
             root()
-                .mobileToolbarVisibility(rootNavigationBarVisibility, for: .navigationBar)
                 .modifier(MobilePrimarySearchLifecycleModifier(
                     scope: searchCoordinator.scope,
-                    update: { scope, isSearching in
-                        guard isActive || !isSearching else { return }
-                        searchCoordinator.updateLifecycle(scope: scope, isSearching: isSearching)
-                    }
+                    update: searchCoordinator.updateLifecycle
                 ))
                 .navigationDestination(for: MobileWorkspacePreview.ID.self, destination: destination)
         }
         .searchable(text: searchText, isPresented: searchPresentation, prompt: prompt)
         .onSubmit(of: .search) {
-            guard isActive else { return }
             selection = searchCoordinator.commitSubmit()
         }
-        .modifier(MobilePrimarySearchTabBarVisibilityModifier(
-            isEnabled: managesTabBarVisibility,
-            visibility: path.isEmpty ? .automatic : .hidden
-        ))
+        .mobileToolbarVisibility(path.isEmpty ? .automatic : .hidden, for: .tabBar)
     }
 
     private var searchPresentation: Binding<Bool> {
@@ -47,13 +36,6 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
                 searchCoordinator.setPresentation(presented)
             }
         )
-    }
-
-    private var rootNavigationBarVisibility: Visibility {
-        if #available(iOS 26.0, *), hidesRootNavigationBar {
-            return .hidden
-        }
-        return .automatic
     }
 
     private var searchText: Binding<String> {

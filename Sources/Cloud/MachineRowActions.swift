@@ -250,9 +250,19 @@ struct MachineRowActions {
             localized: "machines.delete.message",
             defaultValue: "This permanently deletes the machine and everything stored on it. This cannot be undone."
         )
-        alert.addButton(withTitle: String(localized: "machines.delete.confirm", defaultValue: "Delete"))
+        let deleteButton = alert.addButton(withTitle: String(localized: "machines.delete.confirm", defaultValue: "Delete"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        alert.buttons.first?.hasDestructiveAction = true
+        deleteButton.hasDestructiveAction = true
+        // Keep Return bound to the destructive action even when the alert is a sheet.
+        // NSAlert does not always make the first button the key window's default
+        // responder when the button has a destructive style.
+        deleteButton.keyEquivalent = "\r"
+        deleteButton.keyEquivalentModifierMask = []
+        alert.window.defaultButtonCell = deleteButton.cell as? NSButtonCell
+        alert.window.initialFirstResponder = deleteButton
+        if let cancelButton = alert.buttons.dropFirst().first {
+            cancelButton.keyEquivalent = "\u{1b}"
+        }
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             // A second confirm while the first delete runs is a no-op, never a second `vm rm`.
             guard response == .alertFirstButtonReturn, MachineDeleteCoordinator.shared.canBegin(id) else { return }

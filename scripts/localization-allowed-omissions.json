@@ -2059,13 +2059,9 @@
       "de": "Reviewed native word, technical abbreviation, or SaaS tier name with the same spelling in this context."
     }
   },
-  "pricing.native.compare.concurrent.free": {
-    "class": "format",
-    "source": "1"
-  },
   "pricing.native.compare.concurrent.paid": {
     "class": "format",
-    "source": "50"
+    "source": "5"
   },
   "pricing.native.compare.support.community": {
     "source": "Community",
@@ -4376,6 +4372,30 @@
     "source": "Desktop",
     "identityLocales": {
       "de": "\"Desktop\" is the established German loanword, spelled identically."
+    }
+  },
+  "cli.help.agents.messages": {
+    "source": "agent messages [on|off|status] [<target>] [--workspace]",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "bs": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "da": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "it": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "km": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "nb": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pl": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pt-BR": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ru": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "th": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "tr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
     }
   }
 }

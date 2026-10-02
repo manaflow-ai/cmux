@@ -39,9 +39,9 @@ struct CloudMachinesHeaderCountTests {
         #expect(CloudTreeRowContentView.groupCount(for: .cloudMachinesSection(canCreateMachine: true)) == nil)
     }
 
-    // `ViewThatFits` shows the inline row only when its ideal width fits the
-    // bar, and falls back to the overflow menu otherwise. Measuring that ideal
-    // width needs no accessibility client, unlike reading SwiftUI's tree.
+    // The header still measures both team-name layout candidates. Measuring
+    // their ideal widths needs no accessibility client, unlike reading the
+    // SwiftUI tree.
     @Test("Narrow Cloud headers move machine actions into one overflow menu")
     func narrowHeaderCollapsesMachineActions() async throws {
         let inline = try await idealRowWidth(.inline, teamName: Self.longTeamName)
@@ -49,14 +49,14 @@ struct CloudMachinesHeaderCountTests {
                 "The inline row (\(inline)pt) fits a 220pt sidebar, so the overflow menu never shows")
     }
 
-    @Test("A wide Cloud header keeps refresh and new machine buttons inline")
-    func wideHeaderKeepsMachineActionsInline() async throws {
+    @Test("A wide Cloud header keeps its action row stable")
+    func wideHeaderKeepsActionRowStable() async throws {
         let inline = try await idealRowWidth(.inline, teamName: "Team A")
         #expect(inline <= Self.barContentWidth(420),
-                "The inline row (\(inline)pt) overflows a 420pt sidebar, so Refresh and New Machine fold away")
-        // The overflow row trades two buttons for one menu, so it never needs more room.
+                "The header action row (\(inline)pt) overflows a 420pt sidebar")
         let overflow = try await idealRowWidth(.overflowMenu, teamName: "Team A")
-        #expect(overflow < inline)
+        #expect(overflow == inline,
+                "The Invite-only header should not change width between layout candidates")
     }
 
     @Test("A free plan at its limit turns orange and names the upgrade", arguments: [
@@ -222,7 +222,7 @@ struct CloudMachinesHeaderCountTests {
         NSHostingView(rootView: CloudTeamPickerHeader(
             accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { EmptyView() }, status: status
+            status: status
         )).fittingSize.height
     }
 
@@ -292,7 +292,6 @@ struct CloudMachinesHeaderCountTests {
         let header = CloudTeamPickerHeader(
             accountFlow: flow, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
             status: { EmptyView() }
         )
         let row = NSHostingView(rootView: header.actionsRow(actions, picker: CloudTeamPickerPresentation()).fixedSize())

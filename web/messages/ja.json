@@ -563,6 +563,7 @@
       "billing": "請求",
       "themeDark": "ダークテーマ",
       "themeLight": "ライトテーマ",
+      "switchAccount": "アカウントを切り替え",
       "signOut": "サインアウト",
       "signingOut": "サインアウト中…",
       "signOutError": "サインアウトできませんでした。もう一度お試しください。",
@@ -651,7 +652,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "Max は月額 $200 の月払いで、最大 50 台の Cloud VM が 64 GB RAM と 16 vCPU を共有します。"
+        "upsell": "Max は月額 $200 の月払いで、最大 5 台の Cloud VM を利用でき、VM あたり最大 16 vCPU と 32 GB RAM を使えます。"
       },
       "teamPanel": {
         "notFound": "このチームは利用できません。チームから退出したか、チームが削除された可能性があります。",
@@ -716,11 +717,11 @@
           ],
           "pro": [
             "Cloud VM 上のクラウドエージェント",
-            "VM 全体で共有する 24 GB RAM と 6 vCPU",
+            "最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM",
             "cmux iOS アプリ"
           ],
           "max": [
-            "VM 全体で共有する 64 GB RAM と 16 vCPU",
+            "最大 5 台の Cloud VM、VM あたり最大 16 vCPU と 32 GB RAM",
             "より大きなマシンサイズ",
             "Pro のすべての機能"
           ],
@@ -1666,7 +1667,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 50 台の Cloud VM で、24 GB RAM と 6 vCPUを共有",
+        "最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -1683,7 +1684,7 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "最大 50 台の Cloud VM で 64 GB RAM と 16 vCPU を共有",
+        "最大 5 台の Cloud VM、VM あたり最大 16 vCPU と 32 GB RAM",
         "無制限のワークスペースと iOS アプリ"
       ]
     },
@@ -1782,27 +1783,27 @@
         {
           "label": "同時 Cloud VM 数",
           "free": "false",
-          "pro": "50",
-          "max": "50",
-          "team": "ユーザーごとに 50",
+          "pro": "5",
+          "max": "5",
+          "team": "ユーザーごとに 5",
           "enterprise": "カスタム",
           "go": "1"
         },
         {
-          "label": "すべての Cloud VM で共有するリソース",
+          "label": "Cloud VM あたりのリソース",
           "free": "false",
-          "pro": "24 GB RAM と 6 vCPUをすべての VM で共有",
-          "max": "すべての VM で 64 GB RAM と 16 vCPU を共有",
-          "team": "ユーザーあたり 24 GB RAM と 6 vCPUを、そのユーザーの VM で共有",
+          "pro": "4 vCPU と 8 GB RAM",
+          "max": "16 vCPU と 32 GB RAM",
+          "team": "4 vCPU と 8 GB RAM",
           "enterprise": "カスタム",
           "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
         },
         {
           "label": "最大の Cloud VM",
-          "free": "24 GB RAM",
-          "pro": "24 GB RAM",
-          "max": "64 GB RAM",
-          "team": "24 GB RAM",
+          "free": "false",
+          "pro": "8 GB RAM",
+          "max": "32 GB RAM",
+          "team": "8 GB RAM",
           "enterprise": "カスタム",
           "go": "4 GiB RAM"
         },
@@ -1900,11 +1901,11 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、24 GB RAM と 6 vCPUを共有します。Team ではユーザーごとに同じプールが適用されます。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 5 台の Cloud VM を利用でき、VM あたり最大 4 vCPU と 8 GB RAM を使えます。Team ではユーザーごとに同じ枠が適用されます。"
         },
         {
           "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。最大 50 台の Cloud VM で合計 64 GB RAM と 16 vCPU を共有します。Pro のすべてを含み、この共有リソースの範囲内で 32 GB と 64 GB のマシンを利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
+          "a": "Max は月払いで $200/月です。Pro のすべてを含み、最大 5 台の Cloud VM を利用でき、VM あたり最大 16 vCPU と 32 GB RAM です。Pro と Team のマシンは最大 4 vCPU と 8 GB RAM です。Free には Cloud VM は含まれません。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -4276,12 +4277,13 @@
       "limitsTitle": "プランの上限",
       "limitsDesc": "プランの上限はマシンの台数で数えます。CPUやメモリの共有プールではありません。各マシンにはそのサイズ分のリソースが割り当てられます。",
       "limitsFree": "無料アカウントではマシンを作成できません。",
-      "limitsPaid": "ProおよびMaxアカウントでは、アクティブなマシンを最大50台まで持てます。実行中または起動中のマシンがアクティブとして数えられます。",
-      "limitsTeam": "Teamアカウントでは、有料シート1つにつきアクティブなマシンを最大50台まで持てます。",
-      "limitsMax": "24 GBを超えるマシンにはcmux Maxが必要です。",
+      "limitsPaid": "ProおよびMaxアカウントでは、アクティブなマシンを最大5台まで持てます。実行中または起動中のマシンがアクティブとして数えられます。",
+      "limitsTeam": "Teamアカウントでは、有料シート1つにつきアクティブなマシンを最大5台まで持てます。",
+      "limitsMax": "8 GBを超えるマシンにはcmux Maxが必要です。Maxのマシンは最大32 GB、16 vCPUまで使えます。",
+      "limitsOversize": "プランの上限より大きいマシンはロックされます。一覧表示と削除はできますが、アップグレードするまで開く、コマンドを実行する、再開する、サイズを変更することはできません。",
       "limitsPricing": "現在の価格は料金ページを参照してください。従量課金や超過料金はありません。",
       "resizeTitle": "サイズ変更",
-      "resizeDesc": "データを失わずにマシンを大きくできます。マシンを右クリックして「マシンのサイズを変更」を選ぶか、cmux vm resize を使います。サイズ変更は拡大のみです。ディスクは4 GB単位で最大256 GB、メモリは最大64 GB、CPUは最大32 vCPUまで拡大できます。実際の上限はプランによって決まります。",
+      "resizeDesc": "データを失わずにマシンを大きくできます。マシンを右クリックして「マシンのサイズを変更」を選ぶか、cmux vm resize を使います。サイズ変更は拡大のみです。ディスクは4 GB単位で最大256 GB、メモリは最大32 GB、CPUは最大16 vCPUまで拡大できます。実際の上限はプランによって決まります。",
       "pauseTitle": "一時停止と再開",
       "pauseDesc": "cmux vm pause はマシンのコンピュートを停止します。ディスク、ワークスペース、ターミナルの履歴は残りますが、実行中のプロセスは停止します。cmux vm resume でマシンを再び起動します。一時停止中のマシンを開いたり、そのマシンでコマンドを実行したりしても起動します。",
       "pauseIdle": "アイドル状態でもマシンは自動では一時停止しません。一時停止するか削除するまで動き続けます。",
@@ -4432,7 +4434,7 @@
       "errPlan": "Cloud VMには有料プランが必要",
       "fixPlan": "無料アカウントではマシンを作成できません。料金ページでアップグレードしてください。",
       "errSize": "サイズに上位プランが必要",
-      "fixSize": "24 GBを超えるマシンにはcmux Maxが必要です。小さいサイズを選ぶか、アップグレードしてください。",
+      "fixSize": "8 GBを超えるマシンにはcmux Maxが必要です。小さいサイズを選ぶか、アップグレードしてください。",
       "errLimit": "アクティブなマシンの上限に達した",
       "fixLimit": "マシンを一時停止または削除してから、もう一度試してください。",
       "errLocked": "マシンがロックされている",
@@ -6977,5 +6979,59 @@
         "message": "このイベントのコンピュータ、ワークスペース、またはタブは利用できなくなりました。"
       }
     }
+  },
+  "cmuxSignIn": {
+    "signInTitle": "cmux にサインイン",
+    "signInSubtitle": "アプリ、cloud、ダッシュボードを 1 つのアカウントで。",
+    "signUpTitle": "cmux アカウントを作成",
+    "signUpSubtitle": "アプリ、cloud、ダッシュボードを 1 つのアカウントで。",
+    "continueWithProvider": "{provider} で続行",
+    "signInWithPasskey": "パスキーでサインイン",
+    "orContinueWith": "または、次の方法で続行",
+    "emailLabel": "メールアドレス",
+    "emailPlaceholder": "you@company.com",
+    "continueWithEmail": "メールで続行",
+    "emailCodeTab": "メール",
+    "emailPasswordTab": "メール & パスワード",
+    "passwordLabel": "パスワード",
+    "repeatPasswordLabel": "パスワード（確認）",
+    "signInButton": "サインイン",
+    "createAccountButton": "アカウントを作成",
+    "forgotPassword": "パスワードをお忘れですか？",
+    "noAccount": "アカウントをお持ちでないですか？",
+    "signUpLink": "登録",
+    "haveAccount": "すでにアカウントをお持ちですか？",
+    "signInLink": "サインイン",
+    "checkEmailTitle": "メールを確認してください",
+    "checkEmailBody": "{email} に送信した 6 文字のコードを入力してください。",
+    "codeLabel": "コード",
+    "back": "戻る",
+    "resendCode": "コードを再送信",
+    "chooseAccountTitle": "アカウントを選択",
+    "chooseAccountSubtitle": "cmux に進む",
+    "useAnotherAccount": "別のアカウントを使用",
+    "forgetAccount": "{account} をこの一覧から削除",
+    "signedOut": "サインアウト済み",
+    "signingInAs": "{account} としてサインインしています…",
+    "sessionEnded": "このアカウントはサインアウトしました。続けるにはもう一度サインインしてください。",
+    "redirecting": "サインインしています…",
+    "lastUsed": "前回使用",
+    "legal": "続行すると、{terms}と{privacy}に同意したことになります。",
+    "termsOfService": "利用規約",
+    "privacyPolicy": "プライバシーポリシー",
+    "signUpDisabled": "現在、新しいアカウントは作成できません。",
+    "noMethods": "現在サインインできません。しばらくしてからもう一度お試しください。",
+    "embeddedDisabled": "埋め込みページではサインインボタンが無効です。このページを別のタブで開いてください。",
+    "errorInvalidEmail": "有効なメールアドレスを入力してください。",
+    "errorPasswordRequired": "パスワードを入力してください。",
+    "errorPasswordTooShort": "{min} 文字以上で入力してください。",
+    "errorPasswordTooLong": "{max} 文字以内で入力してください。",
+    "errorPasswordsDontMatch": "パスワードが一致しません。",
+    "errorWrongPassword": "メールアドレスまたはパスワードが正しくありません。",
+    "errorInvalidCode": "このコードは無効です。メールを確認してもう一度お試しください。",
+    "errorInvalidTotp": "この 2 要素認証コードは無効です。",
+    "errorSignUpNotAllowed": "現在、新しいアカウントは作成できません。",
+    "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
+    "errorGeneric": "問題が発生しました。もう一度お試しください。"
   }
 }
