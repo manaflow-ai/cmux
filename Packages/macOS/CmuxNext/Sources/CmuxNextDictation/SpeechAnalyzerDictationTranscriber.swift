@@ -260,12 +260,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         guard buffer.frameLength > 0 else { return }
         if buffer.format == analyzerFormat {
             let result = continuation.yield(
-                AnalyzerInput(
-                    buffer: buffer,
-                    bufferStartTime: timeline.start(
-                        at: input.bufferStartTime, frames: buffer.frameLength, sampleRate: analyzerFormat.sampleRate
-                    )
-                )
+                timeline.input(buffer, capturedAt: input.bufferStartTime)
             )
             if case .dropped = result {
                 throw DictationFailure.audioCaptureFailed("converted audio backlog")
@@ -286,12 +281,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         }
         let converted = try converter.convertOne(buffer, to: analyzerFormat)
         let result = continuation.yield(
-            AnalyzerInput(
-                buffer: converted,
-                bufferStartTime: timeline.start(
-                    at: input.bufferStartTime, frames: converted.frameLength, sampleRate: analyzerFormat.sampleRate
-                )
-            )
+            timeline.input(converted, capturedAt: input.bufferStartTime)
         )
         if case .dropped = result {
             throw DictationFailure.audioCaptureFailed("converted audio backlog")
