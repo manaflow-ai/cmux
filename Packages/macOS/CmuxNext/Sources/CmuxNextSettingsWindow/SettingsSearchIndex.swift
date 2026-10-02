@@ -65,8 +65,7 @@ public enum SettingsSearchIndex {
         let matches = matching(words, in: entries)
         let phrase = words.joined(separator: " ")
         func rank(_ entry: SettingsSearchEntry) -> Int {
-            let title = entry.title.lowercased()
-            if title.hasPrefix(phrase.lowercased()) { return 0 }
+            if entry.title.range(of: phrase, options: [.anchored, .caseInsensitive, .diacriticInsensitive]) != nil { return 0 }
             return words.allSatisfy { entry.title.localizedStandardContains($0) } ? 1 : 2
         }
         return matches.enumerated().min { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }?.element
