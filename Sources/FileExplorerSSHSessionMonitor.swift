@@ -81,9 +81,10 @@ actor FileExplorerSSHSessionMonitor {
         detectionTask?.cancel()
         let detector = detector
         detectionTask = Task { [weak self] in
-            let session = await Task.detached(priority: .utility) {
-                detector(nextContext.ttyName)
-            }.value
+            let session = await TerminalSSHSessionDetector.detectAsync(
+                forTTY: nextContext.ttyName,
+                detector: detector
+            )
             guard !Task.isCancelled, let self else { return }
             await self.record(session, for: nextContext)
         }

@@ -159,6 +159,10 @@ struct PlainSSHFileExplorerRootTests {
                 == "/srv/project"
         )
         #expect(
+            TerminalSSHSessionDetector.remoteWorkingDirectory(fromTitle: "deploy@[2001:db8::1]:/srv/project")
+                == "/srv/project"
+        )
+        #expect(
             TerminalSSHSessionDetector.remoteWorkingDirectory(fromTitle: "build-host:~/project") == nil
         )
         #expect(

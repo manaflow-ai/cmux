@@ -11,17 +11,14 @@ extension TerminalSSHSessionDetector {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let atIndex = trimmed.firstIndex(of: "@") else { return nil }
         let afterAt = trimmed[trimmed.index(after: atIndex)...]
-        guard let colonIndex = afterAt.firstIndex(of: ":") else { return nil }
-        var cwd = afterAt[afterAt.index(after: colonIndex)...]
+        guard let colonIndex = afterAt.indices.first(where: { index in
+            guard afterAt[index] == ":" else { return false }
+            let next = afterAt.index(after: index)
+            guard next < afterAt.endIndex else { return false }
+            return afterAt[next] == "/" || afterAt[next] == "~"
+        }) else { return nil }
+        let cwd = afterAt[afterAt.index(after: colonIndex)...]
             .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // A title that includes an explicit SSH port can be rendered as
-        // `user@host:22:/path`; accept the path-bearing second separator.
-        if let secondColon = cwd.firstIndex(of: ":"),
-           cwd[..<secondColon].allSatisfy(\.isNumber) {
-            cwd = cwd[cwd.index(after: secondColon)...]
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
         guard cwd == "~" || cwd.hasPrefix("/") || cwd.hasPrefix("~/") else { return nil }
         return cwd
     }
