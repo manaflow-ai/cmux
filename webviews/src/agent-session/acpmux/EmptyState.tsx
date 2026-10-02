@@ -1,4 +1,6 @@
 import React from "react";
+import type { AcpmuxSnapshot } from "./model";
+import { projectLabel } from "./sessionList";
 
 /// Empty-state copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const EMPTY_STATE_LABELS = {
@@ -7,13 +9,24 @@ export const EMPTY_STATE_LABELS = {
   promptIn: "What should we build in {project}?",
 };
 
-/// The folder name of a session's working directory, or nothing for the root or no directory.
+/// The hero's folder: the sidebar's project label, or nothing for no folder or the home folder.
 export function projectName(cwd: string | undefined): string | undefined {
-  const name = cwd?.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
-  return name || undefined;
+  if (!cwd?.replace(/\/+$/, "")) return undefined;
+  const label = projectLabel(cwd);
+  return label === "~" ? undefined : label;
 }
 
-/// A new chat's hero, centered over the empty transcript as Codex's home and
+/// A new chat: the attached session's own summary says it has no turns yet and
+/// nothing is on screen. Requiring that summary keeps the hero away while no
+/// daemon is reachable and between a session's reset and its attach.
+export function isNewChat(snapshot: AcpmuxSnapshot): boolean {
+  const summary = snapshot.summary;
+  if (!summary || summary.sessionId !== snapshot.sessionId) return false;
+  if (/^(connecting|disconnected|failed)/.test(snapshot.connection)) return false;
+  return snapshot.rows.length === 0 && !snapshot.isWorking && (summary.turnCount ?? 0) === 0;
+}
+
+/// A new chat's hero, centered in place of the empty transcript as Codex's home and
 /// new-chat screens draw it, quieter: a small prompt glyph and one line naming
 /// the session's project.
 export function EmptyState({ project }: { project?: string }) {

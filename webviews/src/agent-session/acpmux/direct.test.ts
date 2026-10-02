@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { AcpmuxDirectClient, applySupersededMessage, initialSession, mergeEventRecords, permissionFromMessage, settleOptimisticPrompt } from "./direct";
 import type { EventRecord } from "./direct";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { isNewChat } from "./EmptyState";
 
 describe("direct acpmux event helpers", () => {
   test("uses the permission notification envelope session id", () => {
@@ -139,6 +140,22 @@ describe("direct client session state", () => {
   afterEach(() => { (globalThis as any).WebSocket = realSocket; });
 
   const connect = () => AcpmuxDirectClient.connect(host, (snapshot) => snapshots.push(snapshot));
+
+  test("a fresh session whose first kept record is its command list is a new chat with its folder", async () => {
+    const commands: EventRecord = { sessionId: "a", seq: 14, at: 14, dir: "in", kind: "available_commands_update", msg: { jsonrpc: "2.0", method: "session/update", params: { sessionId: "a", update: { sessionUpdate: "available_commands_update", availableCommands: [{ name: "review", description: "Review changes" }] } } } };
+    ScriptedSocket.respond = ({ method }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }] };
+      if (method === "_acpmux/attach") return { session: { sessionId: "a", status: "idle", cwd: "/Users/me/harness-research", turnCount: 0 }, events: [commands] };
+      return {};
+    };
+    const client = await connect();
+    await settle();
+    // Seq 14 leaves older records unloaded, so history alone cannot say the chat is new.
+    expect(latest().canLoadOlder).toBe(true);
+    expect(latest().summary?.cwd).toBe("/Users/me/harness-research");
+    expect(isNewChat(latest())).toBe(true);
+    client.close();
+  });
 
   test("connect attaches without waiting on the harness catalog, which the pane queries itself", async () => {
     ScriptedSocket.held = new Set(["_acpmux/harnesses"]);

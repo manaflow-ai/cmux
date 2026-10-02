@@ -656,31 +656,39 @@ describe("acpmux turn counts", () => {
 
 describe("acpmux new chat", () => {
   /// A new chat drew an empty transcript; it now names the project, as Codex's home and new-chat screens do.
-  test("an empty connected session shows the hero with its folder, and rows or a pending connection hide it", async () => {
+  test("an attached session with no turns shows the hero with its folder; rows, turns, a lost daemon or a missing summary hide it", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window;
-    const snapshot = (rows: unknown[], connection = "connected", cwd?: string) => ({ type: "snapshot", protocolVersion: 1, rows, sessions: [], connection, isWorking: false, queue: [], canLoadOlder: false, catalog: [], summary: { sessionId: "s", cwd } });
+    const snapshot = ({ rows = [] as unknown[], connection = "connected", cwd = "/Users/me/harness-research/" as string | undefined, turnCount = 0, summary = true } = {}) => ({ type: "snapshot", protocolVersion: 1, rows, sessions: [], connection, sessionId: "s", isWorking: false, queue: [], canLoadOlder: true, catalog: [], summary: summary ? { sessionId: "s", cwd, turnCount } : undefined });
     const hero = () => dom.window.document.querySelector(".acpmux-empty-title")?.textContent;
+    const show = async (value: ReturnType<typeof snapshot>) => act(async () => host.cmuxAcpmuxBridge!.receive(value as never));
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
-      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot([], "connecting", "/Users/me/harness-research") as never));
+      await show(snapshot({ connection: "connecting: connection refused" }));
       expect(hero()).toBeUndefined();
-      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot([], "connected", "/Users/me/harness-research/") as never));
+      await show(snapshot());
       expect(hero()).toBe("What should we build in harness-research?");
-      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot([]) as never));
+      expect(dom.window.document.querySelector(".acpmux-scroll")).toBeNull();
+      await show(snapshot({ cwd: "/Users/me" }));
       expect(hero()).toBe("What should we build?");
-      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot([{ id: "u1", version: 1, at: 1, kind: "user", text: "hi" }]) as never));
+      // Between a session's reset and its attach there is no summary yet.
+      await show(snapshot({ summary: false }));
       expect(hero()).toBeUndefined();
+      await show(snapshot({ turnCount: 2 }));
+      expect(hero()).toBeUndefined();
+      await show(snapshot({ rows: [{ id: "u1", version: 1, at: 1, kind: "user", text: "hi" }] }));
+      expect(hero()).toBeUndefined();
+      expect(dom.window.document.querySelector(".acpmux-scroll")).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
     }
   });
 
-  test("the project is the working directory's last component", async () => {
+  test("the folder is the sidebar's project label, without the home folder or the root", async () => {
     const { projectName } = await import("./EmptyState");
     expect(projectName("/Users/me/cmux")).toBe("cmux");
     expect(projectName("/Users/me/cmux//")).toBe("cmux");
-    expect(projectName("C:\\work\\repo")).toBe("repo");
+    expect(projectName("/Users/me")).toBeUndefined();
     expect(projectName("/")).toBeUndefined();
     expect(projectName(undefined)).toBeUndefined();
   });
