@@ -52,7 +52,7 @@ Pinning audit of today's recipe:
 | coding agents (npm, exact top-level versions) | dependencies float, install scripts run unverified |
 | Ghostty .deb, cmux-tui, guest CLI | pinned and sha256-verified |
 
-Other findings: `/etc/machine-id`, `boot_id` and the systemd random seed are equal on every clone; `/var/cache/apt` keeps 291 MiB of downloaded packages; no secret was found in the image (SSH host keys are re-keyed per clone; the model-plane file holds only the placeholder key, and the TLS edge injects the route token). `/dev/urandom` output already differed between clones before the supervisor's reseed on kernel 6.1.102, but the reseed stays (section 6).
+Other findings: `/etc/machine-id`, `boot_id` and the systemd random seed are equal on every clone; `/var/cache/apt` keeps 291 MiB of downloaded packages; no secret was found in the image (SSH host keys are re-keyed per clone; the model-plane file holds only the placeholder key, and the TLS edge injects the route token). `/dev/urandom` output differed between clones of an old snapshot even before the supervisor's reseed, but forks made seconds after a snapshot shared it (section 6.1), so the reseed stays.
 
 Shipping to running machines is limited today (docs/cloud-guest-upgrades.md): only the cmux-tui binary can be upgraded in place; the supervisor, units, packages and agent pins change only through a rebake (about 4 min bake + 3 min verify + size derivation) and reach only new machines.
 
@@ -111,7 +111,7 @@ Measured variants (all from `freestyle/ubuntu-sm`, 2 vCPU, 4 GiB, 16 GB; 5 clone
 
 The proposed row is one integrated prototype of sections 4.5 to 6 (bind agent in Python for the prototype; the real one is Rust inside `cmux`). Against today it cuts disk by 1.9 GB, inodes by 36%, idle CPU by 96% (3.34 to 0.144 CPU-s/min), process creations from 461 to 5 per minute, and idle memory by more than half; the bind agent wakes 21 to 27 ms before `vms.create` returns. Stripping the base's npm globals alone saved 1.72 GB: the unrequested agent package, the npm copy of bun and TypeScript tools (0.71 GB) and the base's floating copies of three coding agents (1.01 GB), which the store replaces. Its daemon listens about 100 ms later than the lean row: spawn to listening is about 430 ms on a clone versus 260 ms with a warm page cache, most likely because the page cache was dropped before the snapshot (no A/B yet; section 4.7). A team clone's `vms.create` takes 435 to 491 ms instead of 98 to 254 ms when Postgres runs at snapshot time (cause UNVERIFIED); section 4.7 avoids it.
 
-Recommendation: one image, `lean` contents, roles at create, desktop off by default.
+Recommendation: one image, `proposed` contents, roles at create, desktop off by default. The 0.5 s daemon-listening goal is not met yet (584 ms p50); the page-cache step in section 4.7 is the first lever, then the daemon's own start path.
 
 ### 4.4 Desktop
 
@@ -175,8 +175,8 @@ Budget for an idle machine (no client attached, no agent running): total under 0
 
 ### 4.11 CI bake and smoke test
 
-- Workflow `cloud-vm-image-bake.yml` (dispatch, and on changes to `images/cmux-vm/**` on the cmux-next branch): bakes on the staging Freestyle account into `cmuxnp-…`-named prototype snapshots for branches and `cmux-vm-<date>-<sha>` for promotions; derives the size ladder (about 30 s with parallel rows, as today).
-- Smoke (gate before any manifest change), on two clones of each new snapshot: daemon listening under the latency budget; bound instance id equals the provider's; every identity item differs between the two clones (machine-id, SSH host keys, daemon identity, WireGuard key, first `/dev/urandom` bytes); every store package runs (`--version`); `cr capabilities --json`; the agents' first interactive launch reaches the composer (the tmux screen check today's verifier does); idle CPU over 120 s under the budget and zero process creations; the secret scan; the SBOM generated and signed; Postgres reachable on the team role; the updater applies and rolls back a test manifest.
+- Workflow `cloud-vm-image-bake.yml` (dispatch, and on changes to `images/cmux-vm/**` on the cmux-next branch). Snapshots are account-scoped, so a promotion bakes on the account that serves production (`cmux-vm-<date>-<sha>`), as today; branch bakes use `cmuxnp-…` names and are deleted by id after the smoke. A separate non-production Freestyle account would isolate branch bakes (decision in the lane report). The bake derives the size ladder (about 30 s with parallel rows, as today) and takes about 1 minute (66 s for the prototype, versus about 4 minutes today).
+- Smoke (gate before any manifest change), on two clones of each new snapshot: daemon listening under the latency budget; bound instance id equals the provider's; every identity item differs between the two clones (machine-id, SSH host keys, daemon identity, WireGuard key, first `/dev/urandom` bytes); every store package runs (`--version`); `cr capabilities --json`; the agents' first interactive launch reaches the composer (the tmux screen check today's verifier does); idle CPU over 120 s under the budget and no process creations other than the sampler's; the secret scan; the SBOM generated and signed; Postgres reachable on the team role; the updater applies and rolls back a test manifest.
 - Promotion stays a reviewed change to the image manifest; rollback is its revert (as today).
 
 ## 5. Team VM and servers
@@ -266,11 +266,11 @@ Kernel 6.1.102 with everything built in and no loadable modules: WireGuard (`ip 
 | `vm.image.rollback {machine, generation}` | `cmux vm image rollback <m> --generation G --wait` | yes | "Roll Back Machine Software" | |
 | `vm.image.sbom {image}` | `cmux vm image sbom <image> --json` | yes | exempt (no UI value beyond show) | |
 
-Settings: `cloud.machines.channel` (`stable` default, `beta`), `cloud.machines.desktop` (off by default), `cloud.machines.autoUpdate` (on; off pins the generation). Team policy can enforce each (spec/enterprise.md). Right-click on a machine row: Update Machine Software, Show Machine Image.
+Settings: `cloud.machines.channel` (`stable` default, `beta`), `cloud.machines.desktop` (off by default), `cloud.machines.autoUpdate` (on; off pins the generation), `cloud.machines.setup` (a user or team script run once on each new machine after bind, off the critical path, output in the machine's log), `cloud.machines.dotfiles` (a git URL cloned into the work user's home after bind). Packages a team wants in the image itself are a later team layer, not phase 1. Team policy can enforce each (spec/enterprise.md). Right-click on a machine row: Update Machine Software, Show Machine Image.
 
 ## 11. Steps
 
-1. `images/cmux-vm/` with the lock, the L1 recipe and the smoke; bake on staging; numbers against section 3.
+1. `images/cmux-vm/` with the lock, the L1 recipe and the smoke; branch bakes with `cmuxnp-` names; numbers against section 3.
 2. `cmux host` bind and supervisor role in the Rust binary (replaces `cmux-devbox-boot`), with the clone tests.
 3. Store updater role, channel manifest signing in CI, files.cmux.com mirror.
 4. Team role and servers: enable what the server lane specifies; JuiceFS after the storage spike; automations host.
