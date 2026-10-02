@@ -15,6 +15,9 @@ public protocol TerminalFindTarget: AnyObject {
     func endSearch()
     /// Removes the terminal's text selection.
     func clearSelection()
+    /// True while another mode owns the selection (copy mode's `v`), so
+    /// closing find must leave it.
+    var isSelectionPinned: Bool { get }
     /// Gives the keyboard back to the terminal.
     func focusTerminal()
 }

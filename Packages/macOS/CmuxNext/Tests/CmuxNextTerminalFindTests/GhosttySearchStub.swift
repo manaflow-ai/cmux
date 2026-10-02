@@ -32,6 +32,8 @@ final class GhosttySearchStub: TerminalFindTarget {
     /// The match Ghostty scrolled the viewport to, when it had to.
     private(set) var scrolledToMatch: Int?
     private(set) var hasSelection = true
+    /// Copy mode owns the selection (its `v`).
+    var isSelectionPinned = false
     private var pending: [(TerminalFindController) -> Void] = []
 
     var isSearching: Bool { needle != nil }
@@ -85,6 +87,14 @@ final class GhosttySearchStub: TerminalFindTarget {
 
     func focusTerminal() {
         calls.append(.focusTerminal)
+    }
+
+    /// A reconnect replay swapped in a fresh surface: it has no search and
+    /// nothing queued from the old one arrives.
+    func replaceSurface() {
+        needle = nil
+        selectedMatch = nil
+        pending.removeAll()
     }
 
     /// Delivers every queued search event, as the main actor would.

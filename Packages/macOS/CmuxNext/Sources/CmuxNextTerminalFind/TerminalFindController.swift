@@ -47,11 +47,14 @@ public final class TerminalFindController {
         self.target = target
     }
 
-    /// Shows the bar and asks it to take the keyboard with the query selected.
+    /// Shows the bar and, for the user, asks it to take the keyboard with
+    /// the query selected.
     ///
     /// - Parameter seed: Text to search for instead of the last query (the
     ///   selection, or a CLI argument). Nil or empty keeps the last query.
-    public func open(seed: String? = nil) {
+    /// - Parameter takeFocus: False for a socket or CLI run that may not
+    ///   change the user's view: the bar shows without taking the keyboard.
+    public func open(seed: String? = nil, takeFocus: Bool = true) {
         let seed = seed.flatMap { $0.isEmpty ? nil : $0 }
         if isPresented {
             if let seed { updateQuery(seed) }
@@ -81,9 +84,11 @@ public final class TerminalFindController {
     /// Selects the next or previous match. Opens the bar with the last
     /// query when it was closed.
     ///
+    /// - Parameter takeFocus: Whether reopening the bar may take the keyboard
+    ///   (see ``open(seed:takeFocus:)``).
     /// - Returns: False when there is no query to step through.
     @discardableResult
-    public func navigate(_ direction: TerminalFindDirection) -> Bool {
+    public func navigate(_ direction: TerminalFindDirection, takeFocus: Bool = true) -> Bool {
         guard !query.isEmpty else { return false }
         guard isPresented else {
             open()
@@ -96,15 +101,25 @@ public final class TerminalFindController {
         return true
     }
 
-    /// Hides the bar, ends the search (removing every highlight), clears
-    /// the terminal's selection and gives the keyboard back to the terminal.
-    public func close() {
+    /// Hides the bar and ends the search, removing every highlight. For
+    /// the user it also clears the terminal's selection (unless copy mode
+    /// owns it) and gives the keyboard back to the terminal.
+    ///
+    /// - Parameter restoringFocus: False for a socket or CLI run that may
+    ///   not change the user's view: focus and the selection stay as they are.
+    public func close(restoringFocus: Bool = true) {
         guard isPresented else { return }
         isPresented = false
         resetResults()
         target?.endSearch()
         target?.clearSelection()
         target?.focusTerminal()
+    }
+
+    /// The terminal swapped in a fresh surface (a reconnect replay), which
+    /// has no search: while the bar is open, search the new one again.
+    public func surfaceReplaced() {
+        // Placeholder for the failing tests.
     }
 
     /// Ghostty started a search itself (its own `start_search` or

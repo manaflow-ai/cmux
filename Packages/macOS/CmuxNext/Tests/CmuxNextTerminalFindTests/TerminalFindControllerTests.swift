@@ -219,6 +219,85 @@ struct TerminalFindControllerTests {
         #expect(find.count == .position(1, of: 5))
     }
 
+    // MARK: Socket and CLI runs (no view change)
+
+    @Test func aCLIOpenOrStepNeverTakesTheKeyboard() {
+        let (find, stub) = makeFind()
+        find.open(seed: "error", takeFocus: false)
+        stub.flush()
+        #expect(find.isPresented)
+        #expect(find.focusRequest == 0)
+        #expect(find.count == .position(1, of: 12))
+
+        find.close(restoringFocus: false)
+        stub.flush()
+        #expect(find.navigate(.next, takeFocus: false))
+        stub.flush()
+        #expect(find.isPresented)
+        #expect(find.focusRequest == 0)
+    }
+
+    @Test func aCLICloseLeavesFocusAndTheSelection() {
+        let (find, stub) = makeFind()
+        find.open()
+        type("error", into: find, stub)
+        find.close(restoringFocus: false)
+        stub.flush()
+
+        #expect(!find.isPresented)
+        #expect(!stub.isSearching)
+        #expect(stub.hasSelection)
+        #expect(!stub.calls.contains(.clearSelection))
+        #expect(!stub.calls.contains(.focusTerminal))
+    }
+
+    // MARK: Reconnect
+
+    @Test func aReplacedSurfaceIsSearchedAgainWhileTheBarIsOpen() {
+        let (find, stub) = makeFind()
+        find.open()
+        type("error", into: find, stub)
+        find.navigate(.next)
+        stub.flush()
+
+        stub.replaceSurface()
+        find.surfaceReplaced()
+        stub.flush()
+        #expect(stub.needle == "error")
+        #expect(find.count == .position(1, of: 12))
+
+        find.navigate(.next)
+        stub.flush()
+        #expect(find.count == .position(2, of: 12))
+    }
+
+    @Test func aReplacedSurfaceIsNotSearchedWhileTheBarIsClosed() {
+        let (find, stub) = makeFind()
+        find.open()
+        type("error", into: find, stub)
+        find.close()
+        stub.flush()
+        stub.replaceSurface()
+        find.surfaceReplaced()
+        #expect(!stub.isSearching)
+    }
+
+    // MARK: Copy mode
+
+    @Test func closingFindOverACopyModeSelectionKeepsIt() {
+        let (find, stub) = makeFind()
+        stub.isSelectionPinned = true
+        find.open()
+        type("error", into: find, stub)
+        find.close()
+        stub.flush()
+
+        #expect(stub.hasSelection)
+        #expect(!stub.calls.contains(.clearSelection))
+        #expect(stub.calls.last == .focusTerminal)
+        #expect(!stub.isSearching)
+    }
+
     // MARK: Keys
 
     @Test(arguments: [

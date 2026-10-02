@@ -23,6 +23,10 @@ extension TerminalSession: TerminalFindTarget {
         _ = ghostty_surface_clear_selection(surface)
     }
 
+    /// Copy mode owns the selection while it is active (find opened with
+    /// its `/` must not clear a `v` selection).
+    public var isSelectionPinned: Bool { surfaceView.copyMode.isActive }
+
     public func focusTerminal() {
         focus()
     }
