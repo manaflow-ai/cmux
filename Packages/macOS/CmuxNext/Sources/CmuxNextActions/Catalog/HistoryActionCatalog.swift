@@ -3,8 +3,8 @@
 // Page history stays `browserBack` / `browserForward` (Cmd-[ / Cmd-]).
 // Titles live in HistoryActions.xcstrings.
 
-nonisolated extension ActionCatalog {
-    static func historyActions() -> [ActionDescriptor] {
+nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         [
             // The ids are the cmux.json shortcut keys of the old Focus
             // Back/Forward rows, so user bindings keep working.

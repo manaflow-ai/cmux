@@ -1,8 +1,8 @@
 // Catalog rows for resource usage (hover-card CPU and memory). Titles live
 // in Localizable.xcstrings. The numbers are the `resources` control method.
 
-nonisolated extension ActionCatalog {
-    static func resourceActions() -> [ActionDescriptor] {
+nonisolated enum ResourceActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
                 id: "tab.showResources",

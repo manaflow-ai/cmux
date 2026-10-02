@@ -2,8 +2,8 @@
 // `browser.hibernation` setting and the per-tab Hibernate / Wake commands.
 // Titles live in HibernationActions.xcstrings.
 
-nonisolated extension ActionCatalog {
-    static func hibernationActions() -> [ActionDescriptor] {
+nonisolated enum HibernationActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         [
             setting("browser.hibernation.off", title: t("action.hibernation.off", "Turn Off Tab Hibernation"), symbol: "moon.zzz",
                     keywords: ["browser", "hibernation", "memory", "saver", "discard", "sleep", "off", "disable"],

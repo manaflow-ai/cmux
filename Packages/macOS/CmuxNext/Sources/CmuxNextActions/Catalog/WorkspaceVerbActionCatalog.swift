@@ -2,8 +2,8 @@
 // verbs"): placement, duplicate, icon, order, sort, navigation and merge.
 // Titles live in WorkspaceActions.xcstrings.
 
-nonisolated extension ActionCatalog {
-    static func workspaceVerbActions() -> [ActionDescriptor] {
+nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
+    static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
                 id: "workspace.newAbove",
