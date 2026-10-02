@@ -10,6 +10,15 @@ nonisolated extension ActionCatalog {
                 surfaces: [.palette, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
             ),
             ActionDescriptor(
+                id: "palette.toggleDictation",
+                title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),
+                keywords: ["dictation", "dictate", "voice", "speech", "microphone", "mic", "push to talk"],
+                // Ctrl-Cmd-V: no terminal, shell or system meaning. Hold it to talk.
+                defaultShortcut: Shortcut("v", modifiers: [.control, .command]),
+                category: .agents, symbol: "mic", surfaces: [.palette, .keyboard, .menu],
+                targets: [.pane], cliName: "agent toggle-dictation", mainMenu: .edit
+            ),
+            ActionDescriptor(
                 id: "palette.openTerminalChatView",
                 title: String(localized: "action.palette.openTerminalChatView", defaultValue: "Open Terminal as Chat", bundle: .module),
                 keywords: ["agent", "chat"], category: .agents, symbol: "text.bubble", surfaces: [.palette],
