@@ -47,6 +47,10 @@ struct CloudWorkspaceSidebarPresentation {
     init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool) {
         let state = workspace.cloudBindingState
 
+        func machineName(for id: String) -> String? {
+            state.machineNames[id] ?? state.machineNames[SurfaceMachineID.cloud(id).rawValue]
+        }
+
         var cloudMachineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
         if let id = workspace.cloudVMID { cloudMachineIDs.insert(id) }
         let deviceMachines = Self.deviceMachines(for: workspace)
@@ -57,7 +61,7 @@ struct CloudWorkspaceSidebarPresentation {
         guard !machineIDs.isEmpty else { return nil }
         deviceLabel = Self.deviceLabel(workspace: workspace, machines: deviceMachines)
         let names = Dictionary(uniqueKeysWithValues: machineIDs.map { id in
-            let name = state.machineNames[id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
+            let name = machineName(for: id)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
             return (id, name.isEmpty ? id : name)
         })
         // A restored Cloud terminal can publish its projection before the
@@ -69,7 +73,7 @@ struct CloudWorkspaceSidebarPresentation {
             resource.machine.cloudMachineID
         })
         guard projectedCloudMachineIDs.allSatisfy({ id in
-            guard let name = state.machineNames[id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+            guard let name = machineName(for: id)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !name.isEmpty else { return false }
             return name != id
         }) else { return nil }
