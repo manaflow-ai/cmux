@@ -66,6 +66,11 @@ enum OnboardingStrings {
         String(localized: "onboarding.theme.subtitle", defaultValue: "A Ghostty theme for cmux. Your Ghostty config does not change.", bundle: .module)
     }
     static var ghosttyTheme: String { String(localized: "onboarding.welcome.ghosttyTheme", defaultValue: "Your Ghostty Theme", bundle: .module) }
+    static var appleSystemTheme: String {
+        String(localized: "onboarding.theme.appleSystem", defaultValue: "Apple System (follows appearance)", bundle: .module)
+    }
+    /// The name a theme choice shows.
+    static func themeName(_ choice: ThemeChoice) -> String { choice.label ?? choice.name ?? ghosttyTheme }
     static var previewLabel: String { String(localized: "onboarding.preview.label", defaultValue: "Preview of cmux with your choices", bundle: .module) }
 
     // Accounts
