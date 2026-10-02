@@ -25,7 +25,7 @@ enum MacConversationTheme {
     static let runSpacing: CGFloat = 12
     /// Incoming avatar column starts 20 pt in; outgoing bodies end 21 pt in.
     static let sideMargin: CGFloat = 20
-    static let outgoingMargin: CGFloat = 21
+    static let outgoingMargin: CGFloat = 20.5
     static let avatarSize: CGFloat = 25
     static let avatarGap: CGFloat = 10
     static let senderNameInset: CGFloat = 12

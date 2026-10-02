@@ -100,6 +100,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         tableView.addTableColumn(column)
         tableView.headerView = nil
         tableView.intercellSpacing = .zero
+        // The default (inset) style pads every row 16 pt on both sides.
+        tableView.style = .plain
         tableView.selectionHighlightStyle = .none
         tableView.backgroundColor = .clear
         tableView.gridStyleMask = []
@@ -138,9 +140,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             // The content pane extends under the floating sidebar; the transcript starts beside it.
-            // Measured: Messages' transcript column starts 15 pt inside the
-            // floating sidebar's safe-area edge (the panel's shadow inset).
-            scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: -15),
+            scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             replyBanner.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
