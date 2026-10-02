@@ -43,6 +43,33 @@ struct AppsProjectionTests {
         #expect(projection.revision == 5)
     }
 
+    @Test func aListRequestedBeforeAConfirmIsIgnored() throws {
+        var projection = AppsProjection()
+        projection.applyList(Self.base, revision: 1)
+        let id = "cmux/agent-status"
+        let early = projection.listRequested()
+        projection.enqueue(AppIntent(id: "k1", app: id, change: .hide(true), origin: .user))
+        var committed = try #require(Self.base.first { $0.id == id })
+        committed.hidden = true
+        projection.confirm("k1", record: committed)
+        // The early reply was produced before the commit (same revision as the first list).
+        projection.applyList(Self.base, revision: 1, request: early)
+        #expect(projection.visible(id)?.hidden == true)
+        let late = projection.listRequested()
+        projection.applyList(Self.base.map { $0.id == id ? committed : $0 }, revision: 2, request: late)
+        #expect(projection.visible(id)?.hidden == true)
+    }
+
+    @Test func aNewConnectionAcceptsALowerRevision() {
+        var projection = AppsProjection()
+        projection.applyList(Self.base, revision: 9)
+        projection.newConnection()
+        var restarted = Self.base
+        restarted[0].hidden = true
+        projection.applyList(restarted, revision: 1)
+        #expect(projection.mirror == restarted)
+    }
+
     @Test func removalClearsHideAndGrantsInTheProjection() throws {
         let record = try #require(Self.base.first { $0.isDefault })
         var hidden = record

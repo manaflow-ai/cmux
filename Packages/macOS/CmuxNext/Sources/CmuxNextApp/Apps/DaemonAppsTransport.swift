@@ -71,13 +71,18 @@ final class DaemonAppsTransport: AppsTransport {
     // MARK: Commands
 
     private func send<R: DaemonRequest>(_ request: R, timeout: Duration? = nil) async throws(AppsTransportError) -> R.Response {
-        guard availability.isAvailable, let connection = daemon.connection else { throw AppsTransportError(message: DaemonError.notConnected.description) }
+        guard availability.isAvailable, let connection = daemon.connection else {
+            throw AppsTransportError(message: DaemonError.notConnected.description, connectionLost: true)
+        }
         do {
             if let timeout { return try await connection.request(request, timeout: timeout) }
             return try await connection.request(request)
         } catch let error as DaemonError {
-            if case .command(_, let message, let code) = error { throw AppsTransportError(code: code, message: message) }
-            throw AppsTransportError(message: error.description)
+            switch error {
+            case .command(_, let message, let code): throw AppsTransportError(code: code, message: message)
+            case .notConnected, .connectionClosed, .daemonShutdown: throw AppsTransportError(message: error.description, connectionLost: true)
+            default: throw AppsTransportError(message: error.description)
+            }
         } catch {
             throw AppsTransportError(message: String(describing: error))
         }

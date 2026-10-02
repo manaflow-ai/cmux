@@ -41,11 +41,15 @@ public final class AppsClient {
     @ObservationIgnored private var nextKey = 0
     @ObservationIgnored var nextLog = 1
     @ObservationIgnored var nextMount = 1
-    /// User events go out one after another, in the order they happened.
-    @ObservationIgnored var dispatchTail: Task<Void, Never>?
+    /// Mount, unmount and user events go out one after another, in order.
+    @ObservationIgnored var tail: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
     /// Intents the supervisor has not answered, by key (in flight).
     @ObservationIgnored private var inFlight: Set<String> = []
+    /// The availability epoch the client last connected for (one `connected()` per epoch).
+    @ObservationIgnored private var connectedEpoch: Int?
+    /// Apps whose log is followed (followed again after a reconnect).
+    @ObservationIgnored var followed: Set<String> = []
     @ObservationIgnored let keyPrefix = UUID().uuidString.prefix(8).lowercased()
     static let logLimit = 500
 
@@ -58,9 +62,12 @@ public final class AppsClient {
     /// Starts following the supervisor.
     public func start() {
         transport.start()
-        availability = transport.availability
-        if availability.isAvailable { connected() }
+        handle(.availability(transport.availability))
     }
+
+    func setLogs(_ app: String, _ lines: [AppLogLine]) { logs[app] = lines }
+
+    private var epoch: Int? { if case .available(let epoch) = availability { epoch } else { nil } }
 
     /// Visible records (mirror + pending intents), in the owner's order.
     public var apps: [AppRecord] { projection.visible }
@@ -86,18 +93,27 @@ public final class AppsClient {
     }
 
     private func send(_ intent: AppIntent) async throws(AppsClientError) {
+        let sentIn = epoch
         inFlight.insert(intent.id)
         defer { inFlight.remove(intent.id) }
         do throws(AppsTransportError) {
             let record = try await transport.set(app: intent.app, change: intent.change, origin: intent.origin, idempotencyKey: intent.id)
             projection.confirm(intent.id, record: record)
             rejections[intent.app] = nil
+        } catch where error.connectionLost {
+            // Sent, then the connection dropped: the intent stays and goes
+            // again with its key on the next connection. When that one is
+            // already up (a reconnect while this call was in flight), now.
+            if let now = epoch, now != sentIn {
+                // task-owner: one resend of an intent whose connection was replaced while it was in flight
+                Task { [weak self] in try? await self?.send(intent) }
+            }
+            throw .unavailable(unavailableReason ?? .notConnected)
         } catch {
-            // A dropped connection keeps the intent: it was sent, so it is
-            // resent with its key on reconnect. Anything else is a refusal.
-            if !availability.isAvailable, error.code == nil { throw .unavailable(unavailableReason ?? .notConnected) }
             projection.reject(intent.id)
             rejections[intent.app] = error.message
+            // The owner may have committed something else meanwhile; list again.
+            refresh()
             throw .refused(error)
         }
     }
@@ -121,10 +137,15 @@ public final class AppsClient {
     func handle(_ event: AppsTransportEvent) {
         switch event {
         case .availability(let next):
-            let was = availability
             availability = next
-            guard was != next else { return }
-            if next.isAvailable { connected() } else { disconnected() }
+            if case .available(let epoch) = next {
+                guard connectedEpoch != epoch else { return }
+                connectedEpoch = epoch
+                connected()
+            } else {
+                connectedEpoch = nil
+                disconnected()
+            }
         case .changed:
             refresh()
         case let .scene(mountID, ops):
@@ -141,21 +162,29 @@ public final class AppsClient {
     /// Lists again (the reply replaces the mirror unless a newer one landed).
     public func refresh() {
         guard availability.isAvailable else { return }
+        let request = projection.listRequested()
         listing?.cancel()
         listing = Task { [weak self, transport] in
             guard let reply = try? await transport.list(), !Task.isCancelled else { return }
-            self?.projection.applyList(reply.apps, revision: reply.revision)
+            self?.projection.applyList(reply.apps, revision: reply.revision, request: request)
         }
     }
 
     private func connected() {
+        // A restarted supervisor may count revisions from scratch.
+        projection.newConnection()
+        hostStates.removeAll()
         refresh()
         remountAll()
-        // Intents sent before the disconnect go again with their keys; the
-        // supervisor's idempotency makes a repeat harmless.
-        for intent in projection.pending where !inFlight.contains(intent.id) {
-            // task-owner: one resend per pending intent after a reconnect
-            Task { [weak self] in try? await self?.send(intent) }
+        for app in followed { followLogs(app) }
+        // Intents sent before the disconnect go again with their keys, one
+        // after another in log order; the supervisor's idempotency makes a
+        // repeat harmless.
+        let resend = projection.pending.filter { !inFlight.contains($0.id) }
+        guard !resend.isEmpty else { return }
+        // task-owner: the ordered resend of pending intents after a reconnect
+        Task { [weak self] in
+            for intent in resend { try? await self?.send(intent) }
         }
     }
 
@@ -165,20 +194,4 @@ public final class AppsClient {
         for mount in mounts.values { mount.model.status = .disconnected(reason) }
     }
 
-    func appendLog(_ app: String, level: String, message: String, date: Date?) {
-        var lines = logs[app] ?? []
-        lines.append(AppLogLine(id: nextLog, date: date, level: level, message: message))
-        nextLog += 1
-        if lines.count > Self.logLimit { lines.removeFirst(lines.count - Self.logLimit) }
-        logs[app] = lines
-    }
-
-    /// Loads an app's log and follows it (`apps-logs {follow: true}`).
-    public func followLogs(_ app: String) async {
-        guard availability.isAvailable, let lines = try? await transport.logs(app: app, follow: true) else { return }
-        logs[app] = lines.suffix(Self.logLimit).map { line in
-            defer { nextLog += 1 }
-            return AppLogLine(id: nextLog, date: line.date, level: line.level, message: line.message)
-        }
-    }
 }

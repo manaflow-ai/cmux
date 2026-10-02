@@ -26,8 +26,25 @@ public nonisolated struct AppsProjection: Sendable, Hashable {
     /// Revision of the last applied `apps-list`; nil before the first.
     public private(set) var revision: UInt64?
     public private(set) var pending: [AppIntent] = []
+    /// Ids of `apps-list` requests: a reply to a request sent before the
+    /// last confirmed `apps-set` may predate that commit and is ignored
+    /// (requests on one connection are answered in order).
+    private var nextListRequest = 0
+    private var listFloor = 0
 
     public init() {}
+
+    /// Numbers an `apps-list` request; pass the id to `applyList`.
+    public mutating func listRequested() -> Int {
+        defer { nextListRequest += 1 }
+        return nextListRequest
+    }
+
+    /// A new connection: the supervisor may have restarted and count
+    /// revisions from scratch, so the next list applies whatever it says.
+    public mutating func newConnection() {
+        revision = nil
+    }
 
     /// The records the UI shows.
     public var visible: [AppRecord] { mirror.map(visible) }
@@ -39,8 +56,10 @@ public nonisolated struct AppsProjection: Sendable, Hashable {
     }
 
     /// An `apps-list` reply. An older revision than the one applied is
-    /// stale (a reply that crossed a newer one) and ignored.
-    public mutating func applyList(_ records: [AppRecord], revision: UInt64?) {
+    /// stale (a reply that crossed a newer one) and ignored, and so is a
+    /// reply to a request sent before the last confirmed change.
+    public mutating func applyList(_ records: [AppRecord], revision: UInt64?, request: Int? = nil) {
+        if let request, request < listFloor { return }
         if let revision, let current = self.revision, revision < current { return }
         mirror = records
         if let revision { self.revision = revision }
@@ -54,6 +73,7 @@ public nonisolated struct AppsProjection: Sendable, Hashable {
     /// The owner committed the intent: its reply is the app's record.
     public mutating func confirm(_ key: String, record: AppRecord) {
         pending.removeAll { $0.id == key }
+        listFloor = nextListRequest
         if let index = mirror.firstIndex(where: { $0.id == record.id }) { mirror[index] = record } else { mirror.append(record) }
     }
 

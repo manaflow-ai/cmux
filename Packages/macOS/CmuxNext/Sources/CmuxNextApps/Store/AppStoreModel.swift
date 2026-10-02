@@ -90,8 +90,5 @@ public final class AppStoreModel {
         try await client.set(id, .sandbox(sandboxed), origin: .user)
     }
 
-    private func followLogs(_ id: String) {
-        // task-owner: one log load when the log is expanded
-        Task { [client] in await client.followLogs(id) }
-    }
+    private func followLogs(_ id: String) { client.followLogs(id) }
 }

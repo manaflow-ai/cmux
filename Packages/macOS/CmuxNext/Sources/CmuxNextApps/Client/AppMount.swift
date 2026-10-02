@@ -59,8 +59,18 @@ extension AppsClient {
 
     public func unmount(_ mount: AppMount) {
         guard mounts.removeValue(forKey: mount.id) != nil, availability.isAvailable else { return }
-        // task-owner: one unmount; the supervisor also drops mounts of a closed connection
-        Task { [transport] in try? await transport.unmount(mountID: mount.id) }
+        // After its mount on the same chain; the supervisor also drops mounts of a closed connection.
+        enqueue { transport in try? await transport.unmount(mountID: mount.id) }
+    }
+
+    /// Runs `operation` after every earlier mount, unmount and user event.
+    private func enqueue(_ operation: @escaping @MainActor (any AppsTransport) async -> Void) {
+        let previous = tail
+        // task-owner: one transport call chained after the previous one (mount, unmount and event order)
+        tail = Task { [transport] in
+            await previous?.value
+            await operation(transport)
+        }
     }
 
     var liveMounts: [AppMount] { Array(mounts.values) }
@@ -75,12 +85,11 @@ extension AppsClient {
             return
         }
         mount.model.reset()
-        // task-owner: one apps-mount; the scene stream reports the rest
-        Task { [weak self, transport] in
+        enqueue { [weak self] transport in
             do throws(AppsTransportError) {
                 try await transport.mount(app: mount.appID, interface: mount.implementation.interface, mountID: mount.id, context: mount.context)
             } catch {
-                guard self?.mounts[mount.id] != nil else { return }
+                guard self?.mounts[mount.id] != nil, !error.connectionLost else { return }
                 mount.model.status = .failed(error.message)
             }
         }
@@ -88,11 +97,6 @@ extension AppsClient {
 
     func dispatch(_ mount: AppMount, node: String, event: String, payload: AppJSON) {
         guard availability.isAvailable, mounts[mount.id] != nil else { return }
-        let previous = dispatchTail
-        // task-owner: one user event, chained after the previous one so events arrive in order
-        dispatchTail = Task { [transport] in
-            await previous?.value
-            try? await transport.dispatch(mountID: mount.id, node: node, event: event, payload: payload)
-        }
+        enqueue { transport in try? await transport.dispatch(mountID: mount.id, node: node, event: event, payload: payload) }
     }
 }
