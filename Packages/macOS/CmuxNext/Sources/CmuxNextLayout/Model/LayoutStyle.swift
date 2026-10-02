@@ -60,6 +60,8 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var dropEdgeRange: ClosedRange<CGFloat> = 28...180
     /// Width of the "new column" drop zone centered on each column gap.
     public var newColumnDropWidth: CGFloat = 36
+    /// DEV layout model prototype (Debug Settings `layout.prototype.*`); off draws the real layout.
+    public var prototype = LayoutPrototypeSettings()
 
     public init() {}
 
@@ -115,6 +117,7 @@ extension LayoutStyle {
         if let value = LayoutTunables.newColumnDropWidth.override { style.newColumnDropWidth = value }
         if let width = LayoutTunables.minimumContentWidth.override { style.minimumPaneContentSize.width = width }
         if let height = LayoutTunables.minimumContentHeight.override { style.minimumPaneContentSize.height = height }
+        style.prototype = LayoutPrototypeSettings(model: LayoutTunables.prototypeModel.value, dockEdge: LayoutTunables.prototypeDockEdge.value)
         return style
     }
 }
