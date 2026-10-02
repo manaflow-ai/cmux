@@ -23,7 +23,7 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
 const { TrustFolderDialog } = await import("./TrustFolderDialog");
-const { needsTrust, readTrust } = await import("./folderTrust");
+const { needsTrust, readTrust, stricterTrust } = await import("./folderTrust");
 const { MockAcpmuxSocket } = await import("./mock");
 
 const doc = dom.window.document;
@@ -40,6 +40,12 @@ const key = (target: Element, name: string) =>
 
 test("a trust reply reads as its folder and level; only an unknown folder asks, and a host that can't say never blocks", async () => {
   expect(readTrust({ cwd: "/a", level: "trusted" })).toEqual({ cwd: "/a", level: "trusted" });
+  expect(
+    readTrust({ cwd: "/a", level: "unknown", harnesses: { claude: "unknown", codex: "trusted", other: "x" } }),
+  ).toEqual({ cwd: "/a", level: "unknown", harnesses: { claude: "unknown", codex: "trusted" } });
+  expect(stricterTrust("trusted", "unknown")).toBe("unknown");
+  expect(stricterTrust("unknown", "untrusted")).toBe("untrusted");
+  expect(stricterTrust("trusted", "trusted")).toBe("trusted");
   expect(readTrust({ cwd: "/a", level: "maybe" })).toBeUndefined();
   expect(readTrust(null)).toBeUndefined();
   const source = (level: unknown) => ({ get: async (cwd: string) => ({ cwd, level }), set: async () => ({}) });
@@ -174,23 +180,36 @@ test("the dialog names the folder and the agent, focuses Trust folder, and Escap
   expect(doc.getElementById("pane")!.hasAttribute("inert")).toBe(false);
 });
 
-test("the mock daemon knows the worked projects as trusted, and remembers a folder once it is set", async () => {
+test("the mock daemon projects both agents' levels read-only, and set writes only acpmux's own record", async () => {
   const socket = new MockAcpmuxSocket();
   const answer = (
     socket as unknown as { answer(method: string, params: Record<string, unknown>): Promise<unknown> }
   ).answer.bind(socket);
-  expect(await answer("acp.trust.get", { cwd: "~/code/cmux" })).toEqual({ cwd: "~/code/cmux", level: "trusted" });
+  expect(await answer("acp.trust.get", { cwd: "~/code/cmux" })).toEqual({
+    cwd: "~/code/cmux",
+    level: "trusted",
+    harnesses: { claude: "trusted", codex: "trusted" },
+  });
+  // atlas-web: Claude Code never decided, so the projection is unknown, but acpmux's record says trusted.
+  expect(await answer("acp.trust.get", { cwd: "~/code/atlas-web" })).toEqual({
+    cwd: "~/code/atlas-web",
+    level: "trusted",
+    harnesses: { claude: "unknown", codex: "trusted" },
+  });
   expect(await answer("acp.trust.get", { cwd: "~/code/billing-service" })).toEqual({
     cwd: "~/code/billing-service",
     level: "unknown",
+    harnesses: { claude: "unknown", codex: "unknown" },
   });
   expect(await answer("acp.trust.set", { cwd: "~/code/billing-service", level: "trusted" })).toEqual({
     cwd: "~/code/billing-service",
     level: "trusted",
   });
+  // The decision is acpmux's; the agents' own levels read the same as before.
   expect(await answer("acp.trust.get", { cwd: "~/code/billing-service" })).toEqual({
     cwd: "~/code/billing-service",
     level: "trusted",
+    harnesses: { claude: "unknown", codex: "unknown" },
   });
   socket.close();
 });

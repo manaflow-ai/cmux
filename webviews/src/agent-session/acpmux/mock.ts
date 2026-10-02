@@ -1,3 +1,4 @@
+import { stricterTrust, type HarnessTrust, type TrustLevel } from "./folderTrust";
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
 import {
   claudeModels,
@@ -146,13 +147,16 @@ export class MockAcpmuxSocket {
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
   private sessions: Record<string, any>[] = [];
-  /// Folder trust as acpmux would read it from the agents' stores: the seeded projects the
-  /// user has worked in are trusted; billing-service and dotfiles were never decided.
-  private trust = new Map<string, string>([
-    ["~/code/cmux", "trusted"],
-    ["~/code/acpmux", "trusted"],
-    ["~/code/atlas-web", "trusted"],
+  /// Folder trust as acpmux would project it from Claude Code's and Codex's own files (read
+  /// only): the seeded projects the user has worked in are trusted by both, atlas-web only by
+  /// Codex so far; billing-service and dotfiles were never decided.
+  private agentTrust = new Map<string, HarnessTrust>([
+    ["~/code/cmux", { claude: "trusted", codex: "trusted" }],
+    ["~/code/acpmux", { claude: "trusted", codex: "trusted" }],
+    ["~/code/atlas-web", { claude: "unknown", codex: "trusted" }],
   ]);
+  /// acpmux's own record, which `acp.trust.set` writes; the agents' files never change.
+  private trust = new Map<string, TrustLevel>([["~/code/atlas-web", "trusted"]]);
   private events: EventRecord[] = [];
   private seq = 0;
   private turns = 0;
@@ -302,11 +306,14 @@ export class MockAcpmuxSocket {
       }
       case "acp.trust.get": {
         const cwd = String(params.cwd ?? "");
-        return { cwd, level: this.trust.get(cwd) ?? "unknown" };
+        const harnesses: HarnessTrust = { claude: "unknown", codex: "unknown", ...this.agentTrust.get(cwd) };
+        // acpmux's own decision answers first; without one, the stricter of the agents' levels.
+        const level = this.trust.get(cwd) ?? stricterTrust(harnesses.claude!, harnesses.codex!);
+        return { cwd, level, harnesses };
       }
       case "acp.trust.set": {
         const cwd = String(params.cwd ?? "");
-        const level = params.level === "untrusted" ? "untrusted" : "trusted";
+        const level: TrustLevel = params.level === "untrusted" ? "untrusted" : "trusted";
         this.trust.set(cwd, level);
         return { cwd, level };
       }

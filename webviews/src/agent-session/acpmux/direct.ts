@@ -480,7 +480,7 @@ export class AcpmuxDirectClient {
     return this.request("acp.trust.get", { cwd });
   }
 
-  /// Records the user's trust in `cwd` in each agent's own store (folderTrust.ts).
+  /// Records the user's trust in `cwd` in acpmux's own record, never the agents' config files (folderTrust.ts).
   trustSet(cwd: string, level: string): Promise<unknown> {
     return this.request("acp.trust.set", { cwd, level });
   }
