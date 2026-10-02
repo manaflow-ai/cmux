@@ -73,7 +73,7 @@ final class AppServices {
     private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
-    /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
+    /// App platform: the app supervisor client (`apps-v1`) and the App Store.
     private(set) lazy var apps = AppsService(services: self)
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)

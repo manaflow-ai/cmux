@@ -167,7 +167,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerSettingsDebugMethods(services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
-                    services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {
