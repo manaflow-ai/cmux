@@ -136,7 +136,6 @@ public actor CloudMachineLink {
     private var process: CloudLinkProcess?
     private var processExit: CloudLinkFirstValue<Int32>?
     private var processExitObserverTask: Task<Void, Never>?
-    private var stderrDrainTask: Task<Void, Never>?
     /// One local JSON resource connection shared by every control request for
     /// this machine. Terminal attachment streams are still allowed to subscribe
     /// separately while they migrate onto this same multiplexer.
