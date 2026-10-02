@@ -4,19 +4,32 @@ import Foundation
 /// Ghostty config (`background`, `foreground`, `palette`, `selection-*`,
 /// `background-opacity`, `background-blur`). Design derives every chrome
 /// color from this, so the window reads as one surface with the terminal.
-public nonisolated struct ThemeInput: Hashable, Sendable {
+public struct ThemeInput: Hashable, Sendable {
+    /// The terminal background, opaque (its opacity is ``backgroundOpacity``).
     public var background: ThemeRGB
+    /// The terminal foreground, opaque.
     public var foreground: ThemeRGB
     /// ANSI palette entries 0...15 (fewer when unknown).
     public var palette: [ThemeRGB]
-    /// Set only when the config names an explicit color.
+    /// The selection fill; set only when the config names an explicit color.
     public var selectionBackground: ThemeRGB?
+    /// The selected text; set only when the config names an explicit color.
     public var selectionForeground: ThemeRGB?
     /// `background-opacity`, 0...1.
     public var backgroundOpacity: Double
     /// `background-blur` as Ghostty encodes it (0 off, >0 radius, <0 macOS glass).
     public var backgroundBlur: Int
 
+    /// A theme from its colors.
+    ///
+    /// - Parameters:
+    ///   - background: The terminal background; its alpha is dropped.
+    ///   - foreground: The terminal foreground; its alpha is dropped.
+    ///   - palette: ANSI entries 0...15; extra entries are dropped.
+    ///   - selectionBackground: Only when the config names a color.
+    ///   - selectionForeground: Only when the config names a color.
+    ///   - backgroundOpacity: `background-opacity`, clamped to 0...1; opaque by default.
+    ///   - backgroundBlur: `background-blur` as Ghostty encodes it; off by default.
     public init(
         background: ThemeRGB,
         foreground: ThemeRGB,
