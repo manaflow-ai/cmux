@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d";
+pub const ir_sha256 = "714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1409,6 +1409,17 @@ pub const SplitDirection = enum {
             .down => "down",
         };
     }
+};
+
+pub const SplitRespawn = struct {
+    cwd: wire.Field([]const u8) = .absent,
+    engine: wire.Field([]const u8) = .absent,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
+    kind: []const u8,
+    profile_id: wire.Field([]const u8) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+    url: wire.Field([]const u8) = .absent,
 };
 
 pub const SurfaceResult = struct {
@@ -4474,6 +4485,7 @@ pub const MoveTabToSplitRequest = struct {
     edge: []const u8,
     pane: Id,
     ratio: wire.Field(f32) = .absent,
+    respawn: wire.Field(SplitRespawn) = .absent,
     surface: Id,
     transaction: wire.Field([]const u8) = .absent,
 };
@@ -4488,6 +4500,9 @@ pub fn moveTabToSplit(client: anytype, request: MoveTabToSplitRequest) !wire.Dec
             .authority = "control",
             .since = 12,
             .capability = "tab-drag-v1",
+            .fields = &.{
+                .{ .name = "respawn", .since = 12, .capability = "tab-split-respawn-v1" },
+            },
         },
         request,
     );

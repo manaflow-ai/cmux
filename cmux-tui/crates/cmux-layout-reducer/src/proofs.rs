@@ -121,6 +121,7 @@ fn any_kind(next: u64, fresh: [u64; 3]) -> LayoutOpKind {
             pane: any_known(next),
             edge: any_edge(),
             new_pane: fresh[0],
+            respawn: None,
         },
         2 => LayoutOpKind::MoveTabToColumn {
             tab: any_known(next),

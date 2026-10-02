@@ -111,6 +111,7 @@ MODEL_BY_PATH = {
     'types/SizePolicy': models.SizePolicy,
     'types/SizeState': models.SizeState,
     'types/SizingIdentity': models.SizingIdentity,
+    'types/SplitRespawn': models.SplitRespawn,
     'types/SurfaceResult': models.SurfaceResult,
     'types/Tab': models.Tab,
     'types/TerminalColorOverrides': models.TerminalColorOverrides,

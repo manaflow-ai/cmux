@@ -150,21 +150,50 @@ fn build(shape: &Shape, content: &dyn Fn(usize) -> (u64, bool)) -> (LayoutState,
     (state, next)
 }
 
-/// Sets of ids for new entities: all fresh, then each slot replaced by an
-/// id in use (1, the first workspace).
-fn new_id_sets(next: u64) -> Vec<[u64; 3]> {
-    let fresh = [next + 1, next + 2, next + 3];
+/// One id of each kind `state` uses, so every branch of `id_in_use` is
+/// reached: the first workspace, screen, pane and tab, and every column id
+/// (a real one on a column-strip screen, 0 on a tree screen, which is not in use).
+fn used_ids(state: &LayoutState) -> Vec<u64> {
+    let mut ids = Vec::new();
+    let screens = || state.workspaces.iter().flat_map(|workspace| &workspace.screens);
+    ids.extend(state.workspaces.first().map(|workspace| workspace.id));
+    ids.extend(screens().next().map(|screen| screen.id));
+    for column in screens().flat_map(|screen| &screen.columns) {
+        if !ids.contains(&column.id) {
+            ids.push(column.id);
+        }
+    }
+    ids.extend(state.panes.keys().next().copied());
+    ids.extend(state.tabs.keys().next().copied());
+    ids
+}
+
+/// Sets of ids for new entities: all fresh; each slot replaced by every id
+/// of `used`; and one fresh id given to two slots (the duplicate branch of
+/// `ensure_fresh`).
+fn new_id_sets(next: u64, used: &[u64]) -> Vec<[u64; 3]> {
+    let (f, g) = (next + 1, next + 2);
+    let fresh = [f, g, next + 3];
     let mut sets = vec![fresh];
     for slot in 0..3 {
-        let mut set = fresh;
-        set[slot] = 1;
-        sets.push(set);
+        for id in used {
+            let mut set = fresh;
+            set[slot] = *id;
+            sets.push(set);
+        }
     }
+    sets.extend([[f, f, g], [f, g, f], [g, f, f]]);
     sets
 }
 
-/// Every op on a layout whose first unused id is `next`.
-fn ops(next: u64) -> Vec<LayoutOpKind> {
+/// The content of a tab a split creates (`respawn`): a runtime no other
+/// tab has.
+const RESPAWN_CONTENT: TabContent = TabContent { runtime: 7, terminal: None, dead: false };
+
+/// Every op on `state`, whose first unused id is `next`.
+fn ops(state: &LayoutState, next: u64) -> Vec<LayoutOpKind> {
+    let used = used_ids(state);
+    let sets = new_id_sets(next, &used);
     let ids = 0..=next;
     let optional = || std::iter::once(None).chain((0..=next).map(Some));
     let mut out = Vec::new();
@@ -175,11 +204,25 @@ fn ops(next: u64) -> Vec<LayoutOpKind> {
                 out.push(LayoutOpKind::MoveTab { tab, pane, index });
             }
             for edge in [Edge::Left, Edge::Right, Edge::Top, Edge::Bottom] {
-                for [new_pane, _, _] in new_id_sets(next) {
-                    out.push(LayoutOpKind::MoveTabToSplit { tab, pane, edge, new_pane });
+                for [new_pane, new_tab, _] in sets.iter().copied() {
+                    out.push(LayoutOpKind::MoveTabToSplit {
+                        tab,
+                        pane,
+                        edge,
+                        new_pane,
+                        respawn: None,
+                    });
+                    let respawn = NewTab { tab: new_tab, content: RESPAWN_CONTENT };
+                    out.push(LayoutOpKind::MoveTabToSplit {
+                        tab,
+                        pane,
+                        edge,
+                        new_pane,
+                        respawn: Some(respawn),
+                    });
                 }
             }
-            let fresh = new_id_sets(next)[0];
+            let fresh = sets[0];
             for width_permille in [99, 1001] {
                 out.push(LayoutOpKind::MoveTabToColumn {
                     tab,
@@ -192,7 +235,7 @@ fn ops(next: u64) -> Vec<LayoutOpKind> {
                 });
             }
             for after_column in optional() {
-                for [new_pane, new_column, base_column] in new_id_sets(next) {
+                for [new_pane, new_column, base_column] in sets.iter().copied() {
                     out.push(LayoutOpKind::MoveTabToColumn {
                         tab,
                         anchor: pane,
@@ -206,7 +249,7 @@ fn ops(next: u64) -> Vec<LayoutOpKind> {
             }
         }
         for index in [None, Some(0), Some(1), Some(2)] {
-            for [new_workspace, new_screen, new_pane] in new_id_sets(next) {
+            for [new_workspace, new_screen, new_pane] in sets.iter().copied() {
                 out.push(LayoutOpKind::MoveTabToNewWorkspace {
                     tab,
                     index,
@@ -218,7 +261,7 @@ fn ops(next: u64) -> Vec<LayoutOpKind> {
         }
         for workspace in ids.clone() {
             for pane in optional() {
-                for [new_screen, new_pane, _] in new_id_sets(next) {
+                for [new_screen, new_pane, _] in sets.iter().copied() {
                     out.push(LayoutOpKind::MoveTabToWorkspace {
                         tab,
                         workspace,
@@ -264,6 +307,17 @@ fn check_op(state: &LayoutState, op: &LayoutOp) -> bool {
             for (id, content) in &after.tabs {
                 assert!(state.tabs[id].same_identity(content), "{op:?} on {state:?}");
             }
+        }
+        // A respawn adds exactly its tab, in the split pane, and moves the
+        // dragged tab into the new pane.
+        LayoutOpKind::MoveTabToSplit {
+            tab, pane, new_pane, respawn: Some(ref respawn), ..
+        } => {
+            let mut expected = state.tabs.clone();
+            expected.insert(respawn.tab, respawn.content.clone());
+            assert_eq!(after.tabs, expected, "{op:?} on {state:?}");
+            assert_eq!(after.panes[&pane], vec![respawn.tab], "{op:?} on {state:?}");
+            assert_eq!(after.panes[&new_pane], vec![tab], "{op:?} on {state:?}");
         }
         _ => assert_eq!(after.tabs, state.tabs, "{op:?} on {state:?} changed the tabs"),
     }
@@ -322,7 +376,7 @@ fn exhaustive_small_layouts_keep_invariants() {
         assert!(check_state(&state).is_empty(), "{shape:?}");
         layouts += 1;
         check_own_place(&state);
-        for kind in ops(next) {
+        for kind in ops(&state, next) {
             cases += 1;
             applied += usize::from(check_op(&state, &keyed(kind)));
         }
