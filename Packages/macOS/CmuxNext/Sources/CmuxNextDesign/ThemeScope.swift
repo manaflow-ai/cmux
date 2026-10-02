@@ -29,8 +29,14 @@ public final class ThemeScope {
     /// inherit these.
     public private(set) var ownTokens: ThemeTokens
     /// The colors the views and windows this scope roots draw in: those of
-    /// the scope it shows (`show(_:)`), else its own.
-    public var tokens: ThemeTokens { shown?.tokens ?? ownTokens }
+    /// the scope it shows (`show(_:)`) when they are as light or dark as its
+    /// own, else its own. A light workspace in a dark room never turns the
+    /// window's chrome light.
+    public var tokens: ThemeTokens {
+        guard let shown else { return ownTokens }
+        let candidate = shown.tokens
+        return candidate.isDark == ownTokens.isDark ? candidate : ownTokens
+    }
     /// Bumps on every change of `tokens` (tests, diagnostics).
     public private(set) var generation = 0
     /// The scope whose colors this scope's own views draw in: a window's
@@ -38,6 +44,8 @@ public final class ThemeScope {
     /// titlebar always match the content beside them.
     public private(set) weak var shown: ThemeScope?
     private let viewers = NSHashTable<ThemeScope>.weakObjects()
+    /// `tokens` as last painted, so a change is noticed whichever way it came.
+    private var displayed: ThemeTokens
 
     private var overrideInput: ThemeInput?
     private let children = NSHashTable<ThemeScope>.weakObjects()
@@ -49,6 +57,7 @@ public final class ThemeScope {
         level = .config
         input = ThemeStore.shared.input
         ownTokens = ThemeStore.shared.tokens
+        displayed = ownTokens
     }
 
     /// A scope at `level` that inherits `parent` until it gets its own theme.
@@ -57,6 +66,7 @@ public final class ThemeScope {
         self.parent = parent
         input = parent.input
         ownTokens = parent.ownTokens
+        displayed = ownTokens
         parent.children.add(self)
     }
 
@@ -111,30 +121,28 @@ public final class ThemeScope {
             if candidate === self { return }
             next = candidate.shown
         }
-        let before = tokens
         shown?.viewers.remove(self)
         shown = scope
         scope?.viewers.add(self)
-        displayDidChange(from: before, animated: animated)
+        refreshDisplay(animated: animated, repaint: true)
     }
 
-    /// Repaints after `tokens` may have moved away from `before` without
-    /// this scope's own colors changing.
-    private func displayDidChange(from before: ThemeTokens, animated: Bool) {
+    /// Repaints and notifies when `tokens` moved away from what was last
+    /// painted: this scope's own colors, the shown scope's, or which of the
+    /// two applies changed.
+    private func refreshDisplay(animated: Bool, repaint: Bool) {
         // A child root's explicit appearance compares with these colors.
         for child in children.allObjects { for view in child.roots.allObjects { child.applyAppearance(to: view) } }
-        guard tokens != before else { return }
+        let now = tokens
+        guard now != displayed else { return }
+        displayed = now
         generation += 1
-        repaint(animated: animated)
-        notifyChange(from: before, animated: animated)
-    }
-
-    private func notifyChange(from before: ThemeTokens, animated: Bool) {
+        if repaint { self.repaint(animated: animated) }
         for responder in responders.allObjects {
             (responder as? any ThemeResponsive)?.themeDidChange()
         }
         for viewer in viewers.allObjects where viewer.shown === self {
-            viewer.displayDidChange(from: before, animated: animated)
+            viewer.refreshDisplay(animated: animated, repaint: true)
         }
     }
 
@@ -152,15 +160,9 @@ public final class ThemeScope {
         guard next != input else { return }
         input = next
         let derived = level == .config ? ThemeStore.shared.tokens : ThemeTokens.derive(from: next)
-        let before = tokens
         ownTokens = derived
         for child in children.allObjects { child.update(animated: animated, repaint: false) }
-        // While showing another scope, own changes reach only children; the
-        // shown scope reports its own changes (`viewers`).
-        guard shown == nil, tokens != before else { return }
-        generation += 1
-        if repaint { self.repaint(animated: animated) }
-        notifyChange(from: before, animated: animated)
+        refreshDisplay(animated: animated, repaint: repaint)
     }
 
     // MARK: Views and windows

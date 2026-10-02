@@ -30,7 +30,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var startupObservation: Task<Void, Never>?
     /// The room theme: every workspace without its own theme. The window's
     /// own chrome (sidebar, titlebar, backdrop) draws in the shown
-    /// workspace's colors, so it always matches the content beside it.
+    /// workspace's colors when they share the room's light/dark mode, so it
+    /// matches the content beside it without ever flipping the window light.
     let themeScope = ThemeScope(level: .room)
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
