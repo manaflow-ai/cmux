@@ -538,6 +538,12 @@
   const HANDLED_EVENTS = ["dialog", "filechooser", "download"];
   // How long a call on a tab waits for that tab's pending tab.handleEvents.
   const HANDLED_SYNC_TIMEOUT = 5000;
+  // What the bounded wait resolves with when the update did not settle.
+  const HANDLED_SYNC_LATE = Symbol("handled sync late");
+  // A key no listener set has: the next _syncHandledEvents always sends,
+  // even an empty set (a lost update may have been the one removing the
+  // last listener).
+  const HANDLED_KEY_RESEND = Symbol("handled key resend");
 
   class EventEmitter {
     constructor() {
@@ -827,12 +833,12 @@
     async _awaitHandledSync(page) {
       const pending = page._handledSync;
       let timer;
-      const late = new Promise((resolve) => (timer = this.host.setTimeout(() => resolve(late), HANDLED_SYNC_TIMEOUT)));
+      const late = new Promise((resolve) => (timer = this.host.setTimeout(() => resolve(HANDLED_SYNC_LATE), HANDLED_SYNC_TIMEOUT)));
       const r = await Promise.race([pending, late]);
       if (this.host.clearTimeout) this.host.clearTimeout(timer);
-      if (r === late && page._handledSync === pending) {
+      if (r === HANDLED_SYNC_LATE && page._handledSync === pending) {
         page._handledSync = null;
-        page._handledKey = null;
+        page._handledKey = HANDLED_KEY_RESEND;
         page._syncHandledEvents();
       }
     }
@@ -843,7 +849,7 @@
       for (const page of this.pages.values()) {
         if (!page._handledSync) continue;
         page._handledSync = null;
-        page._handledKey = null;
+        page._handledKey = HANDLED_KEY_RESEND;
         page._syncHandledEvents();
       }
     }
@@ -2257,7 +2263,7 @@
       if (this._closed || this._targetId.startsWith("lazy:")) return;
       const events = HANDLED_EVENTS.filter((e) => this.listenerCount(e) > 0);
       const key = events.join(",");
-      if (key === (this._handledKey || "")) return;
+      if (key === (this._handledKey === undefined || this._handledKey === null ? "" : this._handledKey)) return;
       this._handledKey = key;
       // Updates go out in order, and the session's next call on this tab
       // waits for them (Session.call), so a listener added right before an
