@@ -3881,6 +3881,51 @@ impl SynchronizedTcpStream {
     }
 }
 
+fn tcp_peer_closed(stream: &TcpStream) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+
+        let mut descriptor = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+            revents: 0,
+        };
+        // SAFETY: descriptor points to one initialized pollfd and the zero
+        // timeout makes this a non-blocking probe.
+        let result = unsafe { libc::poll(&mut descriptor, 1, 0) };
+        return result > 0
+            && descriptor.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0;
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawSocket;
+        use windows_sys::Win32::Networking::WinSock::{FD_SET, MSG_PEEK, TIMEVAL, recv, select};
+
+        let socket = stream.as_raw_socket();
+        let mut read_fds = FD_SET { fd_count: 1, fd_array: [socket; 64] };
+        let timeout = TIMEVAL { tv_sec: 0, tv_usec: 0 };
+        // SAFETY: the socket and fd set are initialized, and the zero timeout
+        // keeps this probe non-blocking. `recv` peeks without consuming input.
+        let ready = unsafe {
+            select(0, &mut read_fds, std::ptr::null_mut(), std::ptr::null_mut(), &timeout)
+        };
+        if ready <= 0 {
+            return false;
+        }
+        let mut byte = [0u8; 1];
+        let received = unsafe { recv(socket, byte.as_mut_ptr(), 1, MSG_PEEK) };
+        return received == 0;
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = stream;
+        false
+    }
+}
+
 fn websocket_server_frame_header(opcode: u8, payload_len: usize) -> ([u8; 10], usize) {
     let mut header = [0_u8; 10];
     header[0] = 0x80 | (opcode & 0x0f);
@@ -6033,36 +6078,51 @@ fn handle_websocket_connection_with_permit(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::WebSocket(control)) },
         render_service,
     );
+    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
+        mux.surface_operation_admission.clone(),
+        connection_permit.clone(),
+    ));
     let writer_outbound = outbound;
     let writer_close = writer.clone();
+    let writer_scheduler = surface_scheduler.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut writer_stream = writer_stream;
-            while let Some(item) = writer_outbound.recv() {
-                let result = match item {
-                    OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
-                    OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
-                        let _ = flushed.send(());
-                    }),
-                };
-                if result.is_err() {
-                    writer_outbound.close();
-                    break;
+            loop {
+                match writer_outbound.recv_timeout(STREAM_DISCONNECT_POLL) {
+                    Ok(Some(item)) => {
+                        let result = match item {
+                            OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
+                            OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
+                                let _ = flushed.send(());
+                            }),
+                        };
+                        if result.is_err() {
+                            writer_outbound.close();
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(()) if tcp_peer_closed(&writer_stream.stream) => {
+                        writer_outbound.close();
+                        break;
+                    }
+                    Err(()) => continue,
                 }
             }
             writer_close.close();
+            // Wake a reader that is blocked admitting a one-way input request.
+            // It may not get another read result from the disconnected peer.
+            writer_scheduler.close();
             let _ = writer_stream.write_websocket_close();
             let _ = writer_shutdown.shutdown(Shutdown::Both);
         })
     else {
         writer.close();
+        surface_scheduler.close();
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
-    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
-        mux.surface_operation_admission.clone(),
-        connection_permit.clone(),
-    ));
 
     loop {
         if !writer.is_open() {
