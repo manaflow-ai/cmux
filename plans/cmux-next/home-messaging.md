@@ -618,3 +618,26 @@ Questions (recommendations):
   "Texts" conversation with the Chief? RECOMMEND the main chief conversation, marked `via: sms`.
 - T3. Confirmation for risky ops: one-time code reply, or always deep-link to the app?
   RECOMMEND a code reply for `execute`, the app for `money` and `destructive`.
+
+## 20. One op vocabulary: reconciling home-core with `cmux-conversation`
+
+Contract: `backend/packages/home-core/conformance/conversation-cases.json` (64 cases) is the
+op-level contract both owners run; `conversation-cloud-cases.json` (84) covers cloud-only rules.
+The Rust owner adds a cargo test that replays the local file (on a testbox). Framing stays per
+transport (daemon line commands, `cmux.wire/1` frames); the op names, params, commits and reject
+reasons are the same.
+
+| # | Difference | Rust local owner today | home-core cloud | Recommendation |
+| --- | --- | --- | --- | --- |
+| 1 | Command names | `conversation-create/-op/-snapshot/-history/-list/-typing` | ops `conversation.create`, `message.*`, reads `conversation.snapshot/history`, `inbox.list` | Same op kinds inside `conversation-op`; map the five daemon commands 1:1 to the cloud ops and reads; no renames needed in Rust |
+| 2 | rev and seq | `rev` +1 per committed op; message `seq` dense | head `rev` +1 per commit; engine stream seq per changed op | Keep both; document that a cloud head's `rev` equals the engine stream seq (both skip no-ops) |
+| 3 | Ledger scope | `op_ledger (conversation, idempotency_key)`: two actors with one key collide | engine ledger per (identity, key) inside the conversation's object | Rust adds the actor to the ledger key (bug: one participant can block another's `client_msg_id`) |
+| 4 | `client_msg_id == idempotency_key` | required | required when the engine passes the key (owner and own intent preview) | Same rule; corpus covers it |
+| 5 | Reject transport | `error_code: conversation_rejected`, reason in the message text | `code` = the reason | Rust adds a structured `reason` field (same 20 local codes); cloud keeps `code` = reason; corpus asserts reasons |
+| 6 | Agent budget | window of the newest 5 rows; text-less work cards fill the window, so two agents can loop forever with work cards | head counters `agent_text_streak`, `last_agent_text_at`, O(1) | Rust adopts the head counters (fixes the loop bypass); the local corpus notes describe the two edge differences until then |
+| 7 | Typing | `conversation-typing` command, ephemeral event | ConversationDO memory broadcast | One non-op frame `typing {conversation, on}` and event `conversation-typing` on both; never stored, not in the corpus |
+| 8 | Agent identity | `conversation-agent-token` + `conversation-bind` (local token) | principal from the Worker (agent token, grant) | Transport auth, not ops; stays local-only; not in the corpus |
+| 9 | Participants | `user_local`, `user_<id>`, `agent_<name>` | plus `addr_<26>` (kind `address`), roles, `joined_seq`, `left_at` | Local stays a subset; `conversation.promote` maps `user_local` to the account's `user_<id>` |
+| 10 | Message ids | ULID `msg_<26>` | engine `newId("msg")` | Both accept any `msg_` id; the corpus passes `new_message_id` |
+| 11 | Events | `conversation-changed {rev, transaction, change}` | engine event `{seq, tx, op, params, effects}` | Clients map both to the corpus `Change`; ConversationDO also returns `change` in the op result |
+| 12 | Summary owner | `"local"` | `"cloud"` | Keep; the client shows "this Mac only" for local |
