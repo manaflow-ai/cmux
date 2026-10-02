@@ -150,6 +150,32 @@ struct CloudMachineCreatorTests {
         #expect(unnamedCreator["displayName"] is NSNull)
     }
 
+    @Test("the socket payload preserves the trusted attach contract")
+    func socketPayloadCarriesCmuxTuiContract() {
+        let payload = TerminalController.socketWorkerVMSummaryPayload(
+            VMSummary(
+                id: "vm-snapshot-v2",
+                provider: "fixture",
+                status: "running",
+                image: "ubuntu",
+                createdAt: 0,
+                cmuxTuiContract: "snapshot-v2"
+            )
+        )
+        #expect(payload["cmuxTuiContract"] as? String == "snapshot-v2")
+
+        let legacyPayload = TerminalController.socketWorkerVMSummaryPayload(
+            VMSummary(
+                id: "vm-legacy",
+                provider: "fixture",
+                status: "running",
+                image: "ubuntu",
+                createdAt: 0
+            )
+        )
+        #expect(legacyPayload["cmuxTuiContract"] == nil)
+    }
+
     /// Every hop above carries the author and the sidebar still does not show
     /// it, which is the whole complaint: on a team the fleet reads as a list of
     /// generated three-word names with no way to tell whose is whose. The row's
