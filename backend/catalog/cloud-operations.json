@@ -997,7 +997,8 @@
         "sso.allowGuests",
         "sso.sessionMaxAgeHours",
         "sso.idleTimeoutHours",
-        "agents.allowedClasses"
+        "agents.allowedClasses",
+        "device.settings"
       ],
       "description": "A team policy key (spec/enterprise.md 4.2)."
     },
@@ -2136,6 +2137,28 @@
                       "run"
                     ]
                   }
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "device.settings": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "object",
+                  "fields": {}
                 }
               },
               "mode": {
@@ -11388,6 +11411,13 @@
               "fields": {}
             }
           },
+          "features": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {}
+            }
+          },
           "revision": {
             "required": true,
             "type": {
@@ -11452,6 +11482,9 @@
           "enforced": {
             "type": "object"
           },
+          "features": {
+            "type": "object"
+          },
           "revision": {
             "type": "string"
           }
@@ -11463,6 +11496,7 @@
           "version",
           "defaults",
           "enforced",
+          "features",
           "revision"
         ],
         "additionalProperties": true,
@@ -13063,6 +13097,24 @@
                   "mode"
                 ],
                 "additionalProperties": true
+              },
+              "device.settings": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "maxProperties": 200
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
               }
             },
             "additionalProperties": true,
@@ -13745,6 +13797,24 @@
                   "mode"
                 ],
                 "additionalProperties": true
+              },
+              "device.settings": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "maxProperties": 200
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
               }
             },
             "additionalProperties": true,
@@ -13778,7 +13848,8 @@
               "sso.allowGuests",
               "sso.sessionMaxAgeHours",
               "sso.idleTimeoutHours",
-              "agents.allowedClasses"
+              "agents.allowedClasses",
+              "device.settings"
             ],
             "description": "A team policy key (spec/enterprise.md 4.2)."
           },
@@ -14476,6 +14547,24 @@
                   "mode"
                 ],
                 "additionalProperties": true
+              },
+              "device.settings": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "maxProperties": 200
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
               }
             },
             "additionalProperties": true,
@@ -14665,7 +14754,8 @@
               "sso.allowGuests",
               "sso.sessionMaxAgeHours",
               "sso.idleTimeoutHours",
-              "agents.allowedClasses"
+              "agents.allowedClasses",
+              "device.settings"
             ],
             "description": "A team policy key (spec/enterprise.md 4.2)."
           },
@@ -15223,6 +15313,24 @@
                         "run"
                       ]
                     }
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "device.settings": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "maxProperties": 200
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"

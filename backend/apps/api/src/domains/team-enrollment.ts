@@ -138,17 +138,25 @@ export const reduceDeviceRelease = <S extends EnrollmentState>(state: S, params:
   }
 }
 
-/** The device-scoped layer for a managed install (team.device.policy). */
+/**
+ * What `team.device.policy` returns for a managed install: cmux.json settings
+ * from `device.settings` split by their own mode (the app's team layer), and
+ * the device-scoped feature keys as policy values (enforced by their owners on
+ * the device: MCP server, CUA host, telemetry, updater).
+ */
 export const devicePolicyFor = (state: EnrollmentState, install: string | undefined) => {
   const policy = currentPolicy(state)
   const managed = Boolean(install && state.managed_devices?.[install])
   const defaults: Record<string, unknown> = {}
   const enforced: Record<string, unknown> = {}
+  const features: Record<string, unknown> = {}
   if (managed) {
+    for (const [key, entry] of Object.entries(policy.values["device.settings"]?.value ?? {})) {
+      ;(entry.mode === "enforced" ? enforced : defaults)[key] = entry.value
+    }
     for (const [key, v] of Object.entries(policy.values)) {
-      if (!v || !deviceScopedPolicyKeys.has(key as never)) continue
-      ;(v.mode === "enforced" ? enforced : defaults)[key] = v.value
+      if (v && deviceScopedPolicyKeys.has(key as never)) features[key] = v
     }
   }
-  return { managed, version: policy.version, defaults, enforced }
+  return { managed, version: policy.version, defaults, enforced, features }
 }

@@ -88,6 +88,12 @@ export const reducePolicyUpdate = <S extends PolicyState>(state: S, params: unkn
     }
     const exit = Schema.decodeUnknownExit(policyValueSchema(change.key) as unknown as Schema.Codec<unknown, unknown>)(change.value)
     if (!Exit.isSuccess(exit)) return invalid(`${change.key}: invalid value`, { key: change.key, cause: String(exit.cause) })
+    // A Record silently drops keys that fail its key check; refuse instead.
+    if (change.key === "device.settings") {
+      const given = Object.keys(((change.value as { value?: unknown }).value ?? {}) as object)
+      const kept = Object.keys(((exit.value as { value?: unknown }).value ?? {}) as object)
+      if (given.length !== kept.length) return invalid("device.settings keys must be cmux.json key paths such as ui.animationSpeed", { key: change.key })
+    }
     next[change.key] = exit.value
   }
   const values = next as PolicyValues

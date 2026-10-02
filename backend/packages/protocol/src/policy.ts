@@ -17,6 +17,10 @@ const intBetween = (min: number, max: number) => Int.check(Schema.isGreaterThanO
 const AppId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
 const Version = Schema.String.check(Schema.isPattern(/^[0-9]+(\.[0-9]+){0,3}$/))
 
+/** A cmux.json key path, as the settings catalog names it (`ui.animationSpeed`). */
+const SettingPath = Schema.String.check(Schema.isPattern(/^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9-]+)+$/), Schema.isMaxLength(200))
+const DeviceSetting = Schema.Struct({ value: Schema.Unknown, mode: PolicyMode })
+
 /** Product maximums: a team may only shorten these retention periods (D19). */
 export const RETENTION_MAX = { cuaEventsDays: 30, cuaFramesDays: 7 } as const
 /** Audit retention may only lengthen above this floor. */
@@ -50,7 +54,13 @@ export const policyKeySchemas = {
   "sso.allowGuests": Schema.Boolean,
   "sso.sessionMaxAgeHours": intBetween(1, 24 * 90),
   "sso.idleTimeoutHours": intBetween(1, 24 * 90),
-  "agents.allowedClasses": Schema.Array(Schema.Literals(["mux", "agent", "run"]))
+  "agents.allowedClasses": Schema.Array(Schema.Literals(["mux", "agent", "run"])),
+  /**
+   * cmux.json settings for managed devices, by key path, each enforced or a
+   * default. The app keeps only keys its settings catalog lists. The outer
+   * PolicyValue mode is ignored (each entry has its own).
+   */
+  "device.settings": Schema.Record(SettingPath, DeviceSetting).check(Schema.isMaxProperties(200))
 } as const
 
 export type PolicyKey = keyof typeof policyKeySchemas

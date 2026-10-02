@@ -133,9 +133,11 @@ export const DevicePolicy = def({
     managed: Schema.Boolean,
     team_name: Schema.String,
     version: Schema.Int,
-    /** Device-scoped keys only (cmux.json key paths). Empty when the install is not managed by this team. */
+    /** cmux.json settings from `device.settings` (key paths). Empty when the install is not managed by this team. */
     defaults: Schema.Record(Schema.String, Schema.Unknown),
     enforced: Schema.Record(Schema.String, Schema.Unknown),
+    /** Device-scoped feature keys (mcp.server, computerUse.allowed, telemetry.level, ...) as policy values. */
+    features: Schema.Record(Schema.String, Schema.Unknown),
     revision: Schema.String
   }),
   errors: ["auth.unauthenticated", "auth.forbidden"],
