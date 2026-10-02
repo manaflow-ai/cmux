@@ -36,6 +36,9 @@ export type AgentSessionTheme = {
   /// Glyphs on `highlight`.
   highlightText?: string;
   shadow: string;
+  /// The terminal's 16 ANSI colors, for syntax colors that follow the theme; the cmux-next
+  /// pane sends it. Without it, code keeps Codex's hues on the theme's text colors.
+  palette?: string[];
 };
 
 export type AppContext = {
