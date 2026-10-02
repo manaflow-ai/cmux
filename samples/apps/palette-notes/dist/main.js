@@ -24,10 +24,23 @@
     searchNotes: () => searchNotes
   });
   var APP = "app:cmux/palette-notes";
-  var INLINE_COPY = 300;
+  var ITEM_BYTES = 2048;
+  var INLINE_COPY_BYTES = 600;
+  var MAX_TAGS = 8;
+  var MAX_TAG = 32;
+  var MAX_TEXT = 120;
+  function utf8Bytes(text) {
+    let n = 0;
+    for (const ch of text) {
+      const c = ch.codePointAt(0);
+      n += c < 128 ? 1 : c < 2048 ? 2 : c < 65536 ? 3 : 4;
+    }
+    return n;
+  }
+  var clip = (text, max) => Array.from(text).length > max ? `${Array.from(text).slice(0, max - 1).join("")}…` : text;
   var readNotes = async (options) => await cmux.call("app.storage.get", { key: "notes" }, options) ?? [];
-  var firstLine = (text) => text.split(`
-`, 1)[0].slice(0, 120);
+  var firstLine = (text) => clip(text.split(`
+`, 1)[0], MAX_TEXT);
   function excerpt(body, needle) {
     const at = body.toLowerCase().indexOf(needle);
     if (at < 0)
@@ -36,32 +49,38 @@
     return `${start > 0 ? "…" : ""}${body.slice(start, at + needle.length + 60).replace(/\s+/g, " ")}`;
   }
   function toItem(n, subtitle) {
-    return {
+    const copy = utf8Bytes(n.body) <= INLINE_COPY_BYTES ? act("clipboard.write", { text: n.body }, { symbol: "doc.on.doc" }) : act(`${APP}#copy`, { id: n.id });
+    const item = {
       id: n.id,
-      title: n.title,
-      subtitle: subtitle ?? n.folder ?? firstLine(n.body),
+      title: clip(n.title, MAX_TEXT),
+      subtitle: clip(subtitle ?? n.folder ?? firstLine(n.body), MAX_TEXT),
       symbol: n.pinned ? "pin.fill" : "note.text",
-      keywords: n.tags ?? [],
+      keywords: (n.tags ?? []).slice(0, MAX_TAGS).map((t) => clip(t, MAX_TAG)),
       accessory: { date: n.updatedAt },
-      actions: [act(`${APP}#open`, { id: n.id }), n.body.length <= INLINE_COPY ? act("clipboard.write", { text: n.body }, { symbol: "doc.on.doc" }) : act(`${APP}#copy`, { id: n.id })]
+      actions: [act(`${APP}#open`, { id: n.id }), copy]
     };
+    if (utf8Bytes(JSON.stringify(item)) <= ITEM_BYTES)
+      return item;
+    item.actions = [act(`${APP}#open`, { id: n.id }), act(`${APP}#copy`, { id: n.id })];
+    return utf8Bytes(JSON.stringify(item)) <= ITEM_BYTES ? item : null;
   }
+  var rows = (notes, subtitle) => notes.map((n) => toItem(n, subtitle?.(n))).filter((i) => i !== null);
   var byPinnedThenRecent = (a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.updatedAt - a.updatedAt;
-  var noteCorpus = palette.snapshot(async () => (await readNotes()).sort(byPinnedThenRecent).slice(0, 1e4).map((n) => toItem(n)));
+  var noteCorpus = palette.snapshot(async () => rows((await readNotes()).sort(byPinnedThenRecent).slice(0, 1e4)));
   var searchNotes = palette.query(async function* (query, { signal }) {
     yield palette.cached();
     const notes = (await readNotes({ signal })).sort(byPinnedThenRecent);
     const needle = query.trim().toLowerCase();
     const inTitle = notes.filter((n) => n.title.toLowerCase().includes(needle));
-    yield inTitle.slice(0, 200).map((n) => toItem(n));
+    yield rows(inTitle.slice(0, 200));
     const inBody = notes.filter((n) => !inTitle.includes(n) && n.body.toLowerCase().includes(needle));
-    yield inBody.slice(0, 200).map((n) => toItem(n, excerpt(n.body, needle)));
+    yield rows(inBody.slice(0, 200), (n) => excerpt(n.body, needle));
   });
   var noteDetail = palette.detail(async (id) => {
     const note = (await readNotes()).find((n) => n.id === id);
     return note ? { markdown: `# ${note.title}
 
-${note.body}`, actions: toItem(note).actions } : null;
+${note.body}`, actions: toItem(note)?.actions ?? [act(`${APP}#open`, { id: note.id })] } : null;
   });
   async function newNote(args, ctx) {
     const notes = await readNotes();

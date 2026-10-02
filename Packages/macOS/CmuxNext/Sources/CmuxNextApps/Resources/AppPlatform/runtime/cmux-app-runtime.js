@@ -423,7 +423,7 @@
           set: (values) => c("app.settings.set", { values })
         })
       },
-      gesture: () => state.gesture,
+      gesture: () => gesture() ?? state.gesture,
       t: (key, fallbackOrParams, params) => {
         const fallback = typeof fallbackOrParams === "string" ? fallbackOrParams : key;
         const values = (typeof fallbackOrParams === "object" ? fallbackOrParams : params) ?? {};
@@ -1019,6 +1019,7 @@
     itemBytes: 2048,
     snapshotItems: 1e4,
     batchItems: 200,
+    queryItems: 1000,
     detailBytes: 64 * 1024,
     cachedQueries: 32
   };
@@ -1113,15 +1114,27 @@
     if (r.args !== undefined && (typeof r.args !== "object" || r.args === null || Array.isArray(r.args)))
       throw new CmuxError("palette.invalid", `${path}.args must be an object`, { path });
   }
+  function serialize(value, path) {
+    checkPlain(value, path);
+    let json;
+    try {
+      json = JSON.stringify(value);
+    } catch (e) {
+      throw new CmuxError("palette.invalid", `${path} cannot be serialized: ${describe(e)}`, { path });
+    }
+    if (json === undefined)
+      throw new CmuxError("palette.invalid", `${path} is not JSON`, { path });
+    return json;
+  }
   function itemJSON(item, path) {
-    const it = item;
+    const json = serialize(item, path);
+    const it = JSON.parse(json);
     if (!it || typeof it !== "object" || Array.isArray(it))
       throw new CmuxError("palette.invalid", `${path} is not an object`, { path });
     if (typeof it.id !== "string" || !it.id)
       throw new CmuxError("palette.invalid", `${path}.id must be a non-empty string`, { path });
     if (typeof it.title !== "string")
       throw new CmuxError("palette.invalid", `${path}.title must be a string`, { path });
-    checkPlain(it, path);
     if (it.actions !== undefined) {
       if (!Array.isArray(it.actions))
         throw new CmuxError("palette.invalid", `${path}.actions must be an array of ActionRefs`, { path });
@@ -1130,7 +1143,6 @@
     for (const key of ["drill", "enters"])
       if (it[key] !== undefined && typeof it[key] !== "string")
         throw new CmuxError("palette.invalid", `${path}.${key} must be a scope id`, { path });
-    const json = JSON.stringify(it);
     const bytes = utf8Length(json);
     if (bytes > PALETTE_LIMITS.itemBytes)
       throw new CmuxError("palette.limit", `${path} is ${bytes} bytes; an item is at most ${PALETTE_LIMITS.itemBytes}`, { path, bytes });
@@ -1148,8 +1160,7 @@
       throw new CmuxError("palette.invalid", "act needs an action id");
     if (args === null || typeof args !== "object" || Array.isArray(args))
       throw new CmuxError("palette.invalid", `act(${op}): args must be an object`);
-    checkPlain(args, `act(${op}).args`);
-    const ref = { id: op, args: { ...args } };
+    const ref = { id: op, args: JSON.parse(serialize(args, `act(${op}).args`)) };
     if (overrides.title !== undefined)
       ref.title = String(overrides.title);
     if (overrides.symbol !== undefined)
@@ -1210,17 +1221,18 @@
       paletteState.live.delete(req.key);
     state.native?.paletteDone?.(req.id, ok, JSON.stringify(body ?? null));
   }
-  function remember(scope, query, items) {
-    let perScope = paletteState.cache.get(scope);
+  var cacheKey = (scope, ctx) => [scope, ctx.session ?? "", ctx.context ?? "", ctx.filter ?? ""].join("\x00");
+  function remember(key, query, items) {
+    let perScope = paletteState.cache.get(key);
     if (!perScope)
-      paletteState.cache.set(scope, perScope = new Map);
+      paletteState.cache.set(key, perScope = new Map);
     perScope.delete(query);
-    perScope.set(query, items);
+    perScope.set(query, items.slice(0, PALETTE_LIMITS.queryItems));
     while (perScope.size > PALETTE_LIMITS.cachedQueries)
       perScope.delete(perScope.keys().next().value);
   }
-  function cachedFor(scope, query) {
-    const perScope = paletteState.cache.get(scope);
+  function cachedFor(key, query) {
+    const perScope = paletteState.cache.get(key);
     if (!perScope)
       return;
     let best;
@@ -1230,15 +1242,16 @@
     return best === undefined ? undefined : perScope.get(best);
   }
   var isCachedMarker = (v) => !!v && typeof v === "object" && v[CACHED] === true;
-  async function pumpQuery(req, scope, query, source) {
+  async function pumpQuery(req, key, query, source) {
     const all = [];
+    let truncated = false;
     const it = source;
     try {
       if (!source || typeof it.next !== "function") {
         const items = itemsJSON(await source, PALETTE_LIMITS.batchItems, "the query result");
         if (req.closed)
           return;
-        remember(scope, query, items);
+        remember(key, query, items);
         sendChunked(req, items, true);
         finish(req, true, { count: items.length });
         return;
@@ -1252,19 +1265,28 @@
         if (step.done)
           break;
         if (isCachedMarker(step.value)) {
-          const cached = cachedFor(scope, query);
+          const cached = cachedFor(key, query);
           if (cached?.length)
             sendChunked(req, cached, false, true);
           continue;
         }
-        const items = itemsJSON(step.value, PALETTE_LIMITS.batchItems, "a query batch");
+        let items = itemsJSON(step.value, PALETTE_LIMITS.batchItems, "a query batch");
+        const room = PALETTE_LIMITS.queryItems - all.length;
+        if (items.length > room) {
+          items = items.slice(0, room);
+          truncated = true;
+        }
         all.push(...items);
         if (items.length)
           sendChunked(req, items, false);
+        if (truncated) {
+          await it.return?.();
+          break;
+        }
       }
-      remember(scope, query, all);
+      remember(key, query, all);
       send(req, [], true);
-      finish(req, true, { count: all.length });
+      finish(req, true, truncated ? { count: all.length, truncated: true } : { count: all.length });
     } catch (e) {
       if (req.closed)
         return;
@@ -1341,7 +1363,7 @@
       finish(req, false, failure(e));
       return describe(e);
     }
-    pumpQuery(req, scopeId, query, source);
+    pumpQuery(req, cacheKey(scopeId, ctxIn), query, source);
     return "";
   }
   function paletteCancel(reqId) {
@@ -1367,12 +1389,11 @@
     Promise.resolve().then(() => fn(itemId, { scope: scopeId, signal: req.signal })).then((detail) => {
       if (req.closed)
         return;
-      checkPlain(detail ?? null, "detail");
-      const json = JSON.stringify(detail ?? null);
+      const json = serialize(detail ?? null, "detail");
       const bytes = utf8Length(json);
       if (bytes > PALETTE_LIMITS.detailBytes)
         throw new CmuxError("palette.limit", `detail is ${bytes} bytes; at most ${PALETTE_LIMITS.detailBytes}`);
-      finish(req, true, detail ?? null);
+      finish(req, true, JSON.parse(json));
     }).catch((e) => finish(req, false, failure(e)));
   }
   var g = globalThis;

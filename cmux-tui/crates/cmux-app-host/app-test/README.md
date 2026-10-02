@@ -38,12 +38,14 @@ Every op the VM calls, and every ActionRef the palette runs, is recorded in `h.o
 
 The scope of an op comes from `generated/scopes.json`; for an op outside the catalog (an app server op) it is `<family>:read` for `list|get|search|query|read|count|counts|find|show|info|status` verbs, else `<family>:write`. `net.fetch` needs `net:<host>` (or `net:*.<domain>`); `integration.request` needs `integration:<provider>`, or `integration:<provider>:read` for GET.
 
-Origin is `user` for ActionRefs run from the palette and for calls a command makes through `ctx.cmux` while it runs (the harness mints a gesture per command); every other call is `script`.
+Origin follows the host's gesture rule (`../js/ABI.md`, Gesture tokens). ActionRefs the palette runs (Return, click) are `user`. A command run because of a user gesture (a palette row, or `h.commands.run(id, args, {userGesture: true})` for a form submit, menu item or shortcut) gets one token, revoked when the command settles or after 2 s: its calls are `user` while the token is live, and the first mutation that changes view state spends it (the harness treats every mutation except `app.storage.*`, `app.settings.set` and `clipboard.write` as a view change). `h.commands.run(id, args)` without `userGesture` is the CLI, MCP and deeplink path: no token, origin `script`. Every other call is `script`.
+
+Before a host-run ActionRef runs, the harness applies the host's checks: the app's own commands run with a token, another app's command is refused with `operation.forbidden`, and `action.run` gets the same check on its inner action id (and its scope).
 
 ## Commands and the VM
 
-- `h.commands.run(id, args)` checks `args` against the command's `arguments` schema (`invalid_params`), then runs it with a gesture. Returns `{ok, value}` or `{ok: false, error}`.
-- `h.runAction(ref)` runs an ActionRef the way the palette does: `app:<this app>#<cmd>` runs the command; anything else is an op.
+- `h.commands.run(id, args, {userGesture?})` checks `args` against the command's `arguments` schema (`invalid_params`), then runs it, with a token only for `userGesture: true`. Returns `{ok, value}` or `{ok: false, error}`.
+- `h.runAction(ref, origin = "user")` runs an ActionRef the way the palette does: `app:<this app>#<cmd>` runs the command (with a token only for origin `user`); another app's command is refused; anything else is an op.
 - `h.vm.stop()` / `h.vm.start()`; `h.vm.paletteRequests` counts calls into palette sources. Snapshot scopes still paint from the cache when the VM is stopped.
 - `h.emit(event, payload)` marks snapshot scopes that list `event` in `invalidatedBy` dirty, refreshes open sessions on them, and delivers the event to the app's subscriptions. A dirty snapshot reruns on the next load (paint from cache first, then the fresh snapshot).
 - `h.idle()` lets promises, streamed batches and commands settle; every session method awaits it.

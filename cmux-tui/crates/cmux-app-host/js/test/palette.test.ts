@@ -62,6 +62,19 @@ describe("snapshot sources", () => {
     }
   })
 
+  test("items are checked in their serialized form: toJSON cannot slip past the checks", async () => {
+    // A getter that answers the checks with a small value and the serializer with a big one.
+    const h = host(`return { corpus: palette.snapshot(() => { let n = 0; return [{ id: "a", get title() { return n++ === 0 ? "A" : "x".repeat(4000) } }] }) }`)
+    h.paletteOpen("notes", "snapshot", "", 1, 1)
+    await h.settle()
+    expect(h.batchesFor(1)).toEqual([])
+    expect(h.paletteResults.get(1)?.body.code).toBe("palette.limit")
+    const h2 = host(`return { corpus: palette.snapshot(() => { let n = 0; return [{ title: "A", get id() { return n++ === 0 ? "a" : undefined } }] }) }`)
+    h2.paletteOpen("notes", "snapshot", "", 1, 1)
+    await h2.settle()
+    expect(h2.paletteResults.get(1)?.body.code).toBe("palette.invalid")
+  })
+
   test("a snapshot can read app storage through the host", async () => {
     const h = host(`return { corpus: palette.snapshot(async () => ((await cmux.storage.get("notes")) ?? []).map((n) => ({ id: n.id, title: n.title }))) }`)
     h.handlers["app.storage.get"] = () => ({ ok: true, body: { value: [{ id: "n1", title: "Reading list" }] } })
@@ -141,6 +154,36 @@ describe("query sources", () => {
     await h.settle()
     // First the cached result for "re" (provisional), then the live first batch replaces it.
     expect(h.batchesFor(2).map((b) => [b.items.map((i: any) => i.id), b.replace])).toEqual([[["re-1", "re-2"], true], [["rea-1"], true]])
+  })
+
+  test("palette.cached() is per session, drilled row and filter", async () => {
+    const h = host(streaming)
+    h.paletteOpen("search", "query", "re", 1, 1, { session: "L1", filter: "pinned" })
+    await h.settle()
+    h.eval("release()")
+    await h.settle()
+    // Another filter, another drilled row or another level sees no cached rows.
+    const first: string[][] = []
+    for (const [id, ctx] of [[2, { session: "L1", filter: "all" }], [3, { session: "L1", filter: "pinned", context: "row9" }], [4, { session: "L2", filter: "pinned" }], [5, { session: "L1", filter: "pinned" }]] as const) {
+      h.paletteOpen("search", "query", "rea", 1, id, ctx)
+      await h.settle()
+      first.push(h.batchesFor(id)[0]!.items.map((i: any) => i.id))
+    }
+    expect(first).toEqual([["rea-1"], ["rea-1"], ["rea-1"], ["re-1", "re-2"]])
+  })
+
+  test("a query request stops at 1000 rows in total and says it was truncated", async () => {
+    const h = host(`return { search: palette.query(async function* () {
+      for (let b = 0; b < 8; b++) yield Array.from({ length: 200 }, (_, i) => ({ id: b + "-" + i, title: "t" }))
+      globalThis.ranOn = true
+    }) }`)
+    h.paletteOpen("search", "query", "", 1, 1)
+    await h.settle()
+    const batches = h.batchesFor(1)
+    expect(batches.reduce((n, b) => n + b.items.length, 0)).toBe(1000)
+    expect(batches.at(-1)!.isFinal).toBe(true)
+    expect(h.paletteResults.get(1)).toEqual({ ok: true, body: { count: 1000, truncated: true } })
+    expect(h.eval("globalThis.ranOn ?? false")).toBe(false)
   })
 
   test("an op called with ctx.signal rejects with aborted on cancel", async () => {

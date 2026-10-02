@@ -90,7 +90,21 @@ export interface CommandDecl {
 
 export type Result = { ok: true; value: unknown } | { ok: false; error: { code: string; message: string; details?: unknown } }
 
+const GESTURE_MS = 2000
+/** Mutations that never change view state: the app's own storage and settings, the clipboard. */
+const APP_PRIVATE = /^(app\.storage\.|app\.settings\.set$|clipboard\.write$)/
+
 const READ_VERBS = new Set(["list", "get", "search", "query", "read", "count", "counts", "find", "show", "info", "status"])
+
+const isRead = (op: string) => {
+  const known = generated.ops[op]
+  if (known) return known.class === "read"
+  const parts = op.split(".")
+  return READ_VERBS.has(parts.at(-1) === "stream" ? parts.at(-2)! : parts.at(-1)!)
+}
+
+/** The harness's stand-in for "changes view state": every mutation except app-private ones. */
+export const changesViewState = (op: string) => !isRead(op) && !APP_PRIVATE.test(op)
 
 export const localized = (t: string | Record<string, string> | undefined, fallback = ""): string => (t === undefined ? fallback : typeof t === "string" ? t : (t.en ?? Object.values(t)[0] ?? fallback))
 
@@ -125,7 +139,8 @@ export class AppHarness {
   /** Open palette sessions (`palette.open`). */
   readonly sessions = new Set<PaletteSession>()
   inflight = 0
-  private readonly liveGestures = new Set<string>()
+  /** Command tokens the harness minted: revoked at settle, after 2 s, or once spent on a view change. */
+  private readonly liveGestures = new Map<string, { minted: number; spent: boolean }>()
   private nextGesture = 1
   private nextCb = 1
   private nextReq = 1
@@ -153,7 +168,7 @@ export class AppHarness {
       settings: { ...defaults, ...(options.settings ?? {}) },
       paletteScopes: [...this.scopes.values()]
     })
-    this.host.fallback = (name, params, options) => this.resolveOp(name, params, this.originOf(options))
+    this.host.fallback = (name, params, options) => this.resolveOp(name, params, this.originOf(name, options))
     this.host.onCommandDone = (cbId, ok, body) => {
       const waiter = this.commandWaiters.get(cbId)
       if (!waiter) return
@@ -195,8 +210,15 @@ export class AppHarness {
 
   // MARK: Ops
 
-  private originOf(options: any): Origin {
-    return typeof options?.gesture === "string" && this.liveGestures.has(options.gesture) ? "user" : "script"
+  /**
+   * The host's gesture rule (ABI.md, Gesture tokens): a live token gives origin user; the first
+   * mutation that changes view state spends it; reads and app-private writes do not.
+   */
+  private originOf(op: string, options: any): Origin {
+    const token = typeof options?.gesture === "string" ? this.liveGestures.get(options.gesture) : undefined
+    if (!token || token.spent || performance.now() - token.minted > GESTURE_MS) return "script"
+    if (changesViewState(op)) token.spent = true
+    return "user"
   }
 
   /** The scope an op needs, or null when it needs none (the app's own storage). */
@@ -243,6 +265,14 @@ export class AppHarness {
     if (!hasFixture && !builtin && !generated.ops[op]) return opError("operation.unsupported", `no owner implements ${op} (add a fixture to test against it)`, { op })
     const scope = this.scopeFor(op, params)
     if (scope && !this.granted(scope, op, params)) return opError("scope.missing", `${op} needs scope ${scope}`, { op, scope })
+    if (op === "action.run") {
+      // The inner action id gets the same check as a row's ActionRef.
+      const inner = String(params?.id ?? "")
+      const app = /^app:([^#]+)#/.exec(inner)
+      if (app && app[1] !== this.appId) return opError("operation.forbidden", `${this.appId} cannot run another app's command ${inner}`, { op: inner })
+      const innerScope = generated.ops[inner] ? this.scopeFor(inner, params?.args) : null
+      if (innerScope && !this.granted(innerScope, inner, params?.args)) return opError("scope.missing", `${inner} needs scope ${innerScope}`, { op: inner, scope: innerScope })
+    }
     if (hasFixture) {
       const f = this.fixtures[op]
       try {
@@ -273,12 +303,21 @@ export class AppHarness {
     return opError("fixture.missing", `${op} is in the catalog but the test gave no fixture for it`, { op })
   }
 
-  /** Runs an ActionRef the way the palette host does: the app's own commands through the VM with a gesture, everything else as a user-origin op. */
+  /**
+   * Runs an ActionRef the way the palette host does (ABI.md, Palette actions run by the host): the
+   * app's own commands through the VM, with a fresh token only for origin user; another app's
+   * command is refused; everything else is an op under the app's grants.
+   */
   async runAction(ref: ActionRef, origin: Origin = "user"): Promise<Result> {
     const own = new RegExp(`^app:${this.appId.replace(/[/\\^$.*+?()[\]{}|-]/g, "\\$&")}#(.+)$`).exec(ref.id)
+    if (!own && ref.id.startsWith("app:")) {
+      this.ops.calls.push({ op: ref.id, args: ref.args ?? {} })
+      this.ops.log.push({ op: ref.id, args: ref.args ?? {}, origin, ok: false, code: "operation.forbidden" })
+      return { ok: false, error: { code: "operation.forbidden", message: `a row of ${this.appId} cannot run another app's command ${ref.id}` } }
+    }
     if (own) {
       this.ops.calls.push({ op: ref.id, args: ref.args ?? {} })
-      const result = await this.runCommand(own[1]!, ref.args ?? {})
+      const result = await this.runCommand(own[1]!, ref.args ?? {}, { userGesture: origin === "user" })
       this.ops.log.push({ op: ref.id, args: ref.args ?? {}, origin, ok: result.ok, ...(result.ok ? {} : { code: result.error.code }) })
       return result
     }
@@ -289,8 +328,12 @@ export class AppHarness {
 
   // MARK: Commands
 
-  /** Runs command `id` with a fresh user gesture, after checking `args` against its `arguments` schema. */
-  async runCommand(id: string, args: Record<string, unknown> = {}): Promise<Result> {
+  /**
+   * Runs command `id` after checking `args` against its `arguments` schema. `userGesture` (a palette
+   * Return, menu item, shortcut or form submit) mints a token bound to this run; the CLI, MCP,
+   * deeplinks and app code never get one.
+   */
+  async runCommand(id: string, args: Record<string, unknown> = {}, options: { userGesture?: boolean } = {}): Promise<Result> {
     const cmd = this.commandDecls.get(id)
     if (!cmd) return { ok: false, error: { code: "command.unknown", message: `the app has no command ${id}` } }
     if (cmd.arguments) {
@@ -298,14 +341,15 @@ export class AppHarness {
       if (errors.length) return { ok: false, error: { code: "invalid_params", message: errors.map((e) => `${e.path || "/"} ${e.message}`).join("; "), details: errors } }
     }
     if (!this.vm.running) return { ok: false, error: { code: "vm.stopped", message: "the app is not running" } }
-    const gesture = `g-${this.nextGesture++}`
+    const gesture = options.userGesture ? `g-${this.nextGesture++}` : undefined
     const cbId = this.nextCb++
-    this.liveGestures.add(gesture)
+    if (gesture) this.liveGestures.set(gesture, { minted: performance.now(), spent: false })
     this.inflight++
     const result = new Promise<Result>((resolve) => this.commandWaiters.set(cbId, resolve))
-    this.host.runCommand(cmd.run, args, cbId, { gesture })
+    this.host.runCommand(cmd.run, args, cbId, gesture ? { gesture } : undefined)
     const r = await result
-    this.liveGestures.delete(gesture)
+    // Revoked at settle (commandDone).
+    if (gesture) this.liveGestures.delete(gesture)
     this.inflight--
     return r
   }
@@ -374,8 +418,9 @@ export class AppHarness {
   }
 
   /** Commands as the CLI and MCP see them: `h.commands.run("new", {title})`. */
+  /** `run(id, args)` is the CLI / MCP path (no gesture); pass `{userGesture: true}` for a palette form submit, menu item or shortcut. */
   readonly commands = {
-    run: (id: string, args: Record<string, unknown> = {}) => this.runCommand(id, args)
+    run: (id: string, args: Record<string, unknown> = {}, options: { userGesture?: boolean } = {}) => this.runCommand(id, args, options)
   }
 }
 

@@ -14,9 +14,11 @@ export const PALETTE_LIMITS = {
   snapshotItems: 10_000,
   /** Items of one query batch, and of every `paletteBatch` call. */
   batchItems: 200,
+  /** Live rows of one query request across all its yields (and of one cached result). */
+  queryItems: 1000,
   /** UTF-8 bytes of one detail's JSON. */
   detailBytes: 64 * 1024,
-  /** Queries remembered per scope for `palette.cached()`. */
+  /** Queries remembered per cache key (scope, session, context, filter) for `palette.cached()`. */
   cachedQueries: 32
 }
 
@@ -133,19 +135,31 @@ function checkActionRef(ref: unknown, path: string): void {
   if (r.args !== undefined && (typeof r.args !== "object" || r.args === null || Array.isArray(r.args))) throw new CmuxError("palette.invalid", `${path}.args must be an object`, { path })
 }
 
-/** Validates one item and returns its JSON. */
+/** Serializes `value` once; the caller validates the parsed result, never the live object (a toJSON or getter cannot change it after the checks). */
+function serialize(value: unknown, path: string): string {
+  checkPlain(value, path)
+  let json: string | undefined
+  try {
+    json = JSON.stringify(value)
+  } catch (e) {
+    throw new CmuxError("palette.invalid", `${path} cannot be serialized: ${describe(e)}`, { path })
+  }
+  if (json === undefined) throw new CmuxError("palette.invalid", `${path} is not JSON`, { path })
+  return json
+}
+
+/** Validates one item and returns its JSON: the checks run on the serialized form that is sent. */
 export function itemJSON(item: unknown, path: string): string {
-  const it = item as Record<string, unknown>
+  const json = serialize(item, path)
+  const it = JSON.parse(json) as Record<string, unknown>
   if (!it || typeof it !== "object" || Array.isArray(it)) throw new CmuxError("palette.invalid", `${path} is not an object`, { path })
   if (typeof it.id !== "string" || !it.id) throw new CmuxError("palette.invalid", `${path}.id must be a non-empty string`, { path })
   if (typeof it.title !== "string") throw new CmuxError("palette.invalid", `${path}.title must be a string`, { path })
-  checkPlain(it, path)
   if (it.actions !== undefined) {
     if (!Array.isArray(it.actions)) throw new CmuxError("palette.invalid", `${path}.actions must be an array of ActionRefs`, { path })
     it.actions.forEach((a, i) => checkActionRef(a, `${path}.actions[${i}]`))
   }
   for (const key of ["drill", "enters"]) if (it[key] !== undefined && typeof it[key] !== "string") throw new CmuxError("palette.invalid", `${path}.${key} must be a scope id`, { path })
-  const json = JSON.stringify(it)
   const bytes = utf8Length(json)
   if (bytes > PALETTE_LIMITS.itemBytes) throw new CmuxError("palette.limit", `${path} is ${bytes} bytes; an item is at most ${PALETTE_LIMITS.itemBytes}`, { path, bytes })
   return json
@@ -163,8 +177,7 @@ function itemsJSON(items: unknown, limit: number, what: string): string[] {
 export function act(op: string, args: Record<string, unknown> = {}, overrides: { title?: string; symbol?: string } = {}): ActionRef {
   if (typeof op !== "string" || !op) throw new CmuxError("palette.invalid", "act needs an action id")
   if (args === null || typeof args !== "object" || Array.isArray(args)) throw new CmuxError("palette.invalid", `act(${op}): args must be an object`)
-  checkPlain(args, `act(${op}).args`)
-  const ref: ActionRef = { id: op, args: { ...args } }
+  const ref: ActionRef = { id: op, args: JSON.parse(serialize(args, `act(${op}).args`)) }
   if (overrides.title !== undefined) ref.title = String(overrides.title)
   if (overrides.symbol !== undefined) ref.symbol = String(overrides.symbol)
   return ref
@@ -271,17 +284,20 @@ function finish(req: Request, ok: boolean, body: unknown) {
   state.native?.paletteDone?.(req.id, ok, JSON.stringify(body ?? null))
 }
 
-function remember(scope: string, query: string, items: string[]) {
-  let perScope = paletteState.cache.get(scope)
-  if (!perScope) paletteState.cache.set(scope, (perScope = new Map()))
+/** `palette.cached()` results are per scope, session, drilled row and filter: one level's rows never show in another. */
+const cacheKey = (scope: string, ctx: { session?: string; context?: string; filter?: string }) => [scope, ctx.session ?? "", ctx.context ?? "", ctx.filter ?? ""].join("\u0000")
+
+function remember(key: string, query: string, items: string[]) {
+  let perScope = paletteState.cache.get(key)
+  if (!perScope) paletteState.cache.set(key, (perScope = new Map()))
   perScope.delete(query)
-  perScope.set(query, items)
+  perScope.set(query, items.slice(0, PALETTE_LIMITS.queryItems))
   while (perScope.size > PALETTE_LIMITS.cachedQueries) perScope.delete(perScope.keys().next().value as string)
 }
 
 /** The last complete result of the longest cached prefix of `query` (exact match first). */
-function cachedFor(scope: string, query: string): string[] | undefined {
-  const perScope = paletteState.cache.get(scope)
+function cachedFor(key: string, query: string): string[] | undefined {
+  const perScope = paletteState.cache.get(key)
   if (!perScope) return undefined
   let best: string | undefined
   for (const q of perScope.keys()) if (query.startsWith(q) && (best === undefined || q.length > best.length)) best = q
@@ -290,15 +306,16 @@ function cachedFor(scope: string, query: string): string[] | undefined {
 
 const isCachedMarker = (v: unknown) => !!v && typeof v === "object" && (v as Record<string, unknown>)[CACHED] === true
 
-async function pumpQuery(req: Request, scope: string, query: string, source: unknown) {
+async function pumpQuery(req: Request, key: string, query: string, source: unknown) {
   const all: string[] = []
+  let truncated = false
   const it = source as AsyncIterator<unknown> & { return?: (v?: unknown) => unknown }
   try {
     if (!source || typeof (it as { next?: unknown }).next !== "function") {
       // A plain async function returning one array: one final batch.
       const items = itemsJSON(await source, PALETTE_LIMITS.batchItems, "the query result")
       if (req.closed) return
-      remember(scope, query, items)
+      remember(key, query, items)
       sendChunked(req, items, true)
       finish(req, true, { count: items.length })
       return
@@ -311,17 +328,27 @@ async function pumpQuery(req: Request, scope: string, query: string, source: unk
       }
       if (step.done) break
       if (isCachedMarker(step.value)) {
-        const cached = cachedFor(scope, query)
+        const cached = cachedFor(key, query)
         if (cached?.length) sendChunked(req, cached, false, true)
         continue
       }
-      const items = itemsJSON(step.value, PALETTE_LIMITS.batchItems, "a query batch")
+      let items = itemsJSON(step.value, PALETTE_LIMITS.batchItems, "a query batch")
+      const room = PALETTE_LIMITS.queryItems - all.length
+      if (items.length > room) {
+        items = items.slice(0, room)
+        truncated = true
+      }
       all.push(...items)
       if (items.length) sendChunked(req, items, false)
+      if (truncated) {
+        // The request reached its total: stop the source, keep what was sent.
+        await it.return?.()
+        break
+      }
     }
-    remember(scope, query, all)
+    remember(key, query, all)
     send(req, [], true)
-    finish(req, true, { count: all.length })
+    finish(req, true, truncated ? { count: all.length, truncated: true } : { count: all.length })
   } catch (e) {
     if (req.closed) return
     try {
@@ -394,7 +421,7 @@ export function paletteOpen(scopeId: string, kind: string, query: string, genera
     finish(req, false, failure(e))
     return describe(e)
   }
-  pumpQuery(req, scopeId, query, source)
+  pumpQuery(req, cacheKey(scopeId, ctxIn), query, source)
   return ""
 }
 
@@ -421,11 +448,10 @@ export function paletteDetail(scopeId: string, itemId: string, reqId: number) {
     .then(() => (fn as (id: string, ctx: { scope: string; signal: PaletteAbortSignal }) => unknown)(itemId, { scope: scopeId, signal: req.signal }))
     .then((detail) => {
       if (req.closed) return
-      checkPlain(detail ?? null, "detail")
-      const json = JSON.stringify(detail ?? null)
+      const json = serialize(detail ?? null, "detail")
       const bytes = utf8Length(json)
       if (bytes > PALETTE_LIMITS.detailBytes) throw new CmuxError("palette.limit", `detail is ${bytes} bytes; at most ${PALETTE_LIMITS.detailBytes}`)
-      finish(req, true, detail ?? null)
+      finish(req, true, JSON.parse(json))
     })
     .catch((e) => finish(req, false, failure(e)))
 }

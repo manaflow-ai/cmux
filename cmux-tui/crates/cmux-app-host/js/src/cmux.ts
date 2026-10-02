@@ -326,8 +326,8 @@ export function createCmux(gesture: () => string | undefined): Record<string, un
         set: (values: Record<string, unknown>) => c("app.settings.set", { values })
       })
     },
-    /** The current user-gesture token (only inside a user event handler or command, before its first await). */
-    gesture: () => state.gesture,
+    /** The current user-gesture token: on a command's `ctx.cmux`, the invocation's token while the command runs; otherwise the event token of a user event handler running synchronously; else null. */
+    gesture: () => gesture() ?? state.gesture,
     /** The app's string for `key` in the user's locale (strings/<lang>.json), else `fallback`; `{name}` placeholders. */
     t: (key: string, fallbackOrParams?: string | Record<string, unknown>, params?: Record<string, unknown>) => {
       const fallback = typeof fallbackOrParams === "string" ? fallbackOrParams : key

@@ -141,3 +141,62 @@ describe("snapshot invalidation", () => {
     expect(h.vm.paletteRequests).toBe(before)
   })
 })
+
+describe("gestures and host-run ActionRefs", () => {
+  const app = appDir(
+    {
+      id: "local/focus",
+      scopes: { "workspace:write": "Focus tabs.", "actions:run": "Run actions." },
+      contributes: {
+        paletteScopes: [{ id: "rows", title: "Rows", source: { kind: "snapshot", export: "rows" } }],
+        commands: [{ id: "focus", title: "Focus", run: "focus", contexts: [] }]
+      }
+    },
+    `return {
+      rows: palette.snapshot(() => [
+        { id: "mine", title: "Mine", actions: [act("app:local/focus#focus", {})] },
+        { id: "theirs", title: "Theirs", actions: [act("app:local/other#steal", {})] },
+        { id: "inner", title: "Inner", actions: [act("action.run", { id: "app:local/other#steal", args: {} })] }
+      ]),
+      focus: async (args, ctx) => {
+        await ctx.cmux.storage.set("k", 1)
+        await ctx.cmux.tab.focus({ tab: "tab_1" })
+        await ctx.cmux.tab.focus({ tab: "tab_2" })
+        return ctx.cmux.gesture()
+      }
+    }`
+  )
+  const fixtures = { "tab.focus": null, "action.run": null }
+  const origins = (h: { ops: { log: Array<{ op: string; origin: string }> } }) => h.ops.log.filter((e) => e.op !== "app.storage.get").map((e) => `${e.op} ${e.origin}`)
+
+  test("a palette Return mints one token: app-private writes keep it, the first view change spends it", async () => {
+    const h = await harness.load(app, { fixtures })
+    const s = await h.palette.open("rows")
+    await s.press("Return")
+    // The command's own log entry lands when it settles.
+    expect(origins(h)).toEqual(["app.storage.set user", "tab.focus user", "tab.focus script", "app:local/focus#focus user"])
+  })
+
+  test("ctx.cmux.gesture() returns the invocation token", async () => {
+    const h = await harness.load(app, { fixtures })
+    expect(await h.commands.run("focus", {}, { userGesture: true })).toEqual({ ok: true, value: "g-1" })
+  })
+
+  test("the CLI and MCP path mints no token", async () => {
+    const h = await harness.load(app, { fixtures })
+    expect(await h.commands.run("focus")).toEqual({ ok: true, value: null })
+    expect(origins(h)).toEqual(["app.storage.set script", "tab.focus script", "tab.focus script"])
+  })
+
+  test("a row cannot run another app's command, directly or through action.run", async () => {
+    const h = await harness.load(app, { fixtures })
+    const s = await h.palette.open("rows")
+    await s.press("Down")
+    await s.press("Return")
+    expect(h.ops.log.at(-1)).toMatchObject({ op: "app:local/other#steal", ok: false, code: "operation.forbidden" })
+    await s.press("Down")
+    await s.press("Return")
+    expect(h.ops.log.at(-1)).toMatchObject({ op: "action.run", ok: false, code: "operation.forbidden" })
+  })
+})
+

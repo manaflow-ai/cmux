@@ -7,7 +7,7 @@ const notes = [
   { id: "n1", title: "Reading list", body: "Books to read this fall", folder: "Personal", tags: ["books"], updatedAt: 3 },
   { id: "n2", title: "Groceries", body: "Milk, eggs, bread", folder: "Home", updatedAt: 2 },
   { id: "n3", title: "Meeting notes", body: "Palette rollout, then the reading group", folder: "Work", pinned: true, updatedAt: 1 },
-  { id: "n4", title: "Long note", body: "x".repeat(500), updatedAt: 0 }
+  { id: "n4", title: "Long note", body: "x".repeat(700), updatedAt: 0 }
 ]
 const load = (grants = ["clipboard:write"]) => harness.load(dir, { grants, storage: { notes } })
 const titles = (rows: Array<{ title: string }>) => rows.map((r) => r.title)
@@ -63,7 +63,7 @@ describe("palette-notes: notes scope", () => {
     expect(titles(s.rows)).toEqual(["Open Note", "Copy Text"])
     await s.press("Down")
     await s.press("Return")
-    expect(h.clipboard).toBe("x".repeat(500))
+    expect(h.clipboard).toBe("x".repeat(700))
   })
 
   test("without the clipboard grant the copy fails with scope.missing", async () => {
@@ -127,11 +127,36 @@ describe("palette-notes: search scope", () => {
   })
 })
 
+describe("palette-notes: item budget", () => {
+  test("a huge note is clipped or dropped; it never fails the snapshot", async () => {
+    const big = [
+      ...notes,
+      { id: "n5", title: "😀".repeat(400), body: "é".repeat(400), tags: Array.from({ length: 50 }, (_, i) => `tag-${i}-${"y".repeat(60)}`), updatedAt: 9 },
+      { id: "n6", title: "Short", body: "😀".repeat(200), updatedAt: 8 }
+    ]
+    const h = await harness.load(dir, { grants: ["clipboard:write"], storage: { notes: big } })
+    const s = await h.palette.open("notes")
+    expect(s.rows.map((r) => r.id)).toEqual(["n3", "n5", "n6", "n1", "n2", "n4"])
+    expect(Array.from(s.rows[1]!.title).length).toBe(120)
+    // 200 emoji are 800 bytes: copied through the command, not inline.
+    await s.type("short")
+    await s.tab()
+    expect(s.rows.map((r) => r.title)).toEqual(["Open Note", "Copy Text"])
+  })
+})
+
 describe("palette-notes: new (mode form)", () => {
+  test("from the CLI or MCP the command runs without a gesture: origin script", async () => {
+    const h = await load()
+    expect(await h.commands.run("new", { title: "From CLI" })).toEqual({ ok: true, value: { id: "n5" } })
+    expect(h.ops.log.filter((e) => e.op === "app.storage.set").map((e) => e.origin)).toEqual(["script", "script"])
+  })
+
   test("arguments are checked against the form schema, the note joins the snapshot after invalidation", async () => {
     const h = await load()
     expect(await h.commands.run("new", {})).toMatchObject({ ok: false, error: { code: "invalid_params" } })
-    expect(await h.commands.run("new", { title: "Trip plan", body: "Pack the tent" })).toEqual({ ok: true, value: { id: "n5" } })
+    // The palette form submit is a user gesture.
+    expect(await h.commands.run("new", { title: "Trip plan", body: "Pack the tent" }, { userGesture: true })).toEqual({ ok: true, value: { id: "n5" } })
     await h.idle()
     expect(h.dirty.has("notes")).toBe(true)
     const s = await h.palette.open("notes")

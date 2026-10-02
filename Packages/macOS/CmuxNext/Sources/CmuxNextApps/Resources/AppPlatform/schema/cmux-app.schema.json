@@ -894,10 +894,10 @@
           "type": "array",
           "maxItems": 8,
           "uniqueItems": true,
-          "description": "Lowercase words: an exact keyword plus Tab enters the scope.",
+          "description": "Lowercase words with at least one letter or digit: an exact keyword plus Tab enters the scope.",
           "items": {
             "type": "string",
-            "pattern": "^[^\\p{Lu}\\p{Lt}\\s]{1,32}$"
+            "pattern": "^(?=[^\\s]*[\\p{L}\\p{N}])[^\\p{Lu}\\p{Lt}\\s]{1,32}$"
           }
         },
         "prefix": {
