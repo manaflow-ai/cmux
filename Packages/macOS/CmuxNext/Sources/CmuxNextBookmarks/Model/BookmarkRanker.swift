@@ -1,16 +1,16 @@
 public import Foundation
 
-/// Omnibar ranking of bookmarks, after Chrome's BookmarkProvider: every
-/// typed term must start a word of the title, or (Chrome's URL matching)
-/// appear in the URL; the share of the title the terms cover raises the
-/// score, and a bookmark outranks a history page of the same match quality.
+/// Omnibar ranking of bookmarks, after Chromium's BookmarkProvider: every
+/// typed term must start a word of the title, or appear in the URL; the
+/// share of the title the terms cover raises the score, and a bookmark
+/// outranks a history page of the same match quality.
 ///
 /// Scores use the omnibar's provider range (below the typed row's 1000):
 /// history pages score up to about 600 for the match plus frequency,
 /// recency and brevity bonuses (`BrowserHistoryRanker`).
 public nonisolated enum BookmarkRanker {
-    /// Bonus over an equal history match (Chrome treats a bookmarked page
-    /// like a typed one).
+    /// Bonus over an equal history match (a bookmarked page ranks like a
+    /// typed one).
     public static let bookmarkBonus: Double = 150
 
     public static func score(_ node: BookmarkNode, for text: String, now: Date) -> Double? {
@@ -37,7 +37,7 @@ public nonisolated enum BookmarkRanker {
             }
         }
         match /= Double(tokens.count)
-        // Title coverage, Chrome's "fraction of the title matched".
+        // Title coverage: the fraction of the title matched.
         let coverage = title.isEmpty ? 0 : Double(coveredTitle) / Double(max(title.count, 1))
         let recency = node.lastUsed.map { 100 * exp(-max(now.timeIntervalSince($0), 0) / 86_400 / 14) } ?? 0
         let brevity = max(0, 40 - Double(urlText.count) / 4)

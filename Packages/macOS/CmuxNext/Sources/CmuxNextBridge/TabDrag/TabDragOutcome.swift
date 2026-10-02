@@ -20,7 +20,7 @@ public nonisolated enum TabDragOutcome: Hashable, Sendable {
     case tearOff(screenPoint: CGPoint)
     /// Released outside every window while dragging everything the source
     /// workspace holds, the only workspace of its window: the source window
-    /// moves under the pointer instead (Chrome's single-tab window drag).
+    /// moves under the pointer instead, as when dragging a window's only tab.
     /// No daemon command.
     case moveWindow(screenPoint: CGPoint)
     /// Released outside every window while dragging everything the source

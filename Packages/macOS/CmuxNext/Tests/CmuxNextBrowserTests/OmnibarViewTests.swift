@@ -64,7 +64,7 @@ import Testing
         h.bar.debugType("typo")
         await h.settle()
         let editor = (h.editor as? NSTextView) ?? NSTextView()
-        // Chrome: the first Escape closes the card, the second reverts to
+        // The first Escape closes the card, the second reverts to
         // the display text, the third returns focus to the page.
         _ = h.bar.control(NSTextField(), textView: editor, doCommandBy: #selector(NSResponder.cancelOperation(_:)))
         #expect(h.bar.isEditing)

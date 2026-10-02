@@ -55,7 +55,7 @@ extension WebKitTab: PageInfoProviding {
 
     public func pageInfoDidChange(_ kind: SitePermissionKind, to setting: SitePermissionSetting, origin: String) async {
         guard setting == .block else { return }
-        // Blocking stops a capture in progress at once, as Chrome does.
+        // Blocking stops a capture in progress at once.
         switch kind {
         case .camera: await webView.setCameraCaptureState(.none)
         case .microphone: await webView.setMicrophoneCaptureState(.none)
@@ -117,7 +117,7 @@ extension WebKitTab: PageInfoProviding {
 
     /// Whether a document may run JavaScript under the per-site setting;
     /// nil leaves WebKit's default. A frame runs no script when its own
-    /// origin is blocked or when the top-level site is (Chrome keys the
+    /// origin is blocked or when the top-level site is (Chromium keys the
     /// setting on the top-level site; WebKit applies preferences per frame
     /// navigation, so each frame is decided here).
     static func allowsJavaScript(isMainFrame: Bool, frameOrigin: String?, topOrigin: String?,

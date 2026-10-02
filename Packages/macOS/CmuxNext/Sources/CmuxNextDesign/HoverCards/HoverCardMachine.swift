@@ -15,7 +15,7 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         /// its lifetime (`token`) ends it.
         case pinned(HoverTarget, token: Int)
         /// A card just hid; a hover before `token` fires shows at once
-        /// (Chrome's quick reshow).
+        /// (quick reshow).
         case grace(token: Int)
     }
 

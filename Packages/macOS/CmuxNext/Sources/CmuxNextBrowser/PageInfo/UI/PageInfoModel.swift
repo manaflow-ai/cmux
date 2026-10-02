@@ -15,15 +15,15 @@ public final class PageInfoModel {
     /// Parsed chain, leaf first; nil while loading.
     public internal(set) var certificates: [PageInfoCertificate]?
     public internal(set) var certificateFailure: String?
-    /// A change needs a reload to apply (Chrome's reload infobar).
+    /// A change needs a reload to apply (the reload infobar).
     public internal(set) var needsReload = false
 
     public init() {}
 
     public var resettableCount: Int { PageInfoPermissionList.resettableCount(permissions) }
 
-    /// Chrome's "About this page" row: shown for public web pages. cmux opens
-    /// the same "About this result" search Chrome's side panel loads.
+    /// The "About this page" row: shown for public web pages. It opens the
+    /// Google "About this result" search for the page.
     public var showsAboutThisPage: Bool {
         guard site.isWeb, let host = site.host, host.contains("."), !host.hasSuffix(".local") else { return false }
         return !host.allSatisfy { $0.isNumber || $0 == "." } && !host.contains(":")
@@ -51,7 +51,7 @@ public final class PageInfoModel {
         }
     }
 
-    /// State text under a permission row (Chrome `PageInfoUI::PermissionStateToUIString`).
+    /// State text under a permission row (Chromium `PageInfoUI::PermissionStateToUIString`).
     public static func stateText(_ state: SitePermissionState) -> String {
         if state.isInUse { return PageInfoStrings.usingNow }
         switch (state.kind, state.setting) {

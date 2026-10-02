@@ -31,8 +31,8 @@ import Testing
         #expect(decision == .insert(anchor: 2, disposition: .foregroundTab))
     }
 
-    /// Chrome UI and extension backgrounds have no source tab: the last shown
-    /// pane gets the tab.
+    /// Chromium's own UI and extension backgrounds have no source tab: the
+    /// last shown pane gets the tab.
     @Test func noSourceGoesToTheLastShownPane() {
         let decision = CEFWindowPolicy.decide(
             request(.window, .newWindow),

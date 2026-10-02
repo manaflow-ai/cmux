@@ -22,7 +22,7 @@ import Testing
 
     /// The palette lists every action except palette-internal navigation
     /// and the ones whose surface plan names another reason (New Browser
-    /// Tab on Chrome duplicates the default New Browser Tab row).
+    /// Tab on Chromium duplicates the default New Browser Tab row).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption

@@ -217,7 +217,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         dismiss()
     }
 
-    // Return commits the name and closes, as in Chrome.
+    // Return commits the name and closes.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if selector == #selector(NSResponder.insertNewline(_:)) {
             dismiss()

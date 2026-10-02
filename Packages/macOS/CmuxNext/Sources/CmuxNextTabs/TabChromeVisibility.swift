@@ -12,7 +12,7 @@ public import CoreGraphics
 /// - a tab narrower than the minimum inactive width (closing, growing in)
 ///   shows nothing.
 /// One difference: the x shows only on the hovered tab (nxdog9). The
-/// selected tab also keeps it once its contents are narrower than Chrome's
+/// selected tab also keeps it once its contents are narrower than Chromium's
 /// close-button threshold, where it costs no title text.
 public struct TabChromeVisibility: Equatable, Sendable {
     public var showsIcon: Bool
@@ -44,7 +44,7 @@ public struct TabChromeVisibility: Equatable, Sendable {
         }
         var available = contents
         if showsClose { available -= metrics.closeButtonSize + metrics.titleCloseSpacing }
-        // Chrome: the selected tab drops its icon when the x leaves no room;
+        // The selected tab drops its icon when the x leaves no room;
         // an inactive tab centers its icon instead (it has no x then).
         let iconFits = available >= metrics.iconSize
         let showsIcon = iconFits || !showsClose

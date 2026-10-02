@@ -88,7 +88,7 @@ final class ChromeIconButton: NSButton {
     }
 
     /// A press held for 0.4 s shows the menu under the button instead of
-    /// clicking (Chrome's long-press Back and Forward).
+    /// clicking (long-press Back and Forward).
     override func mouseDown(with event: NSEvent) {
         showedHoldMenu = false
         if menuProvider != nil, isEnabled {

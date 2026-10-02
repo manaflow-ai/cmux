@@ -101,7 +101,7 @@ nonisolated enum ScreenActionCatalog: ActionCatalogGroup {
     }
 }
 
-/// The nine group color names (Chrome's), shared by screen and screen group
+/// The nine group color names, shared by screen and screen group
 /// color actions and context submenus.
 nonisolated enum GroupColor9 {
     static let names = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]

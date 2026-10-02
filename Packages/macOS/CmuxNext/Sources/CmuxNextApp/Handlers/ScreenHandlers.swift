@@ -80,7 +80,7 @@ enum ScreenHandlers {
             guard let content = ctx.content(invocation) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
             let screens = content.layoutModel.screens
-            // 9 is the last screen, like Chrome's Cmd-9.
+            // 9 is always the last screen, as Cmd-9 is the last tab.
             let index = number == 9 ? screens.count - 1 : number - 1
             guard screens.indices.contains(index) else { return ctx.refuse(RefusalStrings.screenCount(screens.count)) }
             ScreenCommands.select(screens[index].id, in: content)

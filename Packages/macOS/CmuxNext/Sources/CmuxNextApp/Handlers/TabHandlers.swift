@@ -73,7 +73,7 @@ enum TabHandlers {
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
             let ids = pane.orderedIDs
             guard !ids.isEmpty else { return ctx.refuse(RefusalStrings.paneHasNoTabs) }
-            // Chrome: 9 always selects the last tab.
+            // 9 always selects the last tab.
             pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
         })
         registry.bind("palette.goToTab", invoke: { invocation in

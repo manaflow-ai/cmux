@@ -4,7 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 
-/// Screen group actions (Chrome tab group parity for the screen bar). The
+/// Screen group actions (the tab group actions, for the screen bar). The
 /// group is resolved before the capability check, so an unknown group is
 /// reported as such on every daemon.
 enum ScreenGroupHandlers {
