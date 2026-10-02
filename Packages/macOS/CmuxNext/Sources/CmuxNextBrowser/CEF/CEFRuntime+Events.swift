@@ -80,11 +80,11 @@ extension CEFRuntime {
         case .contextMenu(let browser, let token, let x, let y, let items, let params):
             showContextMenu(browser: browser, token: token, x: x, y: y, itemsJSON: items, paramsJSON: params)
         case .devToolsWillOpen(let browser):
-            tabsByBrowser[browser]?.devToolsWillOpen()
+            tabsByBrowser[browser]?.devToolsController.willOpen()
         case .devToolsOpened(let browser, let devTools, let docked):
-            tabsByBrowser[browser]?.devToolsOpened(browser: devTools, docked: docked)
+            tabsByBrowser[browser]?.devToolsController.opened(browser: devTools, docked: docked)
         case .devToolsClosed(let browser, let devTools):
-            tabsByBrowser[browser]?.devToolsClosed(browser: devTools)
+            tabsByBrowser[browser]?.devToolsController.closed(browser: devTools)
         case .installPrompt(let browser, let promptID, let json):
             extensionPromptArrived(promptID: promptID, browser: browser, json: json)
         case .omniboxSuggestions(let requestID, let extensionID, let json):
@@ -198,7 +198,7 @@ extension CEFRuntime {
                 }
             }
         case .devToolsDockSide:
-            tabsByBrowser[browser]?.devToolsDockSideChosen(value)
+            tabsByBrowser[browser]?.devToolsController.dockSideChosen(value)
         case .foreignBrowserBlocked:
             logger.error("Chromium created a window outside cmux (type \(value)); the fork hid it")
         case .popupWindowCreated:
