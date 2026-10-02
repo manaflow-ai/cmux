@@ -152,7 +152,7 @@ import Testing
     @Test func reportIsFresh() throws {
         let url = Self.planURL("actions.md")
         let text = try String(contentsOf: url, encoding: .utf8)
-        let current = ActionSurfaceReport.markdown(catalog, menus: .shared)
+        let current = ActionSurfaceReport(catalog, menus: .shared).markdown
         let start = try #require(text.range(of: ActionSurfaceReport.begin), "actions.md has no generated block")
         let end = try #require(text.range(of: ActionSurfaceReport.end), "actions.md has no generated block end")
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
