@@ -259,7 +259,7 @@ let package = Package(
         // owns every session; the App supplies the source.
         .target(
             name: "CmuxNextAgentActivity",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
