@@ -19,9 +19,9 @@ public protocol CloudTuiCommandRunning: Sendable {
 /// Input uses this path because the PTY is the source of truth for echo and
 /// line discipline. The request is written on the link's persistent channel;
 /// no retry is attempted after the bytes have been handed to that channel.
-protocol CloudTuiUntrackedCommandSending: Sendable {
+public protocol CloudTuiUntrackedCommandSending: Sendable {
     func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws
-    func sendTuiCommandAndAwaitAck(arguments: CloudTuiRequest) async throws
+    public func sendTuiCommandAndAwaitAck(arguments: CloudTuiRequest) async throws
 }
 
 extension CloudMachineLink: CloudTuiCommandRunning {
@@ -31,7 +31,7 @@ extension CloudMachineLink: CloudTuiCommandRunning {
 }
 
 extension CloudMachineLink: CloudTuiUntrackedCommandSending {
-    func sendTuiCommandAndAwaitAck(arguments: CloudTuiRequest) async throws {
+    public func sendTuiCommandAndAwaitAck(arguments: CloudTuiRequest) async throws {
         _ = try await run(arguments: arguments, timeout: .seconds(30))
     }
 }

@@ -444,7 +444,7 @@ public actor CloudMachineLink {
     /// Sends a request on the authenticated persistent channel without waiting
     /// for its response. This is used for PTY input whose ordering and echo are
     /// owned by the remote terminal itself.
-    func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws {
+    public func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws {
         try await CloudOperationContext.phase(.process) {
             let channel = try await self.controlConnection()
             try await channel.sendUntracked(arguments)

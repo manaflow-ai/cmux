@@ -3,7 +3,7 @@ import CmuxSurfaceCatalogModel
 import CoreFoundation
 import Foundation
 
-enum CloudTuiSendError: Error {
+public enum CloudTuiSendError: Error {
     case notSent(Error)
     case ambiguous(Error)
 }
@@ -191,7 +191,7 @@ public actor CloudTuiPersistentResourceConnection {
     /// Writes a request on this authenticated channel without waiting for its
     /// response. The daemon still emits a normal response, which the reader
     /// safely ignores after the request has been handed to the socket.
-    func sendUntracked(_ request: CloudTuiRequest) async throws {
+    public func sendUntracked(_ request: CloudTuiRequest) async throws {
         try Task.checkCancellation()
         try await start()
         try Task.checkCancellation()
