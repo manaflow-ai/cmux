@@ -17692,127 +17692,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A column of buttons for new tabs, agent chats, notifications, history and accounts."
+            "value": "Shows the sidebar's pinned sections as a column of icons beside it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عمود من الأزرار لعلامات التبويب الجديدة ومحادثات الوكلاء والإشعارات والسجل والحسابات."
+            "value": "يعرض الأقسام المثبتة في الشريط الجانبي كعمود من الأيقونات بجانبه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kolona dugmadi za nove kartice, razgovore s agentima, obavještenja, historiju i račune."
+            "value": "Prikazuje prikvačene odjeljke bočne trake kao stupac ikona pored nje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En kolonne med knapper til nye faner, agentchats, notifikationer, historik og konti."
+            "value": "Viser sidepanelets fastgjorte sektioner som en kolonne af ikoner ved siden af det."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eine Spalte mit Tasten für neue Tabs, Agent-Chats, Mitteilungen, Verlauf und Accounts."
+            "value": "Zeigt die angehefteten Bereiche der Seitenleiste als Symbolspalte daneben."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Una columna de botones para pestañas nuevas, chats de agentes, notificaciones, historial y cuentas."
+            "value": "Muestra las secciones fijadas de la barra lateral como una columna de iconos junto a ella."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Une colonne de boutons pour les nouveaux onglets, les discussions avec les agents, les notifications, l’historique et les comptes."
+            "value": "Affiche les sections épinglées de la barre latérale sous forme de colonne d’icônes à côté."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Una colonna di pulsanti per nuove schede, chat con agenti, notifiche, cronologia e account."
+            "value": "Mostra le sezioni fissate della barra laterale come una colonna di icone accanto."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新規タブ、エージェントチャット、通知、履歴、アカウント用のボタンを縦に並べます。"
+            "value": "サイドバーの固定セクションを、その横のアイコン列として表示します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ជួរឈរប៊ូតុងសម្រាប់ផ្ទាំងថ្មី ការជជែកជាមួយភ្នាក់ងារ ការជូនដំណឹង ប្រវត្តិ និងគណនី។"
+            "value": "បង្ហាញផ្នែកដែលបានខ្ទាស់របស់របារចំហៀង ជាជួរឈររូបតំណាងនៅក្បែរវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 탭, 에이전트 채팅, 알림, 기록, 계정을 위한 버튼 열입니다."
+            "value": "사이드바의 고정된 섹션을 옆에 아이콘 열로 표시합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En kolonne med knapper for nye faner, agentchatter, varsler, historikk og kontoer."
+            "value": "Viser sidefeltets festede seksjoner som en kolonne med ikoner ved siden av."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kolumna przycisków do nowych kart, czatów z agentami, powiadomień, historii i kont."
+            "value": "Pokazuje przypięte sekcje paska bocznego jako kolumnę ikon obok niego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uma coluna de botões para novas abas, conversas com agentes, notificações, histórico e contas."
+            "value": "Mostra as seções fixadas da barra lateral como uma coluna de ícones ao lado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Столбец кнопок для новых вкладок, чатов с агентами, уведомлений, истории и учётных записей."
+            "value": "Показывает закреплённые разделы боковой панели столбцом значков рядом с ней."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คอลัมน์ปุ่มสำหรับแท็บใหม่ แชทกับเอเจนต์ การแจ้งเตือน ประวัติ และบัญชี"
+            "value": "แสดงส่วนที่ปักหมุดของแถบด้านข้างเป็นคอลัมน์ไอคอนข้างแถบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni sekmeler, ajan sohbetleri, bildirimler, geçmiş ve hesaplar için bir düğme sütunu."
+            "value": "Kenar çubuğunun sabitlenmiş bölümlerini yanında bir simge sütunu olarak gösterir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Стовпець кнопок для нових вкладок, чатів з агентами, сповіщень, історії та облікових записів."
+            "value": "Показує закріплені розділи бічної панелі стовпцем значків поруч із нею."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Một cột nút cho thẻ mới, trò chuyện với tác tử, thông báo, lịch sử và tài khoản."
+            "value": "Hiển thị các phần đã ghim của thanh bên dưới dạng một cột biểu tượng bên cạnh."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "一列按钮，用于新建标签页、代理聊天、通知、历史记录和账户。"
+            "value": "将边栏中固定的分区显示为旁边的一列图标。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "一列按鈕，用於新增分頁、代理聊天、通知、記錄和帳號。"
+            "value": "將側邊欄中釘選的區段顯示為旁邊的一欄圖示。"
           }
         }
       }

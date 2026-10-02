@@ -20,6 +20,9 @@ extension SidebarBridge {
         .history: "history.show",
         .bookmarks: "bookmark.manager",
         .appStore: "appStore.show",
+        .newTerminal: "newSurface",
+        .newBrowser: "openBrowser",
+        .newAgentChat: "palette.newAgentChat",
     ]
 
     func activateLayoutItem(_ id: LayoutItemID) {

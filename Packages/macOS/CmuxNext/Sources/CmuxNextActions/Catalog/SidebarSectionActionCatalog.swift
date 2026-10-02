@@ -191,6 +191,9 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ("history", t("argument.sidebar.builtin.history", "History")),
             ("bookmarks", t("argument.sidebar.builtin.bookmarks", "Bookmarks")),
             ("app_store", t("argument.sidebar.builtin.appStore", "App Store")),
+            ("new_terminal", t("argument.sidebar.builtin.newTerminal", "New Terminal Tab")),
+            ("new_browser", t("argument.sidebar.builtin.newBrowser", "New Browser Tab")),
+            ("new_agent_chat", t("argument.sidebar.builtin.newAgentChat", "New Agent Chat")),
         ]
         return ActionArgument(name: "item", title: t("argument.sidebar.item", "Item"),
                               kind: .enumeration(cases.map { ActionEnumCase(value: $0.0, title: $0.1) }))

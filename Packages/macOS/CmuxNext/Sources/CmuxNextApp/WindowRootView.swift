@@ -14,8 +14,8 @@ import Observation
 /// name. Every surface is the terminal background
 /// (`Palette.windowBackground`), so sidebar, titlebar, tab strip and
 /// terminal read as one sheet with no panel edges or seams. `window.rail`
-/// adds the icon rail (`WindowRail`) before the sidebar or between the
-/// sidebar and the content column.
+/// moves the sidebar's sticky sections into an icon rail (`WindowRail`)
+/// before the sidebar or between the sidebar and the content column.
 final class WindowRootView: NSView {
     let titlebar = TitlebarView()
     let contentHost = NSView()
@@ -133,6 +133,8 @@ final class WindowRootView: NSView {
         constraints += [titleFollowsColumn, contentHost.leadingAnchor.constraint(equalTo: column)]
         NSLayoutConstraint.activate(constraints)
         placementConstraints = constraints
+        // The sidebar shows its sticky sections only without the rail.
+        sidebar.sidebarView.needsLayout = true
         needsLayout = true
     }
 

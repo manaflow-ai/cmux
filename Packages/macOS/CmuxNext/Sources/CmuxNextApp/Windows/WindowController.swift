@@ -41,7 +41,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.state = state
         self.services = services
         sidebar = SidebarBridge(services: services, state: state)
-        root = WindowRootView(sidebar: sidebar.container, rail: WindowRailView(registry: services.registry))
+        root = WindowRootView(sidebar: sidebar.container, rail: WindowRailView(model: sidebar.model, registry: services.registry))
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
