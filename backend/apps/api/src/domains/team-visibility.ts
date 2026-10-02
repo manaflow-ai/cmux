@@ -22,6 +22,8 @@ export const teamSubscriberView = (state: TeamState, principal: Principal): Team
     integration_seeded: _seeded,
     integration_synced_hash: _hash,
     integration_synced_version: _version,
+    sso_connections: _sso,
+    domains: _domains,
     ...rest
   } = state
   const own = Object.fromEntries(Object.entries(state.managed_devices ?? {}).filter(([, d]) => d.user === principal.user))

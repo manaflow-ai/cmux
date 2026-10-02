@@ -187,6 +187,27 @@ iOS trade-offs: a packet tunnel would keep a tunnel up while the cmux app is sus
 - "Open window/workspace on session X": the app asks `owner_for(session X)` (data-model.md); the session registry holds X's host id. The app asks `cmux link` to dial that host; the link returns a local Unix socket that speaks the daemon protocol (as `remote connect` does today), and the window or workspace binds to that session. Capabilities that the host's policy refuses are disabled with the reason.
 - iOS has no local session: every session is remote; the phone opens the user's chosen default session.
 
+## 12a. What the overlay offers to local processes
+
+`cmux link` is the only process that holds the WireGuard key on a machine. Local processes of the same user (the app, the CLI, `remote connect` sidecars, the macOS screen agent helper, acpmux) use the overlay through the link's Unix sockets in a user-only directory (0600); the link checks peer credentials (same uid) and, on macOS, the caller's code signature (cmux team id) before it opens a stream or a datagram port. No second process needs or receives the key, so the screen agent helper does not get its own key (remote-desktop.md 19, question 5).
+
+| Service | Shape | Used by |
+| --- | --- | --- |
+| Interactive stream | one overlay TCP connection per link: control frames and `terminal_bytes` channels, Nagle off | session host, workspace store, acpmux (cmux.wire/1) |
+| Bulk stream | a second overlay TCP connection in the same WireGuard session: snapshots, history pages, files, loopback forwards | ghostty-next snapshot channel, file transfer, remote-localhost |
+| Datagrams | unreliable overlay UDP to a registered port on the peer; `cmux link` exposes a Unix datagram socket per local service; payload up to the link's `max_datagram` | remote desktop media (port 4103) |
+| Path events | subscription on the link socket: `path.changed {peer, path, rtt_ms, jitter_ms, loss_pct, max_datagram}` on every switch, plus the same fields every 5 s while the link carries traffic | path badge in the terminal view, remote desktop congestion control |
+
+Scheduling inside one session, strict priority: interactive datagrams (control and terminal bytes) first, then media datagrams, then bulk. The sender pacer applies to bulk only. Media datagrams older than 50 ms in the send queue are dropped (oldest first): media is unreliable by design and must never queue behind a stall. Streams never drop: a full send queue backpressures the writer (TCP window and the app's credit).
+
+Terminal channels (ghostty-next.md sections 2 and 11): live output is an ordered byte stream per terminal on the interactive connection, bounded by the per-viewer credit (`terminal.viewerBacklogBytes`, 256 KiB), so one flooding terminal cannot hold more than its credit in the interactive connection and cannot delay another terminal's echo by more than that backlog. Snapshots and history pages go on the bulk connection. Each frame carries `generation` and `offset`, so a snapshot that arrives on the bulk connection ahead of or behind live bytes is ordered by the viewer (bytes below the snapshot offset are discarded). The `behind` resync is a session host decision on its own credit, not a transport drop. The terminal view reads the path badge and RTT from the path events above.
+
+Inner MTU and `max_datagram`: one session uses one MTU, the smallest over the paths it may take, so a path switch never changes it: 1200 when the host is a VPC member (the Freestyle tunnel MTU is 1280, minus IPv6, UDP and WireGuard headers), else 1380 (room for one more encapsulation on common paths). `max_datagram` is the inner MTU minus 48 bytes (IPv6 and UDP headers): 1152 or 1332. The DO relay carries any size up to its 16 KiB frame, and frames batch several datagrams (landed in `cmux-transport`), so the relay is not the limit.
+
+Ports and policy: a host's overlay endpoint accepts only registered ports: 4100 (link), 4101 (WireGuard on VPC members, outer), 4102 (probes, inside the session), and ports that a local service registers with `cmux link` under a catalog service name (`remote-desktop` on 4103). Everything else is dropped. The network policy names services, not raw ports, for overlay destinations (`tag:desktop:remote-desktop`); the compiler maps service names to ports for host peer maps and to Freestyle firewall rules for VPC members. A peer allowed to reach a host therefore reaches only the services the policy names.
+
+In-process TCP defaults (`cmux-wg`): Nagle off; keepalive probe after 15 s idle; link connections use a 10-minute user timeout (60 s today, being raised); a FIN lost on close is a known bug from the remote desktop prototype, with a regression test in the engine round.
+
 ## 13. Measurements (2026-10-02)
 
 The local development Mac had a load of about 800 on 18 cores, so no timing was taken from it. Ends were Fly.io machines (shared-cpu-1x, 256 MB, sjc unless named), a Freestyle VM (`freestyle/ubuntu-sm`, San Francisco) and a lightly loaded fleet Mac mini behind the office NAT. Raw files and scripts are in the lane's private scratch directory.

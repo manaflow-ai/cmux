@@ -6,7 +6,10 @@ import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
-import { domainExternal, type DomainReply, type Http } from "./team-domain-external.ts"
+import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
+import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
+import { ssoExternal } from "./team-sso-external.ts"
+import { connectionForDomain } from "./domains/team-sso.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
@@ -50,6 +53,10 @@ export class TeamDO extends OwnerDO<TeamState> {
           revision: ""
         }
       }
+      case "sso.connection.list": {
+        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list SSO connections" }
+        return { ok: true, value: { team: state.team?.id, connections: Object.values(state.sso_connections ?? {}) }, revision: "" }
+      }
       case "domain.list": {
         if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list domains" }
         return { ok: true, value: { team: state.team?.id, domains: Object.values(state.domains ?? {}) }, revision: "" }
@@ -73,8 +80,10 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6). */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
-    if (!state.team || (!integrationSyncPending(state) && !releasePending(state))) return null
-    return Math.max(now, this.syncRetryAt ?? now)
+    if (!state.team) return null
+    const recheck = nextRecheckAt(state)
+    const sync = integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null
+    return sync === null ? recheck : recheck === null ? sync : Math.min(sync, recheck)
   }
 
   /**
@@ -84,6 +93,7 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
+    await this.recheckDomains(now)
     const engine = this.boundEngine
     let state = engine?.currentState
     if (!state?.team || (!integrationSyncPending(state) && !releasePending(state))) return
@@ -123,6 +133,39 @@ export class TeamDO extends OwnerDO<TeamState> {
       this.syncAttempts += 1
       this.syncRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.syncAttempts)
       throw e
+    }
+  }
+
+  /**
+   * Weekly DNS re-check of verified domains (spec 3.4). Every attempt records
+   * its time, so a failing resolver cannot spin the alarm. On the third failure
+   * DomainDO frees the domain first (so a new owner can verify), then the
+   * domain becomes lapsed.
+   */
+  private async recheckDomains(now: number) {
+    const state = this.boundEngine?.currentState
+    if (!state?.team) return
+    const team = state.team.id
+    const due = Object.values(state.domains ?? {}).filter((d) => d.state === "verified" && (d.last_checked_at ?? d.verified_at ?? d.requested_at) + RECHECK_MS <= now)
+    for (const d of due.slice(0, 5)) {
+      try {
+        const domainDO = this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(d.domain))
+        const results = await Promise.all(RESOLVERS.map((r) => txtAnswers(this.http, r(d.record_name))))
+        // A resolver failure is "unknown": record the attempt time without counting a failure.
+        const unknown = results.some((answers) => answers === null)
+        const ok = unknown || results.every((answers) => answers !== null && txtContains(answers, d.record_value))
+        this.requireCommitted(this.submitSystem("domain.rechecked", { domain: d.domain, record_value: d.record_value, ok, at: now }, `domain-recheck:${d.domain}:${now}`))
+        const after = this.boundEngine!.currentState.domains?.[d.domain]
+        // Commit first, then free: a lost release is retried by the next verify or re-check (release is idempotent);
+        // a passing re-check re-asserts ownership, so TeamDO and DomainDO cannot drift apart for long.
+        if (after?.state === "lapsed") await domainDO.release(team)
+        else if (ok && !unknown) {
+          const held = await domainDO.claim(d.domain, team, now)
+          if (!held.ok) this.requireCommitted(this.submitSystem("domain.mark_lost", { domain: d.domain }, `domain-lost:${d.domain}:${d.record_value}:${now}`))
+        }
+      } catch (e) {
+        console.error(JSON.stringify({ msg: "domain re-check failed", domain: d.domain, error: String(e) }))
+      }
     }
   }
 
@@ -175,6 +218,34 @@ export class TeamDO extends OwnerDO<TeamState> {
       principal,
       frame
     )
+  }
+
+  /** RPC from the Worker: sso.connection.set_secret and sso.connection.activate (sealing, OIDC discovery). */
+  async ssoOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    const engine = this.bind(entity)
+    return ssoExternal(
+      {
+        state: engine.currentState,
+        team: entity,
+        stream: engine.stream,
+        http: this.http,
+        kek: this.env.INTEGRATIONS_KEK,
+        sql: this.ctx.storage.sql,
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+      },
+      principal,
+      frame
+    )
+  }
+
+  /**
+   * RPC from sign-in discovery (unauthenticated): whether this team serves
+   * `domain` through an active connection. Answers only yes or no, never the
+   * team or the connection, so discovery does not enumerate customers.
+   */
+  async ssoDiscover(entity: string, domain: string): Promise<{ sso: boolean }> {
+    const engine = this.boundEngine ?? this.bind(entity)
+    return { sso: Boolean(connectionForDomain(engine.currentState, domain)) }
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
