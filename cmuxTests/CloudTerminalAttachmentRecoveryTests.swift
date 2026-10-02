@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxCloudTui
+import CmuxTerminalSizing
 import CmuxTerminalSharing
 import Darwin
 import Foundation
