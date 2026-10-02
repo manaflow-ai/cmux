@@ -140,7 +140,10 @@ export function mergeToolItem(
       kind: update.kind ?? before?.kind,
       status: String(update.status ?? before?.status ?? "in_progress"),
       inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
-      output: output || (update.content === undefined ? before?.output : undefined),
+      output:
+        output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
+      command: shellCommand(update.rawInput) ?? before?.command,
+      exitCode: exitCode(update.rawOutput) ?? before?.exitCode,
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
       diffs:
         update.content === undefined
@@ -148,6 +151,26 @@ export function mergeToolItem(
           : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations),
     },
   };
+}
+
+/// The command line a shell call ran: Codex and Claude both send `rawInput.command`, as a
+/// string or an argv array.
+export function shellCommand(rawInput: any): string | undefined {
+  const command = rawInput?.command;
+  if (typeof command === "string") return command;
+  if (Array.isArray(command) && command.every((part) => typeof part === "string")) return command.join(" ");
+  return undefined;
+}
+
+function exitCode(rawOutput: any): number | undefined {
+  const code = rawOutput?.exit_code ?? rawOutput?.exitCode;
+  return typeof code === "number" ? code : undefined;
+}
+
+/// Codex reports a shell call's output in `rawOutput` when the call carries no content.
+function formattedOutput(rawOutput: any): string {
+  const text = rawOutput?.formatted_output ?? rawOutput?.stdout;
+  return typeof text === "string" ? text : "";
 }
 
 function textFromContent(content: any): string {

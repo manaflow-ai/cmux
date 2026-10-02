@@ -519,14 +519,13 @@ export const workedTurn: SeedStep[] = [
   },
   {
     ago: START - 80_000,
-    update: tool(
-      "w-test",
-      "execute",
-      "Run bun test Sources/Fleet",
-      output(
+    update: tool("w-test", "execute", "Run bun test Sources/Fleet", {
+      rawInput: { command: "bun test Sources/Fleet", cwd: CMUX },
+      rawOutput: { exit_code: 0 },
+      ...output(
         "bun test v1.4.0\n\nSources/Fleet/upload.test.ts:\n✓ uploads the artifact [3.12ms]\n✓ retries a 503 and then succeeds [1504.40ms]\n\n 2 pass\n 0 fail\nRan 2 tests across 1 file. [1.53s]",
       ),
-    ),
+    }),
   },
   {
     ago: START - 84_000,
