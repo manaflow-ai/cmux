@@ -161,15 +161,16 @@ describe("acpmux transcript accessibility", () => {
     }
   });
 
-  /// A blank line inside a user message rendered as an empty paragraph of two newlines, which a
-  /// pre-wrap bubble drew as two extra lines the layout never counted.
-  test("a blank line between paragraphs renders no paragraph of its own", async () => {
+  /// A prompt draws as typed in one bubble, as Codex draws it: no Markdown, so a blank line is
+  /// one blank line and not an empty paragraph of two newlines.
+  test("a prompt draws as typed in one bubble", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
       await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "u", version: 1, at: 0, kind: "user", text: "first\n\nsecond" }], onToggleActivity: () => {}, expanded: new Set<string>() })));
-      const paragraphs = [...dom.window.document.querySelectorAll(".acpmux-markdown > p")].map((node) => node.textContent);
-      expect(paragraphs).toEqual(["first", "second"]);
+      const bubbles = [...dom.window.document.querySelectorAll(".cv-user__bubble")];
+      expect(bubbles.map((node) => node.textContent)).toEqual(["first\n\nsecond"]);
+      expect(bubbles[0]!.querySelector("p")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       restore();
@@ -184,7 +185,7 @@ describe("acpmux transcript accessibility", () => {
     const text = "- Multiplies qty by price for each order:\n  - Notebook: `3 × 4.50 = 13.50`\n  - Pens: `12 × 0.80 = 9.60`\n- Adds the subtotals.\n\n3. Third\n4. Fourth";
     try {
       await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "a", version: 1, at: 0, kind: "assistant", text }], onToggleActivity: () => {}, expanded: new Set<string>() })));
-      const markdown = dom.window.document.querySelector(".acpmux-markdown")!;
+      const markdown = dom.window.document.querySelector(".cv-md")!;
       const outer = markdown.querySelector(":scope > ul")!;
       expect([...outer.querySelectorAll(":scope > li")].length).toBe(2);
       const nested = outer.querySelector(":scope > li > ul")!;
@@ -193,7 +194,7 @@ describe("acpmux transcript accessibility", () => {
       expect(markdown.textContent).not.toContain("- Notebook");
       const numbered = markdown.querySelector(":scope > ol")!;
       expect(numbered.getAttribute("start")).toBe("3");
-      expect([...numbered.querySelectorAll("li")].map((node) => node.textContent)).toEqual(["Third", "Fourth"]);
+      expect([...numbered.querySelectorAll("li")].map((node) => [node.querySelector(".cv-li__num")?.textContent, node.querySelector(".cv-li__text")?.textContent])).toEqual([["3.", "Third"], ["4.", "Fourth"]]);
     } finally {
       await act(async () => root.unmount());
       restore();
@@ -341,7 +342,7 @@ describe("acpmux measured rows", () => {
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
       expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 600);
       size.height = 400;
-      await act(async () => { for (const callback of resizeCallbacks) callback(); });
+      await act(async () => { for (const callback of resizeCallbacks) (callback as (entries: unknown[]) => void)([]); });
       expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 400);
     } finally {
       await act(async () => root.unmount());

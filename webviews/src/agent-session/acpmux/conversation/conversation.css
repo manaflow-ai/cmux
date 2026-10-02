@@ -1,0 +1,382 @@
+/* Codex transcript Markdown, ported from manaflow-ai/codex-atlas-clone
+   (src/conversation/conversation.css), whose metrics were measured on native Codex captures.
+
+   No literal colors: Codex's dark palette is its foreground over its background at fixed
+   strengths, so each color here is the theme's foreground at that strength over
+   transparent (fills and rules) or one of the theme's text tokens. The default dark
+   theme comes out near Codex; other themes keep their own cast. Percentages are measured
+   against Codex's #f8f8f3 on #272823. */
+
+:root {
+  --cv-text: var(--agent-text);
+  --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
+  --cv-text-dim: var(--agent-soft); /* progress rows */
+  --cv-fg: var(--agent-text);
+  --cv-rule: color-mix(in srgb, var(--cv-fg) 8%, transparent); /* #383934 */
+  --cv-bubble: color-mix(in srgb, var(--cv-fg) 5%, transparent); /* #31322d */
+  --cv-code-bg: color-mix(in srgb, var(--cv-fg) 11%, transparent); /* #3e3f39 inline code */
+  --cv-codeblock-bg: color-mix(in srgb, var(--cv-fg) 7.5%, transparent); /* #373833 */
+  --cv-codeblock-ring: color-mix(in srgb, var(--cv-fg) 11.5%, transparent); /* #3f403b */
+  --cv-codeblock-text: color-mix(in srgb, var(--cv-fg) 90%, transparent); /* #e5e5df */
+  --cv-codeblock-actions: color-mix(in srgb, var(--cv-fg) 78%, transparent); /* #c8c8c3 */
+  --cv-strong-rule: color-mix(in srgb, var(--cv-fg) 16%, transparent); /* #484943: quote bar, table head */
+  --cv-faint-rule: color-mix(in srgb, var(--cv-fg) 4.5%, transparent); /* #30312b: table rows */
+  --cv-check-fill: color-mix(in srgb, var(--cv-fg) 9%, transparent); /* #3a3b34 */
+  --cv-check-ring: color-mix(in srgb, var(--cv-fg) 23%, transparent); /* #575852 */
+  --cv-link: color-mix(in srgb, var(--cv-fg) 79%, transparent); /* #cccabe */
+  /* Type and column: Codex's type exactly (system-ui at 14px on 22.75px lines, 13px code; atlas
+     shell/tokens.css and conversation.css), in the taste bar's 720px column. */
+  --cv-font-size: 14px;
+  --cv-line-height: 22.75px;
+  --cv-column: 720px;
+  --cv-gutter: 26.5px;
+  --cv-font: system-ui;
+  --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* ---------- User bubble ---------- */
+
+.cv-user {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.cv-user__bubble {
+  box-sizing: border-box;
+  max-width: 70%;
+  padding: var(--cv-bubble-padding, 10.5px 16px 9.5px);
+  border-radius: 16px;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: var(--cv-line-height);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  color: var(--cv-text);
+  background: var(--cv-bubble);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- Markdown ---------- */
+
+.cv-md {
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: var(--cv-line-height);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  color: var(--cv-text);
+  -webkit-font-smoothing: antialiased;
+}
+.cv-md > :first-child {
+  margin-top: 0;
+}
+.cv-p {
+  margin: 0 0 var(--cv-para-after, 14px);
+}
+.cv-p:has(+ .cv-list) {
+  margin-bottom: 0;
+}
+.cv-p + .cv-list {
+  margin-top: var(--cv-list-before, 3.5px);
+}
+.cv-md > :last-child {
+  margin-bottom: 0;
+}
+.cv-h {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--cv-text);
+}
+.cv-h1 {
+  font-size: 21px;
+  line-height: 28px;
+  margin: 20px 0 12px;
+}
+.cv-h2 {
+  font-size: 17.5px;
+  line-height: 24px;
+  margin: 15px 0 3.5px;
+}
+.cv-h3 {
+  font-size: 15.75px;
+  line-height: 22px;
+  margin: 15px 0 5px;
+}
+.cv-h4 {
+  font-size: 14px;
+  margin: 16px 0 4px;
+}
+.cv-md strong {
+  font-weight: 600;
+  letter-spacing: var(--cv-strong-tracking, 0px);
+}
+.cv-md del {
+  text-decoration-thickness: 1px;
+}
+.cv-code {
+  font-family: var(--cv-code-font, var(--cv-mono));
+  font-size: var(--cv-code-size, 13px);
+  line-height: var(--cv-code-line-height, inherit);
+  letter-spacing: var(--cv-code-tracking, 0px);
+  padding: var(--cv-code-padding, 0.75px 5px);
+  border-radius: var(--cv-code-radius, 5px);
+  background: var(--cv-code-bg);
+}
+.cv-link {
+  color: var(--cv-link);
+  text-decoration: none;
+}
+.cv-link:hover {
+  text-decoration: underline;
+}
+.cv-link__icon {
+  vertical-align: var(--cv-link-icon-align, -3px);
+  margin: var(--cv-link-icon-margin, 0 4px 0 0);
+}
+.cv-link.is-citation {
+  white-space: nowrap;
+}
+.cv-link__icon--gh {
+  vertical-align: var(--cv-gh-icon-align, -1.5px);
+  margin: var(--cv-gh-icon-margin, 0 4px 0 0.5px);
+}
+.cv-hr {
+  border: 0;
+  height: 1px;
+  background: var(--cv-rule);
+  margin: 24.5px 0 25px;
+}
+
+.cv-list {
+  margin: 0 0 var(--cv-list-after, 6.5px);
+  padding: 0;
+  list-style: none;
+}
+.cv-list .cv-list {
+  margin: 0;
+}
+.cv-list > li {
+  position: relative;
+  padding-left: var(--cv-list-indent, 28px);
+}
+.cv-li__num {
+  position: absolute;
+  left: 7px;
+  font-weight: 600;
+}
+.cv-li__bullet {
+  position: absolute;
+  left: var(--cv-bullet-left, 10px);
+  top: var(--cv-bullet-top, 9px);
+  width: var(--cv-bullet-size, 5px);
+  height: var(--cv-bullet-size, 5px);
+}
+.cv-li__bullet--0 {
+  border-radius: 50%;
+  background: currentColor;
+}
+.cv-li__bullet--1 {
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.cv-li__bullet--2 {
+  background: currentColor;
+}
+.cv-list > li.cv-task {
+  padding-left: 20px;
+}
+/* Adjacent lists (a task list after a numbered list) read as one list: no gap between. */
+.cv-list:has(+ .cv-list) {
+  margin-bottom: 0;
+}
+/* A top-level task list keeps the list indent: its checkboxes line up with nested items. */
+.cv-list.cv-tasks[data-depth="0"] {
+  padding-left: var(--cv-list-indent, 28px);
+}
+.cv-checkbox {
+  position: absolute;
+  left: 0.5px;
+  top: 5.5px;
+  width: 13.5px;
+  height: 14px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cv-text);
+}
+.cv-checkbox.is-checked {
+  background: var(--cv-check-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-check-ring);
+}
+
+.cv-quote {
+  margin: 0 0 21.5px;
+  padding-left: 21px;
+  position: relative;
+}
+.cv-quote::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3.5px;
+  border-radius: 2px;
+  background: var(--cv-strong-rule);
+}
+.cv-quote > :last-child {
+  margin-bottom: 0;
+}
+/* Codex draws a quote's paragraphs as consecutive lines ("“…”" then "— Design notebook"). */
+.cv-quote > .cv-p {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* The table may be wider than the column; it scrolls instead of widening the row. */
+.cv-table-wrap {
+  margin: var(--cv-table-before, 6.5px) 0 14px;
+  overflow-x: auto;
+}
+/* Short columns are at least 128px and long-text columns 256px. */
+.cv-table {
+  border-collapse: collapse;
+  font-size: var(--cv-table-size, 12.25px);
+  letter-spacing: var(--cv-table-tracking, 0px);
+  line-height: var(--cv-table-line-height, 23px);
+  width: max-content;
+  min-width: 100%;
+}
+.cv-table th,
+.cv-table td {
+  box-sizing: border-box;
+  padding: var(--cv-td-pad-y, 8.5px) 22px var(--cv-td-pad-y, 8.5px) 0;
+  vertical-align: top;
+}
+.cv-table th {
+  font-weight: 600;
+  padding-top: var(--cv-th-pad-top, 11px);
+  padding-bottom: var(--cv-th-pad-bottom, 1.75px);
+  border-bottom: 1px solid var(--cv-strong-rule);
+  white-space: nowrap;
+}
+.cv-table td {
+  border-bottom: 1px solid var(--cv-faint-rule);
+}
+.cv-table th:last-child,
+.cv-table td:last-child {
+  padding-right: 0;
+}
+
+/* Fenced code card. */
+.cv-codeblock {
+  position: relative;
+  margin: 0 0 19px;
+  box-sizing: border-box;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--cv-codeblock-bg);
+  box-shadow: inset 0 0 0 1px var(--cv-codeblock-ring);
+}
+.cv-codeblock__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  height: 45.5px;
+  padding: 0 18px 0 21px;
+  color: var(--cv-codeblock-text);
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+.cv-codeblock__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  color: var(--cv-codeblock-actions);
+}
+.cv-codeblock__action {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.cv-codeblock__action:hover,
+.cv-codeblock__action[aria-pressed="true"] {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 7%, transparent);
+}
+.cv-codeblock__action:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+}
+.cv-codeblock__body {
+  display: block;
+  margin: 0 1px 13px 13px;
+}
+.cv-link.is-file {
+  color: var(--cv-text);
+}
+
+/* Math (Math.tsx): identifiers italic, operators spaced, in the STIX face. */
+.cv-math,
+.cv-math-display {
+  font-family: "STIXGeneral", serif;
+  letter-spacing: 0;
+}
+.cv-math {
+  font-size: 17.6px;
+  line-height: 1;
+}
+/* Display equations: 12px below a paragraph, 12.5px between stacked equations, 13.5px
+   above the next paragraph. */
+.cv-math-display {
+  margin: 0 0 13.5px;
+  text-align: center;
+  font-size: 18px;
+  line-height: 24px;
+  white-space: nowrap;
+}
+.cv-p + .cv-math-display {
+  margin-top: calc(12px - var(--cv-para-after, 14px));
+}
+.cv-math-display + .cv-math-display {
+  margin-top: -1px;
+}
+.cv-mi {
+  font-style: italic;
+  margin-right: 0.08em;
+}
+.cv-mo {
+  margin: 0 0.24em;
+}
+
+/* ---------- Column ---------- */
+
+/* The transcript column and what lines up with it (styles.css keeps the older 760px). */
+.acpmux-scroll {
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  -webkit-font-smoothing: antialiased;
+}
+.acpmux-row {
+  left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+  right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+}
+.acpmux-permission,
+.acpmux-queue {
+  padding-left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+  padding-right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+}
