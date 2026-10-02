@@ -53,7 +53,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     private var typingLink: CADisplayLink?
     private var typingAnimationStart: CFTimeInterval = 0
     private var typingAnimationFrom: CGFloat = 0
-    private let olderSpinner = NSProgressIndicator()
     #if DEBUG
     /// Lab `faketyping on|off`: a local typing indicator through the real row path.
     private var debugTyping = false
@@ -135,14 +134,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         view.addSubview(initialSpinner)
         initialSpinner.startAnimation(nil)
 
-        // Paging spinner pinned under the toolbar while an older page loads
-        // near the top (the in-list loading row is usually above the viewport).
-        olderSpinner.style = .spinning
-        olderSpinner.controlSize = .small
-        olderSpinner.isDisplayedWhenStopped = false
-        olderSpinner.translatesAutoresizingMaskIntoConstraints = false
-        olderSpinner.setAccessibilityIdentifier("conversation.pagingSpinner")
-        view.addSubview(olderSpinner)
 
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -156,8 +147,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             replyBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             replyBanner.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             replyBanner.heightAnchor.constraint(equalToConstant: 30),
-            olderSpinner.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
-            olderSpinner.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
             initialSpinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             initialSpinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
@@ -307,7 +296,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             initialSpinner.isHidden = true
         }
         if let info = store.info { onInfoChange?(info, store.meID, store.connection == .connected) }
-        updatePagingSpinner()
         if case .connection = change { return }
 
         var newRows = MacConversationRowBuilder.rows(store: store)
@@ -432,16 +420,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         tableView.enumerateAvailableRowViews { rowView, index in
             guard index < rows.count, let view = rowView.view(atColumn: 0) as? NSView else { return }
             configure(view, row: index)
-        }
-    }
-
-    private func updatePagingSpinner() {
-        let loading = store.older == .loading
-        let nearTop = scrollView.contentView.bounds.origin.y + scrollView.contentInsets.top < scrollView.contentSize.height
-        if loading, nearTop, hasPositioned {
-            olderSpinner.startAnimation(nil)
-        } else {
-            olderSpinner.stopAnimation(nil)
         }
     }
 
