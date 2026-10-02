@@ -1126,6 +1126,80 @@
       "revokeApiKeyConfirmTitle": "Revogar esta chave de API?",
       "apiKeyUsageDetail": "Últimos 30 dias: {completions} conclusões · {tokens} tokens ({input} entrada / {output} saída) · equivalente de API {value}",
       "apiKeyUsageUnavailable": "Uso indisponível",
+      "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente."
+    },
+    "cloud": {
+      "title": "Máquinas do Cloud e acesso do Mac",
+      "description": "Defina a rede de saída de cada máquina e revise os Macs com acesso WireGuard à sua rede privada de VMs do Cloud. Os registros de pareamento do iPhone e do Iroh ficam separados.",
+      "macAccessTitle": "Acesso do Mac",
+      "machines": {
+        "title": "Máquinas",
+        "empty": "Você não tem máquinas do Cloud.",
+        "personal": "pessoal",
+        "team": "equipe",
+        "status": {
+          "provisioning": "iniciando",
+          "running": "em execução",
+          "failed": "com falha",
+          "paused": "pausada",
+          "destroyed": "excluída"
+        }
+      },
+      "network": {
+        "open": "Rede",
+        "title": "Rede de saída de {name}",
+        "description": "Escolha o que esta máquina pode acessar. As alterações são aplicadas na hora, sem reiniciar.",
+        "loading": "Carregando a política de rede…",
+        "loadError": "Não foi possível carregar a política de rede desta máquina.",
+        "saveError": "Não foi possível aplicar esta política de rede.",
+        "unsupported": "Esta máquina não oferece suporte ao controle da rede de saída.",
+        "retry": "Tentar novamente",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "aplicada",
+          "pending": "aplicando",
+          "failed": "falha ao aplicar"
+        },
+        "unsaved": "alterações não salvas",
+        "refresh": "Atualizar",
+        "modeLabel": "Acesso de saída",
+        "mode": {
+          "full": {
+            "label": "Internet completa",
+            "description": "Qualquer endereço público."
+          },
+          "allowlist": {
+            "label": "Lista de permissões",
+            "description": "Somente as predefinições, os domínios e os intervalos de IP que você listar."
+          },
+          "none": {
+            "label": "Sem internet",
+            "description": "Somente os hosts do cmux listados abaixo."
+          }
+        },
+        "presetsTitle": "Predefinições",
+        "presetsNote": "Cada predefinição adiciona nomes de host exatos. Um serviço que usa outros subdomínios pode precisar de mais domínios.",
+        "domainsTitle": "Domínios",
+        "domainsNote": "Somente nomes de host exatos, somente HTTPS na porta 443. Curingas ainda não são compatíveis.",
+        "domainInput": "Domínio",
+        "rangesTitle": "Intervalos de IP",
+        "rangesNote": "O firewall do provedor aplica essas regras fora da máquina. Deixe a porta vazia para permitir todas as portas. Uma porta exige um protocolo.",
+        "cidrInput": "Intervalo de IP (CIDR)",
+        "portInput": "Porta",
+        "protocolInput": "Protocolo",
+        "anyProtocol": "qualquer",
+        "noteInput": "Observação (opcional)",
+        "allPorts": "todas as portas",
+        "dnsLabel": "Permitir DNS",
+        "dnsNote": "Permite que as ferramentas resolvam os nomes para os quais seus intervalos de IP apontam. Domínios não precisam de DNS. DNS aberto é um canal de saída: um processo pode enviar dados nos nomes que consulta.",
+        "requiredTitle": "Sempre permitidos",
+        "requiredNote": "O cmux precisa desses hosts em todos os modos para instalar e atualizar a CLI na máquina.",
+        "add": "Adicionar",
+        "remove": "Remover",
+        "discard": "Descartar alterações",
+        "close": "Fechar",
+        "apply": "Aplicar"
+      },
       "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente.",
       "apiKeysEmptyTitle": "Nenhuma chave de API ainda",
       "apiKeysEmptyHint": "Crie uma para autenticar um cliente do CodeRouter.",
@@ -2847,6 +2921,12 @@
       "limitsTeam": "Contas de equipe podem ter até 5 máquinas ativas por assento pago.",
       "limitsMax": "Máquinas maiores que 8 GB exigem o cmux Max. Máquinas Max vão até 32 GB e 16 vCPUs.",
       "limitsPricing": "Consulte a página de preços para ver os valores atuais. Não há medição de uso nem cobrança por excedente.",
+      "agentUpdatesTitle": "Manter agentes de programação atualizados",
+      "agentUpdatesDesc": "Com esta opção ativada, a máquina atualiza Claude Code, Codex, OpenCode, pi e agent-browser. Ela verifica depois que a máquina é criada e sempre que você se conecta, no máximo uma vez a cada 24 horas. A atualização roda de forma independente, então nunca bloqueia a conexão.",
+      "agentUpdatesSource": "Cada ferramenta vem da sua versão oficial no GitHub e é verificada pelo digest sha256 do arquivo da versão. O npm não é usado. Uma versão só é instalada depois de estar pública há 3 dias, e uma atualização nunca instala uma versão mais antiga. Um agente em execução mantém os arquivos com que começou, e uma atualização com falha mantém a versão atual.",
+      "agentUpdatesStatus": "O resultado da última verificação fica em /etc/cmux/agent-updates.state, e o log do atualizador em /var/log/cmux-agent-updates.log. Uma verificação com falha roda de novo na próxima conexão.",
+      "agentUpdatesToggle": "A janela New Machine ativa esta opção por padrão. Para mudar em uma máquina existente, clique com o botão direito na máquina e escolha Keep Agents Up to Date, ou execute cmux vm agent-updates. cmux vm new mantém as versões da imagem, a menos que você passe --agent-updates latest. Desativar as atualizações mantém as versões já instaladas.",
+      "agentUpdatesNetwork": "As atualizações usam apenas github.com, api.github.com, objects.githubusercontent.com e release-assets.githubusercontent.com. O cmux permite esses hosts em todos os modos de rede, incluindo Allowlist e No internet, então uma política de rede nunca bloqueia as atualizações.",
       "resizeTitle": "Redimensionar",
       "resizeDesc": "Você pode aumentar uma máquina sem perder dados. Clique com o botão direito na máquina e escolha Resize machine, ou use cmux vm resize. O redimensionamento só pode aumentar uma máquina. O disco cresce em passos de 4 GB até 256 GB, a memória até 32 GB e a CPU até 16 vCPU. Seu plano define o máximo real.",
       "pauseTitle": "Pausar e retomar",

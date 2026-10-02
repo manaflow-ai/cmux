@@ -1126,6 +1126,80 @@
       "revokeApiKeyConfirmTitle": "Tilbagekald denne API-nøgle?",
       "apiKeyUsageDetail": "Sidste 30 dage: {completions} fuldførelser · {tokens} tokens ({input} input / {output} output) · {value} API-ækvivalent",
       "apiKeyUsageUnavailable": "Brug er ikke tilgængelig",
+      "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen."
+    },
+    "cloud": {
+      "title": "Cloud-maskiner og Mac-adgang",
+      "description": "Angiv hver maskines udgående netværk, og gennemse de Mac-computere, der har WireGuard-adgang til dit private Cloud VM-netværk. Parringer af iPhone og Iroh administreres separat.",
+      "macAccessTitle": "Mac-adgang",
+      "machines": {
+        "title": "Maskiner",
+        "empty": "Du har ingen Cloud-maskiner.",
+        "personal": "personlig",
+        "team": "team",
+        "status": {
+          "provisioning": "starter",
+          "running": "kører",
+          "failed": "mislykkedes",
+          "paused": "sat på pause",
+          "destroyed": "slettet"
+        }
+      },
+      "network": {
+        "open": "Netværk",
+        "title": "Udgående netværk for {name}",
+        "description": "Vælg, hvad denne maskine kan nå. Ændringer træder i kraft med det samme uden genstart.",
+        "loading": "Indlæser netværkspolitikken…",
+        "loadError": "Netværkspolitikken for denne maskine kunne ikke indlæses.",
+        "saveError": "Denne netværkspolitik kunne ikke anvendes.",
+        "unsupported": "Denne maskine understøtter ikke styring af udgående netværk.",
+        "retry": "Prøv igen",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "anvendt",
+          "pending": "anvendes",
+          "failed": "kunne ikke anvendes"
+        },
+        "unsaved": "ikke-gemte ændringer",
+        "refresh": "Opdater",
+        "modeLabel": "Udgående adgang",
+        "mode": {
+          "full": {
+            "label": "Fuld internetadgang",
+            "description": "Enhver offentlig adresse."
+          },
+          "allowlist": {
+            "label": "Tilladelsesliste",
+            "description": "Kun de forudindstillinger, domæner og IP-intervaller, du angiver."
+          },
+          "none": {
+            "label": "Intet internet",
+            "description": "Kun cmux-værterne herunder."
+          }
+        },
+        "presetsTitle": "Forudindstillinger",
+        "presetsNote": "Hver forudindstilling tilføjer præcise værtsnavne. En tjeneste, der bruger andre underdomæner, kan kræve flere domæner.",
+        "domainsTitle": "Domæner",
+        "domainsNote": "Kun præcise værtsnavne, kun HTTPS på port 443. Jokertegn understøttes endnu ikke.",
+        "domainInput": "Domæne",
+        "rangesTitle": "IP-intervaller",
+        "rangesNote": "Udbyderens firewall håndhæver disse uden for maskinen. Lad porten være tom for at tillade alle porte. En port kræver en protokol.",
+        "cidrInput": "IP-interval (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokol",
+        "anyProtocol": "alle",
+        "noteInput": "Note (valgfri)",
+        "allPorts": "alle porte",
+        "dnsLabel": "Tillad DNS",
+        "dnsNote": "Lader værktøjer slå de navne op, som dine IP-intervaller peger på. Domæner kræver ikke DNS. Åben DNS er en udgående kanal: En proces kan sende data ud i de navne, den slår op.",
+        "requiredTitle": "Altid tilladt",
+        "requiredNote": "cmux skal bruge disse værter i alle tilstande for at installere og opdatere CLI'en på maskinen.",
+        "add": "Tilføj",
+        "remove": "Fjern",
+        "discard": "Kassér ændringer",
+        "close": "Luk",
+        "apply": "Anvend"
+      },
       "revokeApiKeyConfirmBody": "Klienter, der bruger denne nøgle, mister straks godkendelsen.",
       "apiKeysEmptyTitle": "Ingen API-nøgler endnu",
       "apiKeysEmptyHint": "Opret en for at godkende en CodeRouter-klient.",
@@ -2844,6 +2918,12 @@
       "limitsTeam": "Teamkonti kan have op til 5 aktive maskiner pr. betalt plads.",
       "limitsMax": "Maskiner større end 8 GB kræver cmux Max. Max-maskiner går op til 32 GB og 16 vCPU'er.",
       "limitsPricing": "Se prissiden for aktuelle priser. Der er ingen forbrugsmåling og ingen fakturering for overforbrug.",
+      "agentUpdatesTitle": "Hold kodeagenter opdateret",
+      "agentUpdatesDesc": "Når denne indstilling er slået til, opdaterer maskinen Claude Code, Codex, OpenCode, pi og agent-browser. Den tjekker efter maskinen er oprettet og hver gang du forbinder, højst én gang hver 24. time. Opdateringen kører frakoblet, så den blokerer aldrig forbindelsen.",
+      "agentUpdatesSource": "Hvert værktøj kommer fra dets officielle GitHub-release og verificeres mod release-filens sha256-digest. npm bruges ikke. En release installeres først, når den har været offentlig i 3 dage, og en opdatering installerer aldrig en ældre version. En kørende agent beholder de filer, den startede med, og en mislykket opdatering lader den nuværende version blive.",
+      "agentUpdatesStatus": "Resultatet af det seneste tjek ligger i /etc/cmux/agent-updates.state, og opdateringsloggen er /var/log/cmux-agent-updates.log. Et mislykket tjek kører igen ved næste forbindelse.",
+      "agentUpdatesToggle": "Arket New Machine slår dette til som standard. For at ændre det på en eksisterende maskine skal du højreklikke på maskinen og vælge Keep Agents Up to Date eller køre cmux vm agent-updates. cmux vm new beholder billedets versioner, medmindre du angiver --agent-updates latest. Når du slår opdateringer fra, beholdes de versioner, der allerede er installeret.",
+      "agentUpdatesNetwork": "Opdateringer bruger kun github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillader disse værter i alle netværkstilstande, også Allowlist og No internet, så en netværkspolitik blokerer aldrig opdateringer.",
       "resizeTitle": "Ændr størrelse",
       "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 256 GB, hukommelsen op til 32 GB og CPU op til 16 vCPU. Dit abonnement fastsætter det reelle maksimum.",
       "pauseTitle": "Pause og genoptagelse",

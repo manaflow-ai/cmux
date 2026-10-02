@@ -2141,7 +2141,8 @@ describe("VM REST auth", () => {
       context,
     );
     expect(response.status).toBe(200);
-    expect(openVmCmuxRemote).toHaveBeenCalledWith({
+    const { deferAfterResponse, ...attachInput } = (openVmCmuxRemote.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(attachInput).toEqual({
       userId: "user-1",
       billingTeamId: "team-1",
       teamIds: ["team-1"],
@@ -2152,6 +2153,8 @@ describe("VM REST auth", () => {
       maxActiveVms: 5,
       modelPlane: expect.objectContaining({}),
     });
+    // An opted-in machine's agent-update exec runs after the response.
+    expect(typeof deferAfterResponse).toBe("function");
     expect(openAttachEndpoint).not.toHaveBeenCalled();
     const payload = await response.json();
     expect(payload.transport).toBe("cmux-remote");

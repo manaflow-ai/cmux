@@ -10,6 +10,8 @@ import {
 } from "freestyle";
 
 import { randomBytes } from "node:crypto";
+import type { NetworkRulePlan } from "../networkPolicy";
+import { inlineEgressFirewallRules, inlineEgressTlsRules, reconcileFreestyleEgress } from "./freestyleNetworkPolicy";
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
@@ -124,6 +126,9 @@ import {
 // and stay. The one sanctioned guest exec around create is the prompt-name
 // push in workflows.ts (schedulePromptIdentityPush): display-only, run after
 // the response, never awaited by create. Do not add anything else to it.
+// Attach has one opt-in counterpart: a machine with agentUpdates "latest"
+// gets the coding-agent updater exec (scheduleGuestAgentUpdates in
+// workflows.ts), also after the response and never awaited by attach.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
 // `tls` rule for the coderouter host whose transform overwrites `x-cmux-authorization` to every request the
@@ -305,8 +310,8 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
  * The machine's own rules. The mandatory `firewall` field defaults to NOTHING —
  * no outbound, no inbound — so every rule is stated here.
  *
- * Outbound is always open (package installs, files.cmux.com, agents). Inbound
- * is the interesting half:
+ * Outbound follows the machine's network policy (freestyleNetworkPolicy.ts);
+ * without one it is the whole public Internet, the historical default. Inbound:
  *
  * - On a machine attached to its owner's VPC, **no inbound rule is written at
  *   all**. Reaching the daemon is admitted by the VPC's own members-reach-each-
@@ -320,12 +325,19 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
  *   machine is reachable at all. Session auth is the daemon's Noise device
  *   enrollment, the same posture the e2b driver builds by hand with iptables.
  */
-export function freestyleFirewallRules(options?: { publicDaemonIngress?: boolean; memberIngressNetworkId?: string }) {
+export function freestyleFirewallRules(options?: {
+  publicDaemonIngress?: boolean;
+  memberIngressNetworkId?: string;
+  networkRules?: NetworkRulePlan;
+}) {
   const rules: Array<{
     action: "allow";
     source: { public?: true; vpcId?: string };
-    destination: { public?: true; port?: number; protocol?: "tcp" };
-  }> = [{ action: "allow", source: {}, destination: { public: true } }];
+    destination: { public?: true; cidr?: string; port?: number; protocol?: "tcp" | "udp" };
+    description?: string;
+  }> = options?.networkRules
+    ? inlineEgressFirewallRules(options.networkRules)
+    : [{ action: "allow", source: {}, destination: { public: true } }];
   if (options?.publicDaemonIngress) {
     rules.push({
       action: "allow",
@@ -556,6 +568,12 @@ export function freestyleEdgeRules(edgeRules: readonly VmEdgeRule[] | undefined)
       transform: [{ headers: { ...rule.headers } }],
     };
   });
+}
+
+/** Edge header-injection rules plus the policy's domain-steering rules, for one create. */
+function freestyleCreateTlsRules(edgeRules: readonly VmEdgeRule[] | undefined, networkRules: NetworkRulePlan | undefined) {
+  const rules = [...(freestyleEdgeRules(edgeRules) ?? []), ...(networkRules ? inlineEgressTlsRules(networkRules) : [])];
+  return rules.length > 0 ? rules : undefined;
 }
 
 /**
@@ -1017,7 +1035,7 @@ export class FreestyleProvider implements VMProvider {
     if (!image) {
       throw new ProviderError("freestyle", "create requires a resolved image");
     }
-    const tlsRules = freestyleEdgeRules(options.edgeRules);
+    const tlsRules = freestyleCreateTlsRules(options.edgeRules, options.networkRules);
     return withVmSpan(
       "cmux.vm.provider.create",
       "provider",
@@ -1046,7 +1064,7 @@ export class FreestyleProvider implements VMProvider {
               maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
             } : {}),
             metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined }) },
+            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined, networkRules: options.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
           });
@@ -1122,6 +1140,32 @@ export class FreestyleProvider implements VMProvider {
         } catch (err) {
           if (err instanceof ProviderError) throw err;
           throw freestyleOperationError(`create(${image}) failed`, err);
+        }
+      },
+    );
+  }
+
+  async applyNetworkPolicy(vmId: string, plan: NetworkRulePlan): Promise<void> {
+    return withVmSpan(
+      "cmux.vm.provider.apply_network_policy",
+      "provider",
+      spanAttributes(vmId, "applyNetworkPolicy", {
+        "cmux.vm.network.public_egress": plan.publicEgress,
+        "cmux.vm.network.ranges": plan.ranges.length,
+        "cmux.vm.network.domains": plan.domains.length,
+        "cmux.vm.network.dns": plan.dns,
+      }),
+      async (span) => {
+        try {
+          const result = await reconcileFreestyleEgress(this.deps.client(), vmId, plan);
+          setSpanAttributes(span, {
+            "cmux.vm.network.firewall_created": result.firewallCreated,
+            "cmux.vm.network.firewall_deleted": result.firewallDeleted,
+            "cmux.vm.network.tls_created": result.tlsCreated,
+            "cmux.vm.network.tls_deleted": result.tlsDeleted,
+          });
+        } catch (err) {
+          throw new ProviderError("freestyle", `applyNetworkPolicy(${vmId})`, err);
         }
       },
     );
@@ -1404,7 +1448,7 @@ export class FreestyleProvider implements VMProvider {
   }
 
   async restore(snapshotId: string, options?: RestoreOptions): Promise<VMHandle> {
-    const tlsRules = freestyleEdgeRules(options?.edgeRules);
+    const tlsRules = freestyleCreateTlsRules(options?.edgeRules, options?.networkRules);
     return withVmSpan(
       "cmux.vm.provider.restore",
       "provider",
@@ -1424,7 +1468,7 @@ export class FreestyleProvider implements VMProvider {
             displayName: "cmux Cloud VM",
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined }) },
+            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined, networkRules: options?.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
           });

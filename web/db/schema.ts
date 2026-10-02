@@ -127,6 +127,15 @@ export const cloudVms = pgTable(
     failureCode: text("failure_code"),
     failureMessage: text("failure_message"),
     providerMetadata: jsonb("provider_metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    // Outbound network policy (services/vms/networkPolicy.ts). Null means the
+    // historical default, full Internet. Control-plane owned; the driver
+    // reconciles the provider's firewall and TLS rules to it.
+    networkPolicy: jsonb("network_policy").$type<Record<string, unknown>>(),
+    // Last reconcile outcome for networkPolicy: { state, error?, appliedAt }.
+    networkPolicyStatus: jsonb("network_policy_status").$type<Record<string, unknown>>(),
+    // Coding-agent updates (services/vms/guestAgentUpdates.ts). "latest" updates
+    // the baked agents to npm's latest on attach; null keeps the image's pins.
+    agentUpdates: text("agent_updates").$type<"latest">(),
   },
   (table) => [
     foreignKey({ columns: [table.ownerTeamId, table.coderouterPoolId], foreignColumns: [coderouterPools.teamId, coderouterPools.id], name: "cloud_vms_coderouter_pool_team_fk" }),
