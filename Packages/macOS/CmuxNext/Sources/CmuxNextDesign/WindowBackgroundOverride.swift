@@ -17,9 +17,10 @@ public nonisolated struct WindowBackgroundOverride: Hashable, Sendable {
     /// `appearance.backgroundBlur`; nil keeps Ghostty's.
     public var material: WindowMaterialChoice?
 
-    /// The opacity a chosen material gets when neither cmux.json nor the
-    /// Ghostty config makes the window translucent: picking a material
-    /// asks for translucency, and at opacity 1 the tint would hide it.
+    /// The opacity a chosen material (frosted or glass) gets when neither
+    /// cmux.json nor the Ghostty config makes the window translucent:
+    /// picking a material asks for translucency, and at opacity 1 the tint
+    /// would hide it. `"none"` does not get it: it only drops the blur.
     public static let defaultTranslucentOpacity = 0.8
 
     /// The blur radius ``WindowMaterialChoice/frosted`` gives a config with
@@ -47,13 +48,14 @@ public nonisolated struct WindowBackgroundOverride: Hashable, Sendable {
         let blur: Int
         switch material {
         case nil: blur = backgroundBlur
-        case .frosted?: blur = max(backgroundBlur, 0)
+        case .frosted?: blur = backgroundBlur > 0 ? backgroundBlur : Self.defaultFrostedRadius
         case .glass?: blur = -1
         case .glassClear?: blur = -2
-        case .unblurred?: return (1, 0)
+        case .unblurred?: blur = 0
         }
         if let opacity { return (opacity, blur) }
-        if material != nil, backgroundOpacity >= 1 { return (Self.defaultTranslucentOpacity, blur) }
+        // A material asks for translucency; "none" only drops the blur.
+        if let material, material != .unblurred, backgroundOpacity >= 1 { return (Self.defaultTranslucentOpacity, blur) }
         return (min(max(backgroundOpacity, 0), 1), blur)
     }
 }

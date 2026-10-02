@@ -6,6 +6,8 @@ public import CmuxNextDesign
 /// window and the theme read is the resolved one. Set, then call
 /// `reloadConfig()`.
 extension GhosttyRuntime {
+    /// cmux.json's window background, laid over the config files' opacity
+    /// and blur on every config load. Empty (the default) keeps them.
     public static var backgroundOverride = WindowBackgroundOverride()
 
     /// Config lines that turn the config's `background-opacity` and

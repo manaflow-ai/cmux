@@ -6,8 +6,9 @@ public import AppKit
 /// It hosts at most one material view: an `NSGlassEffectView` for
 /// ``WindowMaterial/glass(_:)``, an `NSVisualEffectView` (`.behindWindow`,
 /// `.active`, `.underWindowBackground`) for ``WindowMaterial/frosted``, and
-/// none for ``WindowMaterial/opaque``, where the root paints the solid
-/// background itself. Neither the material nor the tint draws a border.
+/// none for ``WindowMaterial/translucent`` (only the tint) or
+/// ``WindowMaterial/opaque``, where the root paints the solid background
+/// itself. Neither the material nor the tint draws a border.
 /// The owner decides the backdrop (including Reduce Transparency) and calls
 /// ``apply(_:tint:)`` on every theme change.
 ///
@@ -38,7 +39,8 @@ public final class WindowMaterialView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// The color laid over the material; nil while opaque.
+    /// The color laid over the material (or, see-through, over the desktop);
+    /// nil while opaque.
     public var tintColor: CGColor? { tintView.isHidden ? nil : tintView.layer?.backgroundColor }
 
     /// Decoration only: clicks reach the views above or the window.
@@ -62,7 +64,7 @@ public final class WindowMaterialView: NSView {
                 addSubview(materialView, positioned: .below, relativeTo: tintView)
             }
         }
-        let shows = material.hasMaterialView
+        let shows = material != .opaque
         tintView.isHidden = !shows
         tintView.layer?.backgroundColor = shows ? tint.withAlphaComponent(backdrop.tintOpacity).cgColor : nil
     }

@@ -2,7 +2,8 @@ public import CoreGraphics
 
 /// How the window behind the terminal is drawn for the resolved
 /// `background-opacity` and `background-blur`: one ``WindowMaterial`` for
-/// the whole window with one theme tint over it.
+/// the whole window with one theme tint over it (only the tint for
+/// ``WindowMaterial/translucent``).
 ///
 /// The window is non-opaque for every material other than
 /// ``WindowMaterial/opaque``, with a white background at alpha 0.001 (not
@@ -49,7 +50,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
         } else if backgroundBlur < 0 {
             material = .glass(.regular)
         } else if opacity < 1 {
-            material = .frosted
+            material = backgroundBlur > 0 ? .frosted : .translucent
         } else {
             material = .opaque
         }
