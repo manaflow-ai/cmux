@@ -134,14 +134,16 @@ extension CMUXCLI {
         // killed owner cannot leave a stale directory that blocks future runs;
         // the marker is checked again after lock acquisition so a waiter never
         // replays a recipe that another owner completed while it was waiting.
-        // `flock 9` alone would release the lock as soon as the helper exits.
         // Run the complete check/install/marker transaction as the lock child so
         // concurrent dev invocations serialize and killed owners are reclaimed
-        // by the kernel. The body is single-quoted for `/bin/sh -c`; escape any
-        // recipe quotes without changing their meaning inside the nested shell.
+        // by the kernel. Use pathname mode: `flock 9 ... 9>lock` treats `9` as
+        // a pathname on util-linux when a command follows it, rather than as
+        // the descriptor we intended. The body is single-quoted for `/bin/sh
+        // -c`; escape any recipe quotes without changing their meaning inside
+        // the nested shell.
         let body = "if [ -f \"\(marker)\" ]; then :; else \(run) && : > \"\(marker)\"; fi"
         let quotedBody = "'" + body.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-        return "mkdir -p \"\(root)\" && flock 9 /bin/sh -c \(quotedBody) 9>\"\(lock)\""
+        return "mkdir -p \"\(root)\" && flock \"\(lock)\" /bin/sh -c \(quotedBody)"
     }
 
     /// Framework → default dev port, decided from the script's words (what the author
