@@ -69,9 +69,18 @@ import Testing
         }
     }
 
-    @Test func frameWithoutARightStickyColumnKeepsTheRealLayout() {
-        let plain: ScreenLayout = .columns([LayoutColumn(id: "a", width: 0.5, root: .leaf("x")), LayoutColumn(id: "b", width: 0.5, root: .leaf("y"))])
-        #expect(ScreenGeometry.compute(plain, viewport: viewport, style: style(.frameDocks)) == ScreenGeometry.compute(plain, viewport: viewport, style: LayoutStyle()))
+    @Test func frameWithoutStickyColumnsDocksThePlainColumns() {
+        let plain: ScreenLayout = .columns(["a", "b", "c"].map { LayoutColumn(id: ColumnID($0), width: 0.3, root: .leaf(PaneID("p\($0)"))) })
+        let g = ScreenGeometry.compute(plain, viewport: viewport, style: style(.frameDocks))
+        // The last column becomes the bottom band, the first the full-height left dock.
+        #expect(g.panes["pc"]?.maxY == 600 && g.panes["pc"]?.minY == 420)
+        #expect(g.panes["pa"]?.minY == 0 && g.panes["pa"]?.height == 600)
+        #expect(g.columnOrder == ["b"])
+    }
+
+    @Test func frameWithOneColumnKeepsTheRealLayout() {
+        let one: ScreenLayout = .columns([LayoutColumn(id: "a", width: 1, root: .leaf("x"))])
+        #expect(ScreenGeometry.compute(one, viewport: viewport, style: style(.frameDocks)) == ScreenGeometry.compute(one, viewport: viewport, style: LayoutStyle()))
     }
 
     @Test func gridAlignsRowsAcrossColumnsAndLeavesHoles() {

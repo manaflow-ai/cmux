@@ -30,7 +30,7 @@
 (***************************************************************************)
 EXTENDS Naturals, Sequences, FiniteSets, TLC
 
-CONSTANTS NTabs, NPanes, NRows, NCols, NClients, MaxOps, MaxReplays, MaxH, BUG, START
+CONSTANTS NTabs, NPanes, NRows, NCols, NClients, MaxOps, MaxReplays, MaxH, BUG, START, FRAME
 
 TabIds  == 1..NTabs
 PaneIds == 1..NPanes
@@ -38,16 +38,23 @@ RowIds  == 1..NRows
 ColIds  == 1..NCols
 Clients == 1..NClients
 Heights == 1..MaxH
-Edges   == {"none", "left", "right"}
+\* FRAME = TRUE adds top/bottom docks, PinRow and orientation (layout-model.md);
+\* FALSE is the rows model of rows.md alone.
+Edges   == IF FRAME THEN {"none", "left", "right", "top", "bottom"} ELSE {"none", "left", "right"}
+Bands   == {"top", "bottom"}     \* docks that hold exactly one row (layout-model.md E3)
+Orients == {"col", "row"}        \* column-major or row-major frame (decision L2)
 
 ASSUME BUG \in {"none", "keepEmptyRow", "noStickyNormalize", "ownPlaceRowOnly",
-                "noDedup", "noFocusRepair", "focusColumnFirst", "respawnDropsTab"}
+                "noDedup", "noFocusRepair", "focusColumnFirst", "respawnDropsTab",
+                "dockAllowsRows", "pinRowNoCascade", "orientTouchesPins"}
 \* START "one": one column, one row, two panes (a split screen; the daemon keeps
 \* a screen with one column and one row as a split tree, which this model
 \* represents as that one column and row). "sticky3": three columns of one
 \* row and one pane each, the first sticky left and the last sticky right,
 \* so removing the middle column leaves only sticky columns.
-ASSUME START \in {"one", "sticky3"}
+\* "frame": two strip columns, the second with two rows, for the four-edge
+\* docks and orientation of layout-model.md.
+ASSUME START \in {"one", "sticky3", "frame"}
 
 \* --------------------------------------------------------------------------
 \* Sequence helpers
@@ -66,7 +73,7 @@ Empty == [cols |-> <<>>,
           tabsOf |-> [p \in PaneIds |-> <<>>],
           height |-> [r \in RowIds |-> 0],
           sticky |-> [c \in ColIds |-> "none"],
-          usedT |-> {}, usedP |-> {}, usedR |-> {}, usedC |-> {}, closed |-> {}]
+          usedT |-> {}, usedP |-> {}, usedR |-> {}, usedC |-> {}, closed |-> {}, orient |-> "col"]
 
 InitOne == [Empty EXCEPT !.cols = <<1>>, !.rowsOf[1] = <<1>>, !.panesOf[1] = <<1, 2>>,
                          !.tabsOf[1] = <<1>>, !.tabsOf[2] = <<2>>, !.height[1] = MaxH,
@@ -79,7 +86,13 @@ InitSticky3 ==
                 !.height = [r \in RowIds |-> IF r \in 1..3 THEN MaxH ELSE 0],
                 !.sticky = [c \in ColIds |-> IF c = 1 THEN "left" ELSE IF c = 3 THEN "right" ELSE "none"],
                 !.usedT = {1, 2, 3}, !.usedP = {1, 2, 3}, !.usedR = {1, 2, 3}, !.usedC = {1, 2, 3}]
-Init0 == IF START = "one" THEN InitOne ELSE InitSticky3
+InitFrame ==
+  [Empty EXCEPT !.cols = <<1, 2>>, !.rowsOf[1] = <<1>>, !.rowsOf[2] = <<2, 3>>,
+                !.panesOf = [r \in RowIds |-> IF r \in 1..3 THEN <<r>> ELSE <<>>],
+                !.tabsOf = [p \in PaneIds |-> IF p \in 1..3 THEN <<p>> ELSE <<>>],
+                !.height = [r \in RowIds |-> IF r \in 1..3 THEN MaxH ELSE 0],
+                !.usedT = {1, 2, 3}, !.usedP = {1, 2, 3}, !.usedR = {1, 2, 3}, !.usedC = {1, 2}]
+Init0 == CASE START = "one" -> InitOne [] START = "sticky3" -> InitSticky3 [] OTHER -> InitFrame
 InitTabSet == Init0.usedT
 
 LiveCols(S)  == Range(S.cols)
@@ -92,12 +105,12 @@ RowOfPane(S, p) == CHOOSE r \in LiveRows(S) : p \in Range(S.panesOf[r])
 PaneOfTab(S, t) == CHOOSE p \in LivePanes(S) : t \in Range(S.tabsOf[p])
 
 \* What a user sees, ids of panes, rows and columns erased (tab ids kept).
-Sig(S) == [i \in 1..Len(S.cols) |->
+Sig(S) == <<S.orient, [i \in 1..Len(S.cols) |->
              LET c == S.cols[i] IN
              <<S.sticky[c],
                [j \in 1..Len(S.rowsOf[c]) |->
                   LET r == S.rowsOf[c][j] IN
-                  <<S.height[r], [k \in 1..Len(S.panesOf[r]) |-> S.tabsOf[S.panesOf[r][k]]]>>]>>]
+                  <<S.height[r], [k \in 1..Len(S.panesOf[r]) |-> S.tabsOf[S.panesOf[r][k]]]>>]>>]>>
 
 Fresh(used, pool) == Min(pool \ used)
 HasFresh(used, pool) == pool \ used # {}
@@ -145,6 +158,10 @@ OpsFrom(M) ==
   \cup {Op("close", t, 0, 0, 0, "none", FALSE, FALSE, {}) : t \in LiveTabs(M)}
   \cup {Op("heights", 0, 0, c, h, "none", FALSE, FALSE, Range(M.rowsOf[c])) : c \in LiveCols(M), h \in Heights}
   \cup {Op("sticky", 0, 0, c, 0, e, FALSE, FALSE, {}) : c \in LiveCols(M), e \in Edges}
+  \cup {Op("pinrow", 0, p, 0, 0, e, FALSE, FALSE, {}) : p \in IF FRAME THEN LivePanes(M) ELSE {}, e \in Bands}
+  \cup {Op("orient", 0, 0, 0, 0, o, FALSE, FALSE, {}) : o \in IF FRAME THEN Orients ELSE {}}
+
+InBand(S, p) == S.sticky[ColOfRow(S, RowOfPane(S, p))] \in Bands /\ BUG # "dockAllowsRows"
 
 Reject == [ok |-> FALSE, noop |-> FALSE, s |-> Empty]
 Done(S) == [ok |-> TRUE, noop |-> FALSE, s |-> S]
@@ -221,6 +238,7 @@ Apply(S, op) ==
     [] op.k = "newrow" ->
         IF op.p \notin LivePanes(S) \/ ~HasFresh(S.usedR, RowIds)
            \/ ~HasFresh(S.usedP, PaneIds) \/ ~HasFresh(S.usedT, TabIds)
+           \/ InBand(S, op.p)
         THEN Reject
         ELSE LET r0 == RowOfPane(S, op.p)
                  c0 == ColOfRow(S, r0)
@@ -239,7 +257,7 @@ Apply(S, op) ==
              ELSE LET S1 == TakeTab(S, op.t)
                   IN Done([S1 EXCEPT !.tabsOf[op.p] = @ \o <<op.t>>])
     [] op.k = "torow" ->
-        IF op.t \notin LiveTabs(S) \/ op.p \notin LivePanes(S) THEN Reject
+        IF op.t \notin LiveTabs(S) \/ op.p \notin LivePanes(S) \/ InBand(S, op.p) THEN Reject
         ELSE IF op.rs /\ Len(S.tabsOf[PaneOfTab(S, op.t)]) # 1 THEN Reject
         ELSE IF RowOwnPlace(S, op) THEN NoOp(S)
         ELSE IF ~RowMoveIdsOk(S, op) THEN Reject
@@ -255,6 +273,7 @@ Apply(S, op) ==
     [] op.k = "sticky" ->
         IF op.c \notin LiveCols(S) THEN Reject
         ELSE IF S.sticky[op.c] = op.e THEN NoOp(S)
+        ELSE IF op.e \in Bands /\ Len(S.rowsOf[op.c]) # 1 /\ BUG # "dockAllowsRows" THEN Reject
         ELSE LET st == [c \in ColIds |->
                           IF c = op.c THEN op.e
                           ELSE IF op.e # "none" /\ S.sticky[c] = op.e THEN "none"
@@ -262,6 +281,27 @@ Apply(S, op) ==
              IN IF \E c \in LiveCols(S) : st[c] = "none"
                 THEN Done([S EXCEPT !.sticky = st])
                 ELSE Reject
+    [] op.k = "pinrow" ->
+        \* PinRow: lift the pane's row into a new top or bottom dock column.
+        IF op.p \notin LivePanes(S) \/ ~HasFresh(S.usedC, ColIds) THEN Reject
+        ELSE LET r  == RowOfPane(S, op.p)
+                 c  == ColOfRow(S, r)
+                 nc == Fresh(S.usedC, ColIds)
+                 st == [x \in ColIds |-> IF x = nc THEN op.e
+                                         ELSE IF S.sticky[x] = op.e THEN "none" ELSE S.sticky[x]]
+                 S1 == [S EXCEPT !.rowsOf[c] = Remove(@, r), !.rowsOf[nc] = <<r>>,
+                                 !.cols = InsertAt(@, IndexOf(@, c) + 1, nc),
+                                 !.sticky = st, !.usedC = @ \cup {nc}]
+                 S2 == IF S1.rowsOf[c] = <<>> /\ BUG # "pinRowNoCascade"
+                       THEN Normalize([S1 EXCEPT !.cols = Remove(@, c), !.sticky[c] = "none"])
+                       ELSE S1
+             IN IF S.sticky[c] = op.e /\ Len(S.rowsOf[c]) = 1 THEN NoOp(S)
+                ELSE IF \E x \in LiveCols(S2) : S2.sticky[x] = "none" THEN Done(S2)
+                ELSE Reject
+    [] op.k = "orient" ->
+        IF S.orient = op.e THEN NoOp(S)
+        ELSE IF BUG = "orientTouchesPins" THEN Done([S EXCEPT !.orient = op.e, !.sticky = [c \in ColIds |-> "none"]])
+        ELSE Done([S EXCEPT !.orient = op.e])
 
 \* --------------------------------------------------------------------------
 \* Client view repair (rows.md N3): previous pane in the row, else the row
@@ -414,8 +454,11 @@ R4_HeightInRange == \A r \in LiveRows(own) : own.height[r] \in Heights
 
 R5_StickyConsistent ==
   /\ \A c \in ColIds \ LiveCols(own) : own.sticky[c] = "none"
-  /\ \A e \in {"left", "right"} : Cardinality({c \in LiveCols(own) : own.sticky[c] = e}) <= 1
+  /\ \A e \in Edges \ {"none"} : Cardinality({c \in LiveCols(own) : own.sticky[c] = e}) <= 1
   /\ (\E c \in LiveCols(own) : own.sticky[c] # "none") => (\E c \in LiveCols(own) : own.sticky[c] = "none")
+
+\* E3: a top or bottom dock holds exactly one row.
+E3_BandOneRow == \A c \in LiveCols(own) : own.sticky[c] \in Bands => Len(own.rowsOf[c]) = 1
 
 \* R6 (soundness): an op the owner treats as own place would not have
 \* changed what a user sees.
@@ -441,6 +484,9 @@ TypeOK ==
 \* R6 (completeness), action property: every committed change changes what
 \* a user sees; an op that would only churn ids is caught as own place.
 R6_OwnPlaceComplete == [][own' # own => Sig(own') # Sig(own)]_vars
+
+\* E7: an orientation change changes nothing but the orientation.
+E7_OrientationOnly == [][own'.orient # own.orient => [own' EXCEPT !.orient = own.orient] = own]_vars
 
 \* A rejected or replayed op leaves the owner unchanged (structural check of
 \* Process: the owner changes only through Apply results).

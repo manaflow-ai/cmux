@@ -51,17 +51,35 @@ public nonisolated enum LayoutPrototypeOrientation: String, Sendable, CaseIterab
     }
 }
 
+/// Pinned or overlay for docks the prototype synthesizes.
+public nonisolated enum LayoutPrototypeDockMode: String, Sendable, CaseIterable, TunableChoice {
+    case pinned
+    case overlay
+
+    public var tunableTitle: String {
+        switch self {
+        case .pinned: "Pinned (takes space)"
+        case .overlay: "Overlay (floats)"
+        }
+    }
+
+    public var stickyMode: StickyMode { self == .pinned ? .docked : .overlay }
+}
+
 /// The prototype choice carried by `LayoutStyle`.
 public nonisolated struct LayoutPrototypeSettings: Hashable, Sendable {
     public var model: LayoutPrototypeModel = .off
     public var dockEdge: LayoutPrototypeDockEdge = .bottom
     public var orientation: LayoutPrototypeOrientation = .columnMajor
+    /// Mode of docks the prototype synthesizes from plain columns.
+    public var dockMode: StickyMode = .docked
 
     public init(model: LayoutPrototypeModel = .off, dockEdge: LayoutPrototypeDockEdge = .bottom,
-                orientation: LayoutPrototypeOrientation = .columnMajor) {
+                orientation: LayoutPrototypeOrientation = .columnMajor, dockMode: StickyMode = .docked) {
         self.model = model
         self.dockEdge = dockEdge
         self.orientation = orientation
+        self.dockMode = dockMode
     }
 }
 
@@ -78,10 +96,29 @@ public nonisolated enum LayoutModelPrototype {
         switch style.prototype.model {
         case .off: return nil
         case .frameDocks:
-            return frame(columns, viewport: viewport, style: plain, edge: style.prototype.dockEdge,
+            return frame(synthesizedDocks(columns, mode: style.prototype.dockMode), viewport: viewport, style: plain, edge: style.prototype.dockEdge,
                          orientation: style.prototype.orientation, scale: scale)
         case .grid: return grid(columns, viewport: viewport, style: plain, scale: scale)
         }
+    }
+
+    /// Screens without sticky columns (the pinned daemon may not serve them)
+    /// get prototype docks from plain columns: the last strip column becomes
+    /// the band and, with three or more strip columns, the first becomes the
+    /// left dock. Real sticky columns are kept as they are.
+    static func synthesizedDocks(_ columns: [LayoutColumn], mode: StickyMode) -> [LayoutColumn] {
+        var result = columns
+        let parts = StickyStripGeometry.partition(columns)
+        var scrolling = parts.scrolling.map(\.id)
+        if parts.right == nil, scrolling.count >= 2, let last = scrolling.popLast(),
+           let index = result.firstIndex(where: { $0.id == last }) {
+            result[index].sticky = StickyColumn(edge: .right, mode: mode)
+        }
+        if parts.left == nil, scrolling.count >= 2, let first = scrolling.first,
+           let index = result.firstIndex(where: { $0.id == first }) {
+            result[index].sticky = StickyColumn(edge: .left, mode: mode)
+        }
+        return result
     }
 
     /// Design A. The strip and the left dock are laid out in the height the

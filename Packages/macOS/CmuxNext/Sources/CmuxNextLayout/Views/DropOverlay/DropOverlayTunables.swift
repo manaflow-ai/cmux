@@ -134,8 +134,13 @@ public nonisolated enum LayoutTunables {
         help: "Frame prototype: column-major (side docks full height) or row-major (top/bottom docks full width).",
         default: .columnMajor, code: "LayoutTunables.prototypeOrientation")
 
+    public static let prototypeDockMode = Tunable<LayoutPrototypeDockMode>.choice(
+        "layout.prototype.dockMode", .panes, "Prototype dock mode",
+        help: "Frame prototype: pinned or overlay for docks drawn from plain columns (real sticky columns keep their own mode).",
+        default: .pinned, code: "LayoutTunables.prototypeDockMode")
+
     public static var all: [TunableDescriptor] {
-        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, newColumnDropWidth, inactivePaneDimming,
+        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }
