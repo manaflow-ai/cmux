@@ -192,8 +192,7 @@ extension BrowserPanel {
     private func showRestoreOverlay() {
         pageRestoration.dismissOverlay()
         let overlay = BrowserPageSnapshotOverlayView(
-            snapshot: pageRestoration.discardedCapture?.snapshot,
-            restoringLabel: String(localized: "browser.discard.restoring", defaultValue: "Restoring…")
+            snapshot: pageRestoration.discardedCapture?.snapshot
         )
         overlay.install(over: webView)
         pageRestoration.overlayView = overlay
