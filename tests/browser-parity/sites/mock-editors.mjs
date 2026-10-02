@@ -202,13 +202,14 @@ document.addEventListener("keydown", (e) => {
 function sheetEditor(file) {
   return shell(
     file,
-    `<div id="waffle-grid-container"><input id="t-name-box" aria-label="Name Box" value="A1"><div class="cell-input" contenteditable="true" tabindex="0"></div></div>
+    `<div id="docs-save-indicator-badge"><span id="save-badge">Saved to Drive</span></div><div id="waffle-grid-container"><input id="t-name-box" aria-label="Name Box" value="A1"><div class="cell-input" contenteditable="true" tabindex="0"></div></div>
 <script>
 let range = "A1";
 const box = document.getElementById("t-name-box");
 const cell = document.querySelector(".cell-input");
 box.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); range = box.value.toUpperCase(); cell.textContent = ""; cell.focus(); } });
-const write = (text) => post("cells", { range, tsv: text });
+const saving = () => { const b = document.getElementById("save-badge"); b.textContent = "Saving…"; setTimeout(() => (b.textContent = "Saved to Drive"), 1000); };
+const write = (text) => { saving(); return post("cells", { range, tsv: text }); };
 // A real paste (the app) or typed text (the dev driver's paste) lands in the cell input.
 cell.addEventListener("paste", (e) => { e.preventDefault(); write(e.clipboardData.getData("text/plain")); });
 // The dev driver's paste arrives as typed text: collect it from beforeinput.
@@ -221,7 +222,7 @@ cell.addEventListener("beforeinput", (e) => {
   clearTimeout(timer);
   timer = setTimeout(() => { const t = typed; typed = ""; write(t); }, 150);
 });
-cell.addEventListener("keydown", (e) => { if (e.key === "Delete" || e.key === "Backspace") post("clear", { range }); });
+cell.addEventListener("keydown", (e) => { if (e.key === "Delete" || e.key === "Backspace") { saving(); post("clear", { range }); } });
 </script>`,
   );
 }
@@ -275,6 +276,11 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
     }
     if (op === "htmlview" && file.kind === "spreadsheets") return { html: `<html><head><title>${esc(file.title)} - Google Sheets</title></head><body><ul>${file.sheets.map((s) => `<li id="sheet-button-${s.gid}"><a href="#">${esc(s.name)}</a></li>`).join("")}</ul></body></html>` };
     if (op === "export") {
+      // As live: Google answers 429 to exports requested in quick succession.
+      const now = Date.now();
+      const last = file.lastExport || 0;
+      file.lastExport = now;
+      if (now - last < 1500) return { status: 429, text: "Too Many Requests" };
       const format = url.searchParams.get("format");
       const attach = (name, type, data) => ({ status: 200, headers: { "content-type": type, "content-disposition": `attachment; filename="${name}"` }, body: data });
       if (file.kind === "spreadsheets") {
@@ -296,11 +302,19 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
     }
     const data = JSON.parse(body || "{}");
     const action = m[4];
+    // Cell edits reach the saved file (what exports read) 800 ms later.
+    if (action === "cells" || action === "clear") {
+      setTimeout(() => apply(file, action, data), 800);
+      return { json: { ok: true } };
+    }
     if (action === "title") file.title = data.title;
     if (action === "trash") file.trashed = true;
     if (action === "append") file.blocks.push({ type: "paragraph", text: data.text });
     if (action === "replace") return { json: { count: replaceIn(file, data.find, data.replace) } };
-    if (action === "cells" || action === "clear") {
+    return { json: { ok: true } };
+  }
+  function apply(file, action, data) {
+    {
       const sheet = file.sheets[0];
       const { start, cells } = rangeCells(data.range);
       if (action === "clear") for (const { r, c } of cells) sheet.cells.delete(colName(c) + (r + 1));
@@ -311,7 +325,6 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
           else sheet.cells.set(ref, v);
         }));
     }
-    return { json: { ok: true } };
   }
   // The googleusercontent host that serves binary exports (no CORS headers).
   function exportHost(req, url) {
