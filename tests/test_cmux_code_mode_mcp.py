@@ -3,6 +3,7 @@
 
 import json
 import os
+import select
 import shutil
 import socket
 import subprocess
@@ -69,6 +70,8 @@ class CodeModeCancellationTests(unittest.TestCase):
                 time.sleep(0.2)
                 process.stdin.write(json.dumps(cancellation) + "\n")
                 process.stdin.flush()
+                ready, _, _ = select.select([process.stdout], [], [], 5)
+                self.assertTrue(ready, "cmux_exec cancellation did not return within 5 seconds")
                 response = json.loads(process.stdout.readline())
                 result = json.loads(response["result"]["content"][0]["text"])
                 self.assertTrue(result["cancelled"])
