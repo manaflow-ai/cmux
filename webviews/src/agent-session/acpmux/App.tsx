@@ -15,6 +15,8 @@ import {
   type AcpmuxSnapshot,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
+import { composerDraft } from "./composerDraft";
+import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -25,11 +27,14 @@ import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
-import { Counts, DiffPanel } from "./DiffPanel";
+import { DiffPanel } from "./DiffPanel";
+import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { WORKED, isFoldedCopy, turnView } from "./conversation/turns";
+import { THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { Thinking } from "./conversation/Thinking";
+import { WorkingFor } from "./conversation/WorkingFor";
 import { DictationButton, DictationNotice, configureDictation, deliverDictation, useDictation } from "./Dictation";
 import type { DictationUpdate } from "./dictationText";
 
@@ -127,6 +132,20 @@ const WorkedRow = memo(
     a.row.version === b.row.version &&
     a.expanded === b.expanded &&
     a.onToggleActivity === b.onToggleActivity,
+);
+
+/// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
+const ThinkingRow = memo(
+  function ThinkingRow(_: RowProps) {
+    return <Thinking />;
+  },
+  (a, b) => a.row.id === b.row.id,
+);
+const WorkingRow = memo(
+  function WorkingRow({ row }: RowProps) {
+    return <WorkingFor row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.durationMs === b.row.durationMs,
 );
 
 const SummaryRow = memo(
@@ -260,6 +279,8 @@ const defaultRegistry: NativeRegistry = {
   assistant: MessageRow,
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
+  [THINKING]: ThinkingRow,
+  [WORKING]: WorkingRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
@@ -630,6 +651,8 @@ export function AcpmuxApp() {
 }
 
 function AcpmuxPane() {
+  /// What a chat opened from another tab inherited (#16620); the composer starts with it.
+  const [draft, setDraft] = useState<string | undefined>();
   const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>({
     type: "snapshot",
     protocolVersion: 1,
@@ -643,7 +666,10 @@ function AcpmuxPane() {
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Codex's turn shape: work folds under "Worked for" until opened.
-  const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
+  const transcriptRows = useMemo(
+    () => turnView(snapshot.rows, expanded, snapshot.isWorking),
+    [snapshot.rows, expanded, snapshot.isWorking],
+  );
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{
     sessionId?: string;
@@ -745,6 +771,8 @@ function AcpmuxPane() {
     return () => document.removeEventListener("keydown", onKey);
   }, [sidebar, wide, closeOverlay]);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
+  /// The newest snapshot, for host requests that read it (pane.context).
+  const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   const prompt = useRef<HTMLTextAreaElement>(null);
   const dictation = useDictation(prompt, callNative);
@@ -832,9 +860,15 @@ function AcpmuxPane() {
           token?: string;
           sessionId?: string;
           newSession?: boolean;
+          cwd?: string;
+          draft?: string;
           account?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
+        // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
+        // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
+        const seeded = composerDraft(host.draft);
+        if (seeded) setDraft(seeded);
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
@@ -843,6 +877,7 @@ function AcpmuxPane() {
           mock ? mockHost : (host as AcpmuxHostConfig),
           (next) => {
             rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
+            snapshotRef.current = next;
             setSnapshot(next);
           },
           () => {
@@ -883,6 +918,8 @@ function AcpmuxPane() {
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
+          // What the agent works on, for a terminal or browser opened from this chat (#16620).
+          "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
         client.snapshot();
       } catch (error) {
@@ -968,15 +1005,6 @@ function AcpmuxPane() {
           )}
           {diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}
         </div>
-        {snapshot.queue.length > 0 && (
-          <div className="acpmux-queue">
-            {snapshot.queue.map((entry) => (
-              <span className="acpmux-queued" key={entry.id}>
-                Queued: {entry.prompt}
-              </span>
-            ))}
-          </div>
-        )}
         {snapshot.permission?.pending && (
           <div className="acpmux-permission">
             <PermissionCard permission={snapshot.permission} />
@@ -986,6 +1014,7 @@ function AcpmuxPane() {
         <Composer
           snapshot={composerSnapshot}
           chips={ComposerChips}
+          draft={draft}
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
           field={prompt}

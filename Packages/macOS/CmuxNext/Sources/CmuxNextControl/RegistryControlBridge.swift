@@ -156,6 +156,9 @@ public final class RegistryControlBridge: ControlActionExecutor {
             isDebugOnly: descriptor.isDebugOnly,
             mainMenu: descriptor.mainMenu?.rawValue
         )
+        let surfaces = ActionSurfaceExport.object(descriptor)
+        info.surfaces = ["palette", "cli", "context_menu", "mcp"].reduce(into: [:]) { $0[$1] = surfaces[$1] as? String }
+        info.contextMenus = surfaces["context_menus"] as? [String] ?? []
         // Snapshot for `action.list`; `action.run` re-reads it live.
         info.unavailableReason = registry.unavailableReason(for: descriptor.id)
         info.isDestructive = descriptor.isDestructive

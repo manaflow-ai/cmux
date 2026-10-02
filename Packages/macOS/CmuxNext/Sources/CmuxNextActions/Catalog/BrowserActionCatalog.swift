@@ -265,7 +265,8 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 id: "openDiffViewer",
                 title: String(localized: "action.openDiffViewer", defaultValue: "Open Diff Viewer", bundle: .module),
                 keywords: ["git", "diff", "changes"],
-                defaultShortcut: Shortcut("d", modifiers: [.control, .shift, .command]), category: .browser,
+                // Cmd-Ctrl-Shift-D is New Row (New Column is Cmd-Ctrl-D); G for git.
+                defaultShortcut: Shortcut("g", modifiers: [.control, .shift, .command]), category: .browser,
                 symbol: "plusminus", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "browser open-diff-viewer"
             ),

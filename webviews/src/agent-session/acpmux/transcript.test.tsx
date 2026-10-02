@@ -1040,6 +1040,122 @@ describe("acpmux turn diff", () => {
     }
   });
 
+  test("a file's More menu copies its path and folds it, from the mouse or the keyboard", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const document = dom.window.document;
+    const copied: string[] = [];
+    const clipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, "clipboard");
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void copied.push(text) },
+    });
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 2,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit main.ts",
+          tool: {
+            id: "t1",
+            title: "Edit main.ts",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/main.ts", oldText: "a\nb\nc\n", newText: "a\nB\nc\n" }],
+          },
+        },
+        {
+          kind: "tool",
+          text: "Write notes.md",
+          tool: {
+            id: "t2",
+            title: "Write notes.md",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/notes.md", newText: "hello\n" }],
+          },
+        },
+      ],
+    };
+    const click = (node: Element) =>
+      act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+    const key = (node: Element, name: string) =>
+      act(async () => {
+        node.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+      });
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const diffShown = () =>
+        [...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null);
+      const more = panel.querySelector<HTMLElement>('[aria-label="More actions for notes.md"]')!;
+      expect(more).not.toBeNull();
+      expect([more.getAttribute("aria-haspopup"), more.getAttribute("aria-expanded")]).toEqual(["menu", "false"]);
+      const items = () => [...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')];
+      // The menu opens on its first item; Copy path copies the file's full path and closes it.
+      more.focus();
+      await click(more);
+      expect(more.getAttribute("aria-expanded")).toBe("true");
+      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Collapse file"]);
+      expect(document.activeElement).toBe(items()[0]);
+      await click(items()[0]!);
+      expect(copied).toEqual(["/repo/notes.md"]);
+      expect(items()).toEqual([]);
+      expect(document.activeElement).toBe(more);
+      // From the keyboard: Arrow Down moves to Collapse file, Enter folds the file.
+      await click(more);
+      await key(items()[0]!, "ArrowDown");
+      expect(document.activeElement?.textContent).toBe("Collapse file");
+      await key(document.activeElement!, "Enter");
+      expect(diffShown()).toEqual([true, false]);
+      expect(items()).toEqual([]);
+      // Folded, the item opens the file again.
+      await click(more);
+      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Expand file"]);
+      await click(items()[1]!);
+      expect(diffShown()).toEqual([true, true]);
+      // Escape closes only the menu and returns focus to its button; the view stays open.
+      await click(more);
+      await key(items()[0]!, "Escape");
+      expect(items()).toEqual([]);
+      expect(document.activeElement).toBe(more);
+      expect(document.querySelector(".acpmux-diff-panel")).not.toBeNull();
+      // A press anywhere else closes it too.
+      await click(more);
+      await act(async () => {
+        panel
+          .querySelector(".acpmux-diff-header")!
+          .dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      });
+      expect(items()).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
+      if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
+      else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
+    }
+  });
+
   test("a file header keeps focus as its file folds, the tree opens a folded file, and Escape leaves the filter alone", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window;
@@ -1412,5 +1528,77 @@ describe("acpmux new chat", () => {
     expect(projectName("/Users/me")).toBeUndefined();
     expect(projectName("/")).toBeUndefined();
     expect(projectName(undefined)).toBeUndefined();
+  });
+});
+
+describe("acpmux live turn status", () => {
+  /// A running turn showed nothing until its first output, and no time while it worked.
+  test("a running turn says Thinking, then Working over its work, then folds when it ends", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const user: AcpmuxRow = { id: "u", version: 1, at: Date.now() - 42_000, kind: "user", text: "run it" };
+    const work: AcpmuxRow = {
+      id: "a",
+      version: 1,
+      at: user.at + 2_000,
+      kind: "activity",
+      toolCount: 1,
+      items: [{ kind: "tool", text: "Run total.py" }],
+    };
+    const draw = (rows: AcpmuxRow[], working: boolean) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(rows, new Set(), working),
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+    const status = () => dom.window.document.querySelector(".cv-worked");
+    try {
+      await draw([user, { id: "typing", version: 1, at: user.at, kind: "typing" }], true);
+      expect(status()?.textContent).toBe("Thinking");
+      expect(dom.window.document.querySelector(".cv-thinking")).not.toBeNull();
+
+      await draw([user, work], true);
+      expect(status()?.textContent).toMatch(/^Working for 4[23]s$/);
+      // A status, not a control: nothing to open until the turn ends.
+      expect(status()?.tagName).toBe("DIV");
+      expect(dom.window.document.querySelector(".cv-thinking")).toBeNull();
+
+      await draw([user, work, { id: "s", version: 1, at: user.at + 50_000, kind: "turnSummary", toolCount: 1 }], false);
+      expect(status()?.tagName).toBe("BUTTON");
+      expect(status()?.textContent).toBe("Worked for 50s · 1 tool call");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  test("the Working line ticks each second", async () => {
+    const { WorkingFor } = await import("./conversation/WorkingFor");
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    let clock = 42_000;
+    const now = () => clock;
+    try {
+      await act(async () =>
+        root.render(createElement(WorkingFor, { row: { id: "working-u", version: 1, at: 0, kind: "working" }, now })),
+      );
+      const label = () => dom.window.document.querySelector(".cv-worked__label")?.textContent;
+      expect(label()).toBe("Working for 42s");
+      clock = 61_000;
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
+      expect(label()).toBe("Working for 1m 1s");
+      // While text streams, the line holds at the text's start instead of ticking.
+      const held = { id: "working-u", version: 2, at: 0, kind: "working", durationMs: 15_000 };
+      await act(async () => root.render(createElement(WorkingFor, { row: held, now })));
+      expect(label()).toBe("Working for 15s");
+      clock = 90_000;
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
+      expect(label()).toBe("Working for 15s");
+    } finally {
+      await act(async () => root.unmount());
+    }
   });
 });

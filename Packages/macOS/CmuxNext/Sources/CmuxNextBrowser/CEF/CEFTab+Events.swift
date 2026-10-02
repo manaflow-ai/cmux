@@ -153,7 +153,7 @@ extension CEFTab {
         if actions != extensionActions { extensionActions = actions }
     }
 
-    public var extensionStore: BrowserExtensionStore { runtime.extensionStore(for: profileID) }
+    public var extensionStore: BrowserExtensionStore { runtime.extensionStores.store(for: profileID) }
 
     public func runExtensionAction(_ id: String, anchor: CGRect) {
         guard let browserID else {

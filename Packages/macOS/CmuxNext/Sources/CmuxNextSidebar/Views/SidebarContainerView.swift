@@ -23,7 +23,7 @@ public final class SidebarContainerView: NSView {
     public private(set) var widthConstraint: NSLayoutConstraint!
 
     /// Vibrancy tinted with the sidebar color, under the rows.
-    private let backdrop = ChromeBackdropView(material: .sidebar) { Palette.sidebarBackground }
+    private let backdrop = ChromeBackdropView(material: .sidebar, tint: SidebarContainerView.backdropTint)
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
     /// Holds the sidebar at `model.width`, pinned to the clip's trailing edge.
@@ -40,6 +40,10 @@ public final class SidebarContainerView: NSView {
     /// Dragging the resize edge narrower than this hides the sidebar
     /// (there is no intermediate width below `Metrics.sidebarMinWidth`).
     public static var hideThreshold: CGFloat { Metrics.sidebarMinWidth / 2 }
+
+    /// The backdrop's tint. theme-scoped: ChromeBackdropView calls it inside
+    /// its performWithTheme.
+    private static func backdropTint() -> NSColor { Palette.sidebarBackground }
 
     public init(model: SidebarModel) {
         self.model = model

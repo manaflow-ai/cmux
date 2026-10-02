@@ -32,7 +32,7 @@ extension CEFTab {
     /// The header's frame in the content view, or nil without a side panel.
     var sidePanelHeaderFrame: CGRect? {
         guard let state = sidePanelState, sidePanelHeader != nil else { return nil }
-        return state.headerFrame(inPage: devToolsFrames(in: container.bounds).page)
+        return state.headerFrame(inPage: devToolsController.frames(in: container.bounds).page)
     }
 
     func pressSidePanel(_ control: CEFSidePanelState.Control) {

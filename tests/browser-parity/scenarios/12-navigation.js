@@ -1,0 +1,26 @@
+// Navigation, history, waits, and URLs changed by history.pushState.
+await page.goto(`${PRIMARY}/dynamic.html`);
+emit("title", await page.title());
+await page.locator("#push").click();
+emit("pushed-url", page.url());
+emit("pushed-title", await page.title());
+await page.waitForURL(/step=2/);
+emit("wait-url", page.url());
+emitCmux("snapshot-url", (await snapshot()).tree.split("\n")[1].replace(/^url: /, "") === page.url());
+await page.locator("#later").click();
+await page.waitForSelector("#late");
+emit("late", await page.locator("#late").textContent());
+await page.locator("#nav").click();
+await page.waitForURL(/\/slow/);
+await page.waitForLoadState("load");
+emit("slow-heading", await page.locator("h1").textContent());
+await page.goBack();
+emit("back-url", page.url());
+await page.goForward();
+emit("forward-url", page.url());
+await page.reload();
+emit("reload-title", await page.title());
+const response = await page.goto(`${PRIMARY}/aria.html`);
+emit("goto-status", response && response.status());
+emit("goto-title", await page.title());
+emit("missing-status", (await page.goto(`${PRIMARY}/missing.html`)).status());

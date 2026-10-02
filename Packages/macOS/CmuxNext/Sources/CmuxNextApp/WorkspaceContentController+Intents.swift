@@ -58,14 +58,15 @@ extension WorkspaceContentController {
             let cwd = panes[pane]?.selectedTab?.cwd
             let direction: SplitDirection = axis == .horizontal ? .right : .down
             let key = workspace.key
+            // A split stays in its column: never a new column, never a scroll.
             switch services.splitRoom(for: model, edge: axis == .horizontal ? .right : .bottom) {
             case .split:
-                spawnPane("split") { try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key)) }
-            case .newColumn(_, let anchor):
-                let request = layoutModel.prepareNewColumn(nextTo: pane)
-                spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
-                    try await $0.newColumn(rightOf: anchor, width: request.width, options: SpawnOptions(cwd: cwd, workspace: key))
+                let sizing = layoutModel.splitSizingChanges(splitting: pane, axis: axis)
+                spawnPane("split", then: { [layoutModel] in layoutModel.applySplitSizing(sizing) }) {
+                    try await $0.split(handle, direction: direction, options: SpawnOptions(cwd: cwd, workspace: key))
                 }
+            case .newColumn:
+                services.registry.refuse(RefusalStrings.columnTooNarrowToSplit)
             case .refused(let reason):
                 services.registry.refuse(reason)
             }

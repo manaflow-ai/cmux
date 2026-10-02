@@ -38,12 +38,8 @@ final class CEFRuntime {
     var pendingWindows: [Int32: CEFPaneHost] = [:]
     /// The tab inside a synchronous cmux_tab_add call.
     var tabBeingAdded: CEFTab?
-    /// Browsers Chromium created while their pane's window was still being
-    /// created (see `adoptOrphan`).
-    var adoptions = CEFAdoptionLedger()
-    /// Tabs Chromium created in no window or in a window cmux does not host,
-    /// waiting for the fork to insert them into a pane window (fork API 8).
-    var unplaced: [Int32: CEFCreatedBy] = [:]
+    /// Tabs Chromium created itself, until a pane adopts them.
+    private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
     var placements = CEFPlacementQueue()
@@ -61,9 +57,9 @@ final class CEFRuntime {
     /// Off-the-record context keys created this launch, by profile.
     var offTheRecordContexts: [BrowserProfileID: Set<String>] = [:]
     /// Extension mirrors by profile.
-    var extensionStores: [BrowserProfileID: BrowserExtensionStore] = [:]
-    /// Extension prompts on screen, by Chromium prompt id (fork API 12).
-    var extensionPrompts: [Int32: ExtensionPromptSheet] = [:]
+    private(set) lazy var extensionStores = CEFExtensionStores(runtime: self)
+    /// Extension prompts on screen (fork API 12).
+    private(set) lazy var extensionPrompts = CEFExtensionPrompts(runtime: self)
     /// chrome.omnibox keyword sessions (fork API 12).
     let omniboxKeywords = CEFOmniboxKeywords()
     var nextRequest: Int32 = 1

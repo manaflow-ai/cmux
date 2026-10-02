@@ -1,0 +1,7 @@
+<input node_id=1 aria-label="Keys" />
+<button node_id=2>Hover me</button>
+<button node_id=3>Double</button>
+<button node_id=4>Right click</button>
+<div node_id=5 aria-label="Scroller">Row 0 Row 1 Row 2 Row 3 Row 4 Row 5 Row 6 Row 7 Row 8 Row 9 Row 10 Row 11 Row 12 Row 13 Row 14 Row 15 Row 16 Row 17 Row 18 Row 19 Row 20 Row 21 Row 22 Row 23 Ro</div>
+<div node_id=6 aria-label="Rich editor" contenteditable="true">start</div>
+<input node_id=7 aria-label="Clipboard target" />

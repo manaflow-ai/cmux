@@ -97,10 +97,12 @@ pub use loopback_forward::{
 mod browser_profiles;
 mod launch_snapshot;
 mod personal;
+mod screen_json;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
 };
+use screen_json::screen_json;
 mod terminal_create;
 mod terminal_resources;
 mod url_open;
@@ -111,6 +113,9 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+/// `set-column-sticky` and the optional `Screen.columns[].sticky` field: at
+/// most one viewport column per edge stays pinned while the others scroll.
+pub const STICKY_COLUMNS_CAPABILITY: &str = "sticky-columns-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
@@ -351,6 +356,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+        STICKY_COLUMNS_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -1757,6 +1763,19 @@ enum Command {
     SetViewportPaneWidth {
         pane: PaneId,
         width: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
+    },
+    /// `sticky-columns-v1`: pin or unpin the viewport column containing
+    /// `pane`. `edge` and `mode` stay strings so a bad value answers with
+    /// `error_code:"invalid-argument"` instead of a decode error.
+    SetColumnSticky {
+        pane: PaneId,
+        sticky: bool,
+        #[serde(default)]
+        edge: Option<String>,
+        #[serde(default)]
+        mode: Option<String>,
         #[serde(default)]
         transaction: Option<u64>,
     },
@@ -11095,6 +11114,11 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| {
             error.downcast_ref::<ViewportWidthError>().map(|error| error.code().to_string())
         })
+        .or_else(|| {
+            error
+                .downcast_ref::<crate::ColumnStickyError>()
+                .and_then(|error| error.code().map(str::to_string))
+        })
 }
 
 /// Answers a request line that did not decode into a command. The reply
@@ -11651,62 +11675,6 @@ fn pane_json(
             })
         }).collect::<Vec<_>>(),
     })
-}
-
-fn screen_json(
-    state: &State,
-    screen: &Screen,
-    active: bool,
-    group: Option<&str>,
-    short_ids: &HashMap<u64, String>,
-    notifications: &TreeDecorations,
-) -> Value {
-    let mut pane_ids = Vec::new();
-    screen.root.pane_ids(&mut pane_ids);
-    let presentation = notifications.presentation.screens.screen(screen.public_id.as_str());
-    let mut value = json!({
-        "id": screen.id,
-        "resource_id": screen.public_id,
-        "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
-        "name": screen.name,
-        "color": presentation.and_then(|presentation| presentation.color.as_deref()),
-        "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
-        "pinned": presentation.is_some_and(|presentation| presentation.pinned),
-        "group": group,
-        "active": active,
-        "active_pane": screen.active_pane,
-        "zoomed_pane": screen.zoomed_pane,
-        "layout": node_json(&screen.root, screen.active_pane),
-        "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
-    });
-    if !screen.viewport_splits.is_empty() {
-        value["viewport_splits"] = json!(
-            screen
-                .viewport_splits
-                .iter()
-                .map(|(split, width)| json!({"split": split, "width": width}))
-                .collect::<Vec<_>>()
-        );
-        if let Some(width) = screen.viewport_base_width {
-            value["viewport_base_width"] = json!(width);
-        }
-    }
-    if screen.layout_columns_active() {
-        value["columns"] = json!(
-            screen
-                .layout_columns
-                .iter()
-                .map(|column| {
-                    json!({
-                        "id": column.id,
-                        "width": column.width,
-                        "layout": node_json(&column.root, screen.active_pane),
-                    })
-                })
-                .collect::<Vec<_>>()
-        );
-    }
-    value
 }
 
 pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) -> Value {
@@ -14635,6 +14603,19 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({}))
         }
+        Command::SetColumnSticky { pane, sticky, edge, mode, transaction } => {
+            let sticky = crate::mux::parse_column_sticky(sticky, edge.as_deref(), mode.as_deref())?;
+            let outcome = mux.set_column_sticky(
+                pane,
+                sticky,
+                transaction.map(|transaction| (client, transaction)),
+            )?;
+            let mut data = json!({"column": outcome.column, "sticky": outcome.sticky});
+            if let Some(transaction) = transaction {
+                data["transaction"] = json!(transaction);
+            }
+            Ok(data)
+        }
         Command::UndoLayout { pane, revision, confirm_close } => {
             match mux.undo_layout(pane, revision, confirm_close)? {
                 LayoutUndoResult::Undone { screen, revision } => Ok(json!({
@@ -16571,6 +16552,10 @@ mod session_identity_tests;
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
+
+#[cfg(test)]
+#[path = "server/sticky_columns_tests.rs"]
+mod sticky_columns_tests;
 
 #[cfg(test)]
 #[path = "server/personal_terminal_tests.rs"]

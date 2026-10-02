@@ -6,9 +6,12 @@ mod idle_close;
 mod personal;
 mod presentation;
 mod public_projections;
+mod registry_viewport;
 mod resource_content;
 mod resource_topology;
+mod screen_changed;
 mod screen_groups;
+mod sticky_columns;
 mod tab_drag;
 mod tab_groups;
 mod terminal_directory;
@@ -25,6 +28,7 @@ pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{
     ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec, WorkspaceScreenGroup,
 };
+pub use sticky_columns::{ColumnStickyError, ColumnStickyOutcome, parse_column_sticky};
 pub use tab_drag::{TabDragOutcome, TabDropEdge};
 pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
 pub use tab_groups::{TabGroupDestination, TabGroupOutcome};
@@ -34,6 +38,7 @@ pub use terminal_reap::{
 };
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
+use registry_viewport::restore_registry_viewport;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::ops::{Deref, DerefMut};
@@ -19880,47 +19885,6 @@ fn restore_layout_node(
     })
 }
 
-fn restore_registry_viewport(
-    viewport: &RegistryViewport,
-    panes: &HashMap<PanePublicId, PaneId>,
-    splits: &mut HashMap<SplitPublicId, SplitId>,
-    allocate: &mut impl FnMut() -> anyhow::Result<u64>,
-) -> anyhow::Result<RestoredViewport> {
-    if viewport.columns.is_empty() {
-        return Ok((Default::default(), None, Vec::new()));
-    }
-    let mut columns = Vec::with_capacity(viewport.columns.len());
-    for (index, column) in viewport.columns.iter().enumerate() {
-        let id = match splits.get(&column.id).copied() {
-            Some(id) => id,
-            None if index == 0 => {
-                let id = allocate()?;
-                splits.insert(column.id.clone(), id);
-                id
-            }
-            None => anyhow::bail!("viewport references unknown boundary split {}", column.id),
-        };
-        let root = restore_layout_node_from_known_splits(&column.layout, panes, splits)?;
-        let zellij_auto_layout = column
-            .auto_layout
-            .as_ref()
-            .map(|members| {
-                members
-                    .iter()
-                    .map(|pane| {
-                        panes.get(pane).copied().ok_or_else(|| {
-                            anyhow::anyhow!("viewport auto-layout has unknown pane {pane}")
-                        })
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()
-            })
-            .transpose()?;
-        columns.push(LayoutColumn { id, width: column.width, root, zellij_auto_layout });
-    }
-    let viewport_splits = columns.iter().skip(1).map(|column| (column.id, column.width)).collect();
-    Ok((viewport_splits, viewport.base_width, columns))
-}
-
 fn restore_layout_node_from_known_splits(
     node: &RegistryLayoutNode,
     panes: &HashMap<PanePublicId, PaneId>,
@@ -20653,6 +20617,8 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    mod sticky_columns;
+
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
     use crate::resource::{BrowserPublicId, MachinePublicId, SessionPublicId, TabPublicId};
     use crate::workspace_registry::{
@@ -21099,12 +21065,14 @@ mod tests {
                             width: 0.8,
                             layout: first_column_layout,
                             auto_layout: None,
+                            sticky: None,
                         },
                         RegistryViewportColumn {
                             id: boundary_split,
                             width: 0.4,
                             layout: RegistryLayoutNode::Leaf { pane: panes[3].clone() },
                             auto_layout: Some(vec![panes[3].clone()]),
+                            sticky: None,
                         },
                     ],
                 },
@@ -30181,8 +30149,14 @@ mod tests {
                 panic!("test layout should have two stack branches");
             };
             screen.layout_columns = vec![
-                LayoutColumn { id: mux.next_id(), width: 1.0, root: *a, zellij_auto_layout: None },
-                LayoutColumn { id, width: 0.5, root: *b, zellij_auto_layout: None },
+                LayoutColumn {
+                    id: mux.next_id(),
+                    width: 1.0,
+                    root: *a,
+                    zellij_auto_layout: None,
+                    sticky: None,
+                },
+                LayoutColumn { id, width: 0.5, root: *b, zellij_auto_layout: None, sticky: None },
             ];
             screen.sync_layout_column_projection();
             Mux::rebuild_split_screen_index(&mut state);

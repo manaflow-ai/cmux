@@ -28,6 +28,10 @@ public final class LayoutModel {
     /// Pins the width of new columns (tests, the demo); nil follows cmux.json
     /// `layout.defaultColumnWidth` (see `defaultColumnWidth`).
     public var defaultColumnWidthOverride: Double?
+    /// Pins `layout.newColumnWidth` (tests, the demo).
+    public var newColumnWidthModeOverride: NewColumnWidthMode?
+    /// Pins `layout.splitSizing` (tests, the demo).
+    public var splitSizingOverride: SplitSizing?
     /// Pins the strip scrollbar mode (tests, the demo); nil follows
     /// cmux.json `layout.stripScrollbar`.
     public var stripScrollbarOverride: StripScrollbarMode?

@@ -29,7 +29,7 @@ extension TabCell {
         let dot = themeBadgeLayer ?? {
             let dot = CALayer()
             dot.actions = Self.noActions
-            dot.borderWidth = 1
+            dot.borderWidth = Metrics.lineWidth(1)
             layer.addSublayer(dot)
             themeBadgeLayer = dot
             return dot
