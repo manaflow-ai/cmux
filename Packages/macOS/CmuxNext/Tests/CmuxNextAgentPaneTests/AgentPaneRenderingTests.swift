@@ -89,6 +89,19 @@ import WebKit
         #expect(window.firstResponder === pane.webView)
     }
 
+    /// WKWebView paints an opaque backing behind every page, which hid a
+    /// translucent theme's backdrop (background-opacity below 1). The page
+    /// paints its own background with the theme's opacity, so the web view
+    /// draws none.
+    @Test func theWebViewLeavesItsBackgroundToThePage() throws {
+        let pane = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { pane.close() }
+        // A WebKit without the SPI keeps its default backing.
+        guard pane.webView.responds(to: NSSelectorFromString("_setDrawsBackground:")),
+              pane.webView.responds(to: NSSelectorFromString("_drawsBackground")) else { return }
+        #expect(pane.webView.value(forKey: "drawsBackground") as? Bool == false)
+    }
+
     @Test func anUnknownFeatureIsLeftAlone() {
         let preferences = WKPreferences()
         #expect(preferences.isWebKitFeatureEnabled("NoSuchCmuxFeature") == nil)

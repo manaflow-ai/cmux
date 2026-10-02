@@ -14,7 +14,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "newColumn",
                 title: String(localized: "action.newColumn", defaultValue: "New Column", bundle: .module),
                 keywords: ["niri", "scroll", "column", "pane"],
-                defaultShortcut: Shortcut("n", modifiers: [.shift, .option, .command]), category: .pane,
+                defaultShortcut: Shortcut("d", modifiers: [.control, .command]), category: .pane,
                 symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
                 cliName: "pane new-column", mainMenu: .view, startsTerminal: true
             ),
