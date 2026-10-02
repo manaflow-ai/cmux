@@ -1,0 +1,16 @@
+{
+  "name": "@cmux/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "migrate": "bun migrate.ts",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.0",
+    "typescript": "^7.0.2"
+  }
+}

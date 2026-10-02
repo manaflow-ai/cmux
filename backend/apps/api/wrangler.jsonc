@@ -1,0 +1,46 @@
+// cmux-next API Worker: all API logic and every owner Durable Object (spec backend.md).
+// One Worker per environment. Production (`cmux-api`) is defined but is NOT deployed
+// until staging works and the coordinator approves. Secrets: `JWT_PRIVATE_JWK` per env
+// via `wrangler secret` (scripts/deploy-worker.sh reads ~/.secrets/cmux-next-api-<env>.env).
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cmux-api-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": { "ENVIRONMENT": "local", "API_VERSION": "0.1.0", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+  "durable_objects": {
+    "bindings": [
+      { "name": "USER_DO", "class_name": "UserDO" },
+      { "name": "TEAM_DO", "class_name": "TeamDO" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }],
+  "env": {
+    "development": {
+      "name": "cmux-api-development",
+      "vars": { "ENVIRONMENT": "development", "API_VERSION": "0.1.0", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+      "durable_objects": {
+        "bindings": [
+          { "name": "USER_DO", "class_name": "UserDO" },
+          { "name": "TEAM_DO", "class_name": "TeamDO" }
+        ]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }],
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "395af91311c0494a91da6876b0df6d49" }]
+    },
+    "staging": {
+      "name": "cmux-api-staging",
+      "vars": { "ENVIRONMENT": "staging", "API_VERSION": "0.1.0", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+      "durable_objects": {
+        "bindings": [
+          { "name": "USER_DO", "class_name": "UserDO" },
+          { "name": "TEAM_DO", "class_name": "TeamDO" }
+        ]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }],
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9761093781aa4d6f8a1ad00848663266" }]
+    }
+  }
+}

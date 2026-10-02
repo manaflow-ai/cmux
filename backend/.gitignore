@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+.output/
+.vercel/
+.nitro/
+.tanstack/
+*.log
