@@ -240,8 +240,9 @@ export function NewTabPage({
       field.current?.select();
     };
     focus();
-    window.addEventListener(FOCUS_LOCATION_EVENT, focus);
-    return () => window.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+    const host = field.current?.ownerDocument.defaultView;
+    host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
+    return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
   }, []);
   const choose = (next: TabKind) => {
     setKind(next);

@@ -23,6 +23,15 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { NewTabPage, ageLabel, cycleKind, newTabHost, prefixedEdit, recentSessions } = await import("./NewTabPage");
 
+/// Delivers an edit to the field's onChange. Another test file can load react-dom before any
+/// DOM exists, and that copy ignores "input" events (it waits for IE's propertychange), so the
+/// edit goes straight to the handler React holds for the field.
+function edited(field: HTMLInputElement) {
+  const key = Object.keys(field).find((name) => name.startsWith("__reactProps$"));
+  const props = key ? (field as unknown as Record<string, { onChange?: (event: unknown) => void }>)[key] : undefined;
+  props?.onChange?.({ target: field, currentTarget: field });
+}
+
 const sessions = [
   { sessionId: "old", title: "Old", cwd: "/src/app", updatedAt: 10, status: "idle" },
   { sessionId: "new", title: "New", cwd: "/src/app", updatedAt: 30, status: "idle" },
@@ -183,7 +192,7 @@ test("typing ! in the browser field runs a command; Backspace in the empty field
   const type = (value: string) =>
     act(async () => {
       setValue.call(field, value);
-      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      edited(field);
     });
   expect(field.placeholder).toContain("! to run a command");
 
@@ -241,7 +250,7 @@ test("the bar suggests open tabs to jump to, moves with the arrows, and asks the
   const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
     setValue.call(field, "vite");
-    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    edited(field);
   });
   const titles = () => [...container.querySelectorAll(".acpmux-omni-row .acpmux-omni-title")].map((n) => n.textContent);
   expect(titles()).toEqual(["vite", "Getting Started | Vite", "Ask Agent: vite"]);
