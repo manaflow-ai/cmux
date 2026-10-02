@@ -54,20 +54,23 @@ pub(crate) fn search(
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     let mut hits = Vec::new();
+    let mut messages =
+        transaction.prepare("SELECT message_json FROM message WHERE conversation = ?1")?;
     for id in ids {
         let Some(head) = load_head(&transaction, &id)? else { continue };
         if head.participant(actor).is_none() {
             continue;
         }
-        let mut statement = transaction
-            .prepare_cached("SELECT message_json FROM message WHERE conversation = ?1")?;
-        let rows = statement.query_map([&id], |row| row.get::<_, String>(0))?;
+        let rows = messages
+            .query_map(rusqlite::params![id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<String>, _>>()?;
         for json in rows {
-            let message: cmux_conversation::Message = serde_json::from_str(&json?)
+            let message: cmux_conversation::Message = serde_json::from_str(&json)
                 .map_err(|_| anyhow::anyhow!("conversation message is corrupt"))?;
             hits.extend(search_hit(&head, &message, &needle));
         }
     }
+    drop(messages);
     sort_hits(&mut hits);
     hits.truncate(input.limit as usize);
     Ok(hits)
