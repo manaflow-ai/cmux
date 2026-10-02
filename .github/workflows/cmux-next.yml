@@ -20,6 +20,10 @@ on:
       - Packages/Shared/**
       - Packages/iOS/**
       - cmux-tui/**
+      - CLI/**
+      - cmuxCLITests/**
+      - cmuxCLITestSupport/**
+      - Resources/Localizable.xcstrings
       - web/**
       - scripts/ghosttykit-checksums.txt
       - ghostty
@@ -49,6 +53,10 @@ on:
       - Packages/Shared/**
       - Packages/iOS/**
       - cmux-tui/**
+      - CLI/**
+      - cmuxCLITests/**
+      - cmuxCLITestSupport/**
+      - Resources/Localizable.xcstrings
       - web/**
       - scripts/ghosttykit-checksums.txt
       - ghostty
@@ -120,6 +128,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - name: No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
+        run: scripts/cmux-next/check-no-swift-cli.sh "$GITHUB_WORKSPACE"
 
       - name: God files
         run: scripts/cmux-next/check-no-godfiles.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
