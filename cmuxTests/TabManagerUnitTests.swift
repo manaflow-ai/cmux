@@ -2103,30 +2103,20 @@ final class TabManagerCloseCurrentTabSpamTests: XCTestCase {
 @MainActor
 final class TabManagerCloseCurrentPanelTests: XCTestCase {
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
-    private var originalLastSurfaceCloseSetting: Any?
+    private var savedLastSurfaceCloseSetting: Any?
 
-    /// Start every test from the shipped last-surface behavior (closing the
-    /// last surface closes the workspace). The app host shares
-    /// `UserDefaults.standard` across suites, so a value left by an earlier
-    /// suite must not decide these assertions.
+    // Several tests here expect Close to take a workspace with its last
+    // surface, which is the preference's default. Start each test from that
+    // default so a value left in the shared defaults cannot keep it open.
     override func setUp() {
         super.setUp()
-        let defaults = UserDefaults.standard
-        originalLastSurfaceCloseSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
-        defaults.set(
-            AppCatalogSection().keepWorkspaceOpenWhenClosingLastSurface.defaultValue,
-            forKey: lastSurfaceCloseShortcutDefaultsKey
-        )
+        savedLastSurfaceCloseSetting = UserDefaults.standard.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
     }
 
     override func tearDown() {
-        let defaults = UserDefaults.standard
-        if let originalLastSurfaceCloseSetting {
-            defaults.set(originalLastSurfaceCloseSetting, forKey: lastSurfaceCloseShortcutDefaultsKey)
-        } else {
-            defaults.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
-        }
-        originalLastSurfaceCloseSetting = nil
+        restore(savedLastSurfaceCloseSetting, forKey: lastSurfaceCloseShortcutDefaultsKey, defaults: .standard)
+        savedLastSurfaceCloseSetting = nil
         super.tearDown()
     }
 
