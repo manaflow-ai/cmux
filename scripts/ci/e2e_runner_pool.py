@@ -68,9 +68,11 @@ mini's canonical-root token, so when CI_OWNED_POOL_SLOTS gives the pool a root
 count (pr_runner_pool.root_label()) the run takes the root label and needs a
 free root runner as well. An owned pool is never the
 fewest-queued fallback: with no room within the rounds the run takes Blacksmith. A job
-that waits on, or is refused by, an owned Mac is re-run on Blacksmith by
-ci-owned-pool-rescue.yml; every re-run attempt takes retry_runner(). That
-holds for an explicit owned runner too: it is the one pick that is moved.
+that waits on, or is refused by, an owned Mac is re-run by
+ci-owned-pool-rescue.yml. A re-run that keeps attempt 1's pick, and every
+attempt from 3 on, takes retry_runner(); a full re-run's attempt 2 takes its
+own new pick (test-e2e.yml's `picked_attempt`). That holds for an explicit
+owned runner too.
 
 Live owned capacity: with the org App's token (ROUTE_TOKEN; test-e2e.yml mints
 it for this repository's runs while owned pools are on), the owned pools are
@@ -131,6 +133,7 @@ from typing import Any, Protocol
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pr_runner_pool  # noqa: E402
+import simple_pool_picker  # noqa: E402
 
 SMALL_RUNNER = pr_runner_pool.DEFAULT_RUNNER
 LARGE_RUNNER = pr_runner_pool.LARGE_RUNNER
@@ -253,9 +256,24 @@ def ui_owned_runner(label: str | None, *, test_filter: str | None, owned: str | 
     pools = [p for p in (limits.order if limits else pr_runner_pool.owned_pools(pr_xcode_app))
              if pr_runner_pool.persistent(p) and slots.get(p, 0) > 0]
     if not pools:
+        # A Blacksmith console is locked. Keep the tour queued on the
+        # configured GUI label until a mini becomes available.
+        configured = [p for p in (limits.order if limits else pr_runner_pool.owned_pools(pr_xcode_app))
+                      if pr_runner_pool.persistent(p)]
+        fallback = next((pr_runner_pool.gui_label(p) for p in configured
+                         if pr_runner_pool.gui_label(p)), "")
+        if fallback:
+            log(f"{label} cannot run UI tests (a locked screen); waiting on {fallback}")
+            return fallback
         return label
+    # UI tours require the console-capable label. Keep the GUI label even when
+    # its live count is zero so the tour queues for an unlocked mini instead
+    # of falling back to a root or Blacksmith console.
+    gui = pr_runner_pool.gui_label(pools[0])
     root = pr_runner_pool.root_label(pools[0])
-    runner = root if root and slots.get(root, 0) > 0 else pools[0]
+    runner = (gui if gui
+              else root if root and slots.get(root, 0) > 0
+              else pools[0])
     log(f"{label} cannot run UI tests (a locked screen); queued on {runner} instead")
     return runner
 
@@ -548,6 +566,27 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--owned-ui", default="", help=f"vars.{OWNED_UI_VARIABLE}")
     parser.add_argument("--retry-of", help="print the pool a re-run of this label takes, and nothing else")
     args = parser.parse_args(argv)
+
+    # Auto choices use the shared live rule. Explicit labels retain the
+    # workflow's direct-request contract and its validation below.
+    # The shared simple picker has no test-filter or console-session
+    # semantics. Let UI E2E runs reach resolve(), which applies the owned GUI
+    # override before choosing a Blacksmith fallback.
+    if (not args.retry_of and (args.requested or "auto").strip() == "auto"
+            and not ui_run(args.test_filter)):
+        values = dict(env)
+        values.update({"CI_PR_POOL_OWNED": args.owned, "CI_OWNED_POOL_SLOTS": args.owned_slots,
+                       "CI_PR_POOL_OVERFLOW": args.overflow, "MACOS_RUNNER_PR": args.variable,
+                       "CMUX_CI_XCODE_APP_PR": args.pr_xcode_app})
+        choice = simple_pool_picker.pick(simple_pool_picker.observe(
+            token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
+            repository=values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or "",
+            jobs=1, env=values,
+            fork=values.get("FORK_PULL_REQUEST") == "true"
+            or (values.get("HEAD_REPO") or values.get("GITHUB_REPOSITORY"))
+            != (values.get("GH_REPO") or values.get("GITHUB_REPOSITORY"))))
+        print(choice.label or args.variable or SMALL_RUNNER)
+        return 0
     if args.retry_of is not None:
         print(retry_runner(args.retry_of.strip(), ui=ui_run(args.test_filter)))
         return 0

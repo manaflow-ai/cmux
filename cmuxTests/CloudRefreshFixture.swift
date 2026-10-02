@@ -22,7 +22,8 @@ struct CloudRefreshFixture {
         readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(),
         authClient: (any AuthClient)? = nil,
         isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
-        isCloudEnabled: @escaping @Sendable () -> Bool = { true }
+        isCloudEnabled: @escaping @Sendable () -> Bool = { true },
+        fixtureTeams: Bool = false
     ) async throws -> Self {
         let defaults = try #require(UserDefaults(suiteName: "CloudRefreshFixture.\(UUID())"))
         let auth = AuthCoordinator(
@@ -37,7 +38,9 @@ struct CloudRefreshFixture {
             ),
             launch: AuthLaunchOptions(
                 clearAuthRequested: false, mockDataEnabled: false,
-                environment: ["CMUX_UITEST_AUTH_FIXTURE": "1", "CMUX_UITEST_AUTH_USER_ID": "fixture"],
+                environment: [
+                    "CMUX_UITEST_AUTH_FIXTURE": "1", "CMUX_UITEST_AUTH_USER_ID": "fixture",
+                ].merging(fixtureTeams ? ["CMUX_UITEST_AUTH_FIXTURE_TEAMS": "1"] : [:]) { current, _ in current },
                 includesDevAuth: true
             )
         )

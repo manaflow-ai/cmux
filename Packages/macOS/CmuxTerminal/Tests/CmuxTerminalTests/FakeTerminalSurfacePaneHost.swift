@@ -44,6 +44,8 @@ final class FakeTerminalSurfacePaneHost: NSView, TerminalSurfacePaneHosting {
         explicitInputCount += 1
     }
 
+    func terminalSurfaceDidAcceptExplicitInput() {}
+
     func terminalSurfaceRuntimeDidRelease() {
         runtimeReleaseCount += 1
     }

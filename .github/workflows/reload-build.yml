@@ -8,11 +8,41 @@ name: reload-build
 # produced artifact and install it locally. Dispatch on the default branch and
 # pass the ephemeral branch as `ref`: caches are scoped to the dispatch ref, so a
 # run dispatched on the ephemeral branch itself saves caches no later run reads.
-# This is the Blacksmith alternative to SSH-leasing a fleet Mac. It is
-# workflow_dispatch ONLY: nothing here runs on push or pull_request, so it never
-# adds to the heavy CI fan-out.
+# This is the Blacksmith alternative to SSH-leasing a fleet Mac. It runs only on
+# workflow_dispatch and workflow_call: nothing here runs on push or
+# pull_request, so it never adds to the heavy CI fan-out. The one caller is
+# cmux-next-frame-pacing.yml, which builds the app its nightly bench measures.
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      ref:
+        required: false
+        default: ""
+        type: string
+      platform:
+        required: false
+        default: macos
+        type: string
+      runner:
+        required: false
+        default: auto
+        type: string
+      nonce:
+        required: false
+        default: ""
+        type: string
+      backend_url:
+        required: false
+        default: ""
+        type: string
+      backend_mode:
+        required: false
+        default: remote
+        type: string
   workflow_dispatch:
     inputs:
       tag:

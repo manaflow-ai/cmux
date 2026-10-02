@@ -2,7 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxSettings
 
-private struct DockPaneCloseConfirmationPrompt: Sendable {
+struct DockPaneCloseConfirmationPrompt: Sendable {
     let title: String
     let message: String
     let details: String
@@ -49,11 +49,10 @@ extension DockSplitStore {
         let closeWarningStore = CloseTabWarningStore(
             defaults: confirmationManager?.closeTabWarningDefaults ?? .standard
         )
-        let warningKinds = closeWarningStore.warningKinds(
+        guard closeWarningStore.shouldConfirmCloseIncludingSafety(
             requiresConfirmation: dockPanelNeedsConfirmClose(panel),
             source: closeSource
-        )
-        guard !warningKinds.isEmpty else {
+        ) else {
             if closeHistoryEligibleDockTabIds.contains(tab.id) {
                 stageDockClosedPanelHistory(
                     tabIds: Set([tab.id]),
@@ -84,7 +83,6 @@ extension DockSplitStore {
             }
             guard self.confirmCloseDockPanel(
                 panel,
-                dontAskAgain: warningKinds,
                 confirmationManager: confirmationManager
             ) else {
                 self.discardDockClosedPanelHistory(tabId: tabId)
@@ -122,18 +120,15 @@ extension DockSplitStore {
         )
         var paneTitles: [String] = []
         var confirmableTabIds = Set<TabID>()
-        var warningKinds: CloseWarningKinds = []
         for tab in tabs {
             let panel = panel(for: tab.id)
             paneTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panel?.displayTitle ?? tab.title))
             guard userCloseTabIds.contains(tab.id), let panel else { continue }
-            let tabWarningKinds = closeWarningStore.warningKinds(
+            if closeWarningStore.shouldConfirmCloseIncludingSafety(
                 requiresConfirmation: dockPanelNeedsConfirmClose(panel),
                 source: .shortcut
-            )
-            if !tabWarningKinds.isEmpty {
+            ) {
                 confirmableTabIds.insert(tab.id)
-                warningKinds.formUnion(tabWarningKinds)
             }
         }
         guard !confirmableTabIds.isEmpty else {
@@ -155,7 +150,6 @@ extension DockSplitStore {
             defer { self.pendingCloseConfirmDockTabIds.subtract(confirmableTabIds) }
             guard self.confirmCloseDockPane(
                 prompt,
-                dontAskAgain: warningKinds,
                 confirmationManager: confirmationManager
             ) else {
                 self.discardDockClosedPaneHistory(pane)
@@ -233,11 +227,7 @@ extension DockSplitStore {
         return false
     }
 
-    private func confirmCloseDockPanel(
-        _ panel: any Panel,
-        dontAskAgain: CloseWarningKinds,
-        confirmationManager: TabManager?
-    ) -> Bool {
+    private func confirmCloseDockPanel(_ panel: any Panel, confirmationManager: TabManager?) -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
         let panelName = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let message: String
@@ -246,24 +236,14 @@ extension DockSplitStore {
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
         }
-        return confirmCloseDockPrompt(
-            title: title,
-            message: message,
-            dontAskAgain: dontAskAgain,
-            confirmationManager: confirmationManager
-        )
+        return confirmCloseDockPrompt(title: title, message: message, confirmationManager: confirmationManager)
     }
 
-    private func confirmCloseDockPane(
-        _ prompt: DockPaneCloseConfirmationPrompt,
-        dontAskAgain: CloseWarningKinds,
-        confirmationManager: TabManager?
-    ) -> Bool {
+    private func confirmCloseDockPane(_ prompt: DockPaneCloseConfirmationPrompt, confirmationManager: TabManager?) -> Bool {
         confirmCloseDockPrompt(
             title: prompt.title,
             message: prompt.message,
             scrollableDetails: prompt.details,
-            dontAskAgain: dontAskAgain,
             confirmationManager: confirmationManager
         )
     }
@@ -272,7 +252,6 @@ extension DockSplitStore {
         title: String,
         message: String,
         scrollableDetails: String? = nil,
-        dontAskAgain: CloseWarningKinds,
         confirmationManager: TabManager?
     ) -> Bool {
         if let confirmationManager {
@@ -280,8 +259,7 @@ extension DockSplitStore {
                 title: title,
                 message: message,
                 scrollableDetails: scrollableDetails,
-                acceptCmdD: false,
-                dontAskAgain: dontAskAgain
+                acceptCmdD: false
             )
         }
 
@@ -289,13 +267,10 @@ extension DockSplitStore {
         alert.messageText = title
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
         let content = scrollableDetails.map {
             CmuxAlertContent(flattenedText: message, separatingScrollableDetails: $0)
         } ?? CmuxAlertContent(informativeText: message)
-        CloseDontAskAgainCheckbox.add(to: alert, offering: dontAskAgain)
-        let accepted = alert.runCmuxModal(content: content) == .alertFirstButtonReturn
-        CloseDontAskAgainCheckbox.apply(from: alert, offering: dontAskAgain, defaults: .standard)
-        return accepted
+        return alert.runCmuxModal(content: content) == .alertFirstButtonReturn
     }
 }

@@ -53,6 +53,15 @@ struct SidebarJSRuntimeTests {
         #expect(dslFixedSizeAxes(nil) == nil)
     }
 
+    @Test func cursorPropReachesTheNode() {
+        let runtime = SidebarJSRuntime()
+        runtime.start(source: """
+        sidebar(() => Text("tap me").cursor("pointer"))
+        """)
+        let root = runtime.store.rootId.flatMap { runtime.store.node($0) }
+        #expect(root?.string("cursor") == "pointer")
+    }
+
     /// `.frame(() => ({ ... }))` used to be dropped silently: the runtime read
     /// the keys of the function object (none), so a live width never applied.
     @Test func frameAcceptsAReactiveSpec() {

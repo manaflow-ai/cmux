@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 70b8e8919fd518dd5265cc8986c8a0b19416db355176a022f8ff502671d945b8.
+// cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -602,6 +602,8 @@ pub struct MintTerminalRendererResult {
     pub incarnation: String,
     pub protocol_version: u16,
     pub rights: u32,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub supports_viewer_size_priority: Option<bool>,
     pub terminal_id: String,
     pub token: String,
     pub ttl_ms: u64,
@@ -731,6 +733,13 @@ pub struct ReadScrollbackResult {
     pub rows: Vec<RenderRow>,
     pub start: u32,
     pub total: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReattachViewResult {
+    pub participant: String,
+    pub state: SizeState,
 }
 
 #[rustfmt::skip]
@@ -1145,6 +1154,7 @@ pub enum SizeMode {
 pub struct SizeParticipant {
     pub counts: bool,
     pub counts_override: Nullable<bool>,
+    pub device_id: Nullable<String>,
     pub device_kind: SizeDeviceKind,
     pub device_name: Nullable<String>,
     pub display_name: Nullable<String>,
@@ -1200,6 +1210,8 @@ pub struct SizeState {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SizingIdentity {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub device_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub device_kind: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
