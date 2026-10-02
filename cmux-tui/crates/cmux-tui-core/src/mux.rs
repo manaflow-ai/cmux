@@ -4,6 +4,7 @@
 mod agent_hook_errors;
 mod host_close;
 mod idle_close;
+pub(crate) mod layout_invariants;
 mod personal;
 mod presentation;
 mod public_projections;
@@ -4754,25 +4755,75 @@ impl Mux {
         }
 
         let mut state = self.state.lock().unwrap();
-        let mut plan = prepare(&mut state, &registry)?;
-        persist_public_topology_result(operation, &mut plan.result, &plan.deltas)?;
-        #[cfg(test)]
-        {
-            *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
+        // Prepare and stage run before the durable commit, so subscribers
+        // see a tab's new session path only once that commit succeeds.
+        let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {
+            let mut plan = prepare(&mut state, &registry)?;
+            // A tab-conserving operation is checked before anything commits,
+            // with both writer locks held: the layout reducer must accept its
+            // op before the live state changes, and the live result must keep
+            // I1-I3 and match the reducer's placement, or `before` restores
+            // the previous state.
+            let before = if layout_invariants::conserves_tabs(operation) {
+                let before_model = layout_invariants::project(&state);
+                let model = plan
+                    .layout_op
+                    .as_ref()
+                    .map(|kind| layout_invariants::model_result(operation, &before_model, kind))
+                    .transpose()?;
+                let before = plan.stage(&mut state);
+                if let Err(error) = layout_invariants::validate_layout_transition(
+                    operation,
+                    &before_model,
+                    model.as_ref(),
+                    &state,
+                ) {
+                    *state = before;
+                    return Err(error);
+                }
+                Some(before)
+            } else {
+                None
+            };
+            anyhow::Ok((plan, before))
+        });
+        let (mut plan, before) = prepared?;
+        let committed = persist_public_topology_result(operation, &mut plan.result, &plan.deltas)
+            .and_then(|()| {
+                #[cfg(test)]
+                {
+                    *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
+                }
+                registry.commit_resource_patch_with_workspace_ledger(
+                    mutation,
+                    operation,
+                    fingerprint,
+                    expected_generation,
+                    expected_revision,
+                    &plan.patch,
+                    &plan.result,
+                    &plan.deltas,
+                    plan.workspace_ledger.as_ref(),
+                    plan.tab_groups.as_ref(),
+                    plan.screen_state.as_ref(),
+                )
+            });
+        let (commit, workspace_revision) = match committed {
+            Ok(committed) => committed,
+            Err(error) => {
+                if let Some(before) = before {
+                    *state = before;
+                }
+                return Err(error);
+            }
+        };
+        if commit.replayed {
+            if let Some(before) = before {
+                *state = before;
+            }
+        } else {
+            self.subscribers.publish_deferred_session_paths(session_paths);
         }
-        let (commit, workspace_revision) = registry.commit_resource_patch_with_workspace_ledger(
-            mutation,
-            operation,
-            fingerprint,
-            expected_generation,
-            expected_revision,
-            &plan.patch,
-            &plan.result,
-            &plan.deltas,
-            plan.workspace_ledger.as_ref(),
-            plan.tab_groups.as_ref(),
-            plan.screen_state.as_ref(),
-        )?;
         plan.apply(&mut state, &commit, workspace_revision);
         drop(state);
         drop(registry);

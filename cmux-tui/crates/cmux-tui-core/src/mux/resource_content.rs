@@ -331,6 +331,11 @@ impl Mux {
                 let source_pane_id = source_tab.pane_id.clone();
                 let structural = source_pane_slot != target_pane_slot
                     && state.panes.get(&source_pane_slot).is_some_and(|pane| pane.tabs.len() == 1);
+                let layout_op = cmux_layout_reducer::LayoutOpKind::MoveTab {
+                    tab: surface,
+                    pane: target_pane_slot,
+                    index,
+                };
                 if structural {
                     return super::resource_topology::structural_tab_move_plan(
                         self,
@@ -342,7 +347,8 @@ impl Mux {
                         target_pane_slot,
                         index,
                         json!({"terminal":terminal_id,"value":terminal_value}),
-                    );
+                    )
+                    .map(|plan| plan.with_layout_op(layout_op));
                 }
                 let mut source_pane = topology
                     .panes
@@ -547,7 +553,8 @@ impl Mux {
                     order_entries: source_delta_tabs.len() + target_delta_tabs.len(),
                     terminal_queries: 0,
                     changed_rows: source_delta_tabs.len() + target_delta_tabs.len() + 3,
-                }))
+                })
+                .with_layout_op(layout_op))
             },
         )?;
 

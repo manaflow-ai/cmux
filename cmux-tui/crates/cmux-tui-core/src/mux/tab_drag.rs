@@ -15,6 +15,7 @@
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 use crate::model::{LayoutColumn, LayoutUndoTabRestore};
+use cmux_layout_reducer::{Edge, LayoutOpKind};
 
 /// The pane edge a tab was dropped on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,10 +62,40 @@ pub enum TabDragDestination {
     Column { pane: PaneId, after_column: Option<SplitId>, width: f32 },
 }
 
+impl From<TabDropEdge> for Edge {
+    fn from(edge: TabDropEdge) -> Self {
+        match edge {
+            TabDropEdge::Left => Self::Left,
+            TabDropEdge::Right => Self::Right,
+            TabDropEdge::Top => Self::Top,
+            TabDropEdge::Bottom => Self::Bottom,
+        }
+    }
+}
+
 impl TabDragDestination {
     fn pane(self) -> PaneId {
         match self {
             Self::Split { pane, .. } | Self::Column { pane, .. } => pane,
+        }
+    }
+
+    /// The reducer op for this drag, with the ids the daemon reserved.
+    pub(super) fn layout_op(self, tab: SurfaceId, ids: &TabDragIds) -> LayoutOpKind {
+        match self {
+            Self::Split { pane, edge, .. } => {
+                LayoutOpKind::MoveTabToSplit { tab, pane, edge: edge.into(), new_pane: ids.pane }
+            }
+            Self::Column { pane, after_column, width } => LayoutOpKind::MoveTabToColumn {
+                tab,
+                anchor: pane,
+                after_column,
+                // `move_tab_to_column` validated the width range.
+                width_permille: (width * 1000.0).round() as u16,
+                new_pane: ids.pane,
+                new_column: ids.split,
+                base_column: ids.base_column,
+            },
         }
     }
 
@@ -210,12 +241,13 @@ impl Mux {
                     retarget_terminal_workspace(&mut projection.patch, terminal, &target_key);
                 }
                 committed = Some((outcome, target_key));
-                Ok(ResourceMutationPlan::new(
+                Ok(ResourceMutationPlan::replacing(
                     projection.patch,
                     projection.result,
                     projection.changes,
-                    move |state| *state = projected,
-                ))
+                    projected,
+                )
+                .with_layout_op(destination.layout_op(surface, &ids)))
             },
         )?;
         let (outcome, target_key) = committed.context("tab drag committed no outcome")?;

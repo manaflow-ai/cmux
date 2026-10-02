@@ -3,7 +3,12 @@
 //! Plan construction validates input, allocates every new value, and reserves
 //! the exact in-memory capacities before SQLite commits. The post-commit step
 //! is an infallible closure over only the touched state. Plans must never clone
-//! or project the full mux tree.
+//! or project the full mux tree, with one exception: an operation that must
+//! conserve tabs (see `mux::layout_invariants`) runs its state step before the
+//! commit, under the same locks, keeping a clone of the previous state so the
+//! layout checker can reject it and a failed commit can restore it. Plans that
+//! already project a clone hand it over with [`ResourceMutationPlan::replacing`],
+//! so staging them costs no second clone.
 
 use serde_json::Value;
 
@@ -11,6 +16,17 @@ use crate::State;
 use crate::workspace_registry::{ResourcePatch, ResourcePatchCommit, ResourceWorkspaceLedger};
 
 type StateApply = Box<dyn FnOnce(&mut State) + Send + 'static>;
+
+/// How a plan changes the live state after its commit.
+enum StateStep {
+    /// Run this closure on the live state.
+    Apply(StateApply),
+    /// Replace the live state with this projected state.
+    Replace(Box<State>),
+    /// The step already ran before the commit (see
+    /// [`ResourceMutationPlan::stage`]).
+    Staged,
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ResourceMutationMetrics {
@@ -30,7 +46,10 @@ pub(crate) struct ResourceMutationPlan {
     pub(crate) tab_groups: Option<crate::workspace_registry::TabGroupState>,
     /// Screen presentation and screen groups written in the same transaction.
     pub(crate) screen_state: Option<crate::workspace_registry::ScreenPresentationState>,
-    apply: StateApply,
+    /// The reducer op this plan performs, which the daemon checks the
+    /// plan's result against before the commit.
+    pub(crate) layout_op: Option<cmux_layout_reducer::LayoutOpKind>,
+    state_step: StateStep,
 }
 
 impl ResourceMutationPlan {
@@ -48,8 +67,45 @@ impl ResourceMutationPlan {
             workspace_ledger: None,
             tab_groups: None,
             screen_state: None,
-            apply: Box::new(apply),
+            layout_op: None,
+            state_step: StateStep::Apply(Box::new(apply)),
         }
+    }
+
+    /// A plan whose post-commit step replaces the live state with
+    /// `projected`, a clone the plan builder already mutated.
+    pub(crate) fn replacing(
+        patch: ResourcePatch,
+        result: Value,
+        deltas: Value,
+        projected: State,
+    ) -> Self {
+        let mut plan = Self::new(patch, result, deltas, |_| {});
+        plan.state_step = StateStep::Replace(Box::new(projected));
+        plan
+    }
+
+    /// Run the state step on the live `state` now, before the commit, and
+    /// return the state it replaced, which the caller restores if the change
+    /// is rejected or the commit fails. A closure step costs one clone of the
+    /// state; a projected state is swapped in without one. [`Self::apply`]
+    /// then changes nothing but the revisions.
+    pub(crate) fn stage(&mut self, state: &mut State) -> State {
+        match std::mem::replace(&mut self.state_step, StateStep::Staged) {
+            StateStep::Apply(apply) => {
+                let before = state.clone();
+                apply(state);
+                before
+            }
+            StateStep::Replace(projected) => std::mem::replace(state, *projected),
+            StateStep::Staged => state.clone(),
+        }
+    }
+
+    /// Declare the reducer op this plan performs.
+    pub(crate) fn with_layout_op(mut self, op: cmux_layout_reducer::LayoutOpKind) -> Self {
+        self.layout_op = Some(op);
+        self
     }
 
     /// Commit this tab group state with the patch.
@@ -96,7 +152,11 @@ impl ResourceMutationPlan {
         if commit.replayed {
             return;
         }
-        (self.apply)(state);
+        match self.state_step {
+            StateStep::Apply(apply) => apply(state),
+            StateStep::Replace(projected) => *state = *projected,
+            StateStep::Staged => {}
+        }
         if let Some(workspace_revision) = workspace_revision {
             state.workspace_revision = workspace_revision;
         }

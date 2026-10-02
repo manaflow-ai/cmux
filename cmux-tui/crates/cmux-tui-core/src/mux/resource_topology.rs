@@ -18,6 +18,7 @@ use crate::workspace_registry::{
     TerminalLifecycle, TerminalOnExit, TerminalResourceCloseCommit, WorkspacePresentationUpdate,
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
+use cmux_layout_reducer::LayoutOpKind;
 
 mod batch_close;
 mod layout_projection;
@@ -1876,6 +1877,27 @@ impl Mux {
                 }
                 let key = target_ws.key.clone();
                 let target_ws_slot = target_ws.id;
+                let layout_op = if new_workspace {
+                    LayoutOpKind::MoveTabToNewWorkspace {
+                        tab: surface,
+                        // The in-group index places the workspace among its
+                        // group's members; the model does not compare the
+                        // workspace order.
+                        index: None,
+                        new_workspace: target_ws_slot,
+                        new_screen: target_screen,
+                        new_pane: target_pane,
+                    }
+                } else {
+                    LayoutOpKind::MoveTabToWorkspace {
+                        tab: surface,
+                        workspace: target_ws_slot,
+                        // The destination has no screen (checked above).
+                        pane: None,
+                        new_screen: target_screen,
+                        new_pane: target_pane,
+                    }
+                };
                 target_ws.screens.push(Screen {
                     id: target_screen,
                     public_id: target_screen_id,
@@ -1941,6 +1963,7 @@ impl Mux {
                         );
                     },
                 );
+                let plan = plan.with_layout_op(layout_op);
                 Ok(if new_workspace {
                     plan.with_workspace_ledger(ResourceWorkspaceLedger {
                         event_kind: "workspace-added",
@@ -2044,6 +2067,7 @@ impl Mux {
                     .position(|candidate| *candidate == surface)
                     .context("resolved tab disappeared")?;
                 let structural = source_pane != target_pane && source_tabs.len() == 1;
+                let layout_op = LayoutOpKind::MoveTab { tab: surface, pane: target_pane, index };
                 if structural {
                     return structural_tab_move_plan(
                         &mux,
@@ -2055,7 +2079,8 @@ impl Mux {
                         target_pane,
                         index,
                         json!({"tab":tab_id}),
-                    );
+                    )
+                    .map(|plan| plan.with_layout_op(layout_op));
                 }
                 let topology = registry.resource_topology_snapshot()?;
                 let source_pane_id = state.resource_indexes.pane_ids[&source_pane].clone();
@@ -2224,7 +2249,8 @@ impl Mux {
                             }
                         }
                     },
-                ))
+                )
+                .with_layout_op(layout_op))
             },
         )
     }
