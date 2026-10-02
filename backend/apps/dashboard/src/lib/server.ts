@@ -1,4 +1,4 @@
-import { createServerFn } from "@tanstack/react-start"
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start"
 import { deleteCookie, getCookie, getRequestHeader, setCookie } from "@tanstack/react-start/server"
 
 /**
@@ -19,18 +19,18 @@ const REFRESH = "__Host-cmux_rt"
  * CSRF: SameSite=Lax still lets a sibling *.cmux.dev page POST here (same site), so every
  * state-changing server function requires an Origin equal to this host.
  */
-const requireSameOrigin = () => {
+export const requireSameOrigin = createServerOnlyFn(() => {
   const origin = getRequestHeader("origin")
   const host = getRequestHeader("x-forwarded-host") ?? getRequestHeader("host")
   if (!origin || !host || new URL(origin).host !== host) throw new Error("cross-origin request refused")
-}
+})
 const cookieBase = { httpOnly: true, secure: true, sameSite: "lax" as const, path: "/" }
 
-const apiUrl = () => {
+export const apiUrl = createServerOnlyFn(() => {
   const url = process.env.CMUX_API_URL
   if (!url) throw new Error("CMUX_API_URL is not set")
   return url.replace(/\/$/, "")
-}
+})
 
 const stackHeaders = () => {
   const project = process.env.CMUX_STACK_PROJECT_ID
@@ -115,7 +115,7 @@ export interface OpResponse {
 export type ApiResult<T> = { readonly status: number; readonly body: T }
 
 /** POSTs to the API with the cookie's access token; refreshes once on a missing token or a 401. */
-const post = async <T,>(path: string, payload: unknown): Promise<ApiResult<T>> => {
+const postImpl = async <T,>(path: string, payload: unknown): Promise<ApiResult<T>> => {
   const send = async (token: string) => {
     const res = await fetch(`${apiUrl()}${path}`, {
       method: "POST",
@@ -133,6 +133,9 @@ const post = async <T,>(path: string, payload: unknown): Promise<ApiResult<T>> =
   if (!fresh) return { status: 401, body: { error: "signed out" } as T }
   return send(fresh)
 }
+
+/** Server-only: an API call with the session cookie (refreshes once on 401). */
+export const post = createServerOnlyFn(postImpl)
 
 export const mutate = createServerFn({ method: "POST" })
   .validator((d: { op: string; params: Record<string, unknown>; idempotency_key: string }) => d)
