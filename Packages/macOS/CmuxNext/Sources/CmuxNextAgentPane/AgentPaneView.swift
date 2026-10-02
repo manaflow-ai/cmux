@@ -100,16 +100,15 @@ public final class AgentPaneView: NSView {
         webView.navigationDelegate = navigation
         addSubview(webView)
         source.load(into: webView)
-<<<<<<< HEAD
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
+        observeMotion()
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
         switch source {
         case .bundled(let url): return "bundled:\(url.path)"
         case .devServer(let url): return "dev:\(url.absoluteString)"
-=======
-        observeMotion()
+        }
     }
 
     private func observeMotion() {
@@ -127,7 +126,6 @@ public final class AgentPaneView: NSView {
         reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
             forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyTheme() }
->>>>>>> origin/feat-cmux-next
         }
     }
 
