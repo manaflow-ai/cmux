@@ -117,3 +117,15 @@ describe("agent theme", () => {
     }
   });
 });
+
+// From #16641: the terminal palette reaches the page as --agent-ansi-N.
+const ansi = (index: number) => properties.get(`--agent-ansi-${index}`);
+
+test("the terminal palette becomes --agent-ansi-N, and a theme without one clears it", () => {
+  const palette = Array.from({ length: 16 }, (_, index) => `rgba(${index}, 0, 0, 1)`);
+  applyAgentTheme({ ...theme, palette });
+  expect([0, 5, 15].map(ansi)).toEqual(["rgba(0, 0, 0, 1)", "rgba(5, 0, 0, 1)", "rgba(15, 0, 0, 1)"]);
+  expect(properties.get("--agent-text")).toBe("rgba(205, 214, 244, 1.0)");
+  applyAgentTheme(theme);
+  expect([0, 5, 15].map(ansi)).toEqual([undefined, undefined, undefined]);
+});
