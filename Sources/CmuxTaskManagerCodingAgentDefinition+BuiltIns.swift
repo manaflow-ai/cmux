@@ -1,4 +1,5 @@
 import CmuxTerminalCore
+import CMUXAgentLaunch
 import Foundation
 
 extension CmuxTaskManagerCodingAgentDefinition {
@@ -47,6 +48,14 @@ extension CmuxTaskManagerCodingAgentDefinition {
               launchKinds: ["factory"], directBasenames: ["droid", "factory"], argumentNeedles: ["factory"]),
         .init(id: "qoder", displayName: "Qoder", assetName: "AgentIcons/Qoder",
               launchKinds: ["qoder"], directBasenames: ["qoder", "qodercli"], argumentNeedles: ["qoder", "qodercli"]),
+        .init(
+            id: CodePuppyAgentRegistration.standard.id,
+            displayName: String(localized: "agent.codePuppy.displayName", defaultValue: "Code Puppy"),
+            assetName: CodePuppyAgentRegistration.standard.iconAssetName,
+            launchKinds: CodePuppyAgentRegistration.standard.launchKinds,
+            directBasenames: CodePuppyAgentRegistration.standard.directBasenames,
+            argumentNeedles: CodePuppyAgentRegistration.standard.argumentNeedles
+        ),
         .init(
             id: "kimi",
             displayName: String(localized: "agent.kimi.displayName", defaultValue: "Kimi Code"),

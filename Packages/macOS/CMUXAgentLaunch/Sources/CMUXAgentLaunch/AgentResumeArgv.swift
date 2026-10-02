@@ -508,6 +508,9 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return withOption("factory", executable: "droid", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "qoder":
             return withOption("qoder", executable: "qodercli", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+        case "code-puppy":
+            guard sessionId != "codepuppy-session" else { return nil }
+            return withOption("code-puppy", executable: "code-puppy", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "kimi":
             return withOption("kimi", executable: "kimi", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         default:

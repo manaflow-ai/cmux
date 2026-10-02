@@ -1,6 +1,7 @@
 import Bonsplit
 import CmuxFoundation
 import Combine
+import CMUXAgentLaunch
 import CryptoKit
 import Foundation
 import CmuxSettings
@@ -407,6 +408,7 @@ enum CmuxConfigAgentKind: Sendable, Hashable {
     case codex
     case claudeCode
     case opencode
+    case codePuppy
     case custom(String)
 
     var commandName: String {
@@ -417,6 +419,8 @@ enum CmuxConfigAgentKind: Sendable, Hashable {
             return "claude"
         case .opencode:
             return "opencode"
+        case .codePuppy:
+            return CodePuppyAgentRegistration.standard.commandName
         case .custom(let name):
             return name
         }
@@ -430,6 +434,8 @@ enum CmuxConfigAgentKind: Sendable, Hashable {
             return .symbol("brain.head.profile")
         case .opencode:
             return .symbol("chevron.left.forwardslash.chevron.right")
+        case .codePuppy:
+            return .symbol(CodePuppyAgentRegistration.standard.defaultSymbolName)
         case .custom:
             return .symbol("terminal")
         }
@@ -441,6 +447,10 @@ extension CmuxConfigAgentKind: Codable {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        if CodePuppyAgentRegistration.standard.configAliases.contains(value) {
+            self = .codePuppy
+            return
+        }
         switch value {
         case "codex":
             self = .codex
@@ -1493,6 +1503,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
                 return String(localized: "command.cmuxConfig.defaultClaudeCodeTitle", defaultValue: "Claude Code")
             case .opencode:
                 return String(localized: "command.cmuxConfig.defaultOpenCodeTitle", defaultValue: "OpenCode")
+            case .codePuppy:
+                return String(localized: "command.cmuxConfig.defaultCodePuppyTitle", defaultValue: "Code Puppy")
             case .custom(let name):
                 return name
             }

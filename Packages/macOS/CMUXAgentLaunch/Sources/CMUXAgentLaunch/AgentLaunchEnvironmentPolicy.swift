@@ -130,6 +130,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     /// consumer's selection matches what it would read from its own process.
     public var inputEnvironmentKeys: [String] {
         Self.sortedSafeEnvironmentKeys + [
+            "XDG_CACHE_HOME",
             "CMUX_ORIGINAL_NODE_OPTIONS",
             "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT",
         ]
@@ -144,6 +145,10 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         var result: [String: String] = [:]
+        if normalizedKind == "code-puppy",
+           let cacheHome = normalizedValue(env["XDG_CACHE_HOME"]) {
+            result["XDG_CACHE_HOME"] = cacheHome
+        }
         for key in Self.sortedSafeEnvironmentKeys where key != "NODE_OPTIONS" {
             guard let value = sanitizedValue(key: key, value: env[key]) else { continue }
             result[key] = value

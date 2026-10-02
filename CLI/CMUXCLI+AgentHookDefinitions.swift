@@ -26,6 +26,12 @@ extension CMUXCLI {
         let format: HookFormat
         let events: [HookEvent]
         let aliases: Set<String>
+        /// When non-nil, each `.nested` hook group is written with this
+        /// `matcher` value. Code Puppy's hook-config validator requires a
+        /// `matcher` field on every group (its loader defaults an absent one to
+        /// "*", but validation rejects it outright). Claude Code / Codex / Gemini
+        /// / Copilot do not need it, so this stays nil for them.
+        let nestedGroupMatcher: String?
         /// How installed hooks find the cmux instance that owns them.
         ///
         /// `.ambient` is appropriate when an agent preserves the launch environment. `.pinned`
@@ -66,6 +72,7 @@ extension CMUXCLI {
             case rovoDevYAML
             case hermesAgentYAML
             case tomlArrayTable // Kimi config.toml [[hooks]] array-of-tables
+            case codePuppyPlugin // Canonical autosave IDs through Python lifecycle callbacks
         }
 
         enum HookDispatch {
@@ -143,6 +150,7 @@ extension CMUXCLI {
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
              aliases: Set<String> = [],
+             nestedGroupMatcher: String? = nil,
              dispatch: HookDispatch = .ambient,
              publishesStopNotification: Bool = true,
              sessionEndIsTurnBoundary: Bool = false,
@@ -161,6 +169,7 @@ extension CMUXCLI {
             self.dispatch = dispatch
             self.publishesStopNotification = publishesStopNotification
             self.sessionEndIsTurnBoundary = sessionEndIsTurnBoundary
+            self.nestedGroupMatcher = nestedGroupMatcher
             self.aliases = Set(aliases.compactMap { alias in
                 let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return normalized.isEmpty ? nil : normalized
@@ -172,14 +181,20 @@ extension CMUXCLI {
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, titleUpdate, stop, notification, approvalResponse
+        case sessionStart, sessionUpdate, promptSubmit, titleUpdate, stop, notification, approvalResponse
         case codexSubagentStart, codexSubagentStop
+        case toolStart, toolEnd
         case shellObserved, shellDone, shellFailed, sessionEnd, sessionFinalize, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
         "session-start": .sessionStart,
+        "session-update": .sessionUpdate,
         "prompt-submit": .promptSubmit,
+        "tool-start": .toolStart,
+        "tool-end": .toolEnd,
+        "pre-tool-use": .toolStart,
+        "post-tool-use": .toolEnd,
         "title-update": .titleUpdate,
         "stop": .stop,
         "notification": .notification,
@@ -487,7 +502,7 @@ extension CMUXCLI {
         return "\(environmentPrefix)\(executable) \(routedArguments)"
     }
 
-    private static func pinnedAgentHookCLIPath(
+    static func pinnedAgentHookCLIPath(
         env: [String: String] = ProcessInfo.processInfo.environment,
         arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> String? {
@@ -521,7 +536,7 @@ extension CMUXCLI {
         return FileManager.default.isExecutableFile(atPath: path)
     }
 
-    private static func pinnedAgentHookSocketPath(
+    static func pinnedAgentHookSocketPath(
         env: [String: String] = ProcessInfo.processInfo.environment
     ) -> String? {
         if let socketPath = normalizedHookInstallValue(env["CMUX_SOCKET_PATH"]) {

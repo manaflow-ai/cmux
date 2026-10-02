@@ -942,7 +942,10 @@ extension CMUXCLI {
     }
 
     static func agentHookPIDEnvironmentVariable(agentName: String) -> String {
-        AgentHookDeliveryPolicy().pidEnvironmentVariable(agentName: agentName)
+        if agentName == CodePuppyAgentRegistration.standard.id {
+            return CodePuppyAgentRegistration.standard.pidEnvironmentVariable
+        }
+        return AgentHookDeliveryPolicy().pidEnvironmentVariable(agentName: agentName)
     }
 
     static func agentHookCanRunQueued(agent: String, subcommand: String) -> Bool {

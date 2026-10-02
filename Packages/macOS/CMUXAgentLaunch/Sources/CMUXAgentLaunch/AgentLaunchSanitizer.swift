@@ -200,6 +200,15 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: factoryPolicy)
         case "qoder":
             return preserveOptions(args, policy: qoderPolicy)
+        case "code-puppy":
+            return preserveOptions(args, policy: Policy(
+                valueOptions: ["--model", "-m", "--agent", "-a", "--resume", "-r", "--prompt", "-p"],
+                booleanOptions: ["--interactive", "-i"],
+                nonRestorableCommands: [],
+                droppedOptions: ["--resume", "-r"],
+                droppedOptionPrefixes: ["--resume=", "-r="],
+                rejectOptions: ["--version", "-v", "--help", "-h", "--prompt", "-p", "--quick-resume", "-qr"]
+            ))
         case "kimi":
             return preserveOptions(args, policy: kimiPolicy)
         case "ollama":

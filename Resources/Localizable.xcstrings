@@ -142233,6 +142233,381 @@
         }
       }
     },
+    "agent.codePuppy.displayName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        }
+      }
+    },
+    "command.cmuxConfig.defaultCodePuppyTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code Puppy"
+          }
+        }
+      }
+    },
+    "command.cmuxCLI.hooks.agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (اسم بديل: agy), rovodev (اسم بديل: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (Alias: agy), rovodev (Alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (エイリアス: agy), rovodev (エイリアス: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (ឈ្មោះហៅក្រៅ: agy), rovodev (ឈ្មោះហៅក្រៅ: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (별칭: agy), rovodev (별칭: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (псевдоним: agy), rovodev (псевдоним: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (ชื่อเรียกอื่น: agy), rovodev (ชื่อเรียกอื่น: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (takma ad: agy), rovodev (takma ad: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (псевдонім: agy), rovodev (псевдонім: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (别名: agy), rovodev (别名: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (別名: agy), rovodev (別名: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)"
+          }
+        }
+      }
+    },
     "command.cmuxConfig.defaultClaudeCodeTitle": {
       "extractionState": "manual",
       "localizations": {
