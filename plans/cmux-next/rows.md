@@ -29,10 +29,9 @@ scrolling unit instead of a split":
 | Cmd-Ctrl-Shift-D | New Row, below the focused row, in the focused column | vertically, to reveal it |
 | Cmd-Ctrl-N | New Pane (Auto Layout), inside the row | never |
 
-Facts found in the code that need a decision (section "Decisions"): New Column is bound to
-Cmd-Shift-Opt-N today (`PaneActionCatalog.swift`), not Cmd-Ctrl-D. Cmd-Ctrl-Shift-D is taken by
-Open Diff Viewer (`BrowserActionCatalog.swift`). Cmd-Ctrl-D is free in cmux but is macOS's
-system Look Up chord; a cmux key equivalent wins in cmux windows.
+New Column moved to Ctrl-Cmd-D in 5c009fc9cbc (it replaces macOS's system Look Up chord in cmux
+windows). Cmd-Ctrl-Shift-D is taken by Open Diff Viewer (`BrowserActionCatalog.swift`), so New
+Row needs a decision (section "Decisions").
 
 ## Options
 
@@ -71,7 +70,7 @@ terminal belongs to scrollback, so rows cannot take plain vertical wheel events 
 ```
 Screen { columns: [Column] }                          // horizontal strip, unchanged
 Column { id, width_permille, sticky?, rows: [Row] }    // rows non-empty
-Row    { id, height_permille, root: SplitTree, zellij_auto_layout? }
+Row    { id, height_permille, root: SplitTree, zellij_auto_layout? }  // id never reused
 SplitTree = Leaf(pane) | Split { id, dir, ratio_permille, a, b } | Stack { panes, expanded }
 ```
 
@@ -86,9 +85,10 @@ and `debug.desync` in debug builds):
 | R1 | Every pane is in exactly one row; every row is in exactly one column; every column in exactly one screen. |
 | R2 | No empty containers: a pane has a tab, a row has a pane, a column has a row. A container that empties is removed in the same commit, bottom up (pane, row, column, screen). |
 | R3 | Tab conservation (I1) holds for every row op; a row op that spawns a terminal adds exactly its one new tab. |
-| R4 | `height_permille` and `width_permille` in 100..=1000; split ratios in a row sum to 1000 (column-sizing.md remainder rule). |
-| R5 | Sticky consistency (sticky-column.md) holds after every row op, including a column removed because its last row emptied. |
-| R6 | Own place (I4): a new-row move whose result equals the current layout modulo fresh ids is no operation. |
+| R4 | `height_permille` and `width_permille` in 100..=1000. Row heights are the vertical twin of column widths: their sum per column is not fixed (at most 1000 fills, above scrolls, G2), so no remainder rule applies to them; `SetRowHeights` with `fit: true` (Equalize Rows, `fitScreen`) writes heights that sum to exactly 1000, the last row taking the remainder. Split ratios in a row sum to 1000 (column-sizing.md), checked once the reducer models ratios (a later reducer step). |
+| R4b | Row, pane and column ids are never reused (the reducer refuses an id it has seen, `IdInUse`). |
+| R5 | Sticky consistency (sticky-column.md) holds after every row op, including a column removed because its last row emptied (`normalize_sticky_columns` in the same commit). Reserved for sticky rows: the same rules per column, and normalize clears row stickiness when only sticky rows remain. |
+| R6 | Own place (I4): a new-row move without respawn whose result equals the current layout modulo fresh ids (same heights, same tabs) is no operation. Respawn never makes an op own place: Row, Split and Column with respawn always apply (the moved tab leaves, a new tab of the same kind stays); respawn onto `Pane{own pane}` is a reject. |
 | R7 | The store never reads client view state: every op names its anchor (pane, column or row) and its size in permille. |
 
 ## Ownership
@@ -111,17 +111,31 @@ caller-chosen, as for every op there):
 
 | Op | Effect | Rejects |
 | --- | --- | --- |
-| `InsertRow { after_pane, height_permille, new_row, new_pane, new_tab, base_column }` | new row below `after_pane`'s row in its column, with one pane and one new tab (the session host spawns the terminal) | unknown pane, height out of range, id in use |
+| `InsertRow { after_pane, height_permille, new_row, new_pane, new_tab, content: {host, terminal}, base_column }` | new row below `after_pane`'s row in its column, with one pane holding one new tab that references an existing terminal; the reducer never creates a terminal | unknown pane, height out of range, id in use, content already placed |
 | `MoveTabToRow { tab, anchor, after_row: Option<RowId>, height_permille, new_row, new_pane, base_column }` | tab into a new row of `anchor`'s column (default: after `anchor`'s row; `None` with `before: true` for the top) | own place is `Ok` with no events (R6) |
-| `SetRowHeights { column, heights: [(row, permille)] }` | sets every row height of one column at once (divider release, Equalize Rows) | row set differs from the column's rows, height out of range |
-| `ClosePane { pane, sizing }` (column-sizing.md) | gains the row cascade; its result names the neighbor hint `{previous_in_row, row_above, row_below, column_left}` | |
+| `SetRowHeights { column, heights: [(row, permille)], fit }` | sets every row height of one column at once (divider release, Equalize Rows); `fit` requires the sum to be 1000 | row set differs from the column's rows, height out of range, `fit` sum is not 1000 |
+| `ClosePane { pane, sizing }` (column-sizing.md) | gains the row cascade (pane, row, column, sticky normalize), decided by the store in the same commit | |
 
-`MoveTabToSplit`, `MoveTabToColumn` and the pending "split own only tab and spawn the same
-kind" op take the same destination set. Proposal to the reducer owner: one
+These are variants of the one `LayoutOp` set of column-sizing.md (`Split`, `InsertColumn`,
+`ClosePane`), never a parallel path. Agreed with the reducer owner: tab moves take one
 `Destination = Pane{pane, index} | Split{pane, edge} | Column{anchor, after} | Row{anchor,
 after} | NewWorkspace{..} | Workspace{..}` with `respawn: Option<NewTab>` (the spawn-same-kind
-case: the source pane keeps a new tab of the moved tab's kind), so every target gets the own
-place rule and the spawn variant once.
+case: the source pane keeps a new tab of the moved tab's kind), and the existing `MoveTab*` ops
+stay as thin constructors. `MoveTabToRow` above is `Destination::Row`; rows add no own-place or
+spawn rule code. With respawn, conservation is "tabs after = tabs before + the respawned tab".
+The drop resolver (`TabDragResolver`, pure, app) decides the destination (D2); the reducer only
+validates it.
+
+Terminal creation (ownership lead): today the `new-row` command creates the terminal and then
+applies `InsertRow` with its id, one idempotency key and one `request-settled` for both. After the
+session host / store split, the host creates the terminal detached and kept
+(`create-terminal {detached: true}`, federation branch), the store places it with `InsertRow`,
+and a rejected placement leaves a kept unplaced terminal that is reaped after the grace period.
+
+Focus after close is client-only (close-focus lead): the client has the projected layout before
+and after the close, so `ClosePane` returns no neighbor hint for rows. This contradicts the
+hint in column-sizing.md's agreed `ClosePane` shape; the ownership lead decides whether to drop
+it there too.
 
 Reducer events: `RowCreated {row, column, index}`, `RowRemoved {row}`, `RowsResized {column}`,
 plus the existing pane, column and screen events.
@@ -140,11 +154,31 @@ Daemon (cmux-tui) under capability `rows-v1`:
   stays the compat projection: the rows folded into a vertical split chain whose split ids are
   the ids of rows 2..n and whose ratios follow the heights. A client without `rows-v1` sees every
   pane (squashed to the column height); a resize of a synthetic split is refused with
-  `row-split-compat-readonly`.
+  `row-split-compat-readonly`. Every legacy write an old client can send on a screen with rows
+  maps to a row-valid op or is refused with a typed reason (table "Legacy writes"), and a daemon
+  proptest interleaves those legacy commands with row ops under the conservation check.
 - Storage: rows go into `viewport_json` per column; a column without `rows` loads as one row of
   1000 holding the column's `layout`. No table changes. The column's `layout` field is written
   as the compat chain, so an older binary after a rollback loads every pane as vertical splits:
-  layout is degraded, no tab is lost.
+  tab-safe but layout-lossy. If that older binary writes the screen, the rows are gone for good:
+  a re-upgrade loads one row holding the vertical splits.
+- Legacy writes on a screen with rows (clients without `rows-v1`):
+
+  | Command (cmux-tui `Command`) | Mapping |
+  | --- | --- |
+  | `split`, `new-pane`, `new-tab` (on a pane in a row) | `Split` inside that pane's row tree, or a tab in that pane |
+  | `new-pane-right`, `move-tab-to-column`, `move-tab-group-to-column` | `InsertColumn` / `Destination::Column` (the new column has one row) |
+  | `close-pane`, `close-surface`, `close-tabs`, `close-terminal`, last tab exit | `ClosePane` / `CloseTab` with the row cascade |
+  | `move-tab`, `move-terminal`, `move-tab-to-split`, `move-tab-group-to-split` | `Destination::Pane` / `Destination::Split` inside the target row |
+  | `move-tab-to-workspace`, `move-tab-to-new-workspace` | unchanged; the source row cascades if it empties |
+  | `swap-pane` | allowed when both panes are live; swaps leaves across rows (rows keep their heights) |
+  | `zoom-pane` | allowed; zoom is per screen and shows the pane over every row |
+  | `set-ratio`, `set-split-ratio` on a real split inside a row | allowed |
+  | `set-ratio`, `set-split-ratio` on a synthetic (row) split | refused, `row-split-compat-readonly` |
+  | `set-viewport-pane-width`, `set-column-sticky` | allowed (column fields) |
+  | `undo-layout` | allowed; snapshots carry rows, so undo restores rows even for an old client |
+  | `apply-layout` with a `columns[].layout` tree (blueprints) | refused on a screen with rows, `rows-layout-replace-unsupported`, until layouts carry rows; `export-layout` exports rows only with `rows-v1` |
+
 - Undo: `ScreenLayoutSnapshot` holds the columns with their rows, so `undo-layout` covers rows.
 - Model change in `model.rs`: `LayoutColumn.root` becomes `rows: Vec<LayoutRow>` (non-empty by
   construction, like `StackPanes`); `zellij_auto_layout` moves to the row. `Screen::root` stays
@@ -161,9 +195,15 @@ Daemon (cmux-tui) under capability `rows-v1`:
 - G3. New Row height: `layout.newRowHeight` = `matchCurrent` (default: the focused row's stored
   height, so a full-height row gives a full-height new row) | `fitScreen` (the column's rows
   are made equal so all fit) | a fraction. Mirrors `layout.newColumnWidth`.
-- G4. A row is at least `max(100‰, layout.minimumPaneHeight x its stacked panes)` high; the
-  client checks the pixel bound, the reducer the permille bound.
-- G5. Sticky columns hold rows like any column and scroll them vertically on their own. Sticky
+- G4. The reducer enforces only the fixed 100‰ floor (the store never sees a screen). Each
+  client converts its own `layout.minimumPaneHeight` (points) to
+  `max(100, minimumPaneHeight x stacked panes / its column height)` and refuses locally with
+  the RefusalHUD, as `SplitRoom` refuses splits today.
+- G5. Sticky columns hold rows like any column and scroll them vertically on their own, with
+  their own client vertical offset. The app keeps sticky panes in fixed view coordinates today
+  (`ScreenGeometry.fixedPanes`, `DropZoneGeometry.target(atView:)`, `ScreenContentView.hitTest`,
+  `navigationFrames`); these apply a sticky column's vertical offset the way `stripShift`
+  applies the strip's. Docked and overlay covers stay full height. Sticky
   rows (a row pinned to its column's top or bottom edge, same rules as sticky columns) are not
   in `rows-v1`; the field name `sticky` on rows is reserved.
 
@@ -171,8 +211,11 @@ Daemon (cmux-tui) under capability `rows-v1`:
 
 The column scroll reducer (`ColumnScrollState.reduce`, niri.md) becomes axis-generic
 (`StripScrollState<Axis>`): the horizontal strip uses it as today, and each column with more
-than 1000‰ of rows gets its own vertical instance keyed by column id. The focus-after-close lead
-shares the same reveal functions.
+than 1000‰ of rows, sticky columns included, gets its own vertical instance keyed by column id.
+`ColumnViewOffset.fit` keeps its semantics (stay if visible, else the nearer edge) so the
+close-focus lead's strip model check stays valid. The close-focus lead's `ListViewport<ID>`
+(one-axis anchor, minimal reveal, clamp; branch feat-cmux-next-closefocus) is reused for the
+row axis.
 
 - V1. Reveal (niri F1 to F7 transposed): the focused row plus padding fully visible means no
   motion; otherwise align the edge that needs less motion; `layout.centerFocusedRow` mirrors
@@ -186,8 +229,11 @@ shares the same reveal functions.
 - V5. Input: a plain vertical wheel or trackpad scroll over a pane goes to the terminal
   (scrollback, mouse reporting) as today. Rows scroll with the vertical gesture when it is over a
   gap between rows or over the column's row scrollbar, or anywhere in the column while
-  `layout.rowScrollModifier` (default Command) is held. The row scrollbar follows B1 to B5 of
-  sticky-column.md on the column's trailing edge (`layout.rowScrollbar`, default auto).
+  `layout.rowScrollModifier` (default Command) is held. A column whose rows overflow (sticky or
+  not) gets a vertical row scrollbar on its trailing edge, new UI that follows B1 to B5 of
+  sticky-column.md on the vertical axis with its own setting `layout.rowScrollbar`: `auto`
+  (default, fades in while the column scrolls or the pointer is over the band), `always` (while
+  the rows overflow), `off`.
 - V6. Multi-client: every client keeps its own offsets and may show different rows of the same
   column; the canonical terminal grid stays the session host's (smallest attached viewer).
 
@@ -200,8 +246,10 @@ shares the same reveal functions.
   in a visible row, else the geometric choice among the target column's visible rows; the target
   column does not scroll vertically unless nothing in it is visible.
 - N3. Focus after close (`layout.closeFocus`, focus-after-close lead): previous pane in the row,
-  else the row above, else the row below, else the column to the left. The client picks from
-  `ClosePane`'s neighbor hint; the store decides nothing about focus.
+  else the row above, else the row below, else the column to the left. The client computes it
+  from its projected layout before and after the close: `FocusAfterClose.pane` gains one nesting
+  level (columns of rows of panes instead of columns of panes). `mostRecent` uses the screen's
+  history unchanged; the reveal brings a scrolled-out row back.
 - N4. History (focus.md 4a) unchanged: the screen's history covers panes in every row.
 
 ## Drag and drop
@@ -270,14 +318,26 @@ cmux-tui serves `rows-v1` (awaitingPin until the pin owner cuts a pin).
 ## Decisions for the user
 
 1. Model (c), columns of rows (recommended), against (b), screen-wide rows of columns.
-2. Shortcuts: New Column moves from Cmd-Shift-Opt-N to Cmd-Ctrl-D (gives up macOS Look Up in
-   cmux), New Row takes Cmd-Ctrl-Shift-D, and Open Diff Viewer moves off Cmd-Ctrl-Shift-D (to
-   be chosen). Alternative: New Row on Cmd-Shift-Opt-N's slot pattern (Cmd-Shift-Opt-M).
+2. New Row shortcut: Cmd-Ctrl-Shift-D (recommended; pairs with Ctrl-Cmd-D New Column) and Open
+   Diff Viewer moves to another chord (to be chosen), or New Row takes a free chord and Open
+   Diff Viewer keeps Cmd-Ctrl-Shift-D.
 3. Row scroll modifier: Command (recommended) | Option | none (scroll only over gaps and the
    scrollbar).
 4. Sticky rows in a later capability, or never.
+5. Legacy `apply-layout` (blueprints) on a screen with rows: refused (proposed) until
+   blueprints carry rows.
 
-## Agent review
+## Agent review (2026-10-01)
 
-Sent to the sticky-column lead, the reducer and tab-drag agent, the focus-after-close agent and
-the ownership lead on 2026-10-01; objections and their resolution are recorded here.
+| Reviewer | Objection | Resolution |
+| --- | --- | --- |
+| ownership lead | compat chain only if every legacy write maps or is refused with a type, with a proptest | table "Legacy writes"; daemon proptest in step 3 |
+| ownership lead | the reducer must not create terminals | `InsertRow` takes `{host, terminal}`; today's command creates then places under one key |
+| ownership lead | ids never reused; heights sum to 1000 with a remainder rule; rollback is layout-lossy | R4b; heights are column-width twins (sum free, G2), `fit` writes sum 1000 with the remainder on the last row; rollback note added |
+| sticky-column lead | sticky columns need their own vertical offset, and the fixed-coordinate paths must apply it | G5 |
+| sticky-column lead | the row scrollbar is new UI and needs an explicit setting | V5, `layout.rowScrollbar` |
+| sticky-column lead | the store must not use a client's minimum pane height | G4: reducer 100‰ floor, client refuses locally |
+| sticky-column lead | rows join the column-sizing.md `LayoutOp` set; Cmd-Ctrl-Shift-D is taken; New Column is now Ctrl-Cmd-D | done; decision 2 |
+| reducer owner | base on `origin/feat-cmux-next` after the crate lands; one `Destination` + `respawn`; rows heights only for now; drop decisions in the resolver | done; split ratios in a later reducer step |
+| reducer owner | respawn is never own place | R6 |
+| close-focus lead | no store neighbor hint (duplicates the client rule); extend `FocusAfterClose.pane`; keep `ColumnViewOffset.fit` | N3, viewport section; hint conflict with column-sizing.md sent to the ownership lead |
