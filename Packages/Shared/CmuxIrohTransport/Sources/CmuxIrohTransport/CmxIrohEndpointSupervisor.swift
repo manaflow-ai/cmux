@@ -14,8 +14,15 @@ public actor CmxIrohEndpointSupervisor {
         }
 
         private let lock = NSLock()
+        private let closeLateEndpoint: @Sendable (any CmxIrohEndpoint) async -> Void
         private var continuation: CheckedContinuation<any CmxIrohEndpoint, any Error>?
         private var outcome: Outcome?
+
+        init(
+            closeLateEndpoint: @escaping @Sendable (any CmxIrohEndpoint) async -> Void
+        ) {
+            self.closeLateEndpoint = closeLateEndpoint
+        }
 
         func install(
             _ continuation: CheckedContinuation<any CmxIrohEndpoint, any Error>
@@ -32,15 +39,22 @@ public actor CmxIrohEndpointSupervisor {
 
         func resolve(_ outcome: Outcome) {
             lock.lock()
-            guard self.outcome == nil, let continuation = self.continuation else {
-                if self.outcome == nil { self.outcome = outcome }
+            guard self.outcome == nil else {
                 lock.unlock()
+                disposeLateEndpoint(from: outcome)
                 return
             }
-            self.continuation = nil
             self.outcome = outcome
+            let continuation = self.continuation
+            self.continuation = nil
             lock.unlock()
-            resume(continuation, with: outcome)
+            if let continuation { resume(continuation, with: outcome) }
+        }
+
+        private func disposeLateEndpoint(from outcome: Outcome) {
+            guard case let .success(endpoint) = outcome else { return }
+            let closeLateEndpoint = self.closeLateEndpoint
+            Task { await closeLateEndpoint(endpoint) }
         }
 
         private func resume(
@@ -216,7 +230,9 @@ public actor CmxIrohEndpointSupervisor {
         _ operation: Task<any CmxIrohEndpoint, any Error>,
         timeout: Duration
     ) async throws -> any CmxIrohEndpoint {
-        let waiter = ActivationWaiter()
+        let waiter = ActivationWaiter { endpoint in
+            await endpoint.close()
+        }
         let completionTask = Task {
             do {
                 waiter.resolve(.success(try await operation.value))
