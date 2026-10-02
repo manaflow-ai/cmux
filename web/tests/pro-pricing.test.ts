@@ -202,8 +202,10 @@ describe("VM defaults and pricing copy", () => {
       if (!key.startsWith("pricing.native.") && !key.startsWith("settings.account.pro.")) continue;
       for (const [locale, localization] of Object.entries(entry.localizations ?? {})) {
         const value = localization.stringUnit?.value ?? "";
-        if (/(?<!\d)50(?!\d)(?!\s*\/|\s*\$| \$|\s*美元)|(?<!\d)(?:24|64)\s?(?:GB|Go)|\btrial\b|\$480/i.test(value) &&
-          !/^\$?50$|\$50|50\s?\$|50\$|月額\$50|\$50\//.test(value)) {
+        // Remove only the $50 Pro price tokens, so a stale "50 Cloud VMs"
+        // elsewhere in the same value still fails.
+        const withoutPrice = value.replace(/^\$?50$|\$50\/?|(?<!\d)50\s?\$|(?<!\d)50\s*美元/g, "");
+        if (/(?<!\d)50(?!\d)|(?<!\d)(?:24|64)\s?(?:GB|Go)|\btrial\b|\$480/i.test(withoutPrice)) {
           stale.push(`${key} ${locale}: ${value}`);
         }
       }
