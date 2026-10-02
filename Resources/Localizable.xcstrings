@@ -291219,55 +291219,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 Cloud VMs, the iOS app, and cmux AI. $50/month."
+            "value": "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM, and the iOS app. $50/month."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VM 5 台、iOSアプリ、cmux AI。月額$50。"
+            "value": "最大 5 台の Cloud VM（VM あたり最大 4 vCPU・8 GB RAM）と iOS アプリ。月額$50。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 台云端虚拟机、iOS 应用与 cmux AI。每月 $50。"
+            "value": "最多 5 台云端虚拟机（每台最多 4 个虚拟 CPU 和 8 GB 内存）与 iOS 应用。每月 $50。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 Cloud-VMs, die iOS-App und cmux AI. 50 $/Monat."
+            "value": "Bis zu 5 Cloud-VMs mit bis zu 4 vCPUs und 8 GB RAM pro VM sowie die iOS-App. 50 $/Monat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 VM cloud, l’application iOS et l’IA cmux. 50 $/mois."
+            "value": "Jusqu’à 5 VM cloud, jusqu’à 4 vCPU et 8 Go de RAM par VM, et l’application iOS. 50 $/mois."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 أجهزة افتراضية سحابية، وتطبيق iOS، ومساعد cmux الذكي. 50$ شهريًا."
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية، بحد أقصى 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة لكل جهاز، وتطبيق iOS. 50$ شهريًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 VM en la nube, la aplicación para iOS y cmux AI. $50 al mes."
+            "value": "Hasta 5 VM en la nube, con hasta 4 vCPU y 8 GB de RAM por VM, y la aplicación para iOS. $50 al mes."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "5 台雲端虛擬機、iOS 應用程式和 cmux AI。每月 50 美元。"
+            "value": "最多 5 台雲端虛擬機（每台最多 4 個虛擬 CPU 與 8 GB 記憶體）與 iOS 應用程式。每月 50 美元。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 VM 5개, iOS 앱 및 cmux AI. 월 $50."
+            "value": "최대 5개의 클라우드 VM(VM당 최대 vCPU 4개, RAM 8 GB)과 iOS 앱. 월 $50."
           }
         }
       }
