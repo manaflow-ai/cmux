@@ -55,6 +55,10 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
             return ScreenGeometry(viewport: viewport, panes: result.panes, dividers: result.dividers, contentWidth: viewport.width, isColumns: false,
                                   stripWidth: viewport.width, uncoveredMaxX: viewport.width, clipMaxX: viewport.width)
         case let .columns(all):
+            if style.prototype.model != .off,
+               let prototype = LayoutModelPrototype.geometry(all, viewport: viewport, style: style, scale: scale) {
+                return prototype
+            }
             let gap = style.stripGap
             let parts = StickyStripGeometry.partition(all)
             func minimum(_ column: LayoutColumn) -> CGFloat { SplitGeometry.minimumSize(of: column.root, style: style).width }

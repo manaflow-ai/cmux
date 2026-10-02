@@ -1,0 +1,308 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/inbox",
+  "name": {
+    "en": "Inbox",
+    "ja": "受信トレイ"
+  },
+  "version": "0.3.0",
+  "description": {
+    "en": "Your cmux feed in one triage list: notices and requests from agents, apps, automations and integrations such as GitHub. Open, answer or decline, mark done or snooze each item.",
+    "ja": "cmux のフィードを1つのトリアージリストに: エージェント、アプリ、オートメーション、GitHub などの連携からの通知とリクエスト。各項目を開く、回答または辞退する、完了にする、スヌーズする。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "sidebar",
+    "agents",
+    "productivity",
+    "git"
+  ],
+  "keywords": [
+    "inbox",
+    "feed",
+    "triage",
+    "notifications",
+    "requests",
+    "agents"
+  ],
+  "engines": {
+    "cmux": "^1.0"
+  },
+  "main": "dist/main.js",
+  "scopes": {
+    "feed:read": "List your feed items and their counts, and follow changes as they happen.",
+    "feed:write": "Mark items read or done, snooze them, and send the answers and declines you choose. Answers always come from your own tap.",
+    "actions:run": "Open an item through the feed: the agent's tab, a pull request, or the browser copy for a sign-in."
+  },
+  "optionalScopes": {
+    "workspace:read": "Show workspace names on items and group headers."
+  },
+  "contributes": {
+    "sidebarSections": [
+      {
+        "id": "inbox",
+        "title": {
+          "en": "Inbox",
+          "ja": "受信トレイ"
+        },
+        "symbol": "tray",
+        "defaultRegion": "top",
+        "render": "renderInbox",
+        "maxRows": 20
+      }
+    ],
+    "statusItems": [
+      {
+        "id": "badge",
+        "title": {
+          "en": "Inbox",
+          "ja": "受信トレイ"
+        },
+        "symbol": "tray",
+        "placement": "titlebar",
+        "render": "renderStatus"
+      }
+    ],
+    "paneKinds": [
+      {
+        "id": "pane",
+        "title": {
+          "en": "Inbox",
+          "ja": "受信トレイ"
+        },
+        "symbol": "tray",
+        "render": "renderPane"
+      }
+    ],
+    "commands": [
+      {
+        "id": "openInbox",
+        "title": {
+          "en": "Open Inbox",
+          "ja": "受信トレイを開く"
+        },
+        "run": "openInbox",
+        "keywords": [
+          "inbox",
+          "triage"
+        ],
+        "contexts": [
+          "palette"
+        ]
+      },
+      {
+        "id": "markAllRead",
+        "title": {
+          "en": "Mark All Inbox Items as Read",
+          "ja": "受信トレイをすべて既読にする"
+        },
+        "run": "markAllRead",
+        "keywords": [
+          "inbox",
+          "read"
+        ],
+        "contexts": [
+          "palette",
+          "sidebarSection:inbox",
+          "statusItem:badge"
+        ]
+      },
+      {
+        "id": "nextItem",
+        "title": {
+          "en": "Next Inbox Item",
+          "ja": "次の受信トレイ項目"
+        },
+        "run": "nextItem",
+        "keywords": [
+          "inbox",
+          "next",
+          "triage"
+        ],
+        "contexts": [
+          "palette"
+        ],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "open": {
+              "type": "boolean",
+              "default": true,
+              "description": "Also open the item."
+            }
+          }
+        }
+      },
+      {
+        "id": "previousItem",
+        "title": {
+          "en": "Previous Inbox Item",
+          "ja": "前の受信トレイ項目"
+        },
+        "run": "previousItem",
+        "keywords": [
+          "inbox",
+          "previous",
+          "triage"
+        ],
+        "contexts": [
+          "palette"
+        ],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "open": {
+              "type": "boolean",
+              "default": true,
+              "description": "Also open the item."
+            }
+          }
+        }
+      },
+      {
+        "id": "openItem",
+        "title": {
+          "en": "Open Selected Inbox Item",
+          "ja": "選択中の受信トレイ項目を開く"
+        },
+        "run": "openItem",
+        "keywords": [
+          "inbox",
+          "open"
+        ],
+        "contexts": [
+          "palette"
+        ],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Item id (fi_…); the selected item when omitted."
+            }
+          }
+        }
+      },
+      {
+        "id": "markDone",
+        "title": {
+          "en": "Mark Inbox Item as Done",
+          "ja": "受信トレイ項目を完了にする"
+        },
+        "run": "markDone",
+        "keywords": [
+          "inbox",
+          "done",
+          "archive"
+        ],
+        "contexts": [
+          "palette"
+        ],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Item id (fi_…); the selected item when omitted. Open requests cannot be marked done."
+            }
+          }
+        }
+      },
+      {
+        "id": "snooze",
+        "title": {
+          "en": "Snooze Inbox Item",
+          "ja": "受信トレイ項目をスヌーズ"
+        },
+        "run": "snooze",
+        "keywords": [
+          "inbox",
+          "snooze",
+          "later",
+          "remind"
+        ],
+        "contexts": [
+          "palette"
+        ],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Item id (fi_…); the selected item when omitted. Open requests cannot be snoozed."
+            },
+            "minutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 43200,
+              "default": 60,
+              "description": "How long to snooze."
+            }
+          }
+        }
+      },
+      {
+        "id": "cycleVariant",
+        "title": {
+          "en": "Next Inbox Variant",
+          "ja": "受信トレイの次のバリアント"
+        },
+        "run": "cycleVariant",
+        "keywords": [
+          "inbox",
+          "variant",
+          "design"
+        ],
+        "contexts": [
+          "palette"
+        ]
+      }
+    ],
+    "settings": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "enum": [
+            "grouped",
+            "focus",
+            "card"
+          ],
+          "default": "grouped",
+          "title": "Layout (prototype)",
+          "description": "grouped: rows under the owner's groups, a click opens. focus: a list and a detail area with the answer form. card: one item at a time.",
+          "x-cmux-devOnly": true
+        },
+        "groupBy": {
+          "type": "string",
+          "enum": [
+            "poster",
+            "workspace",
+            "thread"
+          ],
+          "default": "poster",
+          "title": "Group items by"
+        }
+      }
+    }
+  },
+  "activation": [
+    "onSidebarSection:inbox",
+    "onStatusItem:badge",
+    "onPane:pane",
+    "onCommand:openInbox",
+    "onCommand:markDone"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "strings/"
+  ]
+}

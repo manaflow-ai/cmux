@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import CmuxNextBrowser
 
-/// Chrome's "extension crashed, click to reload".
+/// "Extension crashed, click to reload".
 @MainActor @Suite struct ExtensionCrashTests {
     final class Backend: BrowserExtensionBackend {
         var list: [BrowserExtensionInfo]

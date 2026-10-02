@@ -1,8 +1,8 @@
 // Sidebar prototype (#16688), dev server only: prototype.html. One stack of open workspaces is the
 // main sidebar; agent history (the pane's project-grouped session list) is a layer opened from the
 // rail, and opening a row there jumps to the tab already showing it instead of opening a copy.
-// Dots at the bottom switch rooms (Arc spaces), and links from a terminal open in the mini window
-// (Little Arc) until Cmd-O promotes them into the workspace.
+// Dots at the bottom switch rooms, and links from a terminal open in the mini window
+// until Cmd-O promotes them into the workspace.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AcpmuxApp } from "../App";
 import { mockSessions, sessionSummary } from "../mockFixture";

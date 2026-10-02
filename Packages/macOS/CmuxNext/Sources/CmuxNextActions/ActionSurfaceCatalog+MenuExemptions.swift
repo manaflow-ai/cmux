@@ -51,7 +51,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.hibernation.off", "browser.hibernation.moderate", "browser.hibernation.aggressive",
             "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show",
             "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.clear",
-            "layout.undo", "bookmark.add", "bookmark.import", "bookmark.export",
+            "layout.undo", "bookmark.add", "bookmark.import", "bookmark.export", "agentActivity.open",
         ],
         .noTargetSurface: [
             "browserProfile.openLink",
@@ -63,7 +63,7 @@ nonisolated extension ActionSurfaceCatalog {
             "canvasAlignLeft", "canvasAlignRight", "canvasAlignTop", "canvasAlignBottom", "canvasEqualizeWidths",
             "canvasEqualizeHeights", "canvasDistributeHorizontally", "canvasDistributeVertically", "simulatorHome",
             "simulatorRotateLeft", "simulatorRotateRight", "simulatorToggleAppearance",
-            "simulatorToggleSoftwareKeyboard", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
+            "simulatorToggleSoftwareKeyboard", "agentPane.searchChats", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
             "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview",
             "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",
             "filePreviewRevealInFinder", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",

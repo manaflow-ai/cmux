@@ -1,0 +1,789 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.dev/schemas/cmux-app/1.json",
+  "title": "cmux app manifest (cmux-app.json)",
+  "description": "Manifest of a cmux app. Spec: cmux-next-spec spec/app-platform.md section 3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifestVersion",
+    "id",
+    "name",
+    "version",
+    "description",
+    "engines"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "manifestVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "description": "<publisher>/<name>. Publisher is the GitHub owner of `repository` for store apps; `local` for sideloads.",
+      "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))/[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "name": {
+      "$ref": "#/$defs/localizedText"
+    },
+    "version": {
+      "$ref": "#/$defs/semver"
+    },
+    "description": {
+      "$ref": "#/$defs/localizedText"
+    },
+    "publisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "url": {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 254
+        }
+      }
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^https://github\\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+$"
+    },
+    "homepage": {
+      "$ref": "#/$defs/httpsUrl"
+    },
+    "license": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "icon": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/relativePath"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "symbol"
+          ],
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "pattern": "^[a-z0-9.]{1,64}$"
+            }
+          }
+        }
+      ]
+    },
+    "screenshots": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/relativePath"
+      }
+    },
+    "categories": {
+      "type": "array",
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "sidebar",
+          "agents",
+          "git",
+          "productivity",
+          "monitoring",
+          "themes",
+          "browser",
+          "cloud",
+          "developer-tools",
+          "fun"
+        ]
+      }
+    },
+    "keywords": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "maxLength": 32
+      }
+    },
+    "engines": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cmux"
+      ],
+      "properties": {
+        "cmux": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Semver range of the cmux app API."
+        }
+      }
+    },
+    "main": {
+      "$ref": "#/$defs/relativePath"
+    },
+    "scopes": {
+      "$ref": "#/$defs/scopeMap"
+    },
+    "optionalScopes": {
+      "$ref": "#/$defs/scopeMap"
+    },
+    "contributes": {
+      "$ref": "#/$defs/contributes"
+    },
+    "activation": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "pattern": "^(onStartup|onSidebarSection:[a-z][a-zA-Z0-9-]{0,63}|onStatusItem:[a-z][a-zA-Z0-9-]{0,63}|onCommand:[a-z][a-zA-Z0-9-]{0,63}|onPane:[a-z][a-zA-Z0-9-]{0,63}|onEvent:[a-z][a-z0-9_.-]{0,95})$"
+      }
+    },
+    "files": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/relativePath"
+      }
+    },
+    "pricing": {
+      "const": "free"
+    },
+    "server": {
+      "$ref": "#/$defs/server"
+    },
+    "x-cmux-devOnly": {
+      "type": "boolean",
+      "description": "Only in DEV and NIGHTLY builds (prototypes, debug tools)."
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "httpsUrl": {
+      "type": "string",
+      "pattern": "^https://",
+      "maxLength": 2048
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/@-]+$"
+    },
+    "contributionId": {
+      "type": "string",
+      "pattern": "^[a-z][a-zA-Z0-9-]{0,63}$"
+    },
+    "exportName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+    },
+    "localizedText": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        {
+          "type": "object",
+          "required": [
+            "en"
+          ],
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z]{2}(?:-[A-Za-z]{2,4})?$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        }
+      ]
+    },
+    "symbol": {
+      "type": "string",
+      "pattern": "^[a-z0-9.]{1,64}$"
+    },
+    "scopeMap": {
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": {
+        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|run|post|input|control|expose|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write)$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "Reason shown at consent."
+      }
+    },
+    "contributionBase": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/contributionId"
+        },
+        "title": {
+          "$ref": "#/$defs/localizedText"
+        },
+        "symbol": {
+          "$ref": "#/$defs/symbol"
+        },
+        "x-cmux-devOnly": {
+          "type": "boolean",
+          "description": "Only in DEV and NIGHTLY builds (prototypes, debug tools)."
+        }
+      }
+    },
+    "sidebarSection": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "title",
+        "render"
+      ],
+      "properties": {
+        "render": {
+          "$ref": "#/$defs/exportName"
+        },
+        "defaultRegion": {
+          "enum": [
+            "top",
+            "middle",
+            "bottom"
+          ]
+        },
+        "look": {
+          "enum": [
+            "builtIn",
+            "list"
+          ]
+        },
+        "maxRows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      }
+    },
+    "command": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "title",
+        "run"
+      ],
+      "properties": {
+        "run": {
+          "$ref": "#/$defs/exportName"
+        },
+        "keywords": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "maxLength": 32
+          }
+        },
+        "contexts": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "pattern": "^(palette|sidebarBackground|workspaceRow|tab|sidebarSection:[a-z][a-zA-Z0-9-]{0,63}|statusItem:[a-z][a-zA-Z0-9-]{0,63})$"
+          }
+        },
+        "arguments": {
+          "type": "object",
+          "description": "JSON Schema (subset) of the command's arguments; used for CLI flags and the MCP tool input."
+        },
+        "destructive": {
+          "type": "boolean"
+        },
+        "view": {
+          "enum": [
+            "none",
+            "list",
+            "detail",
+            "form"
+          ],
+          "description": "Reserved (palette scopes plan): a command may open a palette view rendered by `render`."
+        },
+        "render": {
+          "$ref": "#/$defs/exportName"
+        }
+      }
+    },
+    "statusItem": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "render"
+      ],
+      "properties": {
+        "render": {
+          "$ref": "#/$defs/exportName"
+        },
+        "placement": {
+          "enum": [
+            "titlebar",
+            "roomBar",
+            "statusStrip"
+          ]
+        }
+      }
+    },
+    "sidebar": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "title",
+        "render"
+      ],
+      "properties": {
+        "render": {
+          "$ref": "#/$defs/exportName"
+        }
+      }
+    },
+    "paneKind": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "title"
+      ],
+      "properties": {
+        "render": {
+          "$ref": "#/$defs/exportName"
+        },
+        "web": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "csp": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "renderer": {
+          "enum": [
+            "declarative",
+            "web",
+            "native"
+          ],
+          "description": "declarative: render export; web: sandboxed web view; native: a view built into cmux (first-party only in phase 1)."
+        },
+        "nativeView": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9.-]{0,63}$",
+          "description": "Id of the built-in native view (renderer native)."
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "render"
+          ]
+        },
+        {
+          "required": [
+            "web"
+          ]
+        },
+        {
+          "required": [
+            "renderer",
+            "nativeView"
+          ],
+          "properties": {
+            "renderer": {
+              "const": "native"
+            }
+          }
+        }
+      ]
+    },
+    "theme": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "title"
+      ],
+      "properties": {
+        "ghostty": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "chrome": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+          }
+        },
+        "appearance": {
+          "enum": [
+            "light",
+            "dark",
+            "any"
+          ]
+        }
+      }
+    },
+    "skill": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/relativePath"
+        }
+      }
+    },
+    "agent": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "title",
+        "command"
+      ],
+      "properties": {
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "string"
+          }
+        },
+        "protocol": {
+          "enum": [
+            "acp"
+          ]
+        }
+      }
+    },
+    "mcpServer": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "tools": {
+          "enum": [
+            "commands",
+            "main",
+            "catalog"
+          ]
+        },
+        "url": {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        "group": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+          "description": "MCP group name for the tools (catalog ops of the app's server or its commands)."
+        }
+      }
+    },
+    "automation": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "title",
+        "template"
+      ],
+      "properties": {
+        "template": {
+          "$ref": "#/$defs/relativePath"
+        }
+      }
+    },
+    "contributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sidebarSections": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/sidebarSection"
+          }
+        },
+        "commands": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/command"
+          }
+        },
+        "statusItems": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/statusItem"
+          }
+        },
+        "sidebars": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/sidebar"
+          }
+        },
+        "paneKinds": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/paneKind"
+          }
+        },
+        "themes": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/theme"
+          }
+        },
+        "skills": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/skill"
+          }
+        },
+        "agents": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/agent"
+          }
+        },
+        "mcpServers": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/mcpServer"
+          }
+        },
+        "automations": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/automation"
+          }
+        },
+        "settings": {
+          "type": "object",
+          "description": "JSON Schema (object with properties) for app settings, rendered in Settings > Apps.",
+          "required": [
+            "type",
+            "properties"
+          ],
+          "properties": {
+            "type": {
+              "const": "object"
+            },
+            "properties": {
+              "type": "object"
+            }
+          }
+        },
+        "automationTriggers": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/automationTrigger"
+          }
+        },
+        "paletteScopes": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/paletteScope"
+          }
+        }
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "hosts"
+      ],
+      "description": "A long-running app server. The daemon on the chosen host supervises it; exactly one host per team runs it (single writer for the app's catalog ops). Native servers are first-party only in phase 1 (Verified later); the host refuses them for other tiers.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "native",
+            "js"
+          ],
+          "description": "native: a cmux-shipped binary; js: the app's main in an app host process (later)."
+        },
+        "binary": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+          "description": "Name of a binary shipped with cmux (native only); never a path or a downloaded file."
+        },
+        "args": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "maxLength": 256
+          }
+        },
+        "catalog": {
+          "$ref": "#/$defs/relativePath",
+          "description": "Catalog fragment (operation-catalog format) whose ops get owner app:<id> and route to the host that runs this server."
+        },
+        "hosts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "local",
+              "team-vm",
+              "cmux-server"
+            ]
+          },
+          "description": "Where it may run, in preference order. The team picks one; owner_for routes the catalog ops there."
+        },
+        "data": {
+          "enum": [
+            "durable",
+            "ephemeral"
+          ],
+          "description": "durable: the host keeps the server's data directory on its zero-loss storage and backs it up."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "native"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "binary"
+            ]
+          }
+        }
+      ]
+    },
+    "automationTrigger": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "title",
+        "event"
+      ],
+      "properties": {
+        "event": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{0,95}$",
+          "description": "Catalog event that fires the trigger."
+        },
+        "payloadSchema": {
+          "type": "object"
+        }
+      }
+    },
+    "paletteScope": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/contributionBase"
+        }
+      ],
+      "required": [
+        "id",
+        "title"
+      ],
+      "description": "Reserved: a command palette scope the app provides (palette scopes plan). Fields beyond these are kept and ignored until that plan lands.",
+      "properties": {
+        "render": {
+          "$ref": "#/$defs/exportName"
+        },
+        "placeholder": {
+          "$ref": "#/$defs/localizedText"
+        },
+        "prefix": {
+          "type": "string",
+          "pattern": "^[a-z0-9]{1,16}$"
+        }
+      }
+    }
+  }
+}

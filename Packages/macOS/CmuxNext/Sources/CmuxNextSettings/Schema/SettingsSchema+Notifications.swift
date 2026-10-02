@@ -64,6 +64,19 @@ extension SettingsSchema {
                 default: .number(defaults.suppressWhileTypingSeconds)
             ),
             SettingDescriptor(
+                ["status", "runNotifyMinimumSeconds"], section: .notifications, group: banners,
+                title: SettingsText.text("settings.status.runNotifyMinimumSeconds", "Notify When a Run Takes"),
+                help: SettingsText.text("settings.status.runNotifyMinimumSeconds.help",
+                                        "cmux status run notifies when the command took at least this long."),
+                kind: .number(SettingNumber(StatusBehaviorSettings.runNotifyRange, step: 1, unit: .seconds)),
+                default: .number(StatusBehaviorSettings().runNotifyMinimumSeconds)
+            ),
+            SettingDescriptor(
+                ["status", "runNotifyWhenVisible"], section: .notifications, group: banners,
+                title: SettingsText.text("settings.status.runNotifyWhenVisible", "Notify Even When the Terminal Is Visible"),
+                kind: .toggle, default: .bool(StatusBehaviorSettings().runNotifyWhenVisible)
+            ),
+            SettingDescriptor(
                 ["notifications", "dockBadge"], section: .notifications, group: banners,
                 title: SettingsText.text("settings.notifications.dockBadge", "Unread Count on Dock Icon"),
                 kind: .toggle, default: .bool(defaults.dockBadge)

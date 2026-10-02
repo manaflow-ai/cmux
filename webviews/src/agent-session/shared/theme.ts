@@ -20,6 +20,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   highlightText: "--agent-highlight-text",
   shadow: "--agent-shadow",
   palette: null,
+  borders: null,
 };
 
 export function applyAgentTheme(theme: AgentSessionTheme): void {
@@ -28,11 +29,14 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   }
   const root = document.documentElement;
   root.dataset.theme = theme.isDark ? "dark" : "light";
-  applyCodexDocumentMetadata();
+  applyAgentDocumentMetadata();
   root.classList.toggle("dark", theme.isDark);
   root.classList.toggle("electron-dark", theme.isDark);
   root.classList.toggle("light", !theme.isDark);
   root.style.colorScheme = theme.isDark ? "dark" : "light";
+  // appearance.borders: the stylesheets clear their edges under `[data-borders="none"]`.
+  if (theme.borders === "none") root.dataset.borders = "none";
+  else delete root.dataset.borders;
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
     if (!variable) {
       continue;
@@ -52,20 +56,20 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   }
 }
 
-export function applyCodexDocumentMetadata(): void {
+export function applyAgentDocumentMetadata(): void {
   if (typeof document === "undefined") {
     return;
   }
   const root = document.documentElement;
-  root.dataset.codexWindowType = "electron";
+  root.dataset.agentWindowType = "electron";
   root.dataset.windowType = "electron";
-  root.dataset.codexOs = codexOs();
+  root.dataset.agentOs = agentOs();
   if (document.body) {
-    document.body.dataset.codexWindowType = "electron";
+    document.body.dataset.agentWindowType = "electron";
   }
 }
 
-function codexOs(): string {
+function agentOs(): string {
   if (typeof navigator === "undefined") {
     return "unknown";
   }

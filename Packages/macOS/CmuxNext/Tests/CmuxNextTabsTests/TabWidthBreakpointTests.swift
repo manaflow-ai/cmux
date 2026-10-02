@@ -3,8 +3,8 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextTabs
 
-/// Narrow tabs follow Chrome and Helium (user request on nxdog13: "handle
-/// small tabs better, example from helium"). Chromium `Tab::UpdateIconVisibility`
+/// Narrow tabs follow Chromium's breakpoints (user request on nxdog13:
+/// handle small tabs better). Chromium `Tab::UpdateIconVisibility`
 /// and `Tab::Layout` decide from the tab's contents width (its width less
 /// both content insets):
 /// - an inactive tab shows its favicon while it fits and otherwise centers
@@ -16,9 +16,9 @@ import Testing
 ///   favicon and x only);
 /// - a tab narrower than the minimum inactive width shows nothing.
 /// cmux keeps the x hover-only on wide tabs (nxdog9) and shows it on the
-/// selected tab only once that tab is narrow, where Chrome's rule costs no
-/// title text. Numbers use the compact density tokens.
-@Suite("Tab width breakpoints (Chrome)")
+/// selected tab only once that tab is narrow, where the x costs no title
+/// text. Numbers use the compact density tokens.
+@Suite("Tab width breakpoints")
 struct TabWidthBreakpointTests {
     let t = TabStripMetrics.standard
     private func resolve(_ width: CGFloat, selected: Bool = false, hovered: Bool = false, pinned: Bool = false) -> TabChromeVisibility {
@@ -80,7 +80,7 @@ struct TabWidthBreakpointTests {
     }
 }
 
-/// Separators sit between unselected, unhovered neighbors (Chrome's
+/// Separators sit between unselected, unhovered neighbors (Chromium's
 /// `Tab::GetSeparatorOpacity`), never at the strip's end.
 @MainActor @Suite struct TabSeparatorTests {
     @Test func separatorsHideNextToTheSelectedAndHoveredTabs() {

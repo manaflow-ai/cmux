@@ -38,6 +38,7 @@ on:
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/download-prebuilt-ghosttykit.sh
       - .github/workflows/cmux-next.yml
+      - tests/test_cmux_next_checks_workflow.py
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -69,6 +70,7 @@ on:
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - .github/workflows/cmux-next.yml
+      - tests/test_cmux_next_checks_workflow.py
   workflow_dispatch:
 
 permissions:
@@ -188,20 +190,75 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: God files
-        run: scripts/cmux-next/check-no-godfiles.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+      # Every check runs even when an earlier one fails; the last step fails the
+      # job once, naming each red check. Checkout stays fatal: with no tree,
+      # the checks have nothing to read.
+      - name: God files and types (Swift)
+        id: godfiles-swift
+        continue-on-error: true
+        run: scripts/cmux-next/check-no-godfiles.sh --only swift "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
+      - name: God files (cmux-tui Rust)
+        id: godfiles-rust
+        continue-on-error: true
+        run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: Main-thread concurrency
+        id: concurrency
+        continue-on-error: true
         run: scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: Crash safety
+        id: crash-safety
+        continue-on-error: true
         run: scripts/cmux-next/check-crash-safety.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: String tables (21 languages)
+        id: l10n
+        continue-on-error: true
         run: scripts/cmux-next/check-l10n.sh "$GITHUB_WORKSPACE"
 
       - name: Module resource bundles
+        id: module-resources
+        continue-on-error: true
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
+      - name: Checks job structure
+        id: checks-structure
+        continue-on-error: true
+        run: python3 tests/test_cmux_next_checks_workflow.py
+
+      # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
+      - name: Fail on any red check
+        if: always()
+        env:
+          OUTCOMES: |
+            ${{ steps.godfiles-swift.outcome }}|God files and types (Swift)
+            ${{ steps.godfiles-rust.outcome }}|God files (cmux-tui Rust)
+            ${{ steps.concurrency.outcome }}|Main-thread concurrency
+            ${{ steps.crash-safety.outcome }}|Crash safety
+            ${{ steps.l10n.outcome }}|String tables (21 languages)
+            ${{ steps.module-resources.outcome }}|Module resource bundles
+            ${{ steps.checks-structure.outcome }}|Checks job structure
+        run: |
+          failed=()
+          # `outcome|name`: an empty outcome (a check that never ran) still names its step.
+          while IFS='|' read -r outcome name; do
+            [[ -n "$outcome$name" ]] || continue
+            [[ "$outcome" == success ]] || failed+=("$name (${outcome:-not run})")
+          done <<<"$OUTCOMES"
+          if (( ${#failed[@]} == 0 )); then
+            echo "All cmux-next checks passed." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "### ${#failed[@]} cmux-next check(s) failed"
+            echo
+            printf -- '- %s\n' "${failed[@]}"
+            echo
+            echo "Each check's own step log has the details."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
 
   swift-test:
     needs: macos-placement
@@ -268,12 +325,12 @@ jobs:
         timeout-minutes: 5
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
-      - name: Run package tests (excluding control deadline tests)
+      - name: Run package tests (excluding control deadline and WebKit driver tests)
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests
 
       - name: Run control package tests
         timeout-minutes: 20
@@ -281,6 +338,17 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests
+
+      # The WebKit driver tests drive real WKWebViews against wall-clock load
+      # deadlines through main-actor navigation callbacks. They run last, in a
+      # process of their own: the package's other main-actor tests do not delay
+      # those callbacks, and a WebKit failure does not skip the control tests.
+      - name: Run WebKit driver package tests
+        timeout-minutes: 10
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "420"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextBrowserAutomationTests
 
   release-compile:
     needs: macos-placement

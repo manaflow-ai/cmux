@@ -61,6 +61,9 @@ final class TabContentCache {
     var defersRestoredPages = false
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
+    /// Tabs an agent drove (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
+    var agentDrivenTabs: Set<String> = []
+    var agentDrivenSurfaces: Set<SurfaceID> = []
     /// Creates a Chromium page (asynchronous; a seam for tests).
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
         try await cef.makeTab($0)
@@ -176,6 +179,7 @@ final class TabContentCache {
     /// the record keeps naming Chromium, so a build with CEF restores it.
     func browser(for tab: TabModel) -> BrowserEntry? {
         let key = tab.id
+        claimAgentDriven(surface: tab.surface, key: key)
         if let entry = browsers[key] { return entry }
         if pageRequests.claimCloseOnArrival(tab.surface) {
             // Its page closed before the tab appeared (BrowserPageRequests).
@@ -308,6 +312,7 @@ final class TabContentCache {
             entry.extensionMenuHandler = handler
             entry.chrome.extensionMenuHandler = handler
         }
+        if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         browsers[key] = entry
         pageInstalls.bump()
         // Pages are kept by hibernation, never by the terminal warm set.
@@ -332,11 +337,10 @@ final class TabContentCache {
     func swapPage(_ key: String, with page: any BrowserTab) {
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
-        let entry = install(page, for: key)
+        install(page, for: key)
         if !(page is HibernatedBrowserTab) {
             browserTabs.track(page, tabID: key)
         }
-        _ = entry
         onBrowserReady?(key)
     }
 
@@ -351,16 +355,12 @@ final class TabContentCache {
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil
         hibernation?.forget(key)
+        agentDrivenTabs.remove(key)
         terminals.removeValue(forKey: key)?.close()
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)
         onPresentationChange?()
-    }
-
-    /// Drops terminal surfaces whose tabs no longer exist.
-    func prune(liveTabs: Set<String>) {
-        for key in terminals.keys where !liveTabs.contains(key) { release(key) }
     }
 
     // MARK: Previews

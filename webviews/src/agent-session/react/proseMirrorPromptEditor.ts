@@ -3,7 +3,7 @@ import { Schema, type Node as ProseMirrorNode } from "prosemirror-model";
 import { splitBlock } from "prosemirror-commands";
 import { EditorState, Plugin, PluginKey, TextSelection } from "prosemirror-state";
 import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
-import { CODEX_FOLDER_ICON_PATH } from "../shared/codexIconPaths";
+import { AGENT_FOLDER_ICON_PATH } from "../shared/agentIconPaths";
 import { isComposingEnter, isPlanModeShortcut } from "../shared/keyboard";
 import { promptMentionMarkdown } from "../shared/promptMentions";
 
@@ -254,11 +254,11 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
       }),
       attributes: {
         "aria-label": "",
-        "data-codex-composer": "true",
+        "data-agent-composer": "true",
         "data-virtualkeyboard": "true",
         role: "textbox",
         class: "ProseMirror prompt-editor-view",
-        style: "min-height: 2.75rem; font-size: var(--codex-chat-font-size); height: auto; resize: none;",
+        style: "min-height: 2.75rem; font-size: var(--agent-chat-font-size); height: auto; resize: none;",
       },
       dispatchTransaction(transaction) {
         const nextState = view.state.apply(transaction);
@@ -658,7 +658,7 @@ function folderMentionIcon(): SVGSVGElement {
   svg.setAttribute("fill", "none");
   svg.setAttribute("aria-hidden", "true");
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", CODEX_FOLDER_ICON_PATH);
+  path.setAttribute("d", AGENT_FOLDER_ICON_PATH);
   path.setAttribute("fill", "currentColor");
   svg.append(path);
   return svg;

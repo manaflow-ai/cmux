@@ -94,15 +94,23 @@ mod loopback_forward;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
+mod bookmarks;
 mod browser_profiles;
+mod conversations;
 mod launch_snapshot;
 mod personal;
+mod responses;
 mod screen_json;
+mod split_respawn;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
 };
+use responses::{
+    send_bad_request, send_request_error, send_request_error_with_delivery, send_response,
+};
 use screen_json::screen_json;
+use split_respawn::{SplitRespawnRequest, placement_spawn_options, shell_argv, split_tab};
 mod terminal_create;
 mod terminal_resources;
 mod url_open;
@@ -216,11 +224,12 @@ pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
 /// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
+pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
 /// Durable notification acknowledgement decoupled from focus:
 /// `ack-tab-notifications`, `list-notifications`, and the workspace
 /// `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
-/// Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`,
+/// Tab groups: the `*-tab-group` commands, `Pane.tab_groups`,
 /// and `Tab.group`.
 pub const TAB_GROUPS_CAPABILITY: &str = "tab-groups-v1";
 /// Saved (pinned) tab groups that outlive their placements.
@@ -242,12 +251,13 @@ pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// `list-personal` and the `*-browser-profile` commands
 /// (plans/cmux-next/data-model.md section 5).
 pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
+pub use bookmarks::BOOKMARKS_CAPABILITY;
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
 /// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
 /// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
 /// and `screen-changed` deltas.
 pub const SCREEN_METADATA_CAPABILITY: &str = "screen-metadata-v1";
-/// Chrome-style screen groups: the `*-screen-group` commands, saved screen
+/// Screen groups: the `*-screen-group` commands, saved screen
 /// groups, and `Workspace.screen_groups`.
 pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
 /// `launch_snapshot_path` in `identify`: a read-only file with the last
@@ -392,6 +402,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         TAB_DRAG_CAPABILITY,
+        TAB_SPLIT_RESPAWN_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
         TAB_GROUPS_CAPABILITY,
         SAVED_TAB_GROUPS_CAPABILITY,
@@ -401,6 +412,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         PROFILES_CAPABILITY,
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
+        BOOKMARKS_CAPABILITY,
+        conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
@@ -1965,9 +1978,11 @@ enum Command {
         #[serde(default)]
         ratio: Option<f32>,
         #[serde(default)]
+        respawn: Option<SplitRespawnRequest>,
+        #[serde(default)]
         transaction: Option<String>,
     },
-    /// Drop a tab between niri columns: a new column holding the tab.
+    /// Drop a tab between strip columns: a new column holding the tab.
     MoveTabToColumn {
         surface: SurfaceId,
         #[serde(default)]
@@ -2023,42 +2038,27 @@ enum Command {
     },
     /// Every personal record of the home session (`profiles-v1`).
     ListPersonal,
-    /// Create a browser profile (`browser-profiles-v1`). A caller-chosen
-    /// `browser_profile` id makes a retry return the stored record.
-    CreateBrowserProfile {
-        name: String,
-        #[serde(default)]
-        browser_profile: Option<String>,
-        #[serde(default)]
-        color: Option<String>,
-        #[serde(default)]
-        icon: Option<String>,
-        #[serde(default)]
-        index: Option<usize>,
-        #[serde(default)]
-        source: Option<Value>,
-    },
-    /// Update a browser profile. An absent field is unchanged; JSON null
-    /// clears it.
-    UpdateBrowserProfile {
-        browser_profile: String,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default, deserialize_with = "present_nullable")]
-        color: Option<Option<String>>,
-        #[serde(default, deserialize_with = "present_nullable")]
-        icon: Option<Option<String>>,
-    },
-    /// Move a browser profile to an insertion index among browser profiles.
-    MoveBrowserProfile {
-        browser_profile: String,
-        index: usize,
-    },
-    /// Delete a browser profile (not `default`); clears the workspace and
-    /// room defaults that name it.
-    DeleteBrowserProfile {
-        browser_profile: String,
-    },
+    /// Browser profile records (`browser-profiles-v1`, server/browser_profiles.rs).
+    CreateBrowserProfile(browser_profiles::CreateParams),
+    UpdateBrowserProfile(browser_profiles::UpdateParams),
+    MoveBrowserProfile(browser_profiles::MoveParams),
+    DeleteBrowserProfile(browser_profiles::DeleteParams),
+    /// Bookmark trees (`bookmarks-v1`, server/bookmarks.rs).
+    ListBookmarks(bookmarks::ListParams),
+    CreateBookmark(bookmarks::CreateParams),
+    UpdateBookmark(bookmarks::UpdateParams),
+    MoveBookmark(bookmarks::MoveParams),
+    DeleteBookmark(bookmarks::DeleteParams),
+    ImportBookmarks(bookmarks::ImportParams),
+    /// Local conversations (`local-conversations-v1`, server/conversations.rs).
+    ConversationList,
+    ConversationCreate(conversations::CreateParams),
+    ConversationSnapshot(conversations::SnapshotParams),
+    ConversationHistory(conversations::HistoryParams),
+    ConversationOp(conversations::OpParams),
+    ConversationTyping(conversations::TypingParams),
+    ConversationBind(conversations::BindParams),
+    ConversationAgentToken(conversations::AgentTokenParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -7205,6 +7205,7 @@ fn disconnect_client_with_notice(
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
+    mux.unbind_conversation_principal(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can
     // never observe a stale target after the owning client is gone.
@@ -11119,50 +11120,8 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
                 .downcast_ref::<crate::ColumnStickyError>()
                 .and_then(|error| error.code().map(str::to_string))
         })
-}
-
-/// Answers a request line that did not decode into a command. The reply
-/// echoes the line's `id` whenever the line is a JSON object that carries
-/// one: replies can arrive out of order, so a client matches each reply to
-/// its request by id, and an id-less error would reach the wrong request.
-fn send_bad_request(writer: &MessageWriter, message: &str, error: &serde_json::Error) -> bool {
-    send_request_error(writer, undecodable_request_id(message), &format!("bad request: {error}"))
-}
-
-/// The `id` member of a request line that failed to decode, if the line is a
-/// JSON object.
-fn undecodable_request_id(message: &str) -> Option<Value> {
-    match serde_json::from_str::<Value>(message) {
-        Ok(Value::Object(mut object)) => object.remove("id"),
-        _ => None,
-    }
-}
-
-fn send_request_error(writer: &MessageWriter, id: Option<Value>, error: &str) -> bool {
-    send_request_error_with_delivery(writer, id, error, None)
-}
-
-fn send_request_error_with_delivery(
-    writer: &MessageWriter,
-    id: Option<Value>,
-    error: &str,
-    error_delivery: Option<ResponseErrorDelivery>,
-) -> bool {
-    send_response(
-        writer,
-        Response {
-            id,
-            ok: false,
-            data: None,
-            error: Some(error.to_string()),
-            error_code: None,
-            error_delivery,
-        },
-    )
-}
-
-fn send_response(writer: &MessageWriter, response: Response) -> bool {
-    serde_json::to_value(response).is_ok_and(|value| writer.send_control(&value).is_ok())
+        .or_else(|| bookmarks::error_code(error))
+        .or_else(|| conversations::error_code(error))
 }
 
 fn auth_token(message: &str) -> Option<String> {
@@ -14718,11 +14677,11 @@ fn handle_command_with_cancellation(
             let (workspace, pane) = surface_placement(mux, surface);
             Ok(json!({"surface": surface, "workspace": workspace, "pane": pane, "undoable": false}))
         }
-        Command::MoveTabToSplit { surface, pane, edge, ratio, transaction } => {
+        Command::MoveTabToSplit { surface, pane, edge, ratio, respawn, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;
             let edge = crate::TabDropEdge::parse(&edge)?;
-            let outcome = mux.move_tab_to_split(surface, pane, edge, ratio, transaction)?;
+            let outcome = split_tab(mux, surface, pane, edge, ratio, respawn, transaction)?;
             Ok(tab_drag_outcome_json(&outcome))
         }
         Command::MoveTabToColumn { surface, pane, screen, after_column, width, transaction } => {
@@ -15006,32 +14965,24 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::ListPersonal => personal::list(mux),
-        Command::CreateBrowserProfile { name, browser_profile, color, icon, index, source } => {
-            browser_profiles::create(
-                mux,
-                crate::workspace_registry::BrowserProfileInput {
-                    id: browser_profile,
-                    name,
-                    color,
-                    icon,
-                    index,
-                    source,
-                },
-            )
-        }
-        Command::UpdateBrowserProfile { browser_profile, name, color, icon } => {
-            browser_profiles::update(
-                mux,
-                &browser_profile,
-                crate::workspace_registry::BrowserProfileUpdate { name, color, icon },
-            )
-        }
-        Command::MoveBrowserProfile { browser_profile, index } => {
-            browser_profiles::move_to(mux, &browser_profile, index)
-        }
-        Command::DeleteBrowserProfile { browser_profile } => {
-            browser_profiles::delete(mux, &browser_profile)
-        }
+        Command::CreateBrowserProfile(params) => browser_profiles::create(mux, params),
+        Command::UpdateBrowserProfile(params) => browser_profiles::update(mux, params),
+        Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
+        Command::DeleteBrowserProfile(params) => browser_profiles::delete(mux, params),
+        Command::ListBookmarks(params) => bookmarks::list(mux, params),
+        Command::CreateBookmark(params) => bookmarks::create(mux, params),
+        Command::UpdateBookmark(params) => bookmarks::update(mux, params),
+        Command::MoveBookmark(params) => bookmarks::move_to(mux, params),
+        Command::DeleteBookmark(params) => bookmarks::delete(mux, params),
+        Command::ImportBookmarks(params) => bookmarks::import(mux, params),
+        Command::ConversationList => conversations::list(mux, client),
+        Command::ConversationCreate(params) => conversations::create(mux, client, params),
+        Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
+        Command::ConversationHistory(params) => conversations::history(mux, client, params),
+        Command::ConversationOp(params) => conversations::op(mux, client, params),
+        Command::ConversationTyping(params) => conversations::typing(mux, client, params),
+        Command::ConversationBind(params) => conversations::bind(mux, client, params),
+        Command::ConversationAgentToken(params) => conversations::agent_token(mux, client, params),
         Command::CreateProfile {
             name,
             profile,
@@ -15739,6 +15690,7 @@ fn handle_command_with_cancellation(
                         {
                             continue;
                         }
+                        MuxEvent::Conversation(_) if !trusted_pairing_client => continue,
                         MuxEvent::PairingRequested(challenge) => json!({
                             "event": "pairing-requested",
                             "request": challenge.id,
@@ -16291,33 +16243,6 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     Ok(workspaces)
 }
 
-fn placement_spawn_options(
-    cwd: Option<String>,
-    env: Option<&BTreeMap<String, String>>,
-    terminal_id: Option<String>,
-    shell_args: Option<Vec<String>>,
-) -> anyhow::Result<crate::TerminalSpawnOptions> {
-    let env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
-    let argv = shell_argv(&env, shell_args);
-    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id, argv })
-}
-
-/// `terminal-shell-args-v1`: the shell the terminal would run with no
-/// arguments, given `shell_args`, so a frontend can pass the argv Ghostty's
-/// shell integration needs (bash `--posix` with `ENV`, nushell `--execute`).
-/// The shell is the terminal's own `SHELL` from its `env` (the frontend
-/// chose the arguments for it), else the daemon's default shell. None or an
-/// empty list keeps the plain default shell.
-fn shell_argv(env: &[(String, String)], shell_args: Option<Vec<String>>) -> Option<Vec<String>> {
-    let shell_args = shell_args.filter(|arguments| !arguments.is_empty())?;
-    let shell = env
-        .iter()
-        .find(|(key, value)| key == "SHELL" && !value.is_empty())
-        .map(|(_, value)| value.clone())
-        .unwrap_or_else(platform::default_shell);
-    Some(std::iter::once(shell).chain(shell_args).collect())
-}
-
 /// The reply of a placement command: the new view and the terminal it
 /// shows, after applying `keep`.
 fn placed_terminal_result(
@@ -16470,6 +16395,12 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::PersonalChanged { personal_revision } => json!({
             "event": "personal-changed",
             "personal_revision": personal_revision,
+        }),
+        MuxEvent::Conversation(event) => event.wire_json(),
+        MuxEvent::BookmarksChanged(change) => json!({
+            "event": "bookmarks-changed",
+            "browser_profile_id": change.browser_profile_id,
+            "bookmarks_revision": change.bookmarks_revision,
         }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",

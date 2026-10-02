@@ -1,5 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { EffortPicker } from "./EffortPicker";
+import { t } from "./i18n";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -75,7 +77,7 @@ type Props = {
   settleMs?: number;
 };
 
-/// The composer bar's controls, as Codex, Claude and T3 Code draw them: the
+/// The composer bar's controls: the
 /// permission mode (in the warning color when it skips approvals) and a
 /// Plan/Build toggle after the attach button, then the model and the effort as
 /// two dropdowns and the context used at the right. Groups are set apart by a
@@ -202,6 +204,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
             </>
           }
           sections={[{ choices: modes, current: mode?.id, onPick: onMode }]}
+          heading={t("approval.title")}
           align="start"
         />
       )}
@@ -239,27 +242,16 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
         />
       )}
       {effort && efforts.length > 0 && (
-        <Picker
-          label={PICKER_LABELS.effort}
-          className="acpmux-effort"
-          button={
-            <>
-              <span>{effortName ?? PICKER_LABELS.effort}</span>
-              <ChevronIcon />
-            </>
-          }
-          sections={[
-            {
-              choices: efforts,
-              current: effort.currentValue,
-              onPick: (value) => {
-                // An effort picked by hand wins over one a combo is still waiting to send.
-                pending.current = undefined;
-                onEffort(effort.id, value);
-              },
-            },
-          ]}
-          align="end"
+        <EffortPicker
+          efforts={efforts}
+          current={effort.currentValue}
+          model={model?.name ?? summary?.model}
+          chevron={<ChevronIcon />}
+          onPick={(value) => {
+            // An effort picked by hand wins over one a combo is still waiting to send.
+            pending.current = undefined;
+            onEffort(effort.id, value);
+          }}
         />
       )}
       {usage && usage.size > 0 && <ContextRing used={usage.used} size={usage.size} />}
@@ -327,12 +319,12 @@ export function modelMenu({
   return sections.filter((section) => section.choices.length > 0);
 }
 
-/// Plan modes (Claude's "plan") read and propose without editing; the toggle sits apart from the permission chip.
+/// Plan modes (an id ending in "plan") read and propose without editing; the toggle sits apart from the permission chip.
 export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
 }
 
-/// How much of the context window the session has used, as Claude draws it: a ring that fills.
+/// How much of the context window the session has used, as a ring that fills.
 export function ContextRing({ used, size }: { used: number; size: number }) {
   const fraction = Math.min(1, Math.max(0, used / size));
   const percent = Math.round(fraction * 100);
@@ -367,7 +359,7 @@ export function ContextRing({ used, size }: { used: number; size: number }) {
   );
 }
 
-/// Modes that skip approvals draw in the theme's warning color, as Codex draws "Full access".
+/// Modes that skip approvals (such as "Full access") draw in the theme's warning color.
 export function unrestricted(modeId: string): boolean {
   return /bypass|full|yolo|dangerous|auto[-_ ]?approve/i.test(modeId);
 }
@@ -392,6 +384,7 @@ export function Picker({
   returnFocus = true,
   search,
   onOpenChange,
+  heading,
 }: {
   label: string;
   className: string;
@@ -403,6 +396,8 @@ export function Picker({
   returnFocus?: boolean;
   search?: MenuSearch;
   onOpenChange?(open: boolean): void;
+  /// A question over the choices, as an approval menu asks it.
+  heading?: string;
 }) {
   const [open, setOpen] = useState(false);
   // Told after each open and close, from an effect so every way of closing reports it.
@@ -521,7 +516,7 @@ export function Picker({
       >
         {button}
       </button>
-      {/* A native select cannot hold descriptions, sections or the Codex look. */}
+      {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
         <div className={`acpmux-menu acpmux-menu-${align}`}>
           {/* The query sits beside the listbox, which may hold only options and groups. */}
@@ -532,7 +527,12 @@ export function Picker({
             </div>
           )}
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-          <div id={menuId} role="listbox" aria-label={label}>
+          <div id={menuId} role="listbox" aria-label={heading ?? label}>
+            {heading && (
+              <div className="acpmux-menu-heading" aria-hidden="true">
+                {heading}
+              </div>
+            )}
             {sections.map((section, s) => {
               const titled = section.title && sections.length > 1;
               return (
@@ -592,7 +592,7 @@ export function Picker({
   );
 }
 
-// Icons from the Codex chrome (a 16px grid drawn at 18px, stroke in currentColor).
+// Composer icons (a 16px grid drawn at 18px, stroke in currentColor).
 function Icon({ children, size = 18 }: { children: React.ReactNode; size?: number }) {
   return (
     <svg

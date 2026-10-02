@@ -8,7 +8,7 @@ import CmuxNextTabs
 /// the strip's own drag; once the pointer leaves the bar the strip hands the
 /// drag here. Released over a workspace row in any window's sidebar, the
 /// screen moves into that workspace; over a sidebar gap, into a new
-/// workspace; outside every window, into a new window (Chrome's tear-off).
+/// workspace; outside every window, into a new window (tear-off).
 /// Anywhere else, or on Escape, it returns to its slot. Event-driven: a
 /// local event monitor for the drag's mouse events, no timers.
 @MainActor

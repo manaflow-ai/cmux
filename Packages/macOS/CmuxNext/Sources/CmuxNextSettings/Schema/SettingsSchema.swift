@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + columnLayout + appearance + browser + notifications
+        general + columnLayout + appearance + sidebarSections + browser + notifications
     }
 
     /// The descriptors of one section, in order.
@@ -98,7 +98,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.text("settings.layout.fixedColumnWidth", "Fixed Column Width"),
                 help: SettingsText.text("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
                 kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
-                default: .number(DefaultColumnWidthSetting.fallback), keywords: ["niri", "width"]
+                default: .number(DefaultColumnWidthSetting.fallback), keywords: ["width"]
             ),
             SettingDescriptor(
                 CenterFocusedColumnSetting.configPath, section: .general, group: columns,
@@ -108,7 +108,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(CenterFocusedColumn.always.rawValue, SettingsText.text("settings.choice.always", "Always")),
                     SettingChoice(CenterFocusedColumn.onOverflow.rawValue, SettingsText.text("settings.choice.onOverflow", "When It Does Not Fit")),
                 ]),
-                default: .string(CenterFocusedColumnSetting.fallback.rawValue), keywords: ["niri", "scroll"]
+                default: .string(CenterFocusedColumnSetting.fallback.rawValue), keywords: ["scroll"]
             ),
             SettingDescriptor(
                 StripScrollbarSetting.configPath, section: .general, group: columns,
@@ -119,7 +119,17 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.text("settings.choice.always", "Always")),
                     SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.text("settings.choice.off", "Off")),
                 ]),
-                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["niri", "scroll", "scrollbar", "minimap"]
+                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "minimap"]
+            ),
+            SettingDescriptor(
+                CloseFocusSetting.configPath, section: .general, group: columns,
+                title: SettingsText.text("settings.layout.closeFocus", "Focus After Closing a Pane"),
+                help: SettingsText.text("settings.layout.closeFocus.help", "Which pane gets focus when the focused pane closes."),
+                kind: .choice([
+                    SettingChoice(CloseFocusPolicy.previousNeighbor.rawValue, SettingsText.text("settings.choice.closeFocusPreviousNeighbor", "Previous Neighbor")),
+                    SettingChoice(CloseFocusPolicy.mostRecent.rawValue, SettingsText.text("settings.choice.closeFocusMostRecent", "Most Recently Focused")),
+                ]),
+                default: .string(CloseFocusSetting.fallback.rawValue), keywords: ["close", "focus", "neighbor", "recent"]
             ),
         ]
     }
@@ -151,6 +161,30 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(BorderMode.none.rawValue, SettingsText.text("settings.choice.none", "None")),
                 ]),
                 default: .string(BordersSetting.fallback.rawValue), keywords: ["border", "hairline", "separator", "outline", "line"]
+            ),
+            SettingDescriptor(
+                PaneFocusSettings.focusIndicatorPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.focusIndicator", "Focused Pane"),
+                help: SettingsText.text("settings.appearance.focusIndicator.help",
+                                        "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."),
+                kind: .choice([
+                    SettingChoice(FocusIndicator.border.rawValue, SettingsText.text("settings.choice.border", "Border")),
+                    SettingChoice(FocusIndicator.tabs.rawValue, SettingsText.text("settings.choice.tabs", "Tabs")),
+                    SettingChoice(FocusIndicator.both.rawValue, SettingsText.text("settings.choice.both", "Both")),
+                    SettingChoice(FocusIndicator.none.rawValue, SettingsText.text("settings.choice.none", "None")),
+                ]),
+                default: .string(PaneFocusSettings.focusIndicatorFallback.rawValue), keywords: ["focus", "active", "pane", "tab", "ring"]
+            ),
+            SettingDescriptor(
+                PaneFocusSettings.tabBarBackgroundPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.tabBarBackground", "Tab Bar Background"),
+                help: SettingsText.text("settings.appearance.tabBarBackground.help",
+                                        "Window uses the window's own background around the tabs; Darker shades the tab bar."),
+                kind: .choice([
+                    SettingChoice(TabBarBackground.window.rawValue, SettingsText.text("settings.choice.window", "Window")),
+                    SettingChoice(TabBarBackground.darker.rawValue, SettingsText.text("settings.choice.darker", "Darker")),
+                ]),
+                default: .string(PaneFocusSettings.tabBarBackgroundFallback.rawValue), keywords: ["tab", "strip", "background", "bar"]
             ),
             SettingDescriptor(
                 AnimationSpeedSetting.configPath, section: .appearance, group: look,
@@ -210,6 +244,16 @@ public nonisolated enum SettingsSchema {
                 default: .string(FocusRingSettings().style.rawValue)
             ),
             SettingDescriptor(
+                ["focusRing", "contrast"], section: .appearance, group: ring,
+                title: SettingsText.text("settings.focusRing.contrast", "Contrast"),
+                kind: .choice([
+                    SettingChoice(FocusRingContrast.subtle.rawValue, SettingsText.text("settings.choice.subtle", "Subtle")),
+                    SettingChoice(FocusRingContrast.standard.rawValue, SettingsText.text("settings.choice.standard", "Standard")),
+                    SettingChoice(FocusRingContrast.strong.rawValue, SettingsText.text("settings.choice.strong", "Strong")),
+                ]),
+                default: .string(FocusRingSettings().contrast.rawValue)
+            ),
+            SettingDescriptor(
                 ["focusRing", "color"], section: .appearance, group: ring,
                 title: SettingsText.text("settings.focusRing.color", "Color"),
                 kind: .color, default: nil, defaultLabel: theme
@@ -224,6 +268,63 @@ public nonisolated enum SettingsSchema {
                 ["focusRing", "showWhenSinglePane"], section: .appearance, group: ring,
                 title: SettingsText.text("settings.focusRing.showWhenSinglePane", "Show With One Pane"),
                 kind: .toggle, default: .bool(FocusRingSettings().showsForSinglePane)
+            ),
+        ] + statusIndicator
+    }
+
+    /// `appearance.statusIndicator.*` (plans/cmux-next/status-indicators.md).
+    static var statusIndicator: [SettingDescriptor] {
+        let group = SettingsText.text("settings.group.statusIndicator", "Loading Indicator")
+        let defaults = StatusIndicatorSettings()
+        let path = StatusIndicatorConfigParser.path
+        return [
+            SettingDescriptor(
+                path + ["style"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.style", "Style"),
+                help: SettingsText.text("settings.statusIndicator.style.help", "How sidebar rows, tabs and panes show work in progress."),
+                kind: .choice([
+                    SettingChoice(StatusIndicatorStyle.arc.rawValue, SettingsText.text("settings.choice.thinArc", "Thin Arc")),
+                    SettingChoice(StatusIndicatorStyle.native.rawValue, SettingsText.text("settings.choice.macSpinner", "macOS Spinner")),
+                    SettingChoice(StatusIndicatorStyle.dot.rawValue, SettingsText.text("settings.choice.pulsingDot", "Pulsing Dot")),
+                    SettingChoice(StatusIndicatorStyle.none.rawValue, SettingsText.text("settings.choice.none", "None")),
+                ]),
+                default: .string(defaults.style.rawValue), keywords: ["spinner", "progress", "loading", "busy"]
+            ),
+            SettingDescriptor(
+                path + ["size"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.size", "Size"),
+                kind: .number(SettingNumber(Double(StatusIndicatorSettings.scaleRange.lowerBound)...Double(StatusIndicatorSettings.scaleRange.upperBound),
+                                            step: 0.05, unit: .fraction)),
+                default: .number(Double(defaults.scale))
+            ),
+            SettingDescriptor(
+                path + ["thickness"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.thickness", "Line Width"),
+                kind: .number(points(StatusIndicatorSettings.thicknessRange, step: 0.25)), default: .number(Double(defaults.thickness))
+            ),
+            SettingDescriptor(
+                path + ["color"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.color", "Color"),
+                kind: .color, default: nil, defaultLabel: SettingsText.text("settings.default.theme", "Theme")
+            ),
+            SettingDescriptor(
+                path + ["honorStatusStyle"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.honorStatusStyle", "Let Statuses Choose Their Style"),
+                help: SettingsText.text("settings.statusIndicator.honorStatusStyle.help",
+                                        "A status that asks for a style (cmux status set --style) uses it."),
+                kind: .toggle, default: .bool(true)
+            ),
+            SettingDescriptor(
+                StatusIndicatorConfigParser.behaviorPath + ["inferCommandBusy"], section: .appearance, group: group,
+                title: SettingsText.text("settings.status.inferCommandBusy", "Show Running Commands"),
+                help: SettingsText.text("settings.status.inferCommandBusy.help", "A shell command that runs a while shows as busy."),
+                kind: .toggle, default: .bool(StatusBehaviorSettings().inferCommandBusy)
+            ),
+            SettingDescriptor(
+                StatusIndicatorConfigParser.behaviorPath + ["inferCommandBusyAfter"], section: .appearance, group: group,
+                title: SettingsText.text("settings.status.inferCommandBusyAfter", "Show After"),
+                kind: .number(SettingNumber(StatusBehaviorSettings.inferAfterRange, step: 1, unit: .seconds)),
+                default: .number(StatusBehaviorSettings().inferCommandBusyAfter)
             ),
         ]
     }

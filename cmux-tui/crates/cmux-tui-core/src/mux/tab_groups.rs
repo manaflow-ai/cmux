@@ -1,7 +1,7 @@
-//! Chrome-style tab groups and saved (pinned) groups.
+//! Tab groups (named, colored, collapsible tab runs) and saved (pinned) groups.
 //!
 //! A tab group lives in one pane's tab strip: an id, a name (may be empty),
-//! one of Chrome's nine colors, and a shared collapsed flag. Each tab
+//! one of nine named colors, and a shared collapsed flag. Each tab
 //! placement belongs to at most one group, and members are contiguous in
 //! tab order. Membership is keyed by the public tab id and is valid only
 //! while the tab sits in the group's pane, so a tab moved away by another
@@ -42,7 +42,7 @@ pub enum TabGroupDestination {
     Strip { pane: PaneId, index: Option<usize> },
     /// Into a new split beside `pane`.
     Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32> },
-    /// Into a new niri column on `pane`'s screen.
+    /// Into a new strip column on `pane`'s screen.
     Column { pane: PaneId, after_column: Option<SplitId>, width: Option<f32> },
     /// Into a new workspace, optionally in a sidebar group at an index.
     NewWorkspace { group: Option<String>, index: Option<usize> },
@@ -314,11 +314,11 @@ impl Mux {
                     tab_drag::retarget_terminal_workspace(&mut projection.patch, terminal, key);
                 }
                 output = Some(result);
-                let mut plan = ResourceMutationPlan::new(
+                let mut plan = ResourceMutationPlan::replacing(
                     projection.patch,
                     projection.result,
                     projection.changes,
-                    move |state| *state = projected,
+                    projected,
                 )
                 .with_tab_groups(groups);
                 if let Some(ledger) = ledger {

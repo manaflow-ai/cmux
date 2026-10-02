@@ -71,7 +71,7 @@ public struct Metrics {
 
     /// Inset between the window edge and floating glass panels.
     public static var panelInset: CGFloat { MetricTunables.panelInset.value }
-    /// Gap between niri columns.
+    /// Gap between strip columns.
     public static var columnGap: CGFloat { MetricTunables.columnGap.value }
     /// Divider thickness between split panes (hit area is wider).
     /// A room dot at the bottom of the sidebar (drawn size; its hit target

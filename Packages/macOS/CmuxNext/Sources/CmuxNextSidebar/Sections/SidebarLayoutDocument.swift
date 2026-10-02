@@ -3,10 +3,16 @@ import Foundation
 /// One section of the layout.
 public nonisolated struct LayoutSection: Hashable, Sendable, Codable, Identifiable {
     public var id: LayoutSectionID
-    /// Header text; nil draws no header (and the section cannot collapse).
+    /// The section's name (palette, CLI, header). Nil: unnamed.
     public var title: String?
+    /// Whether the header draws the title. False keeps the name for the
+    /// palette and the CLI but draws no header (the section cannot then
+    /// collapse). Looks without labels hide every header regardless.
+    public var showsTitle: Bool
     public var region: SidebarRegion
     public var look: SectionLook
+    /// Rows, one line, or a grid.
+    public var arrangement: SectionArrangement
     /// The room this section shows in; nil = every room.
     public var room: String?
     /// Rows a sticky section shows before it scrolls inside; nil = the
@@ -16,12 +22,14 @@ public nonisolated struct LayoutSection: Hashable, Sendable, Codable, Identifiab
     /// Empty for the workspaces section.
     public var items: [LayoutItem]
 
-    public init(id: LayoutSectionID, title: String? = nil, region: SidebarRegion, look: SectionLook = .list,
-                room: String? = nil, maxRows: Int? = nil, content: SectionContent = .items, items: [LayoutItem] = []) {
+    public init(id: LayoutSectionID, title: String? = nil, showsTitle: Bool = true, region: SidebarRegion, look: SectionLook = .list,
+                arrangement: SectionArrangement = .list, room: String? = nil, maxRows: Int? = nil, content: SectionContent = .items, items: [LayoutItem] = []) {
         self.id = id
         self.title = title
+        self.showsTitle = showsTitle
         self.region = region
         self.look = look
+        self.arrangement = arrangement
         self.room = room
         self.maxRows = maxRows
         self.content = content
@@ -29,9 +37,29 @@ public nonisolated struct LayoutSection: Hashable, Sendable, Codable, Identifiab
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, region, look, room, content, items
+        case id, title, region, look, arrangement, room, content, items
+        case showsTitle = "shows_title"
         case maxRows = "max_rows"
     }
+
+    // Optional keys may be absent on the wire (defaults: shows_title true,
+    // no items).
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(LayoutSectionID.self, forKey: .id)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        showsTitle = try c.decodeIfPresent(Bool.self, forKey: .showsTitle) ?? true
+        region = try c.decode(SidebarRegion.self, forKey: .region)
+        look = try c.decode(SectionLook.self, forKey: .look)
+        arrangement = try c.decodeIfPresent(SectionArrangement.self, forKey: .arrangement) ?? .list
+        room = try c.decodeIfPresent(String.self, forKey: .room)
+        maxRows = try c.decodeIfPresent(Int.self, forKey: .maxRows)
+        content = try c.decode(SectionContent.self, forKey: .content)
+        items = try c.decodeIfPresent([LayoutItem].self, forKey: .items) ?? []
+    }
+
+    /// The header title to draw, or nil for no header.
+    public var headerTitle: String? { showsTitle ? title : nil }
 
     /// Whether the section shows while `room` is shown.
     public func isVisible(inRoom room: String?) -> Bool { self.room == nil || self.room == room }
@@ -53,15 +81,18 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let workspacesSectionID = LayoutSectionID("sec_workspaces")
     public static let bottomSectionID = LayoutSectionID("sec_bottom")
 
-    /// Top: Home. Middle: workspaces. Bottom: Settings and Account. Sticky
-    /// sections use the built-in look and draw no header.
+    /// Top: Home, then the App Store. Middle: workspaces. Bottom: one line with Settings (icon
+    /// and label) at the leading edge and the account avatar (icon only) at
+    /// the trailing edge. Sticky sections use the built-in look and draw no
+    /// header.
     public static let defaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn,
-                      items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home))]),
+                      items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home)),
+                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore))]),
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
-        LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn, items: [
+        LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn, arrangement: SectionArrangement(layout: .inline, align: .fill), items: [
             LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings)),
-            LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account)),
+            LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
         ]),
     ])
 

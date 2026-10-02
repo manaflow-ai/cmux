@@ -1,0 +1,16 @@
+{
+  "manifestVersion": 2,
+  "id": "local/x",
+  "name": "X",
+  "version": "1.0.0",
+  "description": "d",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "implements": {
+    "cmux.editor/1": {
+      "export": "e",
+      "web": "w.html"
+    }
+  }
+}
