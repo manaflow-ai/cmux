@@ -33,17 +33,21 @@ extension DaemonService {
 
     /// After End Sessions, Keep Layout: restarts a shell in every kept tab
     /// (a dead tab with the store's `relaunch` record), in its recorded
-    /// directory, else home. The daemon prunes the record when the dead
-    /// tab closes, so a later connect finds nothing to do.
+    /// directory, else home. One relaunch runs at a time per service (a
+    /// reconnect while it runs does not start a second), and a closed
+    /// connection cancels it.
     func relaunchKeptLayoutIfNeeded(_ connection: DaemonConnection) {
-        guard isLocal, supports(DaemonCapabilities.shared.endTerminalsKeepLayout) else { return }
+        guard isLocal, keptLayoutRelaunch == nil, supports(DaemonCapabilities.shared.endTerminalsKeepLayout) else { return }
         let logger = logger
         let fallbackCwd = defaultCwd
-        // task-owner: one-shot relaunch after connect; the daemon's records make it idempotent
-        Task {
+        keptLayoutRelaunch = Task { [weak self] in
+            defer { self?.keptLayoutRelaunch = nil }
             do {
-                let relaunched = try await connection.relaunchKeptTabs(fallbackCwd: fallbackCwd)
-                if relaunched > 0 { logger.info("kept layout: restarted \(relaunched) terminals") }
+                let result = try await connection.relaunchKeptTabs(fallbackCwd: fallbackCwd)
+                if result.relaunched > 0 { logger.info("kept layout: restarted \(result.relaunched) terminals") }
+                for failure in result.failures {
+                    logger.error("kept layout: a kept tab stays dead: \(failure, privacy: .public)")
+                }
             } catch {
                 logger.error("kept layout relaunch failed: \(String(describing: error), privacy: .public)")
             }

@@ -44,31 +44,45 @@ public struct KeptTabRelaunch: Sendable, Equatable {
     }
 }
 
+/// What `relaunchKeptTabs` did.
+public struct KeptTabsRelaunched: Sendable, Equatable {
+    public var relaunched: Int
+    /// One line per kept tab that failed (it stays dead).
+    public var failures: [String]
+}
+
 extension DaemonConnection {
     /// Restarts a shell in every kept tab (the next launch after End
-    /// Sessions, Keep Layout): each dead tab with a `relaunch` record.
-    /// Returns how many restarted. A tab that fails is left dead; the rest
-    /// continue.
+    /// Sessions, Keep Layout): each dead tab with a `relaunch` record. A tab
+    /// that fails stays dead and is reported; the rest continue.
     @discardableResult
-    public func relaunchKeptTabs(fallbackCwd: String?) async throws -> Int {
+    public func relaunchKeptTabs(fallbackCwd: String?) async throws -> KeptTabsRelaunched {
         let steps = KeptTabRelaunch.steps(tree: try await listWorkspaces(), fallbackCwd: fallbackCwd)
-        var relaunched = 0
+        var result = KeptTabsRelaunched(relaunched: 0, failures: [])
         for step in steps {
             do {
                 try await relaunch(step)
-                relaunched += 1
+                result.relaunched += 1
             } catch {
-                continue
+                result.failures.append("surface \(step.deadSurface.rawValue): \(error)")
             }
         }
-        return relaunched
+        return result
     }
 
+    /// One kept tab: the new shell opens in the dead tab's pane, takes its
+    /// pin first (pinned tabs sort first), moves to the dead tab's current
+    /// index (re-read, so an earlier failure cannot shift it), joins its
+    /// group, and the dead tab closes.
     private func relaunch(_ step: KeptTabRelaunch) async throws {
         let created = try await newTab(in: step.pane, options: SpawnOptions(cwd: step.cwd, name: step.name, workspace: step.workspace))
-        _ = try await moveTab(created.surface, to: step.pane, index: step.index)
         if step.pinned, identity?.supports(DaemonCapabilities.shared.tabMetadata) == true {
             _ = try await setTabPinned(created.surface, true)
+        }
+        let panes = try await listWorkspaces().workspaces.flatMap(\.screens).flatMap(\.panes)
+        if let pane = panes.first(where: { $0.tabs.contains { $0.surface == step.deadSurface } }),
+           let index = pane.tabs.firstIndex(where: { $0.surface == step.deadSurface }) {
+            _ = try await moveTab(created.surface, to: pane.id, index: index)
         }
         if let group = step.group {
             _ = try await addTabs([created.surface], toGroup: group)
