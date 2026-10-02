@@ -4,6 +4,9 @@ extension ThemeInput {
     /// The theme a mobile terminal renders with, so the phone's chrome
     /// derives the same tokens as the Mac's for the same colors.
     ///
+    /// An invalid theme reads as Monokai, as the terminal renders it
+    /// (``TerminalTheme/validatedOrDefault()``).
+    ///
     /// ```swift
     /// let tokens = ThemeTokens.derive(from: ThemeInput(terminalTheme: .monokai))
     /// ```
@@ -13,7 +16,9 @@ extension ThemeInput {
     ///   - backgroundOpacity: `background-opacity`, clamped to 0...1; opaque by default.
     ///   - backgroundBlur: `background-blur` as Ghostty encodes it; off by default.
     public init(terminalTheme: TerminalTheme, backgroundOpacity: Double = 1, backgroundBlur: Int = 0) {
-        // `isValid` themes parse; anything else falls back to Ghostty's colors.
+        // The phone renders an invalid theme as Monokai, so the chrome reads
+        // the same theme; every color of a valid one parses.
+        let terminalTheme = terminalTheme.validatedOrDefault()
         let fallback = ThemeInput.ghosttyDefault
         self.init(
             background: Self.color(terminalTheme.background) ?? fallback.background,
