@@ -158,7 +158,7 @@ final class TabStripButtonGroupView: NSView {
         performWithTheme {
             for (index, slot) in slots.enumerated() {
                 let hovered = hoveredIndex == index, pressed = pressedIndex == index
-                slot.fill.backgroundColor = pressed ? Palette.selectionFill.cgColor : (hovered ? Palette.hoverFill.cgColor : nil)
+                slot.fill.backgroundColor = ChromeHover.fillColor(.init(hovering: hovered, pressed: pressed))?.cgColor
                 let tint = hovered || pressed ? Palette.textPrimary : Palette.textSecondary
                 slot.glyph.contents = TabButtonIconCache.shared.image(
                     for: slot.button.icon, tint: tint, pointSize: metrics.trailingIconPointSize,

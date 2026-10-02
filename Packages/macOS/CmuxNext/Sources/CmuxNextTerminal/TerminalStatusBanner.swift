@@ -46,26 +46,31 @@ final class TerminalStatusBanner: NSView {
         isHidden = false
     }
 
-    static func text(for status: TerminalConnectionStatus) -> String? {
+    /// The banner text, or nil while connected. `strings` defaults to this
+    /// module's table and falls back to English if the bundle is gone.
+    static func text(
+        for status: TerminalConnectionStatus,
+        strings: ModuleResourceBundle = .terminal
+    ) -> String? {
         switch status {
         case .connected:
             return nil
         case .exited:
-            return String(localized: "terminal.link.exited", defaultValue: "Process exited", bundle: .module)
+            return strings.text("terminal.link.exited", defaultValue: "Process exited")
         case .disconnected(_, reconnecting: true):
-            return String(localized: "terminal.link.reconnecting", defaultValue: "Reconnecting…", bundle: .module)
+            return strings.text("terminal.link.reconnecting", defaultValue: "Reconnecting…")
         case .disconnected(let cause, reconnecting: false):
             let reason = switch cause {
             case .streamEnded:
-                String(localized: "terminal.link.streamEnded", defaultValue: "Disconnected: the stream ended", bundle: .module)
+                strings.text("terminal.link.streamEnded", defaultValue: "Disconnected: the stream ended")
             case .connectionLost:
-                String(localized: "terminal.link.connectionLost", defaultValue: "Disconnected: connection lost", bundle: .module)
+                strings.text("terminal.link.connectionLost", defaultValue: "Disconnected: connection lost")
             case .attachFailed:
-                String(localized: "terminal.link.attachFailed", defaultValue: "Disconnected: could not attach", bundle: .module)
+                strings.text("terminal.link.attachFailed", defaultValue: "Disconnected: could not attach")
             case .fellBehind:
-                String(localized: "terminal.link.fellBehind", defaultValue: "Disconnected: output fell behind", bundle: .module)
+                strings.text("terminal.link.fellBehind", defaultValue: "Disconnected: output fell behind")
             }
-            let hint = String(localized: "terminal.link.hint", defaultValue: "Click or type to reconnect", bundle: .module)
+            let hint = strings.text("terminal.link.hint", defaultValue: "Click or type to reconnect")
             return "\(reason) · \(hint)"
         }
     }
