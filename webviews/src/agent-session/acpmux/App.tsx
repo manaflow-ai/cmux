@@ -33,6 +33,7 @@ import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
+import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { DateLine } from "./conversation/DateLine";
 import { Thinking } from "./conversation/Thinking";
@@ -676,6 +677,17 @@ function AcpmuxPane() {
     canLoadOlder: false,
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // The footer's fork shows only when acpmux serves forks and is reachable. The client reports a
+  // failed fork in the transcript; a bridge that cannot route it has nothing to add.
+  const forkable =
+    Boolean(snapshot.canFork) &&
+    snapshot.connection !== "disconnected" &&
+    !snapshot.connection.startsWith("connecting");
+  const turnActions = useMemo<TurnActions>(
+    () =>
+      forkable ? { fork: (throughSeq) => void callNative("chat.fork", { throughSeq }).catch(() => undefined) } : {},
+    [forkable],
+  );
   // A new chat centers its composer under the hero, as Codex's home does.
   const freshChat = isNewChat(snapshot);
   // Codex's turn shape: work folds under "Worked for" until opened.
@@ -923,6 +935,7 @@ function AcpmuxPane() {
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
+          "chat.fork": async ({ throughSeq }) => persistSession(await client.fork(Number(throughSeq))),
           "git.scope.diff": ({ scope }) => client.gitScopeDiff(String(scope)),
           "git.status": () => client.gitStatus(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
@@ -994,21 +1007,23 @@ function AcpmuxPane() {
           {freshChat ? (
             <EmptyState project={projectName(snapshot.summary?.cwd)} />
           ) : (
-            <VirtualTranscript
-              rows={transcriptRows}
-              canLoadOlder={snapshot.canLoadOlder}
-              expanded={expanded}
-              registry={registry}
-              onOpenDiff={openDiff}
-              onToggleActivity={(id) =>
-                setExpanded((current) => {
-                  const next = new Set(current);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  return next;
-                })
-              }
-            />
+            <TurnActionsContext.Provider value={turnActions}>
+              <VirtualTranscript
+                rows={transcriptRows}
+                canLoadOlder={snapshot.canLoadOlder}
+                expanded={expanded}
+                registry={registry}
+                onOpenDiff={openDiff}
+                onToggleActivity={(id) =>
+                  setExpanded((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  })
+                }
+              />
+            </TurnActionsContext.Provider>
           )}
           {diffView && diffFiles && (
             <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource} />
