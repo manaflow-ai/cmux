@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  commandText,
-  ComposerCommandSubmissionGate,
-  composerCommandRoute,
-} from "./commandRouting";
+import { commandText, ComposerCommandSubmissionGate, composerCommandRoute } from "./commandRouting";
 
 test("explicit bang routes any non-empty command", () => {
   expect(composerCommandRoute("!git status")).toBe("explicit");

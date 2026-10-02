@@ -3,11 +3,7 @@ import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
 import type { DiffTransport } from "./diff/transport";
-import type {
-  BranchListResult,
-  BranchPickerGroup,
-  BranchPickerRow,
-} from "./diff/generated/protocol";
+import type { BranchListResult, BranchPickerGroup, BranchPickerRow } from "./diff/generated/protocol";
 
 /**
  * Searchable, uncapped branch base picker. Renders a heavy toolbar button that
@@ -229,30 +225,33 @@ export function BranchBasePicker({
       return;
     }
     if (transport && picker.groupId && picker.capabilityToken) {
-      transport.request({
-        method: "branchChange",
-        params: {
-          groupId: picker.groupId,
-          repoRoot: picker.repoRoot,
-          baseRef: trimmed,
-          capabilityToken: picker.capabilityToken,
-        },
-      }).then((result) => {
-        if (result.type !== "navigation") {
-          throw new Error("branch change response missing navigation");
-        }
-        onNavigate(result.value.url);
-      }).catch((error) => {
-        console.warn("cmux diff branch picker regeneration failed", error);
-        setGeneratingRef(null);
-        setRegenerationFailed(true);
-        setLoadState("idle");
-        setQuery("");
-        setHighlight(0);
-        // Reopen the cached picker. Its callback-ref focuses the filter input,
-        // while the localized error explains why navigation did not happen.
-        setOpen(true);
-      });
+      transport
+        .request({
+          method: "branchChange",
+          params: {
+            groupId: picker.groupId,
+            repoRoot: picker.repoRoot,
+            baseRef: trimmed,
+            capabilityToken: picker.capabilityToken,
+          },
+        })
+        .then((result) => {
+          if (result.type !== "navigation") {
+            throw new Error("branch change response missing navigation");
+          }
+          onNavigate(result.value.url);
+        })
+        .catch((error) => {
+          console.warn("cmux diff branch picker regeneration failed", error);
+          setGeneratingRef(null);
+          setRegenerationFailed(true);
+          setLoadState("idle");
+          setQuery("");
+          setHighlight(0);
+          // Reopen the cached picker. Its callback-ref focuses the filter input,
+          // while the localized error explains why navigation did not happen.
+          setOpen(true);
+        });
       return;
     }
     onNavigate(toCurrentOriginRelative(picker.regenerateURLTemplate).replace("{ref}", encodeURIComponent(trimmed)));
@@ -342,18 +341,14 @@ export function BranchBasePicker({
     }
   };
 
-  const buttonText = generatingRef != null
-    ? label("branchPickerGenerating").replace("{ref}", generatingRef)
-    : null;
+  const buttonText = generatingRef != null ? label("branchPickerGenerating").replace("{ref}", generatingRef) : null;
 
   // The visual `title` exposes the full, untruncated label on hover so a
   // narrowed button (ref ellipsized, reason/ahead-behind shed by container
   // queries) still surfaces the complete value. The aria-label stays the action
   // label ("Change diff base") for assistive tech. While generating, the button
   // is disabled and shows its own transient text, so fall back to the action.
-  const buttonTitle = generatingRef != null
-    ? label("branchPickerOpen")
-    : baseButtonTitle(label, picker);
+  const buttonTitle = generatingRef != null ? label("branchPickerOpen") : baseButtonTitle(label, picker);
 
   return (
     <div id="base-picker" ref={containerRef}>
@@ -380,69 +375,71 @@ export function BranchBasePicker({
           <BranchBaseButtonLabel picker={picker} />
         )}
       </button>
-      {open && popoverStyle ? createPortal(
-        <div
-          ref={popoverRef}
-          className="base-picker-popover"
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="dialog"
-          aria-label={label("branchPickerOpen")}
-          style={popoverStyle}
-        >
-          <div className="base-picker-search">
-            <Icon name="search" />
-            <input
-              ref={focusFilterInput}
-              type="text"
-              className="base-picker-input"
-              placeholder={label("branchPickerFilterPlaceholder")}
-              aria-label={label("branchPickerFilterPlaceholder")}
-              aria-controls={listboxId}
-              aria-activedescendant={flat[clampedHighlight] ? rowDomId(listboxId, clampedHighlight) : undefined}
-              value={query}
-              onChange={(event) => {
-                setQuery(event.currentTarget.value);
-                setHighlight(0);
-              }}
-              onKeyDown={onInputKeyDown}
-            />
-          </div>
-          {regenerationFailed ? (
-            <output className="base-picker-status base-picker-status-error">
-              {label("branchPickerGenerateFailed")}
-            </output>
-          ) : null}
-          {/* Searchable command-palette listbox; a native select/datalist cannot
-              render grouped rows with secondaries, pills, and matched bolding. */}
-          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-          <div id={listboxId} className="base-picker-list" role="listbox" aria-label={label("branchPickerOpen")}>
-            {loadState === "loading" ? (
-              <div className="base-picker-status">{label("branchPickerLoading")}</div>
-            ) : loadState === "error" ? (
-              <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
-            ) : flat.length === 0 ? (
-              <div className="base-picker-status">{label("branchPickerNoMatches")}</div>
-            ) : (
-              flat.map((entry, index) => (
-                <BranchPickerRowView
-                  // Stable identity key: groupId + ref. A ref is unique within a
-                  // group, and the groupId prefix disambiguates the same ref
-                  // appearing in two groups (e.g. Suggested vs Worktrees), so the
-                  // key survives filter rebuilds (no array-index key).
-                  key={`${entry.groupId}:${entry.row.ref}`}
-                  domId={rowDomId(listboxId, index)}
-                  entry={entry}
-                  label={label}
-                  selected={index === clampedHighlight}
-                  onHover={() => setHighlight(index)}
-                  onSelect={() => selectRef(entry.row.ref)}
+      {open && popoverStyle
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              className="base-picker-popover"
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              role="dialog"
+              aria-label={label("branchPickerOpen")}
+              style={popoverStyle}
+            >
+              <div className="base-picker-search">
+                <Icon name="search" />
+                <input
+                  ref={focusFilterInput}
+                  type="text"
+                  className="base-picker-input"
+                  placeholder={label("branchPickerFilterPlaceholder")}
+                  aria-label={label("branchPickerFilterPlaceholder")}
+                  aria-controls={listboxId}
+                  aria-activedescendant={flat[clampedHighlight] ? rowDomId(listboxId, clampedHighlight) : undefined}
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.currentTarget.value);
+                    setHighlight(0);
+                  }}
+                  onKeyDown={onInputKeyDown}
                 />
-              ))
-            )}
-          </div>
-        </div>,
-        document.body,
-      ) : null}
+              </div>
+              {regenerationFailed ? (
+                <output className="base-picker-status base-picker-status-error">
+                  {label("branchPickerGenerateFailed")}
+                </output>
+              ) : null}
+              {/* Searchable command-palette listbox; a native select/datalist cannot
+              render grouped rows with secondaries, pills, and matched bolding. */}
+              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+              <div id={listboxId} className="base-picker-list" role="listbox" aria-label={label("branchPickerOpen")}>
+                {loadState === "loading" ? (
+                  <div className="base-picker-status">{label("branchPickerLoading")}</div>
+                ) : loadState === "error" ? (
+                  <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
+                ) : flat.length === 0 ? (
+                  <div className="base-picker-status">{label("branchPickerNoMatches")}</div>
+                ) : (
+                  flat.map((entry, index) => (
+                    <BranchPickerRowView
+                      // Stable identity key: groupId + ref. A ref is unique within a
+                      // group, and the groupId prefix disambiguates the same ref
+                      // appearing in two groups (e.g. Suggested vs Worktrees), so the
+                      // key survives filter rebuilds (no array-index key).
+                      key={`${entry.groupId}:${entry.row.ref}`}
+                      domId={rowDomId(listboxId, index)}
+                      entry={entry}
+                      label={label}
+                      selected={index === clampedHighlight}
+                      onHover={() => setHighlight(index)}
+                      onSelect={() => selectRef(entry.row.ref)}
+                    />
+                  ))
+                )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -454,11 +451,7 @@ export function BranchBasePicker({
 // complete comparison on hover.
 function baseButtonTitle(label: DiffViewerLabelResolver, picker: BranchPickerPayload): string {
   const low = picker.confidence === "low";
-  const parts = [
-    label("branchPickerComparing")
-      .replace("{head}", picker.headRef)
-      .replace("{base}", picker.currentRef),
-  ];
+  const parts = [label("branchPickerComparing").replace("{head}", picker.headRef).replace("{base}", picker.currentRef)];
   if (picker.currentReason) {
     parts.push(`(${low ? "~" : ""}${picker.currentReason})`);
   }
@@ -468,11 +461,7 @@ function baseButtonTitle(label: DiffViewerLabelResolver, picker: BranchPickerPay
   return parts.join(" ");
 }
 
-function BranchBaseButtonLabel({
-  picker,
-}: {
-  picker: BranchPickerPayload;
-}) {
+function BranchBaseButtonLabel({ picker }: { picker: BranchPickerPayload }) {
   const low = picker.confidence === "low";
   const reason = `${low ? "~" : ""}${picker.currentReason}`;
   const aheadBehind = picker.aheadBehind;
@@ -492,9 +481,7 @@ function BranchBaseButtonLabel({
       {picker.currentReason || aheadBehind ? (
         <span className="base-picker-meta">
           {picker.currentReason ? (
-            <span className={low ? "base-picker-reason base-picker-reason-low" : "base-picker-reason"}>
-              ({reason})
-            </span>
+            <span className={low ? "base-picker-reason base-picker-reason-low" : "base-picker-reason"}>({reason})</span>
           ) : null}
           {aheadBehind ? (
             <span className="base-picker-aheadbehind">
@@ -553,9 +540,7 @@ function BranchPickerRowView({
         }}
       >
         <span className="base-picker-row-primary">
-          {entry.raw
-            ? label("branchPickerUseRaw").replace("{ref}", row.ref)
-            : renderMatched(row.label, entry.match)}
+          {entry.raw ? label("branchPickerUseRaw").replace("{ref}", row.ref) : renderMatched(row.label, entry.match)}
         </span>
         {row.current ? <span className="base-picker-pill">{label("branchPickerCurrent")}</span> : null}
         {secondary ? <span className="base-picker-row-secondary">{secondary}</span> : null}

@@ -43,11 +43,7 @@ import {
   type SessionState,
   type TranscriptEntry,
 } from "../shared/sessionModel";
-import {
-  commandText,
-  ComposerCommandSubmissionGate,
-  composerCommandRoute,
-} from "../shared/commandRouting";
+import { commandText, ComposerCommandSubmissionGate, composerCommandRoute } from "../shared/commandRouting";
 import { applyCodexDocumentMetadata } from "../shared/theme";
 import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
 
@@ -263,8 +259,7 @@ function SessionSurface({
   composerFooter.append(leftRail);
 
   const modelPicker = document.createElement("label");
-  modelPicker.className =
-    `model-picker ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} max-w-40 min-w-0 rounded-full`;
+  modelPicker.className = `model-picker ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} max-w-40 min-w-0 rounded-full`;
   const modelIcon = document.createElement("span");
   modelIcon.className = "model-icon";
   modelIcon.setAttribute("aria-hidden", "true");
@@ -331,8 +326,7 @@ function SessionSurface({
   });
 
   const stop = document.createElement("button");
-  stop.className =
-    `codex-action codex-circle-action ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
+  stop.className = `codex-action codex-circle-action ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
   stop.type = "button";
   stop.setAttribute("aria-label", "Stop");
   stop.addEventListener("click", () => void stopProvider(state(), dispatch));
@@ -346,8 +340,7 @@ function SessionSurface({
   });
 
   const mic = document.createElement("button");
-  mic.className =
-    `codex-action codex-mic ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
+  mic.className = `codex-action codex-mic ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
   mic.type = "button";
   mic.disabled = true;
   mic.textContent = "♩";
@@ -357,8 +350,7 @@ function SessionSurface({
   });
 
   const send = document.createElement("button");
-  send.className =
-    `codex-action send-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_PRIMARY} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
+  send.className = `codex-action send-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_PRIMARY} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`;
   send.type = "submit";
   send.append(sendIcon());
   controlsRight.append(send);
@@ -378,12 +370,8 @@ function SessionSurface({
   });
   composerStack.append(rateLine);
   createEffect(() => {
-    renderRateLimitFooter(
-      rateLine,
-      state(),
-      provider()?.displayName ?? renderer,
-      isRateLimitOpen(),
-      () => setIsRateLimitOpen((open) => !open),
+    renderRateLimitFooter(rateLine, state(), provider()?.displayName ?? renderer, isRateLimitOpen(), () =>
+      setIsRateLimitOpen((open) => !open),
     );
   });
 
@@ -547,9 +535,10 @@ function rateLimitInlineSegmentElement(
 
   const label = document.createElement("span");
   label.className = "rate-limit-window";
-  const fallbackLabel = normalized.role === "primary"
-    ? state.context?.copy.rateLimitPrimary ?? "Primary"
-    : state.context?.copy.rateLimitSecondary ?? "Secondary";
+  const fallbackLabel =
+    normalized.role === "primary"
+      ? (state.context?.copy.rateLimitPrimary ?? "Primary")
+      : (state.context?.copy.rateLimitSecondary ?? "Secondary");
   label.textContent = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel, {
     weekly: state.context?.copy.rateLimitWeekly ?? "Weekly",
     monthly: state.context?.copy.rateLimitMonthly ?? "Monthly",
@@ -582,9 +571,10 @@ function rateLimitRowElement(row: AgentSessionRateLimitRow, state: SessionState)
 
   const label = document.createElement("span");
   label.className = "rate-limit-window";
-  const fallbackLabel = normalized.role === "primary"
-    ? state.context?.copy.rateLimitPrimary ?? "Primary"
-    : state.context?.copy.rateLimitSecondary ?? "Secondary";
+  const fallbackLabel =
+    normalized.role === "primary"
+      ? (state.context?.copy.rateLimitPrimary ?? "Primary")
+      : (state.context?.copy.rateLimitSecondary ?? "Secondary");
   label.textContent = formatRateLimitWindow(normalized.windowDurationMins, fallbackLabel, {
     weekly: state.context?.copy.rateLimitWeekly ?? "Weekly",
     monthly: state.context?.copy.rateLimitMonthly ?? "Monthly",
@@ -651,8 +641,7 @@ function stopIcon(): SVGSVGElement {
 
 function codexIconButton(kind: string, text: string, onClick?: () => void): HTMLButtonElement {
   const button = document.createElement("button");
-  button.className =
-    `codex-tool codex-tool-${kind} ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`;
+  button.className = `codex-tool codex-tool-${kind} ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER_SM} ${CODEX_BUTTON_UNIFORM} rounded-full`;
   button.type = "button";
   if (onClick) {
     button.addEventListener("click", onClick);
