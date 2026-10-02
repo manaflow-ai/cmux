@@ -66,6 +66,22 @@ impl ControlResponses {
         self.resolve_after(frame, || {})
     }
 
+    /// Registers a blocking waiter for `kind` and returns its receiver.
+    #[cfg(test)]
+    pub(crate) fn wait_for_test(&self, request_id: u64, kind: MessageKind) -> Receiver<Frame> {
+        let (sender, receiver) = sync_channel(1);
+        self.waiters
+            .lock()
+            .unwrap()
+            .insert(request_id, ControlResponseWaiter::Blocking { kind, sender });
+        receiver
+    }
+
+    /// Whether a waiter for `request_id` is registered.
+    pub(crate) fn has_waiter(&self, request_id: u64) -> bool {
+        self.waiters.lock().unwrap().contains_key(&request_id)
+    }
+
     pub(crate) fn resolve_after(&self, frame: &Frame, before_resolve: impl FnOnce()) -> bool {
         let waiter = self.waiters.lock().unwrap().remove(&frame.request_id);
         match waiter {
@@ -156,15 +172,31 @@ impl ControlResponses {
     }
 
     pub(crate) fn fail_all(&self) {
+        self.fail_all_except(|_| false);
+    }
+
+    /// Fail every waiter except blocking waiters for a response kind that
+    /// `keep` selects. The surface reader keeps those when it abandons a
+    /// stream: the connection's frame reader still delivers them and
+    /// fails them when the stream ends.
+    pub(crate) fn fail_all_except(&self, keep: impl Fn(MessageKind) -> bool) {
         let deferred = {
             let mut waiters = self.waiters.lock().unwrap();
-            waiters
-                .drain()
-                .filter_map(|(request_id, waiter)| match waiter {
-                    ControlResponseWaiter::DeferredCellPixel { expected } => {
+            let failed = waiters
+                .iter()
+                .filter(|(_, waiter)| match waiter {
+                    ControlResponseWaiter::Blocking { kind, .. } => !keep(*kind),
+                    ControlResponseWaiter::DeferredCellPixel { .. } => true,
+                })
+                .map(|(request_id, _)| *request_id)
+                .collect::<Vec<_>>();
+            failed
+                .into_iter()
+                .filter_map(|request_id| match waiters.remove(&request_id) {
+                    Some(ControlResponseWaiter::DeferredCellPixel { expected }) => {
                         Some((request_id, expected))
                     }
-                    ControlResponseWaiter::Blocking { .. } => None,
+                    _ => None,
                 })
                 .collect::<Vec<_>>()
         };
