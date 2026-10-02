@@ -11,7 +11,8 @@ public nonisolated enum SidebarBandHeights {
     /// proportion and scroll as a last resort. Sections' `maxRows` caps
     /// apply in both modes.
     public static func resolve(above: SidebarRegionLayout, below: SidebarRegionLayout, available: CGFloat,
-                               preferences p: SidebarSectionsPreferences, minimumList: CGFloat) -> (above: CGFloat, below: CGFloat) {
+                               preferences p: SidebarSectionsPreferences, minimumList: CGFloat,
+                               bandFloor: CGFloat = 0) -> (above: CGFloat, below: CGFloat) {
         if p.stickyBandsScroll {
             return (above.stickyHeight(available: available, share: CGFloat(p.topBandMaxShare)),
                     below.stickyHeight(available: available, share: CGFloat(p.bottomBandMaxShare)))

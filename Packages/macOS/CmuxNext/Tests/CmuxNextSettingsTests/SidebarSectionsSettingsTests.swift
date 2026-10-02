@@ -38,3 +38,14 @@ import Testing
         #expect(design.sidebarSections == .defaults)
     }
 }
+
+/// Review MED1: the two band shares together must leave room for the list.
+@Suite struct SidebarBandShareSumTests {
+    @Test func sharesSummingPastTheCapFallBackWithADiagnostic() throws {
+        let snapshot = CmuxConfigSnapshot.parse(
+            try JSONC.parse(#"{"sidebar": {"topBandMaxShare": 0.6, "bottomBandMaxShare": 0.5}}"#), validDensities: [], validMetrics: [])
+        #expect(snapshot.sidebarSections.topBandMaxShare == SidebarSectionsPreferences.defaults.topBandMaxShare)
+        #expect(snapshot.sidebarSections.bottomBandMaxShare == SidebarSectionsPreferences.defaults.bottomBandMaxShare)
+        #expect(snapshot.diagnostics.map(\.path) == ["sidebar.bottomBandMaxShare"])
+    }
+}

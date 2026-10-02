@@ -56,7 +56,7 @@ final class SidebarItemRowView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// Width of a chip showing `title`: padding, glyph, gap, label, padding.
-    static func chipWidth(title: String, font: NSFont) -> CGFloat {
+    static func chipWidth(title: String, font: NSFont, badge: Int? = nil) -> CGFloat {
         // The label's own width (a text field adds its cell padding).
         let label = NSTextField(labelWithString: title)
         label.font = font
@@ -65,6 +65,9 @@ final class SidebarItemRowView: NSView {
         // few points between window contexts (seen in offscreen renders).
         return Metrics.space2 + SidebarStyle.iconBox + Metrics.space2 + text + Metrics.space2 * 2
     }
+
+    /// The unread badge draws (tests).
+    var isBadgeShown: Bool { !badge.isHidden }
 
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }
