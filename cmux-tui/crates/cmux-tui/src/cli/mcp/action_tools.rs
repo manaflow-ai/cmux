@@ -77,10 +77,9 @@ pub(super) fn from_list(list: &Value) -> (Vec<ActionTool>, Vec<Exclusion>) {
                 reason: reason.to_owned(),
             });
         };
-        if let Some((_, reason)) = EXCLUDED_ACTIONS
-            .iter()
-            .find(|(name, _)| *name == id || cli_name == *name || cli_name.starts_with(&format!("{name} ")))
-        {
+        if let Some((_, reason)) = EXCLUDED_ACTIONS.iter().find(|(name, _)| {
+            *name == id || cli_name == *name || cli_name.starts_with(&format!("{name} "))
+        }) {
             exclude(reason);
             continue;
         }
@@ -88,9 +87,9 @@ pub(super) fn from_list(list: &Value) -> (Vec<ActionTool>, Vec<Exclusion>) {
             exclude("Its CLI name does not make a valid tool name.");
             continue;
         };
-        if arguments(action).any(|argument| {
-            matches!(argument["name"].as_str(), Some("target" | "idempotency_key"))
-        }) {
+        if arguments(action)
+            .any(|argument| matches!(argument["name"].as_str(), Some("target" | "idempotency_key")))
+        {
             exclude("An argument's name collides with a tool control argument.");
             continue;
         }
@@ -251,7 +250,8 @@ impl ActionTool {
                     params.insert("target".into(), json!(target));
                 }
                 "focus" => {
-                    let focus = value.as_bool().ok_or_else(|| invalid("focus must be a boolean"))?;
+                    let focus =
+                        value.as_bool().ok_or_else(|| invalid("focus must be a boolean"))?;
                     if focus {
                         params.insert("focus".into(), json!(true));
                     }

@@ -62,7 +62,8 @@ pub(super) fn apply(
                     continue;
                 };
                 let records = read(reader, list, route.clone())?;
-                params.insert(field.clone(), Value::String(unique_prefix(&field, &value, &records)?));
+                params
+                    .insert(field.clone(), Value::String(unique_prefix(&field, &value, &records)?));
             }
             Resolve::StateName { field, list } => {
                 let Some(value) = params.get(field).and_then(Value::as_str).map(str::to_owned)

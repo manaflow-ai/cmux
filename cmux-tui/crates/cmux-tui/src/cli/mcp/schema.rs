@@ -82,8 +82,7 @@ impl<'a> Generator<'a> {
                 schema
             }
             "array" => {
-                let mut schema =
-                    json!({ "type": "array", "items": self.expression(&expression["items"], stack) });
+                let mut schema = json!({ "type": "array", "items": self.expression(&expression["items"], stack) });
                 copy(expression, "min_items", &mut schema, "minItems");
                 copy(expression, "max_items", &mut schema, "maxItems");
                 schema
@@ -104,7 +103,7 @@ impl<'a> Generator<'a> {
                             .map(|variant| self.expression(variant, stack))
                             .collect::<Vec<Value>>()
                     })
-                    .unwrap_or_else(Vec::new);
+                    .unwrap_or_default();
                 let mut schema = json!({ "anyOf": variants });
                 if let Some(constraints) = joined(&expression["constraints"]) {
                     describe(&mut schema, &constraints);

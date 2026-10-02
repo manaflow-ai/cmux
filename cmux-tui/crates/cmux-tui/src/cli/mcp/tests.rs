@@ -155,13 +155,13 @@ fn every_catalog_operation_is_a_tool_or_excluded_with_a_reason() {
 #[test]
 fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
     let cases = super::super::command::tests::safe_operation_cases();
-    let sends = |args: &[&str]| match super::super::parse(&strings(args), super::super::Surface::Cmux)
-    {
-        Ok(ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. }) => {
-            request.operation.name().ok()
-        }
-        _ => None,
-    };
+    let sends =
+        |args: &[&str]| match super::super::parse(&strings(args), super::super::Surface::Cmux) {
+            Ok(ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. }) => {
+                request.operation.name().ok()
+            }
+            _ => None,
+        };
     for tool in v2_tools::tools() {
         let (args, _) = cases
             .iter()
@@ -177,7 +177,12 @@ fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
     }
     for (wire, _) in v2_tools::EXCLUDED {
         if let Some((args, _)) = cases.iter().find(|(_, operation)| operation == wire) {
-            assert_eq!(sends(args.as_slice()), None, "`cmux {}` offers excluded {wire}", args.join(" "));
+            assert_eq!(
+                sends(args.as_slice()),
+                None,
+                "`cmux {}` offers excluded {wire}",
+                args.join(" ")
+            );
         }
     }
 }
@@ -316,14 +321,14 @@ fn fake_env(
 fn the_settings_file_follows_the_app_override() {
     assert_eq!(
         config::path_from(fake_env(&[("HOME", "/Users/u")])),
-        std::path::PathBuf::from("/Users/u/.config/cmux/cmux.json")
+        PathBuf::from("/Users/u/.config/cmux/cmux.json")
     );
     assert_eq!(
         config::path_from(fake_env(&[
             ("HOME", "/Users/u"),
             (config::CONFIG_OVERRIDE, "~/s/c.json"),
         ])),
-        std::path::PathBuf::from("/Users/u/s/c.json")
+        PathBuf::from("/Users/u/s/c.json")
     );
 }
 
@@ -368,7 +373,8 @@ fn json_rpc_lifecycle_and_errors() {
     let mut output = Vec::new();
     assert_eq!(server.run(input.as_bytes(), &mut output), 0);
     let lines = String::from_utf8(output).unwrap();
-    let lines = lines.lines().map(|line| serde_json::from_str::<Value>(line).unwrap()).collect::<Vec<_>>();
+    let lines =
+        lines.lines().map(|line| serde_json::from_str::<Value>(line).unwrap()).collect::<Vec<_>>();
     assert_eq!(lines.len(), 2);
     assert_eq!(lines[0]["result"], json!({}));
     assert_eq!(lines[1]["error"]["code"], -32700);
@@ -379,7 +385,9 @@ fn tool_schemas_follow_the_catalog() {
     let name_ok = |name: &str| {
         !name.is_empty()
             && name.len() <= 64
-            && name.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
     };
     for tool in v2_tools::tools() {
         assert!(name_ok(&tool.name), "{}", tool.name);

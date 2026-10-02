@@ -235,16 +235,16 @@ pub(super) fn call(global: &GlobalArgs, mut plan: RequestPlan) -> Result<Value, 
     let mut reader = BufReader::new(stream);
     if !plan.resolve.is_empty() {
         let caller_route = global.socket.is_none() && global.session.is_none();
-        super::resolve::apply(&mut reader, &mut plan, caller_route).map_err(|failure| {
-            match failure {
+        super::resolve::apply(&mut reader, &mut plan, caller_route).map_err(
+            |failure| match failure {
                 super::resolve::Failure::Resource(error) => {
                     CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
                 }
                 super::resolve::Failure::Transport(message) => {
                     fail(NotRun, "transport.failed", message)
                 }
-            }
-        })?;
+            },
+        )?;
         request["params"] = plan.params.clone();
     }
     let encoded = encode_request_bytes(&request)

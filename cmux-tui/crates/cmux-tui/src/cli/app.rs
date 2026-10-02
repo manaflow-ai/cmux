@@ -318,7 +318,11 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
 /// with `focus: true` may move the app's focus, selection, shown workspace or
 /// key window, unless the action's purpose is focus or the origin is `user`
 /// (plans/cmux-next/OWNERSHIP-PRINCIPLES.md, "Clients are projections").
-pub(super) fn action_run_params(action: &str, name: ActionName, origin: &str) -> Map<String, Value> {
+pub(super) fn action_run_params(
+    action: &str,
+    name: ActionName,
+    origin: &str,
+) -> Map<String, Value> {
     let mut params = Map::new();
     params.insert("action".into(), json!(action));
     if name == ActionName::Cli {
@@ -547,9 +551,10 @@ pub(super) fn call_method(
     let mut stream = connect(&socket)
         .map_err(|error| CallFailure::local(FailureKind::NotRun, "app.unreachable", error))?;
     let key = if method == "action.run" {
-        Some(insert_run_key(&mut params, idempotency_key).map_err(|error| {
-            CallFailure::local(FailureKind::NotRun, "app.transport", error)
-        })?)
+        Some(
+            insert_run_key(&mut params, idempotency_key)
+                .map_err(|error| CallFailure::local(FailureKind::NotRun, "app.transport", error))?,
+        )
     } else {
         None
     };

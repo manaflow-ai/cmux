@@ -81,17 +81,8 @@ const PAIRING_REASON: &str =
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 
 /// Public id prefixes a `<session>:` qualifier may precede.
-const QUALIFIABLE_PREFIXES: &[&str] = &[
-    "ws_",
-    "screen_",
-    "pane_",
-    "tab_",
-    "term_",
-    "browser_",
-    "notification_",
-    "agent_",
-    "split_",
-];
+const QUALIFIABLE_PREFIXES: &[&str] =
+    &["ws_", "screen_", "pane_", "tab_", "term_", "browser_", "notification_", "agent_", "split_"];
 
 pub(super) fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
@@ -138,7 +129,8 @@ fn build() -> Vec<V2Tool> {
         if !matches!(class, "read" | "mutation") || excluded_reason(wire).is_some() {
             continue;
         }
-        let Ok(operation) = serde_json::from_value::<ResourceOperation>(Value::String(wire.clone()))
+        let Ok(operation) =
+            serde_json::from_value::<ResourceOperation>(Value::String(wire.clone()))
         else {
             continue;
         };
@@ -365,10 +357,9 @@ impl V2Tool {
                 _ => return Err(invalid(format!("{} has no argument {name:?}", self.name))),
             }
         }
-        let page = self.paginated.then(|| Page {
-            offset: offset.unwrap_or(0),
-            limit: limit.unwrap_or(DEFAULT_PAGE),
-        });
+        let page = self
+            .paginated
+            .then(|| Page { offset: offset.unwrap_or(0), limit: limit.unwrap_or(DEFAULT_PAGE) });
         Ok(CallPlan {
             plan: RequestPlan {
                 operation: WireOperation::Typed(self.operation),
@@ -418,14 +409,11 @@ pub(super) fn split_session(value: &str) -> (Option<&str>, &str) {
 
 /// `ws_1a2b` (fewer than 32 lowercase hex digits after the prefix).
 pub(super) fn is_partial_id(value: &str, prefix: &str) -> bool {
-    value
-        .strip_prefix(prefix)
-        .and_then(|rest| rest.strip_prefix('_'))
-        .is_some_and(|hex| {
-            !hex.is_empty()
-                && hex.len() < 32
-                && hex.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        })
+    value.strip_prefix(prefix).and_then(|rest| rest.strip_prefix('_')).is_some_and(|hex| {
+        !hex.is_empty()
+            && hex.len() < 32
+            && hex.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
 }
 
 fn set_session(slot: &mut Option<String>, session: &str) -> Result<(), Value> {
@@ -441,9 +429,10 @@ fn set_session(slot: &mut Option<String>, session: &str) -> Result<(), Value> {
 }
 
 fn text<'a>(name: &str, value: &'a Value) -> Result<&'a str, Value> {
-    value.as_str().filter(|text| !text.is_empty()).ok_or_else(|| {
-        invalid(format!("{name} must be a non-empty string"))
-    })
+    value
+        .as_str()
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| invalid(format!("{name} must be a non-empty string")))
 }
 
 fn count(name: &str, value: &Value, maximum: usize) -> Result<usize, Value> {

@@ -473,9 +473,9 @@ pub(super) fn failure_result(failure: CallFailure) -> Value {
         if data.get("not_run") == Some(&Value::Bool(true)) {
             return Some("not_run");
         }
-        data.get("state").and_then(Value::as_str).filter(|state| {
-            matches!(*state, "not_run" | "in_progress")
-        })
+        data.get("state")
+            .and_then(Value::as_str)
+            .filter(|state| matches!(*state, "not_run" | "in_progress"))
     });
     let state = owner_state.unwrap_or(failure.kind.state()).to_owned();
     tool_error(envelope(failure.error, &state, failure.idempotency_key.as_deref()))
