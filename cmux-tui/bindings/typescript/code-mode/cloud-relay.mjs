@@ -23,9 +23,9 @@ function bodyWithout(params, ...names) { const body = { ...params }; for (const 
  * Host-owned Cloud broker. The bearer is read only here and is never passed to
  * code mode or bwrap. Routes are a fixed operation map, never caller URLs.
  */
-export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, catalog = {}, fixture = undefined } = {}) {
+export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, catalog = {}, allowedOperations = undefined, fixture = undefined } = {}) {
   if (!fixture && (!apiUrl || !bearerToken)) throw new Error("Cloud relay requires host credentials");
-  const catalogOps = new Set(Object.keys(catalog.operations ?? {}));
+  const catalogOps = new Set(allowedOperations ?? Object.keys(catalog.operations ?? {}));
   async function request(operation, params, idempotencyKey) {
     if (!catalogOps.has(operation)) throw new Error(`Cloud operation is not in the catalog: ${operation}`);
     if (fixture && Object.hasOwn(fixture, operation)) return structuredClone(fixture[operation]);
