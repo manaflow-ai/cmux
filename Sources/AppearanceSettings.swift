@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import SwiftUI
 import CmuxTerminalCore
@@ -148,6 +149,17 @@ enum AppearanceSettings {
         colorSchemeOverride(for: rawValue) ?? fallback
     }
 
+    /// The window-level light/dark appearance translucent chrome composites
+    /// against, resolved from the stored appearance mode and the app's live
+    /// effective appearance.
+    @MainActor
+    static func currentAmbientColorScheme(defaults: UserDefaults = .standard) -> ColorScheme {
+        effectiveColorScheme(
+            for: defaults.string(forKey: appearanceModeKey),
+            fallback: .light
+        )
+    }
+
     /// Resolves the color scheme the chrome should render with. Explicit modes
     /// win. After launch, system mode resolves from the app's live
     /// effectiveAppearance, which (unlike the AppleInterfaceStyle default) stays
@@ -261,7 +273,7 @@ enum AppearanceSettings {
 
 final class AppearanceSettingsUserDefaultsObserver {
     struct Environment {
-        let addDefaultsObserver: (@escaping () -> Void) -> NSObjectProtocol
+        let addDefaultsObserver: (@escaping @MainActor @Sendable () -> Void) -> NSObjectProtocol
         let removeObserver: (NSObjectProtocol) -> Void
         let currentRawValue: () -> String?
         let applyStoredMode: (String?, String) -> AppearanceMode
@@ -272,11 +284,7 @@ final class AppearanceSettingsUserDefaultsObserver {
         ) -> Environment {
             Environment(
                 addDefaultsObserver: { handler in
-                    notificationCenter.addObserver(
-                        forName: UserDefaults.didChangeNotification,
-                        object: nil,
-                        queue: .main
-                    ) { _ in
+                    notificationCenter.addUserDefaultsObserver(object: nil) {
                         handler()
                     }
                 },
@@ -366,13 +374,37 @@ private struct AppearanceColorSchemeModifier: ViewModifier {
         content
             .environment(\.colorScheme, effective)
             .preferredColorScheme(override)
+            .cmuxAccentColorEnvironment()
             .onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
                 systemAppearanceGeneration &+= 1
             }
     }
 }
 
+/// Injects the resolved cmux accent (``EnvironmentValues/cmuxAccentColor``)
+/// for a SwiftUI root and keeps it current from the app delegate's
+/// ``CmuxAccentColorObserver``. Window roots get it through
+/// `cmuxAppearanceColorScheme`; hosting views mounted outside a window root
+/// (search overlays, titlebar accessories, popovers) apply it directly.
+struct CmuxAccentColorEnvironmentModifier: ViewModifier {
+    @State private var accentColor = AppDelegate.shared?.accentColor ?? CmuxAccentColor()
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.cmuxAccentColor, accentColor)
+            .onReceive(NotificationCenter.default.publisher(for: CmuxAccentColor.didChangeNotification)) { notification in
+                if let observer = notification.object as? CmuxAccentColorObserver {
+                    accentColor = observer.current
+                }
+            }
+    }
+}
+
 extension View {
+    func cmuxAccentColorEnvironment() -> ModifiedContent<Self, CmuxAccentColorEnvironmentModifier> {
+        modifier(CmuxAccentColorEnvironmentModifier())
+    }
+
     func cmuxAppearanceColorScheme(_ rawValue: String?) -> some View {
         modifier(AppearanceColorSchemeModifier(rawValue: rawValue))
     }

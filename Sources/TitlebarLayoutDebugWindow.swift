@@ -39,9 +39,10 @@ enum TitlebarLayoutDebugSettingsSnapshot {
     }
 
     static func copyToPasteboard(defaults: UserDefaults = .standard) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(copyPayload(defaults: defaults), forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            copyPayload(defaults: defaults),
+            to: .general
+        )
     }
 
     @MainActor

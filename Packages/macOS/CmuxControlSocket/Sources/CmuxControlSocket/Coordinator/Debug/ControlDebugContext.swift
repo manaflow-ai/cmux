@@ -68,6 +68,9 @@ public protocol ControlDebugContext: AnyObject {
     /// `debug.pro_welcome_checklist.show`.
     func controlDebugShowProWelcomeChecklist()
 
+    /// Shows the native pricing screen for `debug.native_pricing.show`.
+    func controlDebugShowNativePricing()
+
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.
     ///
@@ -146,12 +149,6 @@ public protocol ControlDebugContext: AnyObject {
     /// - Parameter surfaceArgument: The surface id/index argument.
     /// - Returns: The raw v1 response.
     func controlDebugPanelSnapshotReset(surfaceArgument: String) -> String
-
-    /// Runs the shared v1 `screenshot` body for `debug.window.screenshot`.
-    ///
-    /// - Parameter label: The optional screenshot label (may be empty).
-    /// - Returns: The raw v1 response (`"OK <id> <path>"` or an `ERROR:` line).
-    func controlDebugCaptureScreenshot(label: String) -> String
 
     /// Shows the canvas Command+scroll discovery hint for
     /// `debug.canvas.command_scroll_hint`.

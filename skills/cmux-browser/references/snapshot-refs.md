@@ -2,14 +2,17 @@
 
 Instead of dumping the DOM and guessing selectors, snapshot the page and act on the returned refs (`e1`, `e2`, ...). Related: [commands.md](commands.md), [../SKILL.md](../SKILL.md).
 
-```bash
-cmux browser surface:7 snapshot
-cmux browser surface:7 snapshot --interactive
-cmux browser surface:7 snapshot --interactive --compact --max-depth 3
+Set `SURFACE` from creation or
+[surface discovery](surface-discovery.md) before taking the snapshot.
 
-cmux browser surface:7 fill e10 "user@example.com"
-cmux browser surface:7 fill e11 "password123"
-cmux browser surface:7 click e12
+```bash
+cmux browser --surface "$SURFACE" snapshot
+cmux browser --surface "$SURFACE" snapshot --interactive
+cmux browser --surface "$SURFACE" snapshot --interactive --compact --max-depth 3
+
+cmux browser --surface "$SURFACE" fill e10 "$APP_USERNAME"
+cmux browser --surface "$SURFACE" fill e11 "$APP_PASSWORD"
+cmux browser --surface "$SURFACE" click e12
 ```
 
 ## Ref lifecycle

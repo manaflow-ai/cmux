@@ -346,7 +346,10 @@ class AgentWatchdog:
         tabs = {item.id: item for item in snapshot.tabs}
         contexts: Dict[TerminalId, TerminalContext] = {}
         for terminal in snapshot.terminals:
-            tab = tabs.get(terminal.tab_id)
+            placements = [tabs[item] for item in terminal.tab_ids if item in tabs]
+            tab = next((item for item in placements if item.focused), None)
+            if tab is None:
+                tab = next(iter(placements), None)
             if tab is None:
                 continue
             pane = panes.get(tab.pane_id)

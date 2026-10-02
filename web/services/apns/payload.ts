@@ -25,16 +25,20 @@ export interface ApnsNotificationInput {
   readonly title: string;
   readonly subtitle?: string | null;
   readonly body: string;
+  /** Inline-reply affordance requested by the Mac notification. */
+  readonly replyShape?: "none" | "text";
   readonly workspaceId?: string | null;
   readonly surfaceId?: string | null;
   /** Whether a tap may resolve the surface outside `workspaceId`. */
   readonly retargetsToLiveSurfaceOwner?: boolean;
   readonly macDeviceId?: string | null;
+  /** The cmux app-instance tag paired with `macDeviceId`. */
+  readonly macInstanceTag?: string | null;
   /**
    * Stable Mac-side notification id. Surfaced in the payload as
    * `cmux.notificationId` so an iOS swipe-dismiss can tell the Mac which
-   * notification was cleared. The sender also stamps it as `apns-collapse-id`
-   * so a later Mac→iOS dismiss can target this exact delivered banner.
+   * notification was cleared. The sender derives an exact-Mac-instance-scoped
+   * `apns-collapse-id` from this id when the owner identity is available.
    */
   readonly notificationId?: string | null;
   /** Opaque logical-source-event id used for safe diagnostics and retries. */
@@ -52,26 +56,47 @@ export interface ApnsNotificationInput {
   readonly badgeCount?: number | null;
   /** When true, replace real terminal text with generic APNs localization keys. */
   readonly hideContent?: boolean;
+  readonly encryptedPayloads?: readonly Record<string, unknown>[];
+  readonly macPushPublicKey?: string | null;
 }
 
 /**
- * APNs `aps.category` set on every cmux terminal push. iOS registers a
- * matching ``UNNotificationCategory`` with `customDismissAction` so a
- * swipe/clear delivers `UNNotificationDismissActionIdentifier` to the app,
- * which forwards the dismiss to the Mac. Keep this in sync with the iOS
- * category id.
+ * Base APNs `aps.category` for non-replyable cmux terminal pushes. iOS
+ * registers this and the reply category with `customDismissAction` so a
+ * swipe/clear delivers `UNNotificationDismissActionIdentifier` to the app.
+ * Keep both identifiers in sync with iOS.
  */
 export const CMUX_APNS_CATEGORY = "cmux.terminal";
+
+/** APNs category for terminal pushes that accept an inline text reply. */
+export const CMUX_APNS_REPLY_CATEGORY = "cmux.terminal.reply";
 
 /**
  * Build the APNs JSON payload. Adds the workspace/surface ids, live-owner
  * retargeting provenance, Mac id, and notification id under `cmux` so a tap
  * can deep-link without crossing a confined workspace boundary and a swipe can
- * be dismiss-synced. Also sets the dismiss-action `category` and marks the
- * alert time-sensitive (the app holds that entitlement).
+ * be dismiss-synced. Also selects the plain or inline-reply dismiss-action
+ * category and marks the alert time-sensitive (the app holds that entitlement).
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   if (input.kind === "dismiss") return buildDismissPayload(input);
+  if (input.encryptedPayloads?.length) return buildEncryptedNotifyPayload(input);
+  return buildVisibleNotifyPayload(input);
+}
+
+function buildEncryptedNotifyPayload(input: ApnsNotificationInput): Record<string, unknown> {
+  const aps: Record<string, unknown> = {
+    alert: { "title-loc-key": "push.generic.title", "loc-key": "push.generic.body" },
+    "mutable-content": 1,
+    "interruption-level": "time-sensitive",
+    sound: "default",
+    category: CMUX_APNS_CATEGORY,
+  };
+  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
+  return { aps, cmux: encryptedRouting(input) };
+}
+
+function buildVisibleNotifyPayload(input: ApnsNotificationInput): Record<string, unknown> {
   const hidden = input.hideContent === true;
   const title = input.title.trim() || "cmux";
   const body = input.body;
@@ -90,7 +115,7 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
     alert,
     sound: "default",
     "interruption-level": "time-sensitive",
-    category: CMUX_APNS_CATEGORY,
+    category: input.replyShape === "text" ? CMUX_APNS_REPLY_CATEGORY : CMUX_APNS_CATEGORY,
   };
   if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
 
@@ -101,6 +126,7 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
     cmux.retargetsToLiveSurfaceOwner = input.retargetsToLiveSurfaceOwner;
   }
   if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
+  if (input.macInstanceTag) cmux.macInstanceTag = input.macInstanceTag;
   if (input.notificationId) cmux.notificationId = input.notificationId;
   if (input.correlationId) cmux.correlationId = input.correlationId;
 
@@ -119,13 +145,32 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
  * `background` push, and a `background` push may not carry `badge` at all.
  */
 function buildDismissPayload(input: ApnsNotificationInput): Record<string, unknown> {
-  const aps: Record<string, unknown> = { "content-available": 1 };
-  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
-  const cmux: Record<string, unknown> = {
-    dismissedIds: [...(input.dismissedIds ?? [])],
+  const encrypted = Boolean(input.encryptedPayloads?.length);
+  const aps: Record<string, unknown> = {
+    "content-available": 1,
+    ...(encrypted ? { "mutable-content": 1 } : {}),
+    // A notification service extension is only invoked for mutable pushes
+    // that carry an alert. Empty strings keep this dismiss push invisible while
+    // allowing the extension to decrypt and apply the dismissal.
+    ...(encrypted ? { alert: { title: "", body: "" } } : {}),
   };
+  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
+  const cmux: Record<string, unknown> = encrypted
+    ? encryptedRouting(input)
+    : { dismissedIds: [...(input.dismissedIds ?? [])] };
+  if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
+  if (input.macInstanceTag) cmux.macInstanceTag = input.macInstanceTag;
   if (input.correlationId) cmux.correlationId = input.correlationId;
   return { aps, cmux };
+}
+
+function encryptedRouting(input: ApnsNotificationInput): Record<string, unknown> {
+  return {
+    encryptedPayloads: input.encryptedPayloads,
+    ...(input.macDeviceId ? { macDeviceId: input.macDeviceId } : {}),
+    ...(input.macInstanceTag ? { macInstanceTag: input.macInstanceTag } : {}),
+    ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+  };
 }
 
 /**

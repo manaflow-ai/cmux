@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobilePairedMac
 import CmuxMobileSupport
 
 enum TaskComposerSubmissionPhase: Equatable {
@@ -138,6 +139,7 @@ extension TaskComposerSheet {
     static func suggestedDirectory(
         template: MobileTaskTemplate?,
         macDeviceID: String,
+        instanceTag: String? = nil,
         templateStore: (any MobileTaskTemplateStoring)?,
         openDirectory: String? = nil
     ) -> String {
@@ -149,7 +151,11 @@ extension TaskComposerSheet {
            !openDirectory.isEmpty {
             return openDirectory
         }
-        if let lastDirectory = templateStore?.lastDirectory(macDeviceID: macDeviceID)?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        if let lastDirectory = templateStore?.lastDirectory(macDeviceID: pairingID)?.trimmingCharacters(in: .whitespacesAndNewlines),
            !lastDirectory.isEmpty {
             return lastDirectory
         }
@@ -160,11 +166,29 @@ extension TaskComposerSheet {
         workspaces: [MobileWorkspacePreview],
         selectedWorkspaceID: MobileWorkspacePreview.ID?,
         macDeviceID: String,
-        connectedMacDeviceID: String?
+        connectedMacDeviceID: String?,
+        instanceTag: String? = nil,
+        connectedMacInstanceTag: String? = nil
     ) -> String? {
-        let includeUnscoped = macDeviceID == connectedMacDeviceID
-        let matching = workspaces.filter {
-            $0.macDeviceID == macDeviceID || ($0.macDeviceID == nil && includeUnscoped)
+        let selectedPairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        let includeUnscoped = !macDeviceID.isEmpty
+            && connectedMacDeviceID != nil
+            && selectedPairingID == MobilePairedMac.pairingID(
+                macDeviceID: connectedMacDeviceID ?? "",
+                instanceTag: connectedMacInstanceTag
+            )
+        let matching = workspaces.filter { workspace in
+            (workspace.macDeviceID.map { rowDeviceID in
+                MobileWorkspaceListFilter.machineEntryMatches(
+                    selectedPairingID,
+                    deviceID: rowDeviceID,
+                    rowTag: workspace.macInstanceTag
+                )
+            } ?? false)
+                || (workspace.macDeviceID == nil && includeUnscoped)
         }
         let ordered = matching.sorted { lhs, rhs in
             if (lhs.id == selectedWorkspaceID) != (rhs.id == selectedWorkspaceID) {

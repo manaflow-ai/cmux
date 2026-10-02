@@ -31,6 +31,13 @@ extension UpdateController {
             break
         }
 
+        if isDisabledByPolicy() {
+            // `DisableAutoUpdate` (MDM): the host explains the managed state
+            // before asking; nothing here may touch the appcast.
+            log.append("manual update check suppressed (disabled by managed policy, intent=\(intent.rawValue))")
+            return
+        }
+
         if isDevLikeBundle {
             // DEV/staging builds are not on the public release train (#6292).
             log.append("manual update check suppressed (dev/staging build, intent=\(intent.rawValue))")
@@ -118,15 +125,21 @@ extension UpdateController {
             guard source == .user else { return }
             self?.cancelQueuedCheckByUser()
         }))
-        model.replaceActiveState(with: state)
+        driver.replaceActiveState(with: state)
     }
 
     private func waitForReadinessThenCheck() {
+        // A Sparkle cycle-finished callback can arrive while the same readiness wait is still
+        // polling. Keep one bounded wait alive instead of cancelling and restarting it for every
+        // callback, which could otherwise keep the UI on "Preparing Update Check…" forever when
+        // Sparkle repeatedly reports a stale/in-progress session.
+        guard readyCheckTask == nil else { return }
         readyCheckTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var remaining = self.readyRetryCount
             while remaining > 0 {
                 if self.updater.canCheckForUpdates, !self.updater.sessionInProgress {
+                    self.readyCheckTask = nil
                     self.startPendingCheck()
                     return
                 }
@@ -138,11 +151,13 @@ extension UpdateController {
             // Read once more after the final bounded wait. Readiness may have changed during that
             // last suspension, and reporting a timeout without observing it would drop the check.
             if self.updater.canCheckForUpdates, !self.updater.sessionInProgress {
+                self.readyCheckTask = nil
                 self.startPendingCheck()
                 return
             }
 
             guard let intent = self.pendingCheckIntent else { return }
+            self.readyCheckTask = nil
             self.pendingCheckIntent = nil
             self.log.append(
                 "foreground check readiness timed out (intent=\(intent.rawValue), session=\(self.updater.sessionInProgress))"
@@ -215,7 +230,6 @@ extension UpdateController: UpdateDriverEventDelegate {
         )
 
         if pendingCheckIntent != nil {
-            cancelReadinessRetry()
             beginCheckWhenReady(pendingCheckIntent!)
             return
         }

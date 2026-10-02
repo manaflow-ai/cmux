@@ -3,6 +3,14 @@ import Foundation
 import os
 import Testing
 @testable import CmuxTerminal
+import CmuxTerminalCore
+import GhosttyKit
+
+private final class TeardownFakeSurfaceController: TerminalSurfaceControlling {
+    let surfaceId = UUID()
+    let owningTabId = UUID()
+    var runtimeSurfacePointer: ghostty_surface_t?
+}
 
 /// Records freed pointers behind an actor so the @Sendable free closures can
 /// report back across the worker hop.
@@ -120,6 +128,66 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(await Set(recorder.freed) == Set(surfaces.map { UInt(bitPattern: $0) }))
     }
 
+    @Test func stuckCloseFreeDoesNotStrandLaterCloses() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surfaces = (0..<3).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let stuckFreeStarted = AsyncStream<Void>.makeStream()
+        let releaseStuckFree = DispatchSemaphore(value: 0)
+        let freedSurfaceBits = OSAllocatedUnfairLock(initialState: Set<UInt>())
+        defer {
+            releaseStuckFree.signal()
+            stuckFreeStarted.continuation.finish()
+        }
+
+        let stuckTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.stuckClose",
+            surface: surfaces[0],
+            callbackContext: nil,
+            freeSurface: { _ in
+                stuckFreeStarted.continuation.yield()
+                _ = releaseStuckFree.wait(timeout: .distantFuture)
+            }
+        )
+        var stuckFreeIterator = stuckFreeStarted.stream.makeAsyncIterator()
+        _ = await stuckFreeIterator.next()
+
+        let laterTickets = surfaces.dropFirst().map { surface in
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.laterClose",
+                surface: surface,
+                callbackContext: nil,
+                freeSurface: { pointer in
+                    let bits = UInt(bitPattern: pointer)
+                    freedSurfaceBits.withLock {
+                        _ = $0.insert(bits)
+                    }
+                }
+            )
+        }
+
+        for ticket in laterTickets {
+            try #require(
+                await ticket.wait(timeout: .seconds(1)),
+                "a stuck native free stranded a later close"
+            )
+        }
+        #expect(await stuckTicket.wait(timeout: .zero) == false)
+        #expect(
+            freedSurfaceBits.withLock { $0 } ==
+                Set(surfaces.dropFirst().map { UInt(bitPattern: $0) })
+        )
+
+        releaseStuckFree.signal()
+        #expect(await stuckTicket.wait(timeout: .seconds(1)))
+    }
+
     @Test func stuckHibernationFreeDoesNotStrandAnotherAdmissionOrClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let isolatedSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -127,16 +195,16 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             byteCount: 8,
             alignment: 8
         )
-        let serializedSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let closeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer {
             isolatedSurface.deallocate()
             queuedIsolatedSurface.deallocate()
-            serializedSurface.deallocate()
+            closeSurface.deallocate()
         }
         let isolatedFreeStarted = AsyncStream<Void>.makeStream()
         let releaseIsolatedFree = DispatchSemaphore(value: 0)
         let secondIsolatedFreeCount = OSAllocatedUnfairLock(initialState: 0)
-        let serializedFreeCount = OSAllocatedUnfairLock(initialState: 0)
+        let closeFreeCount = OSAllocatedUnfairLock(initialState: 0)
         defer {
             releaseIsolatedFree.signal()
             isolatedFreeStarted.continuation.finish()
@@ -181,20 +249,20 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 secondIsolatedFreeCount.withLock { $0 += 1 }
             }
         )
-        let serializedTicket = coordinator.enqueueRuntimeTeardown(
+        let closeTicket = coordinator.enqueueRuntimeTeardown(
             id: UUID(),
             workspaceId: UUID(),
-            reason: "test.serializedClose",
-            surface: serializedSurface,
+            reason: "test.close",
+            surface: closeSurface,
             callbackContext: nil,
             freeSurface: { _ in
-                serializedFreeCount.withLock { $0 += 1 }
+                closeFreeCount.withLock { $0 += 1 }
             }
         )
 
-        #expect(await serializedTicket.wait(timeout: .seconds(1)))
+        #expect(await closeTicket.wait(timeout: .seconds(1)))
         #expect(await secondIsolatedTicket.wait(timeout: .seconds(1)))
-        #expect(serializedFreeCount.withLock { $0 } == 1)
+        #expect(closeFreeCount.withLock { $0 } == 1)
         #expect(await isolatedTicket.wait(timeout: .zero) == false)
         #expect(secondIsolatedFreeCount.withLock { $0 } == 1)
 
@@ -211,21 +279,49 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         await coordinator.cancelIsolatedHibernationTeardown(nextReservation)
     }
 
-    @Test func staleIsolatedReservationFallsBackToSerializedFree() async throws {
+    @Test func staleIsolatedReservationFallsBackToBoundedClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
-        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
-        defer { surface.deallocate() }
+        let surfaces = (0..<2).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let isolatedFreeStarted = AsyncStream<Void>.makeStream()
+        let releaseIsolatedFree = DispatchSemaphore(value: 0)
         let freeCount = OSAllocatedUnfairLock(initialState: 0)
+        defer {
+            releaseIsolatedFree.signal()
+            isolatedFreeStarted.continuation.finish()
+        }
         let staleReservation = try #require(
             await coordinator.reserveIsolatedHibernationTeardown()
         )
         await coordinator.cancelIsolatedHibernationTeardown(staleReservation)
+        let blockingReservation = try #require(
+            await coordinator.reserveIsolatedHibernationTeardown()
+        )
+        let blockingTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.blockingIsolatedReservation",
+            surface: surfaces[0],
+            callbackContext: nil,
+            manualIOContext: nil,
+            byteTeeLease: nil,
+            executionLane: .isolatedHibernation,
+            isolatedHibernationReservation: blockingReservation,
+            freeSurface: { _ in
+                isolatedFreeStarted.continuation.yield()
+                _ = releaseIsolatedFree.wait(timeout: .distantFuture)
+            }
+        )
+        var isolatedFreeIterator = isolatedFreeStarted.stream.makeAsyncIterator()
+        _ = await isolatedFreeIterator.next()
 
         let ticket = coordinator.enqueueRuntimeTeardown(
             id: UUID(),
             workspaceId: UUID(),
             reason: "test.staleIsolatedReservation",
-            surface: surface,
+            surface: surfaces[1],
             callbackContext: nil,
             manualIOContext: nil,
             byteTeeLease: nil,
@@ -238,6 +334,10 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
 
         #expect(await ticket.wait(timeout: .seconds(1)))
         #expect(freeCount.withLock { $0 } == 1)
+        #expect(await blockingTicket.wait(timeout: .zero) == false)
+
+        releaseIsolatedFree.signal()
+        #expect(await blockingTicket.wait(timeout: .seconds(1)))
     }
 
     @Test func byteTeeCallbackOwnerIsReleasedOnlyAfterNativeFreeReturns() async {
@@ -264,5 +364,62 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
             break
         }
         #expect(recorder.snapshot() == ["surface.free", "tee.release"])
+    }
+
+    @Test @MainActor
+    func clipboardRequestIsInvalidatedBeforeNativeFree() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let recorder = TeardownLifetimeRecorder()
+        let controller = TeardownFakeSurfaceController()
+        let host = FakeTerminalSurfaceNativeView()
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller,
+            terminalLifecycleID: UUID()
+        )
+        let retainedContext = Unmanaged.passRetained(context)
+        let surface = UnsafeMutableRawPointer.allocate(
+            byteCount: 8,
+            alignment: 8
+        )
+        defer { surface.deallocate() }
+        #expect(context.bindRuntimeClipboardSurface(surface, generation: 7))
+
+        let didRegisterClipboardRequest = context.registerRuntimeClipboardRequest(
+            id: 29,
+            onInvalidation: { _, completesNativeRequest, _, disposition in
+                if case .discard = disposition {
+                    // Expected before native free.
+                } else {
+                    Issue.record("Native teardown must discard deferred input")
+                }
+                recorder.record(
+                    "clipboard.invalidate.\(completesNativeRequest)"
+                )
+            }
+        )
+        #expect(didRegisterClipboardRequest)
+        #expect(context.commitRuntimeClipboardRequest(29))
+
+        coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.clipboardLifetime",
+            surface: surface,
+            callbackContext: retainedContext,
+            freeSurface: { _ in
+                recorder.record("surface.free")
+            }
+        )
+
+        for await event in recorder.events where event == "surface.free" {
+            break
+        }
+        #expect(
+            recorder.snapshot() == [
+                "clipboard.invalidate.true",
+                "surface.free",
+            ]
+        )
     }
 }

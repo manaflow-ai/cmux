@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAgentChat
 import CmuxIrohTransport
+import CmuxIrxTransport
 import Darwin
 import Dispatch
 import Foundation
@@ -37,8 +38,39 @@ struct MobileHostIrohRejectingArtifactLaneHandler: MobileHostIrohArtifactLaneHan
     }
 }
 
+/// Registration seam for the simulator-stream v2 video consumer.
+///
+/// Same ownership contract as the artifact seam: the handler receives only
+/// lanes admitted for the authenticated same-account peer and returns `true`
+/// only after taking complete ownership of both stream halves. The handler
+/// runs structured under the router's lane task, so connection teardown
+/// cancels the whole streaming session.
+protocol MobileHostIrohSimulatorStreamLaneHandling: Sendable {
+    func handleSimulatorStreamLane(
+        resourceID: CmxIrohResourceID,
+        stream: CmxIrohBidirectionalStream,
+        peer: CmxIrohAdmittedPeer
+    ) async -> Bool
+}
+
+/// Safe fallback for hosts that do not install a simulator-stream owner.
+struct MobileHostIrohRejectingSimulatorStreamLaneHandler:
+    MobileHostIrohSimulatorStreamLaneHandling
+{
+    func handleSimulatorStreamLane(
+        resourceID: CmxIrohResourceID,
+        stream: CmxIrohBidirectionalStream,
+        peer: CmxIrohAdmittedPeer
+    ) async -> Bool {
+        false
+    }
+}
+
 enum MobileHostIrohArtifactTransferIssueFailure: Equatable, Sendable {
     case fileNotFound
+    case permissionDenied
+    case notRegularFile
+    case readFailed
     case unavailable
 }
 
@@ -46,6 +78,10 @@ enum MobileHostIrohArtifactTransferIssueFailure: Equatable, Sendable {
 actor MobileHostIrohArtifactTransferRegistry {
     enum Error: Swift.Error, Equatable {
         case unavailable
+        case fileNotFound
+        case permissionDenied
+        case notRegularFile
+        case readFailed
         case invalidFile
         case capacityExceeded
         case unknownResource
@@ -57,8 +93,14 @@ actor MobileHostIrohArtifactTransferRegistry {
 
         var issueFailure: MobileHostIrohArtifactTransferIssueFailure {
             switch self {
-            case .invalidFile:
+            case .fileNotFound:
                 .fileNotFound
+            case .permissionDenied:
+                .permissionDenied
+            case .notRegularFile:
+                .notRegularFile
+            case .readFailed, .invalidFile:
+                .readFailed
             case .unavailable, .capacityExceeded, .unknownResource, .expired,
                  .peerMismatch, .invalidOffset, .alreadyInUse, .resumeLimitExceeded:
                 .unavailable
@@ -195,9 +237,26 @@ struct MobileHostIrohArtifactFileIdentity: Equatable, Sendable {
     let modifiedNanoseconds: Int64
 
     static func snapshot(path: String) throws -> Self {
-        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
-        defer { try? handle.close() }
-        return try snapshot(fileDescriptor: handle.fileDescriptor)
+        let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            switch POSIXErrorCode(rawValue: Darwin.errno) {
+            case .ENOENT, .ESTALE:
+                throw MobileHostIrohArtifactTransferRegistry.Error.fileNotFound
+            case .EACCES, .EPERM:
+                throw MobileHostIrohArtifactTransferRegistry.Error.permissionDenied
+            default:
+                throw MobileHostIrohArtifactTransferRegistry.Error.readFailed
+            }
+        }
+        defer { _ = Darwin.close(descriptor) }
+        var value = stat()
+        guard fstat(descriptor, &value) == 0 else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.readFailed
+        }
+        guard (value.st_mode & S_IFMT) == S_IFREG else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.notRegularFile
+        }
+        return identity(from: value)
     }
 
     static func snapshot(fileDescriptor: Int32) throws -> Self {
@@ -206,6 +265,10 @@ struct MobileHostIrohArtifactFileIdentity: Equatable, Sendable {
               (value.st_mode & S_IFMT) == S_IFREG else {
             throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
         }
+        return identity(from: value)
+    }
+
+    private static func identity(from value: stat) -> Self {
         return Self(
             device: UInt64(value.st_dev),
             inode: UInt64(value.st_ino),
@@ -228,8 +291,20 @@ private final class MobileHostIrohArtifactDispatchReader: @unchecked Sendable {
     private let channel: DispatchIO
 
     init(path: String) throws {
-        let fileDescriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC)
+        let fileDescriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         guard fileDescriptor >= 0 else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+        }
+        var metadata = stat()
+        guard fstat(fileDescriptor, &metadata) == 0,
+              (metadata.st_mode & S_IFMT) == S_IFREG else {
+            Darwin.close(fileDescriptor)
+            throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+        }
+        let flags = Darwin.fcntl(fileDescriptor, F_GETFL, 0)
+        guard flags >= 0,
+              Darwin.fcntl(fileDescriptor, F_SETFL, flags & ~O_NONBLOCK) >= 0 else {
+            Darwin.close(fileDescriptor)
             throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
         }
         self.fileDescriptor = fileDescriptor
@@ -383,16 +458,22 @@ struct MobileHostIrohApplicationLaneQuota {
     enum LaneClass {
         case terminal
         case artifact
+        case simulatorStream
     }
 
     static let maximumTerminalCount = 4
     static let maximumArtifactCount = 1
+    // Two so a route switch can overlap the old lane's teardown with the new
+    // lane's attach; the stream coordinator still enforces one owner per panel.
+    static let maximumSimulatorStreamCount = 2
 
     private var terminalIDs: Set<UUID> = []
     private var artifactIDs: Set<UUID> = []
+    private var simulatorStreamIDs: Set<UUID> = []
 
     var terminalCount: Int { terminalIDs.count }
     var artifactCount: Int { artifactIDs.count }
+    var simulatorStreamCount: Int { simulatorStreamIDs.count }
 
     mutating func reserve(_ id: UUID, laneClass: LaneClass) -> Bool {
         switch laneClass {
@@ -402,6 +483,11 @@ struct MobileHostIrohApplicationLaneQuota {
         case .artifact:
             guard artifactIDs.count < Self.maximumArtifactCount else { return false }
             artifactIDs.insert(id)
+        case .simulatorStream:
+            guard simulatorStreamIDs.count < Self.maximumSimulatorStreamCount else {
+                return false
+            }
+            simulatorStreamIDs.insert(id)
         }
         return true
     }
@@ -409,6 +495,7 @@ struct MobileHostIrohApplicationLaneQuota {
     mutating func release(_ id: UUID) {
         terminalIDs.remove(id)
         artifactIDs.remove(id)
+        simulatorStreamIDs.remove(id)
     }
 }
 
@@ -423,8 +510,11 @@ actor MobileHostIrohApplicationLaneRouter {
         UInt64(MobileHostIrohApplicationLaneQuota.maximumTerminalCount)
     static let maximumConcurrentArtifactLaneCount =
         UInt64(MobileHostIrohApplicationLaneQuota.maximumArtifactCount)
+    static let maximumConcurrentSimulatorStreamLaneCount =
+        UInt64(MobileHostIrohApplicationLaneQuota.maximumSimulatorStreamCount)
     static let maximumConcurrentLaneCount =
         maximumConcurrentTerminalLaneCount + maximumConcurrentArtifactLaneCount
+        + maximumConcurrentSimulatorStreamLaneCount
 
     enum InputFrameError: Error, Equatable {
         case invalidLength
@@ -439,20 +529,23 @@ actor MobileHostIrohApplicationLaneRouter {
     }
 
     private static let maximumInputFrameByteCount = 16 * 1_024
-    private static let maximumInputBufferByteCount = maximumInputFrameByteCount + 4
 
     private let session: CmxIrohAdmittedServerSession
     private let artifactHandler: any MobileHostIrohArtifactLaneHandling
+    private let simulatorStreamHandler: any MobileHostIrohSimulatorStreamLaneHandling
     private var laneTasks: [UUID: Task<Void, Never>] = [:]
     private var laneQuota = MobileHostIrohApplicationLaneQuota()
     private var stopped = false
 
     init(
         session: CmxIrohAdmittedServerSession,
-        artifactHandler: any MobileHostIrohArtifactLaneHandling = MobileHostIrohRejectingArtifactLaneHandler()
+        artifactHandler: any MobileHostIrohArtifactLaneHandling = MobileHostIrohRejectingArtifactLaneHandler(),
+        simulatorStreamHandler: any MobileHostIrohSimulatorStreamLaneHandling =
+            MobileHostIrohRejectingSimulatorStreamLaneHandler()
     ) {
         self.session = session
         self.artifactHandler = artifactHandler
+        self.simulatorStreamHandler = simulatorStreamHandler
     }
 
     func run(
@@ -512,10 +605,12 @@ actor MobileHostIrohApplicationLaneRouter {
     ) async {
         let laneClass: MobileHostIrohApplicationLaneQuota.LaneClass
         switch lane {
-        case .terminal:
+        case .terminal, .terminalInput:
             laneClass = .terminal
         case .artifact:
             laneClass = .artifact
+        case .simulatorStream:
+            laneClass = .simulatorStream
         case .control, .serverEvents:
             await Self.reject(stream, errorCode: ErrorCode.unsupportedResource)
             return
@@ -527,13 +622,21 @@ actor MobileHostIrohApplicationLaneRouter {
         }
         let peer = session.peer
         let artifactHandler = artifactHandler
+        let simulatorStreamHandler = simulatorStreamHandler
         let task = Task { [weak self] in
             switch lane {
             case let .terminal(resourceID, cursor):
-                await Self.handleTerminalLane(
-                    resourceID: resourceID,
+                await MobileHostIrxTerminalLaneServer.serve(
+                    resourceID: resourceID.value,
                     cursor: cursor,
-                    stream: stream
+                    stream: stream,
+                    journal: Self.terminalLaneJournal
+                )
+            case let .terminalInput(resourceID):
+                await MobileHostIrxTerminalLaneServer.serveInputOnly(
+                    resourceID: resourceID.value,
+                    stream: stream,
+                    journal: Self.terminalLaneJournal
                 )
             case let .artifact(resourceID, offset):
                 let didTakeOwnership = await artifactHandler.handleArtifactLane(
@@ -542,6 +645,16 @@ actor MobileHostIrohApplicationLaneRouter {
                     stream: stream,
                     peer: peer
                 )
+                if !didTakeOwnership {
+                    await Self.reject(stream, errorCode: ErrorCode.unsupportedResource)
+                }
+            case let .simulatorStream(resourceID):
+                let didTakeOwnership =
+                    await simulatorStreamHandler.handleSimulatorStreamLane(
+                        resourceID: resourceID,
+                        stream: stream,
+                        peer: peer
+                    )
                 if !didTakeOwnership {
                     await Self.reject(stream, errorCode: ErrorCode.unsupportedResource)
                 }
@@ -558,229 +671,19 @@ actor MobileHostIrohApplicationLaneRouter {
         laneQuota.release(id)
     }
 
-    private nonisolated static func handleTerminalLane(
-        resourceID: CmxIrohResourceID,
-        cursor: UInt64?,
-        stream: CmxIrohBidirectionalStream
-    ) async {
-        guard let surfaceID = terminalSurfaceID(resourceID),
-              await MainActor.run(body: {
-                  GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) != nil
-              }) else {
-            await reject(stream, errorCode: ErrorCode.unsupportedResource)
-            return
-        }
-
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await sendTerminalOutput(
-                    surfaceID: surfaceID,
-                    cursor: cursor,
-                    stream: stream
-                )
-                return true
-            }
-            group.addTask {
-                await receiveTerminalInput(
-                    surfaceID: surfaceID,
-                    stream: stream
-                )
-            }
-            if await group.next() == true {
-                group.cancelAll()
-            } else {
-                _ = await group.next()
-            }
-            group.cancelAll()
-        }
-        await stream.receiveStream.stop(errorCode: 0)
-    }
-
-    /// Returns `true` when the complete lane should close. A clean input-side
-    /// finish returns false because the client may intentionally retain an
-    /// output-only terminal stream.
-    private nonisolated static func receiveTerminalInput(
-        surfaceID: UUID,
-        stream: CmxIrohBidirectionalStream
-    ) async -> Bool {
-        var buffer = Data()
-        do {
-            while !Task.isCancelled,
-                  let data = try await stream.receiveStream.receive(
-                      maximumByteCount: max(1, maximumInputBufferByteCount - buffer.count)
-                  ) {
-                guard !data.isEmpty else { continue }
-                buffer.append(data)
-                guard buffer.count <= maximumInputBufferByteCount else {
-                    await reject(stream, errorCode: ErrorCode.invalidInput)
-                    return true
-                }
-                for input in try decodeTerminalInputFrames(from: &buffer) {
-                    guard await sendTerminalInput(input, surfaceID: surfaceID) else {
-                        await reject(stream, errorCode: ErrorCode.invalidInput)
-                        return true
-                    }
-                }
-            }
-            if !buffer.isEmpty {
-                await reject(stream, errorCode: ErrorCode.invalidInput)
-                return true
-            }
-            return false
-        } catch is CancellationError {
-            return true
-        } catch {
-            await reject(stream, errorCode: ErrorCode.invalidInput)
-            return true
-        }
-    }
-
-    private nonisolated static func sendTerminalOutput(
-        surfaceID: UUID,
-        cursor: UInt64?,
-        stream: CmxIrohBidirectionalStream
-    ) async {
-        let updates = await MainActor.run {
-            guard GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) != nil else {
-                return Optional<AsyncStream<MobileTerminalByteTee.OutputChunk>>.none
-            }
-            return MobileTerminalByteTee.shared.outputUpdates(surfaceID: surfaceID)
-        }
-        guard let updates else {
-            await reject(stream, errorCode: ErrorCode.unsupportedResource)
-            return
-        }
-        let replay = await MainActor.run {
-            MobileTerminalByteTee.shared.replayState(surfaceID: surfaceID)
-        }
-        let currentSequence = replay?.seq ?? 0
-        let replayData = replay?.data ?? Data()
-        let replayStart = currentSequence - UInt64(replayData.count)
-        let requestedSequence = cursor ?? replayStart
-        guard requestedSequence >= replayStart,
-              requestedSequence <= currentSequence else {
-            await reject(stream, errorCode: ErrorCode.cursorGap)
-            return
-        }
-
-        var nextSequence = requestedSequence
-        do {
-            let replayOffset = Int(requestedSequence - replayStart)
-            let replayPayload = Data(replayData.dropFirst(replayOffset))
-            let replayEnvelope = try CmxIrohTerminalOutputEnvelope(
-                kind: .replay,
-                retainedBaseSequence: replayStart,
-                sequence: requestedSequence,
-                currentSequence: currentSequence,
-                payload: replayPayload
-            )
-            try await stream.sendStream.send(
-                CmxIrohTerminalOutputEnvelopeCodec().encode(replayEnvelope)
-            )
-            nextSequence = currentSequence
-            for await chunk in updates {
-                try Task.checkCancellation()
-                let chunkEnd = chunk.sequence + UInt64(chunk.data.count)
-                if chunkEnd <= nextSequence { continue }
-                guard chunk.sequence <= nextSequence else {
-                    await reject(stream, errorCode: ErrorCode.cursorGap)
-                    return
-                }
-                let offset = Int(nextSequence - chunk.sequence)
-                try await sendTerminalOutputChunks(
-                    Data(chunk.data.dropFirst(offset)),
-                    startingAt: nextSequence,
-                    stream: stream
-                )
-                nextSequence = chunkEnd
-            }
-            try await stream.sendStream.finish()
-        } catch is CancellationError {
-            await stream.sendStream.reset(errorCode: 0)
-        } catch {
-            await stream.sendStream.reset(errorCode: ErrorCode.cursorGap)
-        }
-    }
-
-    private nonisolated static func sendTerminalOutputChunks(
-        _ data: Data,
-        startingAt startingSequence: UInt64,
-        stream: CmxIrohBidirectionalStream
-    ) async throws {
-        let codec = CmxIrohTerminalOutputEnvelopeCodec()
-        var offset = 0
-        while offset < data.count {
-            let payloadByteCount = min(
-                CmxIrohTerminalOutputEnvelope.maximumPayloadByteCount,
-                data.count - offset
-            )
-            let payload = Data(data[offset ..< (offset + payloadByteCount)])
-            let sequence = startingSequence + UInt64(offset)
-            let currentSequence = sequence + UInt64(payloadByteCount)
-            let envelope = try CmxIrohTerminalOutputEnvelope(
-                kind: .chunk,
-                retainedBaseSequence: sequence,
-                sequence: sequence,
-                currentSequence: currentSequence,
-                payload: payload
-            )
-            try await stream.sendStream.send(codec.encode(envelope))
-            offset += payloadByteCount
-        }
-    }
-
-    private nonisolated static func sendTerminalInput(
-        _ input: String,
-        surfaceID: UUID
-    ) async -> Bool {
-        await MainActor.run {
-            guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
-                return false
-            }
-            switch surface.sendInputResult(input) {
-            case .sent:
-                surface.forceRefresh(reason: "mobileHost.irohTerminalLaneInput")
-                return true
-            case .queued:
-                return true
-            case .inputQueueFull, .surfaceUnavailable, .processExited:
-                return false
-            }
-        }
-    }
-
-    private nonisolated static func terminalSurfaceID(
-        _ resourceID: CmxIrohResourceID
-    ) -> UUID? {
-        let value = resourceID.value
-        let rawID = value.hasPrefix("terminal:")
-            ? String(value.dropFirst("terminal:".count))
-            : value
-        return UUID(uuidString: rawID)
-    }
+    /// Terminal lanes on this dialect are served by the same code as irx
+    /// lanes, so both enforce one terminal per lane and exactly-once input.
+    private nonisolated static let terminalLaneJournal = IrxJournal(
+        subsystem: "dev.cmux",
+        category: "iroh-terminal-lane"
+    )
 
     nonisolated static func decodeTerminalInputFrames(
         from buffer: inout Data
     ) throws -> [String] {
-        var frames: [String] = []
-        while buffer.count >= 4 {
-            let frameLength = buffer.prefix(4).reduce(UInt32(0)) {
-                ($0 << 8) | UInt32($1)
-            }
-            guard frameLength > 0,
-                  frameLength <= UInt32(maximumInputFrameByteCount) else {
-                throw InputFrameError.invalidLength
-            }
-            let totalLength = 4 + Int(frameLength)
-            guard buffer.count >= totalLength else { break }
-            let payload = Data(buffer.dropFirst(4).prefix(Int(frameLength)))
-            guard let input = String(data: payload, encoding: .utf8) else {
-                throw InputFrameError.invalidUTF8
-            }
-            buffer.removeFirst(totalLength)
-            frames.append(input)
-        }
-        return frames
+        do { return try MobileTerminalInputFrame.decode(from: &buffer).map(\.text) }
+        catch MobileTerminalInputFrame.FrameError.invalidUTF8 { throw InputFrameError.invalidUTF8 }
+        catch { throw InputFrameError.invalidLength }
     }
 
     private nonisolated static func reject(

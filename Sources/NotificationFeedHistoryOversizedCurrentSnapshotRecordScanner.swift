@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct NotificationFeedHistoryOversizedCurrentSnapshotRecordScanner: Sendable {
+struct NotificationFeedHistoryOversizedCurrentSnapshotRecordScanner: Sendable {
     let maxRecordBytes: Int
     private var depth = 0
     private var isInString = false

@@ -1,22 +1,32 @@
-import { addAccount, parseCredential } from "../../../../services/coderouter/accounts";
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
+import {
+  addAccount,
+  parseCredential,
+} from "../../../../services/coderouter/accounts";
 import {
   resolveCoderouterUsageTeam,
-  resolveCodeRouterRequestContext,
+  resolveCoderouterControlContext,
 } from "../../../../services/coderouter/requestContext";
 import { accountsWithUsage } from "../../../../services/coderouter/usage";
+import { CodexSignatureError } from "../../../../services/coderouter/codexSignature";
+import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
+import {
+  addCoderouterBreadcrumb,
+  reportCoderouterFailure,
+} from "../../../../services/coderouter/observability";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 128 * 1_024;
 
-export async function GET(request: Request): Promise<Response> {
+export const GET = coderouterControlRoute("accounts", "/api/coderouter/accounts", handleGet);
+
+async function handleGet(request: Request): Promise<Response> {
   const startedAt = performance.now();
   const authStartedAt = performance.now();
   const resolved = await resolveCoderouterUsageTeam(request);
   if (!resolved.ok) return resolved.response;
   const authMs = performance.now() - authStartedAt;
-  const result = await accountsWithUsage(resolved.teamId);
+  const result = await accountsWithUsage(resolved.teamId, resolved.access);
   const serializeStartedAt = performance.now();
   const body = JSON.stringify({
     teamId: resolved.teamId,
@@ -36,6 +46,22 @@ export async function GET(request: Request): Promise<Response> {
     timing("serialize", serializeMs),
     timing("total", performance.now() - startedAt),
   ].join(", ");
+  captureCoderouterEvent({
+    event: "coderouter_account_status_viewed",
+    teamId: resolved.teamId,
+    properties: {
+      source: "native_api",
+      account_count: result.accounts.length,
+      account_error_count: result.accounts.filter(
+        (account) => "usageError" in account && Boolean(account.usageError),
+      ).length,
+      duration_ms: Math.round(performance.now() - startedAt),
+    },
+  });
+  addCoderouterBreadcrumb("status", "Account status loaded", {
+    account_count: result.accounts.length,
+    duration_ms: Math.round(performance.now() - startedAt),
+  });
   return new Response(body, {
     headers: {
       "cache-control": "no-store",
@@ -48,8 +74,24 @@ export async function GET(request: Request): Promise<Response> {
   });
 }
 
-export async function POST(request: Request): Promise<Response> {
-  const resolved = await resolveCodeRouterRequestContext(request, "manage");
+type AccountsPostDependencies = {
+  readonly resolveContext: typeof resolveCoderouterControlContext;
+  readonly add: typeof addAccount;
+};
+
+const defaultAccountsPostDependencies: AccountsPostDependencies = {
+  resolveContext: resolveCoderouterControlContext,
+  add: addAccount,
+};
+
+export const POST = coderouterControlRoute("accounts", "/api/coderouter/accounts", makeCoderouterAccountsPostHandler());
+
+export function makeCoderouterAccountsPostHandler(
+  dependencies: AccountsPostDependencies = defaultAccountsPostDependencies,
+) {
+  return async function POST(request: Request): Promise<Response> {
+  // Team membership is the only requirement; there is no account cap.
+  const resolved = await dependencies.resolveContext(request);
   if (!resolved.ok) return resolved.response;
   const length = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
@@ -65,15 +107,59 @@ export async function POST(request: Request): Promise<Response> {
   } catch {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
+  const requestedVisibility = value && typeof value === "object" && "visibility" in value ? (value as { visibility: unknown }).visibility : "private";
+  if (requestedVisibility !== "private" && requestedVisibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
+  // A VM mutation is scoped to its provisioned pool. Private visibility would
+  // create an account that the same machine could not subsequently read on an
+  // organization team, so machine writes are always team-visible.
+  const visibility = resolved.value.access?.kind === "vm" ? "team" : requestedVisibility;
+  if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
   const credential = parseCredential(value);
   if (!credential) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
-  const result = await addAccount(resolved.value.team.teamId, credential);
-  return Response.json(result, {
-    status: result.alreadyExists ? 200 : 201,
-    headers: { "cache-control": "no-store" },
-  });
+  try {
+    const result = await dependencies.add(resolved.value.team.teamId, credential, undefined, undefined, undefined, { createdBy: resolved.value.user.id, visibility, access: resolved.value.access });
+    captureCoderouterEvent({
+      event: "coderouter_account_added",
+      userId: resolved.value.user.id,
+      teamId: resolved.value.team.teamId,
+      properties: {
+        provider: credential.provider,
+        source: "native_api",
+        already_exists: result.alreadyExists,
+      },
+    });
+    addCoderouterBreadcrumb("account", "Provider account stored", {
+      provider: credential.provider,
+      already_exists: result.alreadyExists,
+    });
+    return Response.json(result, {
+      status: result.alreadyExists ? 200 : 201,
+      headers: { "cache-control": "no-store" },
+    });
+  } catch (error) {
+    if (error instanceof CodexSignatureError) {
+      return Response.json({ error: "invalid_credential", message: "Sign in to Codex again before adding this account." }, { status: 400, headers: { "cache-control": "no-store" } });
+    }
+    reportCoderouterFailure("rds", error, { operation: "add_account" });
+    return Response.json(
+      {
+        error: "account_store_unavailable",
+        message:
+          "coderouter could not store this account. Your local provider sign-in was not removed; retry `cr add` shortly.",
+        retryable: true,
+      },
+      {
+        status: 503,
+        headers: {
+          "cache-control": "no-store",
+          "retry-after": "5",
+        },
+      },
+    );
+  }
+  };
 }
 
 function timing(name: string, duration: number): string {

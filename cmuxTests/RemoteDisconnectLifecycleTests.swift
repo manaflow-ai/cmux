@@ -236,6 +236,8 @@ struct RemoteDisconnectLifecycleTests {
             orientation: .horizontal,
             focus: false
         ))
+        #expect(workspace.markRemoteTerminalSessionConnected(surfaceId: panel.id, relayPort: 64007))
+        #expect(workspace.markRemoteTerminalSessionConnected(surfaceId: sibling.id, relayPort: 64007))
         workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)
@@ -338,7 +340,9 @@ struct RemoteDisconnectLifecycleTests {
         try Data("file".utf8).write(to: invalidDirectory)
         defer { try? FileManager.default.removeItem(at: invalidDirectory) }
 
-        let replacement = workspace.createReplacementTerminalPanel(temporaryDirectory: invalidDirectory)
+        let replacement = try #require(
+            workspace.createReplacementTerminalPanel(temporaryDirectory: invalidDirectory)
+        )
 
         #expect(replacement.surface.initialCommand == "/usr/bin/false")
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(replacement.id))

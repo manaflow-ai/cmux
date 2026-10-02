@@ -141,6 +141,11 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var hostWindowIsVisible = true
     @ObservationIgnored var hostWindowVisibilityByObserverID: [UUID: Bool] = [:]
     @ObservationIgnored let legacyHostWindowVisibilityObserverID = UUID()
+    /// Remote clients currently consuming this pane's framebuffer. Kept
+    /// separate from pane visibility so mobile capture does not impersonate an
+    /// AppKit host, and so publication demand survives an occluded Mac pane.
+    @ObservationIgnored var mobileFrameConsumerIDs: Set<UUID> = []
+    @ObservationIgnored var localFrameDemand = false
     @ObservationIgnored var frameIsVisible = false
     @ObservationIgnored var locationRouteDeviceID: String?
     @ObservationIgnored var locationRoute: SimulatorLocationRoute?

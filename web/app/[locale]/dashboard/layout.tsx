@@ -1,36 +1,11 @@
-import { Suspense } from "react";
-import { StackProvider, StackTheme } from "@stackframe/stack";
+import { StackTheme } from "@hexclave/next";
 import { redirect } from "next/navigation";
-import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
-import { DashboardSkeleton } from "./components/dashboard-skeleton";
-import { DashboardQueryProvider } from "./components/query-provider";
-import { DashboardShell } from "./dashboard-shell";
+import { isStackConfigured } from "@/app/lib/stack";
 
-// Auth redirects are owned by each page, not this layout: a layout cannot see
-// the requested URL, so redirecting here would send unauthenticated visitors
-// to a fixed return path and drop page-specific query params. Every page under
-// /dashboard must check getUser() itself and build its own sign-in return path.
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-  params: Promise<{ locale: string }>;
-}) {
-  if (!isStackConfigured()) {
-    redirect("/");
-  }
-
-  return (
-    <Suspense fallback={<DashboardSkeleton />}>
-      <StackProvider app={getStackServerApp()}>
-        <StackTheme>
-          <DashboardQueryProvider>
-            <DashboardShell>
-              <Suspense fallback={<DashboardSkeleton />}>{children}</Suspense>
-            </DashboardShell>
-          </DashboardQueryProvider>
-        </StackTheme>
-      </StackProvider>
-    </Suspense>
-  );
+// Everything under /dashboard is the TanStack Router SPA in `dashboard-app/`.
+// The global `[locale]` layout already provides Stack, intl messages, theme,
+// and PostHog; this layout only adds the Stack component theme.
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  if (!isStackConfigured()) redirect("/");
+  return <StackTheme>{children}</StackTheme>;
 }

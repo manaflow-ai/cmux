@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import Network
@@ -24,7 +25,16 @@ private final class RecordingRelayRewriter: RemoteRelayCommandRewriting, @unchec
         lock.lock()
         _calls.append((workspaceAliases, surfaceAliases))
         lock.unlock()
-        return Data("rewritten:".utf8) + commandLine
+        guard let line = String(data: commandLine, encoding: .utf8),
+              let data = line.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              var request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return commandLine
+        }
+        var params = request["params"] as? [String: Any] ?? [:]
+        params["_cmux_remote_workspace_id"] = UUID().uuidString
+        params["_cmux_remote_relay_request_authentication_code"] = "test"
+        request["params"] = params
+        return (try? JSONSerialization.data(withJSONObject: request)).map { $0 + Data([0x0A]) } ?? commandLine
     }
 }
 
@@ -32,9 +42,12 @@ private final class RecordingRelayRewriter: RemoteRelayCommandRewriting, @unchec
 /// control socket: reads the request to EOF, records it, writes `response`.
 private final class FakeUnixSocketServer: @unchecked Sendable {
     let path: String
-    private let response: Data
+    private let response: Data?
     private let lock = NSLock()
     private var _request = Data()
+    private let requestReceived = DispatchSemaphore(value: 0)
+    private let clientHangupProbe = DispatchSemaphore(value: 0)
+    private let clientHungUp = DispatchSemaphore(value: 0)
     private let listenFD: Int32
 
     var request: Data {
@@ -43,12 +56,19 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
         return _request
     }
 
-    init(response: Data) throws {
+    init(response: Data?) throws {
         self.response = response
         path = NSTemporaryDirectory() + "cmux-relay-test-\(UUID().uuidString.prefix(8)).sock"
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw NSError(domain: "FakeUnixSocketServer", code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "socket() failed errno=\(errno)"])
+        }
+        // Set on the listener so every accepted socket inherits it. Setting it
+        // after accept fails with EINVAL once the client has already closed,
+        // and the response write would then raise SIGPIPE in the test process.
+        var noSigPipe: Int32 = 1
+        withUnsafePointer(to: &noSigPipe) { pointer in
+            _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, pointer, socklen_t(MemoryLayout<Int32>.size))
         }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -78,6 +98,20 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
         Thread.detachNewThread { [weak self] in
             let client = accept(fd, nil, nil)
             guard client >= 0 else { return }
+            // Darwin refuses socket options with EINVAL once a client has
+            // hung up before accept, so a write there would raise SIGPIPE and
+            // kill the test process. Only a socket that took SO_NOSIGPIPE is
+            // written to; the other has no reader left.
+            var noSigPipe: Int32 = 1
+            let canWrite = withUnsafePointer(to: &noSigPipe) { pointer in
+                setsockopt(
+                    client,
+                    SOL_SOCKET,
+                    SO_NOSIGPIPE,
+                    pointer,
+                    socklen_t(MemoryLayout<Int32>.size)
+                ) == 0
+            }
             var scratch = [UInt8](repeating: 0, count: 4096)
             while true {
                 let count = Darwin.read(client, &scratch, scratch.count)
@@ -89,11 +123,36 @@ private final class FakeUnixSocketServer: @unchecked Sendable {
                 }
                 break
             }
-            self?.response.withUnsafeBytes { raw in
-                _ = Darwin.write(client, raw.baseAddress, raw.count)
+            self?.requestReceived.signal()
+            if let response = self?.response {
+                if canWrite {
+                    response.withUnsafeBytes { raw in
+                        _ = Darwin.write(client, raw.baseAddress, raw.count)
+                    }
+                }
+            } else {
+                self?.clientHangupProbe.wait()
+                let deadline = Date().addingTimeInterval(2)
+                while Date() < deadline {
+                    var probe: UInt8 = 0
+                    if !canWrite || Darwin.write(client, &probe, 1) <= 0 {
+                        self?.clientHungUp.signal()
+                        break
+                    }
+                    usleep(10_000)
+                }
             }
             Darwin.close(client)
         }
+    }
+
+    func waitForRequest(timeout: TimeInterval = 5) -> Bool {
+        requestReceived.wait(timeout: .now() + timeout) == .success
+    }
+
+    func waitForClientHangup(timeout: TimeInterval = 5) -> Bool {
+        clientHangupProbe.signal()
+        return clientHungUp.wait(timeout: .now() + timeout) == .success
     }
 
     func close() {
@@ -156,12 +215,180 @@ private final class RelayTestClient: @unchecked Sendable {
         }
     }
 
+    /// Complete newline-terminated lines received so far.
+    func receivedLines() -> [String] {
+        lock.lock()
+        let snapshot = received
+        lock.unlock()
+        guard let lastNewline = snapshot.lastIndex(of: 0x0A) else { return [] }
+        return snapshot[..<lastNewline].split(separator: 0x0A, omittingEmptySubsequences: false)
+            .map { String(decoding: $0, as: UTF8.self) }
+    }
+
     func cancel() { connection.cancel() }
 }
 
 @Suite("RemoteCLIRelayServer", .serialized)
 struct RemoteCLIRelayServerTests {
     private let tokenHex = "00112233445566778899aabbccddeeff"
+
+    @Test("authenticated relay sessions are capacity bounded")
+    func authenticatedSessionsAreCapacityBounded() throws {
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: "/tmp/unused.sock",
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        var clients: [RelayTestClient] = []
+        defer {
+            for client in clients {
+                client.cancel()
+            }
+        }
+
+        let expectedSessionCapacity = 16
+        #expect(RemoteCLIRelayServer.maximumConcurrentSessions == expectedSessionCapacity)
+        for _ in 0..<expectedSessionCapacity {
+            let client = RelayTestClient(port: port)
+            clients.append(client)
+            try authenticate(client)
+        }
+
+        let excessClient = RelayTestClient(port: port)
+        clients.append(excessClient)
+        #expect(excessClient.wait { data, _ in data.contains(0x0A) })
+        let challenge = try #require(excessClient.receivedJSONLines().first)
+        let nonce = try #require(challenge["nonce"] as? String)
+        let token = try #require(RemoteCLIRelayServer.Session.hexData(from: tokenHex))
+        let mac = RemoteCLIRelayServer.Session.authMAC(
+            token: token,
+            message: Data("relay_id=relay-1\nnonce=\(nonce)\nversion=1".utf8)
+        )
+        let auth: [String: Any] = ["relay_id": "relay-1", "mac": mac.map { String(format: "%02x", $0) }.joined()]
+        excessClient.send(try JSONSerialization.data(withJSONObject: auth) + Data([0x0A]))
+        #expect(
+            excessClient.wait { data, closed in
+                String(decoding: data, as: UTF8.self).contains("\"ok\":false") && closed
+            },
+            "The relay must reject authenticated work above its fixed session capacity"
+        )
+    }
+
+    @Test("a new connection evicts the oldest when the pre-auth budget is full")
+    func fullPreAuthBudgetEvictsOldestConnection() throws {
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: "/tmp/unused.sock",
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        var clients: [RelayTestClient] = []
+        defer {
+            for client in clients {
+                client.cancel()
+            }
+        }
+
+        for _ in 0..<RemoteCLIRelayServer.maximumPendingAuthSessions {
+            let client = RelayTestClient(port: port)
+            clients.append(client)
+            #expect(client.wait { data, _ in data.contains(0x0A) })
+        }
+        let newest = RelayTestClient(port: port)
+        clients.append(newest)
+        #expect(newest.wait { data, _ in data.contains(0x0A) })
+        #expect(clients[0].wait { _, closed in closed }, "The oldest pre-auth connection must be evicted")
+        #expect(!clients[1].wait(timeout: 0.2) { _, closed in closed })
+    }
+
+    @Test("idle unauthenticated connections cannot lock out the relay's own client")
+    func idleUnauthenticatedConnectionsDoNotStarveAuthenticatedClient() throws {
+        let unixServer = try FakeUnixSocketServer(response: Data("{\"ok\":true,\"result\":42}\n".utf8))
+        defer { unixServer.close() }
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: unixServer.path,
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        var idleClients: [RelayTestClient] = []
+        defer {
+            for client in idleClients {
+                client.cancel()
+            }
+        }
+
+        // Another remote user opens more idle connections than any budget
+        // and never authenticates.
+        for _ in 0..<64 {
+            let client = RelayTestClient(port: port)
+            idleClients.append(client)
+            #expect(client.wait { data, closed in data.contains(0x0A) || closed })
+        }
+
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+        #expect(
+            client.wait { data, _ in data.contains(0x0A) },
+            "The relay's own client must still receive a challenge"
+        )
+        guard client.receivedJSONLines().first?["nonce"] is String else { return }
+        try authenticate(client)
+        client.send(Data((#"{"id":"relay-test","method":"system.ping","params":{}}"# + "\n").utf8))
+        #expect(client.wait { data, closed in
+            String(decoding: data, as: UTF8.self).contains("\"result\":42") && closed
+        })
+    }
+
+    @Test("unauthenticated relay sessions expire and release capacity")
+    func unauthenticatedSessionsExpireAndReleaseCapacity() throws {
+        let clock = ManualRetryClock()
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: "/tmp/unused.sock",
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter(),
+            clock: clock
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        var idleClients: [RelayTestClient] = []
+        defer {
+            for client in idleClients {
+                client.cancel()
+            }
+        }
+
+        for _ in 0..<RemoteCLIRelayServer.maximumConcurrentSessions {
+            let client = RelayTestClient(port: port)
+            idleClients.append(client)
+            #expect(client.wait { data, _ in data.contains(0x0A) })
+        }
+        #expect(
+            clock.waitForSleeps(
+                RemoteCLIRelayServer.maximumConcurrentSessions,
+                timeout: 1
+            ),
+            "Every pre-auth session must arm a bounded handshake deadline"
+        )
+        for _ in 0..<RemoteCLIRelayServer.maximumConcurrentSessions {
+            clock.fireOldestSleep()
+        }
+
+        let recoveredClient = RelayTestClient(port: port)
+        idleClients.append(recoveredClient)
+        #expect(
+            recoveredClient.wait(timeout: 2) { data, _ in data.contains(0x0A) },
+            "Expired unauthenticated sessions must release relay capacity"
+        )
+    }
 
     @Test("an invalid relay token hex is rejected at init (code 7)")
     func invalidTokenRejected() {
@@ -217,15 +444,177 @@ struct RemoteCLIRelayServerTests {
             String(decoding: data, as: UTF8.self).contains("\"ok\":true")
         })
 
-        // Forward one command; response comes from the fake unix socket.
-        client.send(Data("workspace.list {}\n".utf8))
+        // Forward one authenticated JSON command; response comes from the
+        // fake unix socket. Legacy mutating commands are intentionally blocked
+        // before this point.
+        let request = #"{"id":"relay-test","method":"system.ping","params":{}}"#
+        client.send(Data((request + "\n").utf8))
         #expect(client.wait { data, closed in
             String(decoding: data, as: UTF8.self).contains("\"result\":42") && closed
         })
-        #expect(String(decoding: unixServer.request, as: UTF8.self) == "rewritten:workspace.list {}\n")
+        #expect(String(decoding: unixServer.request, as: UTF8.self).contains("_cmux_remote_workspace_id"))
         let call = try #require(rewriter.calls.first)
         #expect(call.workspace == [workspaceAlias.remote: workspaceAlias.local])
         #expect(call.surface.isEmpty)
+    }
+
+    @Test("an authenticated command is not forwarded to a local socket run by another user")
+    func foreignLocalSocketPeerReceivesNothing() throws {
+        let unixServer = try FakeUnixSocketServer(response: Data("{\"ok\":true,\"result\":42}\n".utf8))
+        defer { unixServer.close() }
+        // No second local account exists in tests, so expect a user ID the
+        // fake socket's owner cannot have; the relay must treat it as foreign.
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: unixServer.path,
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter(),
+            localSocketPeerCheck: UnixSocketPeerCheck(expectedUserID: geteuid() &+ 1)
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+
+        try authenticate(client)
+        client.send(Data((#"{"id":"relay-test","method":"system.ping","params":{}}"# + "\n").utf8))
+
+        #expect(unixServer.waitForRequest())
+        #expect(unixServer.request.isEmpty, "The relay must not write to a socket another user listens on")
+        #expect(client.wait { _, closed in closed })
+        #expect(!client.receivedJSONLines().contains { $0["result"] != nil })
+    }
+
+    @Test("stopping the relay interrupts an outstanding local socket wait")
+    func stopInterruptsOutstandingLocalSocketWait() throws {
+        let unixServer = try FakeUnixSocketServer(response: nil)
+        defer { unixServer.close() }
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: unixServer.path,
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+
+        try authenticate(client)
+        let decisionRequest = try JSONSerialization.data(withJSONObject: [
+            "id": "feed-decision",
+            "method": "system.ping",
+            "params": [:],
+        ]) + Data([0x0A])
+        client.send(decisionRequest)
+        #expect(unixServer.waitForRequest())
+
+        server.stop()
+
+        #expect(
+            unixServer.waitForClientHangup(timeout: 2),
+            "Relay teardown must close the local forwarding socket immediately"
+        )
+    }
+
+    @Test("the relay proves it holds the token to a client that sends its own nonce")
+    func relayProvesTokenToClient() throws {
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: "/tmp/unused.sock",
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+
+        #expect(client.wait { data, _ in data.contains(0x0A) })
+        let challenge = try #require(client.receivedJSONLines().first)
+        let serverNonce = try #require(challenge["nonce"] as? String)
+        let token = try #require(RemoteCLIRelayServer.Session.hexData(from: tokenHex))
+        let clientMAC = RemoteCLIRelayServer.Session.authMAC(
+            token: token,
+            message: Data("relay_id=relay-1\nnonce=\(serverNonce)\nversion=1".utf8)
+        )
+        let clientNonce = String(repeating: "5a", count: 32)
+        let auth: [String: Any] = [
+            "relay_id": "relay-1",
+            "mac": clientMAC.map { String(format: "%02x", $0) }.joined(),
+            "client_nonce": clientNonce,
+        ]
+        client.send(try JSONSerialization.data(withJSONObject: auth) + Data([0x0A]))
+        #expect(client.wait { data, _ in
+            String(decoding: data, as: UTF8.self).contains("\"ok\":true")
+        })
+
+        let result = try #require(client.receivedJSONLines().last)
+        let relayMACHex = try #require(
+            result["relay_mac"] as? String,
+            "The success line must carry the relay's proof of the token"
+        )
+        let expectedRelayMAC = RemoteCLIRelayServer.Session.authMAC(
+            token: token,
+            message: Data(
+                "cmux-relay-server-proof\nrelay_id=relay-1\nclient_nonce=\(clientNonce)\nserver_nonce=\(serverNonce)\nversion=1".utf8
+            )
+        )
+        #expect(relayMACHex == expectedRelayMAC.map { String(format: "%02x", $0) }.joined())
+        #expect(relayMACHex != clientMAC.map { String(format: "%02x", $0) }.joined())
+    }
+
+    @Test("the macOS CLI's shared handshake authenticates to the relay and sends its command")
+    func sharedClientHandshakeAuthenticatesToRelay() throws {
+        let unixServer = try FakeUnixSocketServer(response: Data("{\"ok\":true,\"result\":42}\n".utf8))
+        defer { unixServer.close() }
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: unixServer.path,
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+
+        let token = try #require(RemoteCLIRelayServer.Session.hexData(from: tokenHex))
+        let handshake = RemoteRelayClientHandshake(relayID: "relay-1", relayToken: token)
+        var consumedLines = 0
+        try handshake.perform(
+            readLine: {
+                let index = consumedLines
+                guard client.wait({ _, _ in client.receivedLines().count > index }) else {
+                    throw POSIXError(.ETIMEDOUT)
+                }
+                consumedLines += 1
+                return client.receivedLines()[index]
+            },
+            writeLine: { client.send($0) }
+        )
+
+        client.send(Data((#"{"id":"relay-test","method":"system.ping","params":{}}"# + "\n").utf8))
+        #expect(client.wait { data, closed in
+            String(decoding: data, as: UTF8.self).contains("\"result\":42") && closed
+        })
+    }
+
+    @Test("an older client without a nonce still authenticates")
+    func olderClientWithoutNonceAuthenticates() throws {
+        let server = try RemoteCLIRelayServer(
+            localSocketPath: "/tmp/unused.sock",
+            relayID: "relay-1",
+            relayTokenHex: tokenHex,
+            commandRewriter: RecordingRelayRewriter()
+        )
+        defer { server.stop() }
+        let port = try server.start()
+        let client = RelayTestClient(port: port)
+        defer { client.cancel() }
+
+        try authenticate(client)
+        #expect(client.receivedJSONLines().last?["relay_mac"] == nil)
     }
 
     @Test("a wrong MAC gets ok:false and the connection closed")
@@ -250,6 +639,23 @@ struct RemoteCLIRelayServerTests {
 
         #expect(client.wait { data, closed in
             String(decoding: data, as: UTF8.self).contains("\"ok\":false") && closed
+        })
+    }
+
+    private func authenticate(_ client: RelayTestClient) throws {
+        #expect(client.wait { data, _ in data.contains(0x0A) })
+        let challenge = try #require(client.receivedJSONLines().first)
+        let nonce = try #require(challenge["nonce"] as? String)
+        let token = try #require(RemoteCLIRelayServer.Session.hexData(from: tokenHex))
+        let message = Data("relay_id=relay-1\nnonce=\(nonce)\nversion=1".utf8)
+        let mac = RemoteCLIRelayServer.Session.authMAC(token: token, message: message)
+        let auth: [String: Any] = [
+            "relay_id": "relay-1",
+            "mac": mac.map { String(format: "%02x", $0) }.joined(),
+        ]
+        client.send(try JSONSerialization.data(withJSONObject: auth) + Data([0x0A]))
+        #expect(client.wait { data, _ in
+            String(decoding: data, as: UTF8.self).contains("\"ok\":true")
         })
     }
 }

@@ -137,7 +137,7 @@ Each async stream owns its blocking reader worker. A waiting stream does not
 occupy a request worker. Canceling a stream closes only that stream. Closing
 the client releases all remaining stream, request, and reader workers.
 
-The generated protocol-v10 client and numeric mux identities are available
+The generated protocol-v12 client and numeric mux identities are available
 only from `cmux.raw`:
 
 ```python

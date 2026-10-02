@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct NotificationFeedHistoryTopLevelSnapshotHeaderScanner: Sendable {
+struct NotificationFeedHistoryTopLevelSnapshotHeaderScanner: Sendable {
     var header = NotificationFeedHistorySnapshotHeader()
     private var depth = 0
     private var isInString = false

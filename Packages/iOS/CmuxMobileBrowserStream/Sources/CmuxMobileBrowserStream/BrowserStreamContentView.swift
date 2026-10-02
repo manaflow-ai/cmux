@@ -4,6 +4,10 @@ import UIKit
 import QuartzCore
 
 /// Layer-backed remote browser mirror with native scroll mechanics and a local zoom lens.
+///
+/// Streamed browser pixels live in a plain `CALayer`, which Sentry session
+/// replay's text/image masking defaults cannot classify, so this class is
+/// exported for masking through ``BrowserStreamReplayMasking``.
 @MainActor
 final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     weak var delegate: (any BrowserStreamContentViewDelegate)?
@@ -24,8 +28,9 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
     private var viewportOffset = CGPoint.zero
     private var pinchStartScale: CGFloat = 1
     private var panStartOffset = CGPoint.zero
-    private var displayLink: CADisplayLink?
+    private(set) var displayLink: CADisplayLink?
     private var viewportPolicy = BrowserStreamViewportEmissionPolicy()
+    private var tapClickCounter = BrowserStreamTapClickCounter()
 
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
@@ -68,32 +73,32 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
         addSubview(scrollMechanicsView)
         addSubview(inputProxy)
 
+        // One tap recognizer, forwarded immediately with a rising click count
+        // (see BrowserStreamTapClickCounter): double tap means Mac double
+        // click, never local zoom, and single clicks never wait on a
+        // double-tap recognizer to fail. Pinch owns zooming.
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
-        doubleTap.numberOfTapsRequired = 2
-        tap.require(toFail: doubleTap)
         addGestureRecognizer(tap)
-        addGestureRecognizer(doubleTap)
 
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         addGestureRecognizer(pinch)
         localPanGesture.delegate = self
         addGestureRecognizer(localPanGesture)
         updateGestureModes()
-        startDisplayLink()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }
 
-    // No deinit: the display-link proxy self-invalidates once its weak target
-    // (this view) deallocates, and `didMoveToWindow` pauses the link while the
-    // view is detached, so nonisolated deinit never has to touch CADisplayLink.
-
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        displayLink?.isPaused = window == nil
+        if window == nil {
+            displayLink?.invalidate()
+            displayLink = nil
+        } else if displayLink == nil {
+            startDisplayLink()
+        }
         recordViewportIfPossible()
     }
 
@@ -260,32 +265,17 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
-        guard let point = currentTransform.pagePoint(fromViewPoint: gesture.location(in: self)) else { return }
+        let viewPoint = gesture.location(in: self)
+        guard let point = currentTransform.pagePoint(fromViewPoint: viewPoint) else { return }
         let input = MobileBrowserPointerInput(
             panelID: panelID,
             kind: .click,
             x: Double(point.x),
             y: Double(point.y),
-            clickCount: 1,
+            clickCount: tapClickCounter.register(at: viewPoint, time: CACurrentMediaTime()),
             button: .left
         )
         delegate?.browserStreamContentView(self, didProducePointer: input)
-    }
-
-    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
-        if zoomScale > 1.001 {
-            zoomScale = 1
-            viewportOffset = .zero
-        } else {
-            zoomScale = 2
-            let location = gesture.location(in: self)
-            viewportOffset = CGPoint(
-                x: (location.x - bounds.midX) * (zoomScale - 1),
-                y: (location.y - bounds.midY) * (zoomScale - 1)
-            )
-        }
-        updateGestureModes()
-        layoutImageLayer()
     }
 
     @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {

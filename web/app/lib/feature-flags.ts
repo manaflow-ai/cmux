@@ -29,7 +29,23 @@ export const FEATURE_FLAGS = {
     owner: "lawrencecchen",
     description:
       "Shows public Pro/pricing navigation and in-app upgrade entrypoints. Off in release until checkout dogfood is approved.",
-    reviewBy: "2026-10-01",
+    reviewBy: "2027-01-19",
+    defaultWhenUnavailable: false,
+  },
+  iosArtifactChip: {
+    key: "ios-artifact-chip-enabled-release",
+    owner: "lawrencecchen",
+    description:
+      "Shows the integrated Terminal Files chip and its count scan in the iOS terminal toolbar.",
+    reviewBy: "2027-02-01",
+    defaultWhenUnavailable: true,
+  },
+  goPlan: {
+    key: "go-plan-enabled-release",
+    owner: "lawrencecchen",
+    description:
+      "Shows and sells the $10/month Go personal Cloud VM plan. Off until Go capacity and support are ready for public rollout.",
+    reviewBy: "2026-12-01",
     defaultWhenUnavailable: false,
   },
 } as const satisfies Record<string, FeatureFlagDefinition>;

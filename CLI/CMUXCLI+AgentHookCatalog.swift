@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -8,7 +9,7 @@ extension CMUXCLI {
             name: "codex", displayName: "Codex", statusKey: "codex",
             configDir: ".codex", configFile: "hooks.json", configDirEnvOverride: "CODEX_HOME",
             sessionStoreSuffix: "codex", disableEnvVar: "CMUX_CODEX_HOOKS_DISABLED",
-            hookMarker: "cmux hooks codex", format: .nested(timeoutMs: 5),
+            hookMarker: "cmux hooks codex", format: .nested(timeoutMs: agentHookDeclaredTimeoutMilliseconds),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
@@ -39,6 +40,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            dispatch: .pinned(marker: "cmux-grok-hook-v2"),
             publishesStopNotification: false,
             sessionEndIsTurnBoundary: true,
             feedHookEvents: ["PreToolUse"]
@@ -91,10 +93,18 @@ extension CMUXCLI {
                 .init(agentEvent: "beforeSubmitPrompt", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "stop", cmuxSubcommand: "stop"),
                 .init(agentEvent: "afterAgentResponse", cmuxSubcommand: "agent-response"),
-                .init(agentEvent: "beforeShellExecution", cmuxSubcommand: "shell-exec"),
+                .init(
+                    agentEvent: "beforeShellExecution",
+                    cmuxSubcommand: "shell-exec",
+                    delivery: .direct
+                ),
                 .init(agentEvent: "afterShellExecution", cmuxSubcommand: "shell-done"),
-            ],
-            feedHookEvents: ["beforeShellExecution"]
+                .init(
+                    agentEvent: "postToolUseFailure",
+                    cmuxSubcommand: "shell-failed",
+                    matcher: "Shell"
+                ),
+            ]
         ),
         AgentHookDef(
             name: "gemini", displayName: "Gemini", statusKey: "gemini",
@@ -142,6 +152,7 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             aliases: ["agy"],
+            dispatch: .pinned(marker: "cmux-antigravity-hook-v2"),
             sessionEndIsTurnBoundary: true
         ),
         AgentHookDef(
@@ -159,6 +170,7 @@ extension CMUXCLI {
         AgentHookDef(
             name: "hermes-agent", displayName: "Hermes Agent", statusKey: "hermes-agent",
             configDir: ".hermes", configFile: "config.yaml", configDirEnvOverride: "HERMES_HOME",
+            createConfigDirIfMissing: true,
             binaryName: "hermes",
             sessionStoreSuffix: "hermes-agent", disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
             hookMarker: "cmux hooks hermes-agent", format: .hermesAgentYAML,
@@ -228,8 +240,11 @@ extension CMUXCLI {
         ),
         AgentHookDef(
             name: "kimi", displayName: "Kimi Code", statusKey: "kimi",
-            configDir: ".kimi", configFile: "config.toml", configDirEnvOverride: "KIMI_SHARE_DIR",
-            createConfigDirIfMissing: true, binaryName: "kimi",
+            configDir: KimiConfigLocationResolver.kimiCodeConfigDirectory,
+            configFile: KimiConfigLocationResolver.configFileName,
+            createConfigDirIfMissing: true,
+            configDirResolver: { CMUXCLI.resolvedKimiConfigDirectory().path },
+            binaryName: "kimi",
             sessionStoreSuffix: "kimi", disableEnvVar: "CMUX_KIMI_HOOKS_DISABLED",
             hookMarker: "cmux hooks kimi", format: .tomlArrayTable,
             events: [

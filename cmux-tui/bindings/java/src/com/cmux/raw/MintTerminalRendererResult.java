@@ -13,7 +13,9 @@ import java.util.Objects;
 public final class MintTerminalRendererResult implements WireValue {
     private final String endpoint;
     private final String incarnation;
+    private final int protocolVersion;
     private final long rights;
+    private final Field<Boolean> supportsViewerSizePriority;
     private final String terminalId;
     private final String token;
     private final UInt64 ttlMs;
@@ -23,8 +25,11 @@ public final class MintTerminalRendererResult implements WireValue {
         this.endpoint = Wire.nonNull(builder.endpoint, "endpoint");
         if (!builder.incarnationSet) throw new IllegalArgumentException("incarnation is required");
         this.incarnation = Wire.nonNull(builder.incarnation, "incarnation");
+        if (!builder.protocolVersionSet) throw new IllegalArgumentException("protocol_version is required");
+        this.protocolVersion = builder.protocolVersion;
         if (!builder.rightsSet) throw new IllegalArgumentException("rights is required");
         this.rights = builder.rights;
+        this.supportsViewerSizePriority = builder.supportsViewerSizePriority;
         if (!builder.terminalIdSet) throw new IllegalArgumentException("terminal_id is required");
         this.terminalId = Wire.nonNull(builder.terminalId, "terminal_id");
         if (!builder.tokenSet) throw new IllegalArgumentException("token is required");
@@ -37,7 +42,9 @@ public final class MintTerminalRendererResult implements WireValue {
 
     public String endpoint() { return endpoint; }
     public String incarnation() { return incarnation; }
+    public int protocolVersion() { return protocolVersion; }
     public long rights() { return rights; }
+    public Field<Boolean> supportsViewerSizePriority() { return supportsViewerSizePriority; }
     public String terminalId() { return terminalId; }
     public String token() { return token; }
     public UInt64 ttlMs() { return ttlMs; }
@@ -49,8 +56,14 @@ public final class MintTerminalRendererResult implements WireValue {
         builder.endpoint(Wire.string(rawEndpoint, "MintTerminalRendererResult.endpoint"));
         Object rawIncarnation = Wire.required(object, "incarnation");
         builder.incarnation(Wire.string(rawIncarnation, "MintTerminalRendererResult.incarnation"));
+        Object rawProtocolVersion = Wire.required(object, "protocol_version");
+        builder.protocolVersion(Wire.uint16(rawProtocolVersion, "MintTerminalRendererResult.protocol_version"));
         Object rawRights = Wire.required(object, "rights");
         builder.rights(Wire.uint32(rawRights, "MintTerminalRendererResult.rights"));
+        Object rawSupportsViewerSizePriority = Wire.optional(object, "supports_viewer_size_priority");
+        if (!Wire.isMissing(rawSupportsViewerSizePriority)) {
+            builder.supportsViewerSizePriority(Wire.bool(rawSupportsViewerSizePriority, "MintTerminalRendererResult.supports_viewer_size_priority"));
+        }
         Object rawTerminalId = Wire.required(object, "terminal_id");
         builder.terminalId(Wire.string(rawTerminalId, "MintTerminalRendererResult.terminal_id"));
         Object rawToken = Wire.required(object, "token");
@@ -65,7 +78,9 @@ public final class MintTerminalRendererResult implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "endpoint", endpoint);
         Wire.put(object, "incarnation", incarnation);
+        Wire.put(object, "protocol_version", protocolVersion);
         Wire.put(object, "rights", rights);
+        Wire.put(object, "supports_viewer_size_priority", supportsViewerSizePriority);
         Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "token", token);
         Wire.put(object, "ttl_ms", ttlMs);
@@ -75,11 +90,11 @@ public final class MintTerminalRendererResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof MintTerminalRendererResult that)) return false;
-        return Objects.equals(endpoint, that.endpoint) && Objects.equals(incarnation, that.incarnation) && Objects.equals(rights, that.rights) && Objects.equals(terminalId, that.terminalId) && Objects.equals(token, that.token) && Objects.equals(ttlMs, that.ttlMs);
+        return Objects.equals(endpoint, that.endpoint) && Objects.equals(incarnation, that.incarnation) && Objects.equals(protocolVersion, that.protocolVersion) && Objects.equals(rights, that.rights) && Objects.equals(supportsViewerSizePriority, that.supportsViewerSizePriority) && Objects.equals(terminalId, that.terminalId) && Objects.equals(token, that.token) && Objects.equals(ttlMs, that.ttlMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(endpoint, incarnation, rights, terminalId, token, ttlMs); }
+    public int hashCode() { return Objects.hash(endpoint, incarnation, protocolVersion, rights, supportsViewerSizePriority, terminalId, token, ttlMs); }
 
     @Override
     public String toString() { return "MintTerminalRendererResult" + toWire(); }
@@ -89,8 +104,11 @@ public final class MintTerminalRendererResult implements WireValue {
         private boolean endpointSet;
         private String incarnation;
         private boolean incarnationSet;
+        private Integer protocolVersion;
+        private boolean protocolVersionSet;
         private Long rights;
         private boolean rightsSet;
+        private Field<Boolean> supportsViewerSizePriority = Field.omitted();
         private String terminalId;
         private boolean terminalIdSet;
         private String token;
@@ -108,9 +126,18 @@ public final class MintTerminalRendererResult implements WireValue {
             this.incarnationSet = true;
             return this;
         }
+        public Builder protocolVersion(int value) {
+            this.protocolVersion = value;
+            this.protocolVersionSet = true;
+            return this;
+        }
         public Builder rights(long value) {
             this.rights = value;
             this.rightsSet = true;
+            return this;
+        }
+        public Builder supportsViewerSizePriority(Boolean value) {
+            this.supportsViewerSizePriority = Field.of(value);
             return this;
         }
         public Builder terminalId(String value) {

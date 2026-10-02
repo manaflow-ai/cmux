@@ -1,6 +1,6 @@
 # Render-Mode Attach Contract
 
-This document specifies the private protocol-v10 render representation.
+This document specifies the private protocol-v12 render representation.
 `cmux.protocol/2` reuses its lossless styled concepts through typed terminal
 and sidebar streams without exposing private terminal identities.
 

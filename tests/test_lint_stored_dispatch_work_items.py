@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -33,6 +37,8 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                     Wrapper<DispatchWorkItem>
                 var inferred = DispatchWorkItem {}
                 var inferredArray = [DispatchWorkItem]()
+                var inferredGenericArray = Array<DispatchWorkItem>()
+                var inferredGenericDictionary = Dictionary<String, DispatchWorkItem>()
             }
             """
         )
@@ -45,6 +51,11 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                 ("generic", "Wrapper<DispatchWorkItem>"),
                 ("inferred", "<inferred:DispatchWorkItem>"),
                 ("inferredArray", "<inferred:[DispatchWorkItem]>"),
+                ("inferredGenericArray", "<inferred:[DispatchWorkItem]>"),
+                (
+                    "inferredGenericDictionary",
+                    "<inferred:[DispatchWorkItem]>",
+                ),
             ],
         )
 
@@ -166,39 +177,129 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
             [("workByName", "<inferred:[DispatchWorkItem]>")],
         )
 
-    def test_audits_stored_task_handles_in_content_view(self) -> None:
+    def test_audits_stored_async_handles_in_macos_swiftui_state(self) -> None:
         declarations = LINT.scan_declarations(
             """
-            struct ContentView: View {
-                @State private var fallbackTask: Task<Void, Never>?
+            struct FixtureView: View {
+                @State
+                private var fallbackTask: Task<Void, Never>?
                 @State private var tasksByPanel: [String: Task<Void, Never>] = [:]
+                @State private var expiryTimer: DispatchSourceTimer?
+                @State private var feedbackTimer: Timer?
             }
             """,
-            "Sources/ContentView.swift",
+            "Sources/FixtureView.swift",
         )
 
         self.assertEqual(
             [(item.name, item.type_text, item.context) for item in declarations],
             [
-                ("fallbackTask", "Task<Void,Never>?", "member:ContentView"),
+                ("fallbackTask", "Task<Void,Never>?", "member:FixtureView"),
                 (
                     "tasksByPanel",
                     "[String:Task<Void,Never>]",
-                    "member:ContentView",
+                    "member:FixtureView",
+                ),
+                (
+                    "expiryTimer",
+                    "DispatchSourceTimer?",
+                    "member:FixtureView",
+                ),
+                (
+                    "feedbackTimer",
+                    "Timer?",
+                    "member:FixtureView",
                 ),
             ],
         )
 
-    def test_does_not_audit_stored_task_handles_outside_content_view(self) -> None:
-        declarations = self.scan(
+    def test_audits_inferred_async_handles_in_macos_swiftui_state(self) -> None:
+        declarations = LINT.scan_declarations(
+            """
+            struct FixtureView: View {
+                @State private var task = Task {}
+                @State private var detachedTask = Task.detached {}
+                @State private var taskArray = [Task<Void, Never>]()
+                @State private var taskDictionary = Dictionary<String, Task<Void, Never>>()
+                @State private var timer = DispatchSource.makeTimerSource(queue: .main)
+                @State private var feedback = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in }
+                @State private var feedbackTimers = Array<Timer>()
+            }
+            """,
+            "Packages/macOS/Fixture/Sources/Fixture/FixtureView.swift",
+        )
+
+        self.assertEqual(
+            [(item.name, item.type_text, item.context) for item in declarations],
+            [
+                ("task", "<inferred:Task>", "member:FixtureView"),
+                ("detachedTask", "<inferred:Task>", "member:FixtureView"),
+                ("taskArray", "<inferred:[Task]>", "member:FixtureView"),
+                (
+                    "taskDictionary",
+                    "<inferred:[Task]>",
+                    "member:FixtureView",
+                ),
+                (
+                    "timer",
+                    "<inferred:DispatchSourceTimer>",
+                    "member:FixtureView",
+                ),
+                (
+                    "feedback",
+                    "<inferred:Timer>",
+                    "member:FixtureView",
+                ),
+                (
+                    "feedbackTimers",
+                    "<inferred:[Timer]>",
+                    "member:FixtureView",
+                ),
+            ],
+        )
+
+    def test_audits_async_state_handles_in_shared_macos_packages(self) -> None:
+        declarations = LINT.scan_declarations(
+            """
+            struct SharedFixtureView: View {
+                @State private var refreshTask: Task<Void, Never>?
+            }
+            """,
+            "Packages/Shared/Fixture/Sources/Fixture/SharedFixtureView.swift",
+        )
+
+        self.assertEqual(
+            [(item.name, item.type_text, item.context) for item in declarations],
+            [
+                (
+                    "refreshTask",
+                    "Task<Void,Never>?",
+                    "member:SharedFixtureView",
+                )
+            ],
+        )
+
+    def test_does_not_audit_non_state_or_ios_async_handles(self) -> None:
+        declarations = LINT.scan_declarations(
+            """
+            struct FixtureView: View {
+                private var task: Task<Void, Never>?
+                private var timer: DispatchSourceTimer?
+            }
+            """,
+            "Sources/FixtureView.swift",
+        )
+        ios_declarations = LINT.scan_declarations(
             """
             struct FixtureView: View {
                 @State private var task: Task<Void, Never>?
             }
-            """
+            """,
+            "Packages/iOS/Fixture/Sources/Fixture/FixtureView.swift",
         )
 
         self.assertEqual(declarations, [])
+        self.assertEqual(ios_declarations, [])
 
     def test_allowance_comparison_rejects_changed_ownership_and_stale_entries(self) -> None:
         allowance = LINT.Allowance(
@@ -231,6 +332,17 @@ class StoredDispatchWorkItemScannerTests(unittest.TestCase):
                 ): 1
             },
         )
+
+    def test_missing_bonsplit_source_root_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            missing_root = Path(directory) / "missing-bonsplit-sources"
+            stderr = io.StringIO()
+            with mock.patch.object(LINT, "BONSPLIT_SOURCES_ROOT", missing_root):
+                with contextlib.redirect_stderr(stderr):
+                    result = LINT.main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("required audited source root is missing", stderr.getvalue())
 
 
 if __name__ == "__main__":

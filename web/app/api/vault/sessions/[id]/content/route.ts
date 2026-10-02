@@ -7,8 +7,6 @@ import { presignGet } from "@/services/vault/storage";
 import { setSpanAttributes } from "@/services/telemetry";
 import { jsonResponse } from "@/services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

@@ -3,12 +3,14 @@
 
 import base64
 import http.server
+import json
 import os
 import socketserver
 import sys
 import tempfile
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -82,12 +84,13 @@ def _wait_function(c: cmux, surface_id: str, expression: str, timeout_s: float =
 
 
 @contextmanager
-def _local_test_server() -> str:
+def _local_test_server(download_filename: str) -> str:
     with tempfile.TemporaryDirectory(prefix="cmux-browser-ext-") as root:
         root_path = Path(root)
 
         pixel = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==")
         (root_path / "tiny.gif").write_bytes(pixel)
+        (root_path / "download.bin").write_bytes(b"cmux browser download history\n")
 
         (root_path / "frame.html").write_text(
             """<!doctype html>
@@ -116,8 +119,7 @@ def _local_test_server() -> str:
             encoding="utf-8",
         )
 
-        (root_path / "index.html").write_text(
-            """<!doctype html>
+        index_html = """<!doctype html>
 <html>
   <head>
     <title>cmux-browser-extended</title>
@@ -131,6 +133,7 @@ def _local_test_server() -> str:
     <img id="hero" alt="hero image" src="/tiny.gif" />
     <button id="action-btn" role="button" onclick="window.actionCount = (window.actionCount || 0) + 1; document.querySelector('#status').textContent = 'clicked';">Submit Action</button>
     <div id="status">ready</div>
+    <a id="download-link" href="/download.bin">Download fixture</a>
 
     <ul id="rows">
       <li class="row">row-1</li>
@@ -161,13 +164,24 @@ def _local_test_server() -> str:
     </script>
   </body>
 </html>
-""".strip(),
-            encoding="utf-8",
-        )
+""".strip()
+        (root_path / "index.html").write_text(index_html, encoding="utf-8")
 
         class Handler(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, directory=root, **kwargs)
+
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path.split("?", 1)[0] == "/download.bin":
+                    body = (root_path / "download.bin").read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Disposition", f'attachment; filename="{download_filename}"')
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                super().do_GET()
 
             def log_message(self, format: str, *args) -> None:  # noqa: A003
                 return
@@ -188,7 +202,8 @@ def _local_test_server() -> str:
 
 
 def main() -> int:
-    with _local_test_server() as base_url:
+    download_filename = f"cmux-browser-history-{uuid.uuid4().hex}.bin"
+    with _local_test_server(download_filename) as base_url:
         index_url = f"{base_url}/index.html"
         second_url = f"{base_url}/second.html"
 
@@ -206,6 +221,54 @@ def main() -> int:
             c._call("browser.click", {"surface_id": sid, "selector": role_ref})
             status = c._call("browser.get.text", {"surface_id": sid, "selector": "#status"}) or {}
             _must(str(status.get("value") or "") == "clicked", f"Expected clicked status via element ref: {status}")
+
+            c._call("browser.click", {"surface_id": sid, "selector": "#download-link"})
+            actual_download_path = ""
+            listed_before_wait: dict = {}
+            deadline = time.time() + 10.0
+            while time.time() < deadline:
+                listed_before_wait = c._call(
+                    "browser.download.list",
+                    {"surface_id": sid, "limit": 25},
+                ) or {}
+                rows = listed_before_wait.get("downloads") or []
+                if any(
+                    str(row.get("filename") or "") == download_filename
+                    and str(row.get("status") or "") == "saved"
+                    for row in rows
+                ):
+                    break
+                time.sleep(0.05)
+            rows_before_wait = listed_before_wait.get("downloads") or []
+            downloaded_before_wait = next(
+                (row for row in rows_before_wait if str(row.get("filename") or "") == download_filename),
+                None,
+            )
+            _must(downloaded_before_wait is not None, f"Download was not discoverable without a waiter: {listed_before_wait}")
+            _must(str(downloaded_before_wait.get("status") or "") == "saved", f"Download did not finish: {downloaded_before_wait}")
+            actual_download_path = str(downloaded_before_wait.get("path") or "")
+            _must(bool(actual_download_path) and Path(actual_download_path).is_file(), f"Download path was not real: {downloaded_before_wait}")
+
+            waited = c._call("browser.download.wait", {"surface_id": sid, "timeout_ms": 10000}) or {}
+            waited_event = waited.get("download") or {}
+            _must(str(waited_event.get("download_id") or "") == str(downloaded_before_wait.get("download_id") or ""), f"Wait consumed a different download: {waited}")
+            listed_after_wait = c._call("browser.download.list", {"surface_id": sid}) or {}
+            listed_again = c._call("browser.download.list", {"surface_id": sid}) or {}
+            _must(listed_after_wait == listed_again, f"Repeated download listings changed history: {listed_after_wait} vs {listed_again}")
+            _must(any(str(row.get("path") or "") == actual_download_path for row in (listed_after_wait.get("downloads") or [])), f"Wait consumption lost download history: {listed_after_wait}")
+            os.unlink(actual_download_path)
+            listed_after_delete = c._call("browser.download.list", {"surface_id": sid}) or {}
+            deleted_row = next(
+                (row for row in (listed_after_delete.get("downloads") or []) if str(row.get("path") or "") == actual_download_path),
+                None,
+            )
+            _must(deleted_row is not None and deleted_row.get("path_exists") is False, f"Deleted download path was not reported explicitly: {listed_after_delete}")
+
+            second_opened = c._call("browser.open_split", {"url": "about:blank", "focus": False}) or {}
+            second_sid = str(second_opened.get("surface_id") or "")
+            _must(bool(second_sid), f"Second browser surface did not open: {second_opened}")
+            second_history = c._call("browser.download.list", {"surface_id": second_sid}) or {}
+            _must(not (second_history.get("downloads") or []), f"Download history leaked across surfaces: {second_history}")
 
             find_cases = [
                 ("browser.find.text", {"text": "row-2"}),
@@ -263,6 +326,11 @@ def main() -> int:
                 os.unlink(download_path)
             except Exception:
                 pass
+            try:
+                if actual_download_path.startswith(str(Path.home() / "Downloads")):
+                    os.unlink(actual_download_path)
+            except Exception:
+                pass
 
             c._call(
                 "browser.cookies.set",
@@ -276,7 +344,51 @@ def main() -> int:
             got_cookie = c._call("browser.cookies.get", {"surface_id": sid, "name": "cmux_cookie"}) or {}
             cookies = got_cookie.get("cookies") or []
             _must(any(str(row.get("name")) == "cmux_cookie" for row in cookies), f"Expected cmux_cookie in cookies.get: {got_cookie}")
+
+            http_only_name = "cmux_cookie_http_only"
+            c._call(
+                "browser.cookies.set",
+                {
+                    "surface_id": sid,
+                    "name": http_only_name,
+                    "value": "secret_cookie_value",
+                    "url": index_url,
+                    "httpOnly": True,
+                },
+            )
+            got_http_only = c._call("browser.cookies.get", {"surface_id": sid, "name": http_only_name}) or {}
+            http_only_rows = got_http_only.get("cookies") or []
+            http_only_row = next(
+                (row for row in http_only_rows if str(row.get("name")) == http_only_name),
+                None,
+            )
+            _must(http_only_row is not None, f"Expected HttpOnly cookie in cookies.get: {got_http_only}")
+            _must(bool(http_only_row.get("httpOnly")) is True, f"Expected httpOnly=true in cookies.get: {got_http_only}")
+            _must(bool(http_only_row.get("hostOnly")) is True, f"Expected hostOnly=true in cookies.get: {got_http_only}")
+            filtered_http_only = c._call(
+                "browser.cookies.get",
+                {"surface_id": sid, "httpOnly": True},
+            ) or {}
+            filtered_names = {str(row.get("name")) for row in (filtered_http_only.get("cookies") or [])}
+            _must(http_only_name in filtered_names, f"Expected httpOnly filter to retain cookie: {filtered_http_only}")
+            filtered_non_http_only = c._call(
+                "browser.cookies.get",
+                {"surface_id": sid, "httpOnly": False},
+            ) or {}
+            non_http_only_names = {str(row.get("name")) for row in (filtered_non_http_only.get("cookies") or [])}
+            _must("cmux_cookie" in non_http_only_names, f"Expected non-HttpOnly cookie in filter=false result: {filtered_non_http_only}")
+            _must(http_only_name not in non_http_only_names, f"Expected httpOnly filter=false to exclude cookie: {filtered_non_http_only}")
+            document_cookie = c._call(
+                "browser.eval",
+                {"surface_id": sid, "script": "document.cookie"},
+            ) or {}
+            _must(
+                http_only_name not in str(document_cookie.get("value") or ""),
+                f"HttpOnly cookie leaked to document.cookie: {document_cookie}",
+            )
+
             c._call("browser.cookies.clear", {"surface_id": sid, "name": "cmux_cookie"})
+            c._call("browser.cookies.clear", {"surface_id": sid, "name": http_only_name})
             got_after_clear = c._call("browser.cookies.get", {"surface_id": sid, "name": "cmux_cookie"}) or {}
             _must(len(got_after_clear.get("cookies") or []) == 0, f"Expected cookie cleared: {got_after_clear}")
 
@@ -342,11 +454,101 @@ def main() -> int:
 
             state_path = tempfile.NamedTemporaryFile(delete=False, prefix="cmux-state-", suffix=".json").name
             c._call("browser.storage.set", {"surface_id": sid, "type": "local", "key": "persist", "value": "yes"})
+            state_cookie_name = "cmux_state_host_only"
+            other_state_cookie_name = "cmux_state_other_host"
+            domain_state_cookie_name = "cmux_state_domain"
+            c._call(
+                "browser.cookies.set",
+                {
+                    "surface_id": sid,
+                    "name": state_cookie_name,
+                    "value": "state-secret",
+                    "url": index_url,
+                    "httpOnly": True,
+                },
+            )
+            c._call(
+                "browser.cookies.set",
+                {
+                    "surface_id": sid,
+                    "name": other_state_cookie_name,
+                    "value": "other-state-secret",
+                    "url": index_url.replace("127.0.0.1", "localhost"),
+                    "httpOnly": True,
+                },
+            )
+            c._call(
+                "browser.cookies.set",
+                {
+                    "surface_id": sid,
+                    "name": domain_state_cookie_name,
+                    "value": "domain-state-secret",
+                    "url": "https://example.test/",
+                    "domain": ".example.test",
+                    "secure": True,
+                    "httpOnly": True,
+                },
+            )
             c._call("browser.state.save", {"surface_id": sid, "path": state_path})
+            state_snapshot = json.loads(Path(state_path).read_text(encoding="utf-8"))
+            saved_state_rows = state_snapshot.get("cookies") or []
+            saved_state_names = {str(row.get("name")) for row in saved_state_rows}
+            _must(
+                {state_cookie_name, other_state_cookie_name, domain_state_cookie_name} <= saved_state_names,
+                f"Expected both host-only cookies in state snapshot: {state_snapshot}",
+            )
+            for saved_row in saved_state_rows:
+                if str(saved_row.get("name")) in {state_cookie_name, other_state_cookie_name}:
+                    _must(bool(saved_row.get("hostOnly")) is True, f"Expected hostOnly state row: {saved_row}")
+                if str(saved_row.get("name")) == domain_state_cookie_name:
+                    _must(bool(saved_row.get("hostOnly")) is False, f"Expected domain-scoped state row: {saved_row}")
             c._call("browser.storage.set", {"surface_id": sid, "type": "local", "key": "persist", "value": "no"})
+            c._call("browser.cookies.clear", {"surface_id": sid, "name": state_cookie_name})
+            c._call("browser.cookies.clear", {"surface_id": sid, "name": other_state_cookie_name})
+            c._call("browser.cookies.clear", {"surface_id": sid, "name": domain_state_cookie_name})
             c._call("browser.state.load", {"surface_id": sid, "path": state_path})
             persisted = c._call("browser.storage.get", {"surface_id": sid, "type": "local", "key": "persist"}) or {}
             _must(str(persisted.get("value") or "") == "yes", f"Expected state.load to restore storage key: {persisted}")
+            restored_state_cookie = c._call(
+                "browser.cookies.get", {"surface_id": sid, "name": state_cookie_name}
+            ) or {}
+            restored_state_rows = restored_state_cookie.get("cookies") or []
+            restored_state_row = next(
+                (row for row in restored_state_rows if str(row.get("name")) == state_cookie_name),
+                None,
+            )
+            _must(restored_state_row is not None, f"Expected state.load to restore cookie: {restored_state_cookie}")
+            _must(bool(restored_state_row.get("hostOnly")) is True, f"Expected restored hostOnly cookie: {restored_state_cookie}")
+            _must(bool(restored_state_row.get("httpOnly")) is True, f"Expected restored HttpOnly cookie: {restored_state_cookie}")
+            restored_other_cookie = c._call(
+                "browser.cookies.get", {"surface_id": sid, "name": other_state_cookie_name}
+            ) or {}
+            restored_other_rows = restored_other_cookie.get("cookies") or []
+            restored_other_row = next(
+                (row for row in restored_other_rows if str(row.get("name")) == other_state_cookie_name),
+                None,
+            )
+            _must(restored_other_row is not None, f"Expected second state cookie: {restored_other_cookie}")
+            _must(bool(restored_other_row.get("hostOnly")) is True, f"Expected second hostOnly cookie: {restored_other_cookie}")
+            _must(
+                "localhost" in str(restored_other_row.get("domain") or "").lower(),
+                f"Expected second cookie to retain localhost scope: {restored_other_cookie}",
+            )
+            restored_domain_cookie = c._call(
+                "browser.cookies.get", {"surface_id": sid, "name": domain_state_cookie_name}
+            ) or {}
+            restored_domain_rows = restored_domain_cookie.get("cookies") or []
+            restored_domain_row = next(
+                (row for row in restored_domain_rows if str(row.get("name")) == domain_state_cookie_name),
+                None,
+            )
+            _must(restored_domain_row is not None, f"Expected domain-scoped state cookie: {restored_domain_cookie}")
+            _must(bool(restored_domain_row.get("hostOnly")) is False, f"Expected domain scope after restore: {restored_domain_cookie}")
+            _must(bool(restored_domain_row.get("httpOnly")) is True, f"Expected domain HttpOnly after restore: {restored_domain_cookie}")
+            _must(
+                str(restored_domain_row.get("domain") or "").lstrip(".").lower() == "example.test",
+                f"Expected domain cookie to retain example.test scope: {restored_domain_cookie}",
+            )
             try:
                 os.unlink(state_path)
             except Exception:

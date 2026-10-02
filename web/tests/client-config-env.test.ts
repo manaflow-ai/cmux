@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { type ChildResult, runChild } from "./helpers/run-child";
 
 const requiredEnv = {
   PATH: process.env.PATH ?? "",
@@ -10,9 +10,6 @@ const requiredEnv = {
   STACK_SECRET_SERVER_KEY: "stack-secret",
   NEXT_PUBLIC_STACK_PROJECT_ID: "stack-project",
   NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "stack-public",
-  CODEROUTER_HOSTED_PRO_REQUIRED: "1",
-  SUBROUTER_ENFORCE_STACK_PERMISSIONS: "0",
-  SUBROUTER_ALLOWED_TEAM_IDS: "*",
 };
 
 const requiredIrohProductionEnv = {
@@ -34,77 +31,115 @@ const requiredRelayProductionEnv = {
   CMUX_RELAY_TOKEN_RATE_LIMIT_ID: "relay-token-rule",
 };
 
+// Origin returned with CodeRouter handoff route tokens; deployed
+// non-preview runtimes require it (app/env.ts).
+const requiredCoderouterProductionEnv = {
+  CMUX_CODEROUTER_PUBLIC_ORIGIN: "https://cmux.example.com",
+};
+
 const requiredSubrouterDeploymentEnv = {
   SUBROUTER_ADMIN_TOKEN: "test-legacy-subrouter-admin",
   SUBROUTER_STACK_TENANT_DELETE_TOKEN: "0123456789abcdef0123456789abcdef",
-  SUBROUTER_ENFORCE_STACK_PERMISSIONS: "0",
-  SUBROUTER_ALLOWED_TEAM_IDS: "test-team",
 };
 
 describe("client config env validation", () => {
-  test("allows local builds with VERCEL set but no deployment environment", () => {
-    const result = importEnv({
+  test("allows local builds with VERCEL set but no deployment environment", async () => {
+    const result = await importEnv({
       ...requiredEnv,
       VERCEL: "1",
       VERCEL_PREVIEW_COMMENTS_ENABLED: "0",
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
   });
 
-  test("requires the hosted coderouter Pro gate in Vercel production", () => {
-    const {
-      CODEROUTER_HOSTED_PRO_REQUIRED: _hostedProRequired,
-      ...baseEnv
-    } = requiredEnv;
-    const result = importEnv({
-      ...baseEnv,
+  test("production needs no subrouter or coderouter access-gate variables", async () => {
+    // Access is team membership only. A deploy that still carries the retired
+    // gate keys must also start, since the runtime ignores them.
+    const without = await importEnv({
+      ...requiredEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
     });
+    expect(without.status).toBe(0);
+    expect(without.stderr).not.toContain("CODEROUTER_HOSTED_PRO_REQUIRED");
+    expect(without.stderr).not.toContain("SUBROUTER_ENFORCE_STACK_PERMISSIONS");
+    expect(without.stderr).not.toContain("SUBROUTER_ALLOWED_TEAM_IDS");
 
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain(
-      "CODEROUTER_HOSTED_PRO_REQUIRED is required for deployed production runtimes",
-    );
-  });
-
-  test("rejects the retired annual Pro price override at startup", () => {
-    const result = importEnv({
+    const withStale = await importEnv({
       ...requiredEnv,
-      STRIPE_PRO_YEARLY_PRICE_ID: "price_grandfathered_240",
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      ...requiredSubrouterDeploymentEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
+      CODEROUTER_HOSTED_PRO_REQUIRED: "1",
+      SUBROUTER_ENFORCE_STACK_PERMISSIONS: "1",
+      SUBROUTER_ALLOWED_TEAM_IDS: "team-a",
     });
-
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain(
-      "STRIPE_PRO_YEARLY_PRICE_ID is retired; use STRIPE_PRO_YEARLY_288_PRICE_ID",
-    );
+    expect(withStale.status).toBe(0);
   });
 
-  test("allows explicit Vercel production deployments with all rate-limit ids unset", () => {
+  test("rejects every retired Stripe price override at startup", async () => {
+    // A retired override would pin checkout to a grandfathered Price, so the
+    // deployment must fail loudly rather than sell at the old amount.
+    const retired = [
+      ["STRIPE_PRO_MONTHLY_PRICE_ID", "STRIPE_PRO_MONTHLY_50_PRICE_ID"],
+      ["STRIPE_PRO_YEARLY_PRICE_ID", "STRIPE_PRO_YEARLY_480_PRICE_ID"],
+      ["STRIPE_PRO_YEARLY_288_PRICE_ID", "STRIPE_PRO_YEARLY_480_PRICE_ID"],
+      ["STRIPE_TEAM_MONTHLY_PRICE_ID", "STRIPE_TEAM_MONTHLY_60_PRICE_ID"],
+      ["STRIPE_TEAM_YEARLY_PRICE_ID", "STRIPE_TEAM_YEARLY_576_PRICE_ID"],
+    ] as const;
+    for (const [name, replacement] of retired) {
+      const result = await importEnv({
+        ...requiredEnv,
+        [name]: "price_grandfathered",
+      });
+
+      expectRejected(result);
+      expect(result.stderr).toContain(`${name} is retired; use ${replacement}`);
+    }
+  });
+
+  test("accepts the current Stripe price overrides", async () => {
+    const result = await importEnv({
+      ...requiredEnv,
+      STRIPE_PRO_MONTHLY_50_PRICE_ID: "price_pro_50",
+      STRIPE_PRO_YEARLY_480_PRICE_ID: "price_pro_480",
+      STRIPE_TEAM_MONTHLY_60_PRICE_ID: "price_team_60",
+      STRIPE_TEAM_YEARLY_576_PRICE_ID: "price_team_576",
+    });
+
+    expect(result.status).toBe(0);
+  });
+
+  test("allows explicit Vercel production deployments with all rate-limit ids unset", async () => {
     // Rate limiting is opt-in: production deploys must survive every
     // rate-limit id being deleted from the environment.
     const { CMUX_RELAY_TOKEN_RATE_LIMIT_ID: _relay, ...relayEnv } = requiredRelayProductionEnv;
     const { CMUX_FEEDBACK_RATE_LIMIT_ID: _feedback, ...baseEnv } = requiredEnv;
-    const result = importEnv({
+    const result = await importEnv({
       ...baseEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...relayEnv,
+      ...requiredCoderouterProductionEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("RATE_LIMIT_ID");
   });
 
-  test("accepts explicit Vercel production deployments with both limiter ids", () => {
-    const result = importEnv({
+  test("production requires the CodeRouter public origin", async () => {
+    const base = {
       ...requiredEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
@@ -113,29 +148,49 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
-    });
-
-    expect(result.exitCode).toBe(0);
+    };
+    const missing = await importEnv(base);
+    expect(missing.status).not.toBe(0);
+    expect(missing.stderr).toContain("CMUX_CODEROUTER_PUBLIC_ORIGIN");
+    const withPath = await importEnv({ ...base, CMUX_CODEROUTER_PUBLIC_ORIGIN: "https://cmux.example.com/v1" });
+    expect(withPath.status).not.toBe(0);
   });
 
-  test("allows hosted-only production after the temporary legacy admin token is retired", () => {
+  test("accepts explicit Vercel production deployments with both limiter ids", async () => {
+    const result = await importEnv({
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
+    });
+
+    expect(result.status).toBe(0);
+  });
+
+  test("allows hosted-only production after the temporary legacy admin token is retired", async () => {
     const { SUBROUTER_ADMIN_TOKEN: _legacyToken, ...hostedSubrouterEnv } =
       requiredSubrouterDeploymentEnv;
-    const result = importEnv({
+    const result = await importEnv({
       ...requiredEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
       ...hostedSubrouterEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("SUBROUTER_ADMIN_TOKEN");
   });
 
-  test("allows credential-free docs channel deployments", () => {
-    const result = importEnv({
+  test("allows credential-free docs channel deployments", async () => {
+    const result = await importEnv({
       PATH: requiredEnv.PATH,
       HOME: requiredEnv.HOME,
       VERCEL: "1",
@@ -143,11 +198,11 @@ describe("client config env validation", () => {
       CMUX_DOCS_CHANNEL: "nightly",
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
   });
 
-  test("allows explicit Vercel production deployments without the analytics limiter id", () => {
-    const result = importEnv({
+  test("allows explicit Vercel production deployments without the analytics limiter id", async () => {
+    const result = await importEnv({
       ...requiredEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
@@ -155,14 +210,15 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("CMUX_ANALYTICS_RATE_LIMIT_ID");
   });
 
-  test("allows Vercel development without the analytics limiter id", () => {
-    const result = importEnv({
+  test("allows Vercel development without the analytics limiter id", async () => {
+    const result = await importEnv({
       ...requiredEnv,
       VERCEL: "1",
       VERCEL_ENV: "development",
@@ -170,12 +226,13 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
   });
-  test("accepts the self-hosted relay path without the legacy hosted minter", () => {
-    const result = importEnv({
+  test("accepts the self-hosted relay path without the legacy hosted minter", async () => {
+    const result = await importEnv({
       ...requiredEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
@@ -189,16 +246,18 @@ describe("client config env validation", () => {
         requiredIrohProductionEnv.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON,
       ...requiredSubrouterDeploymentEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
   });
 
-  test("allows explicit Vercel production without the optional Iroh limiter id", () => {
-    const result = importEnv({
+  test("allows explicit Vercel production without the optional Iroh limiter id", async () => {
+    const result = await importEnv({
       ...requiredEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
@@ -206,12 +265,12 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("CMUX_IROH_RATE_LIMIT_ID is required");
   });
 
-  test("requires the complete Iroh trust-broker configuration in production", () => {
-    const result = importEnv({
+  test("requires the complete Iroh trust-broker configuration in production", async () => {
+    const result = await importEnv({
       ...requiredEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
@@ -221,13 +280,13 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
     });
 
-    expect(result.exitCode).not.toBe(0);
+    expectRejected(result);
     expect(result.stderr).toContain("CMUX_IROH_GRANT_SIGNING_KEY_P8 is required");
     expect(result.stderr).not.toContain("CMUX_IROH_MINT_HMAC_SECRET_B64 is required");
   });
 
-  test("requires the self-hosted relay signing and rate-limit configuration in production", () => {
-    const result = importEnv({
+  test("requires the self-hosted relay signing and rate-limit configuration in production", async () => {
+    const result = await importEnv({
       ...requiredEnv,
       ...requiredIrohProductionEnv,
       VERCEL: "1",
@@ -237,7 +296,7 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
     });
 
-    expect(result.exitCode).not.toBe(0);
+    expectRejected(result);
     expect(result.stderr).toContain("Self-hosted relay runtime configuration is incomplete");
     expect(result.stderr).not.toContain("CMUX_RELAY_JWT_PRIVATE_KEY_PEM");
     expect(result.stderr).not.toContain("CMUX_RELAY_POLICY_KEY_ID");
@@ -245,41 +304,44 @@ describe("client config env validation", () => {
     expect(result.stderr).not.toContain("CMUX_RELAY_TOKEN_RATE_LIMIT_ID");
   });
 
-  test("keeps Vercel previews credential-free for the self-hosted relay fleet", () => {
-    const result = importEnv({
+  test("keeps Vercel previews credential-free for the self-hosted relay fleet", async () => {
+    const result = await importEnv({
       ...requiredEnv,
       VERCEL: "1",
       VERCEL_ENV: "preview",
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
   });
 
-  test("allows an explicitly opted-in loopback HTTP relay minter only in local development", () => {
-    const result = inspectIrohMinterUrl({
+  test("allows an explicitly opted-in loopback HTTP relay minter only in local development", async () => {
+    const result = await inspectIrohMinterUrl({
       ...requiredEnv,
       NODE_ENV: "development",
       CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: "1",
       CMUX_IROH_MINT_URL: "http://localhost:49152/api/relay-token",
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.status).toBe(0);
     expect(result.stdout).toBe("http://localhost:49152/api/relay-token");
   });
 
-  test("rejects a plaintext non-loopback relay minter in local development", () => {
-    const result = inspectIrohMinterUrl({
+  test("rejects a plaintext non-loopback relay minter in local development", async () => {
+    const result = await inspectIrohMinterUrl({
       ...requiredEnv,
       NODE_ENV: "development",
       CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: "1",
       CMUX_IROH_MINT_URL: "http://192.168.1.10:49152/api/relay-token",
     });
 
-    expect(result.exitCode).not.toBe(0);
+    expectRejected(
+      result,
+      "CMUX_IROH_MINT_URL must use HTTPS, except for an opted-in local loopback development minter",
+    );
   });
 
-  test("rejects the insecure loopback opt-in in Vercel preview and production", () => {
-    const preview = inspectIrohMinterUrl({
+  test("rejects the insecure loopback opt-in in Vercel preview and production", async () => {
+    const preview = await inspectIrohMinterUrl({
       ...requiredEnv,
       NODE_ENV: "production",
       VERCEL: "1",
@@ -287,9 +349,9 @@ describe("client config env validation", () => {
       CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: "1",
       CMUX_IROH_MINT_URL: "http://localhost:49152/api/relay-token",
     });
-    expect(preview.exitCode).not.toBe(0);
+    expectRejected(preview, 'component: "relay_minter"');
 
-    const production = inspectIrohMinterUrl({
+    const production = await inspectIrohMinterUrl({
       ...requiredEnv,
       ...requiredIrohProductionEnv,
       NODE_ENV: "production",
@@ -299,40 +361,43 @@ describe("client config env validation", () => {
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
       ...requiredSubrouterDeploymentEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
       CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: "1",
       CMUX_IROH_MINT_URL: "http://localhost:49152/api/relay-token",
     });
-    expect(production.exitCode).not.toBe(0);
+    expectRejected(production);
     expect(production.stderr).toContain(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER is only allowed in local development",
     );
   });
 });
 
-function importEnv(env: Record<string, string>): { exitCode: number; stderr: string } {
-  const result = spawnSync(
-    process.execPath,
-    ["--no-env-file", "-e", "await import('./app/env')"],
-    {
-      env: env as NodeJS.ProcessEnv,
-      encoding: "utf8",
-    },
-  );
-  return {
-    exitCode: result.status ?? 1,
-    stderr: result.stderr,
-  };
+// A rejection must be the validation failure itself: a clean nonzero exit with
+// the expected diagnostic. A child killed by the spawn timeout or a signal also
+// exits nonzero, so it must never count as the rejection under test.
+function expectRejected(result: ChildResult, ...diagnostics: string[]): void {
+  expect(result.signal).toBeNull();
+  expect(result.status).not.toBe(0);
+  for (const diagnostic of diagnostics) {
+    expect(result.stderr).toContain(diagnostic);
+  }
 }
 
-function inspectIrohMinterUrl(
+/** Runs this Bun binary without .env loading, under exactly the given environment. */
+function runBun(args: string[], env: Record<string, string>): Promise<ChildResult> {
+  return runChild(process.execPath, ["--no-env-file", ...args], { env, timeout: 30_000 });
+}
+
+/** Imports app/env in a fresh Bun process so its startup validation runs. */
+async function importEnv(env: Record<string, string>): Promise<ChildResult> {
+  return runBun(["-e", "await import('./app/env')"], env);
+}
+
+/** Resolves the relay minter URL in a fresh Bun process and prints its href. */
+async function inspectIrohMinterUrl(
   env: Record<string, string>,
-): { exitCode: number; stdout: string; stderr: string } {
-  const result = spawnSync(
-    process.execPath,
-    [
-      "--no-env-file",
-      "-e",
-      `
+): Promise<ChildResult> {
+  const result = await runBun(["-e", `
         const { irohTrustBrokerConfigFromEnv } = await import('./services/iroh/config');
         const { parseMinterUrl } = await import('./services/iroh/relayMinter');
         const config = irohTrustBrokerConfigFromEnv();
@@ -342,16 +407,6 @@ function inspectIrohMinterUrl(
           isVercelDeployment: config.isVercelDeployment,
         });
         console.log(url.href);
-      `,
-    ],
-    {
-      env: env as NodeJS.ProcessEnv,
-      encoding: "utf8",
-    },
-  );
-  return {
-    exitCode: result.status ?? 1,
-    stdout: result.stdout.trim(),
-    stderr: result.stderr,
-  };
+      `], env);
+  return { ...result, stdout: result.stdout.trim() };
 }

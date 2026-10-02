@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct MobileNotificationFeedWireItem: Sendable {
+struct MobileNotificationFeedWireItem: Sendable {
     let id: String
     let workspaceID: String
     let surfaceID: String?
@@ -12,6 +12,9 @@ nonisolated struct MobileNotificationFeedWireItem: Sendable {
     let retargetsToLiveSurfaceOwner: Bool
     let workspaceTitle: String?
     let surfaceTitle: String?
+    /// `TerminalNotificationOrigin.kind` of the record; peer Macs skip origins
+    /// they receive through their own sync (see `DeviceNotificationFeedRows`).
+    let originKind: String
 
     var foundationPayload: [String: Any] {
         var payload: [String: Any] = [
@@ -23,6 +26,7 @@ nonisolated struct MobileNotificationFeedWireItem: Sendable {
             "created_at": createdAt,
             "is_read": isRead,
             "retargets_to_live_surface_owner": retargetsToLiveSurfaceOwner,
+            "origin_kind": originKind,
         ]
         if let surfaceID {
             payload["surface_id"] = surfaceID

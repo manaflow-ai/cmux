@@ -13,10 +13,12 @@ private final class FakeHost: NotificationDismissalHosting {
     var focusedPanelIds: [UUID: UUID] = [:]
     var focusedSurfaceIds: [UUID: UUID] = [:]
     var suppressOnlyFocusedSurface = false
+    var paneFlashOnTyping = false
     var panelIdsBySurface: [UUID: UUID] = [:]
     var manualPanelUnread: Set<UUID> = []
     var restoredPanelUnread: Set<UUID> = []
     var manualWorkspaceUnread: Set<UUID> = []
+    var manualSurfaceUnread: Set<UUID> = []
     var restoredWorkspaceUnread: Set<UUID> = []
     var unreadNotificationSurfaces: Set<UUID> = []
     var workspaceWideUnread: Set<UUID> = []
@@ -25,6 +27,7 @@ private final class FakeHost: NotificationDismissalHosting {
     var workspacesWithPendingNotifications: Set<UUID> = []
     var hasDismissibleState = true
     var hasDismissiblePanelState = false
+    var selectionLookupCount = 0
     var detailedLookupCount = 0
 
     var log: [String] = []
@@ -38,7 +41,8 @@ private final class FakeHost: NotificationDismissalHosting {
     }
 
     func isNotificationTargetSelected(workspaceId: UUID, surfaceId: UUID?) -> Bool {
-        selectedWorkspaceId == workspaceId
+        selectionLookupCount += 1
+        return selectedWorkspaceId == workspaceId
     }
 
     func focusedSurfaceId(in workspaceId: UUID) -> UUID? {
@@ -70,6 +74,10 @@ private final class FakeHost: NotificationDismissalHosting {
         manualWorkspaceUnread.contains(workspaceId)
     }
 
+    func storeHasManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        manualSurfaceUnread.contains(surfaceId)
+    }
+
     func storeHasRestoredUnreadIndicator(workspaceId: UUID) -> Bool {
         restoredWorkspaceUnread.contains(workspaceId)
     }
@@ -91,16 +99,33 @@ private final class FakeHost: NotificationDismissalHosting {
 
     func storeMarkRead(workspaceId: UUID, surfaceId: UUID?) {
         log.append("markRead:\(short(surfaceId))")
+        // The store's own mark-read is a real mutation: the next read of the
+        // same target finds nothing left.
+        if let surfaceId {
+            unreadNotificationSurfaces.remove(surfaceId)
+        } else {
+            workspaceWideUnread.remove(workspaceId)
+        }
+    }
+
+    func storeMarkWorkspaceLevelNotificationsRead(workspaceId: UUID) {
+        log.append("markWorkspaceLevelRead")
+        workspaceWideUnread.remove(workspaceId)
     }
 
     func storeClearManualUnread(workspaceId: UUID) -> Bool {
         log.append("storeClearManualUnread")
-        return manualWorkspaceUnread.contains(workspaceId)
+        return manualWorkspaceUnread.remove(workspaceId) != nil
+    }
+
+    func storeClearManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool {
+        log.append("storeClearManualUnread:\(short(surfaceId))")
+        return manualSurfaceUnread.remove(surfaceId) != nil
     }
 
     func storeClearRestoredUnreadIndicator(workspaceId: UUID) -> Bool {
         log.append("storeClearRestoredUnread")
-        return restoredWorkspaceUnread.contains(workspaceId)
+        return restoredWorkspaceUnread.remove(workspaceId) != nil
     }
 
     func storeClearFocusedReadIndicator(workspaceId: UUID, surfaceId: UUID?) {
@@ -109,10 +134,12 @@ private final class FakeHost: NotificationDismissalHosting {
 
     func workspaceClearManualUnread(workspaceId: UUID, panelId: UUID) {
         log.append("panelClearManualUnread")
+        manualPanelUnread.remove(panelId)
     }
 
     func workspaceClearRestoredUnreadIndicator(workspaceId: UUID, panelId: UUID) {
         log.append("panelClearRestoredUnread")
+        restoredPanelUnread.remove(panelId)
     }
 
     func workspaceTriggerNotificationDismissFlash(workspaceId: UUID, panelId: UUID) {
@@ -182,6 +209,22 @@ struct NotificationDismissalModelTests {
         #expect(host.log == ["markRead:\(prefix)", "clearFocusedRead:\(prefix)", "notificationFlash"])
     }
 
+    @Test func visibleNonFocusedSurfaceDismissesWhenWorkspaceIsSelected() {
+        let (model, host, workspaceId, _) = makeModel()
+        let visibleSurface = UUID()
+        host.unreadNotificationSurfaces = [visibleSurface]
+
+        // Selecting a workspace can render a split surface that is visible but
+        // not the focused panel. Seeing that pane must still clear its badge.
+        model.dismissPanelNotificationOnFocus(
+            workspaceId: workspaceId,
+            panelId: visibleSurface,
+            explicitFocusIntent: false
+        )
+
+        #expect(host.log.contains("markRead:\(visibleSurface.uuidString.prefix(4))"))
+    }
+
     @Test func surfaceAliasMarksBothSurfaceAndPanel() {
         let (model, host, workspaceId, panelId) = makeModel()
         let surfaceId = UUID()
@@ -202,18 +245,39 @@ struct NotificationDismissalModelTests {
         let (model, host, workspaceId, panelId) = makeModel()
         host.manualPanelUnread = [panelId]
         host.manualWorkspaceUnread = [workspaceId]
+        host.manualSurfaceUnread = [panelId]
 
         // Direct interaction may not clear a manually-set unread indicator.
         #expect(!model.dismissNotificationOnDirectInteraction(workspaceId: workspaceId, surfaceId: panelId))
         #expect(host.log.isEmpty)
 
-        // Terminal interaction clears it and triggers the indicator flash.
+        // Terminal interaction clears it without flashing the pane being typed in.
         #expect(model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
         let prefix = String(panelId.uuidString.prefix(4))
         #expect(host.log == [
             "panelClearManualUnread", "storeClearManualUnread",
-            "clearFocusedRead:\(prefix)", "unreadIndicatorFlash",
+            "storeClearManualUnread:\(prefix)",
+            "clearFocusedRead:\(prefix)",
         ])
+    }
+
+    @Test func typingDismissesAnUnreadNotificationWithoutFlashing() {
+        let (model, host, workspaceId, panelId) = makeModel()
+        host.unreadNotificationSurfaces = [panelId]
+
+        #expect(model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
+        let prefix = String(panelId.uuidString.prefix(4))
+        #expect(host.log == ["markRead:\(prefix)", "clearFocusedRead:\(prefix)"])
+    }
+
+    @Test func typingCanFlashWhenEnabled() {
+        let (model, host, workspaceId, panelId) = makeModel()
+        host.paneFlashOnTyping = true
+        host.unreadNotificationSurfaces = [panelId]
+
+        #expect(model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
+        let prefix = String(panelId.uuidString.prefix(4))
+        #expect(host.log == ["markRead:\(prefix)", "clearFocusedRead:\(prefix)", "notificationFlash"])
     }
 
     @Test func restoredUnreadNotClearedByPlainActiveFocus() {
@@ -304,6 +368,7 @@ struct NotificationDismissalModelTests {
         host.hasDismissibleState = false
 
         #expect(!model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
+        #expect(host.selectionLookupCount == 0)
         #expect(host.detailedLookupCount == 0)
         #expect(host.log.isEmpty)
     }
@@ -403,5 +468,83 @@ struct NotificationDismissalModelTests {
             workspaceId: workspaceId, surfaceId: nil, context: .activeFocus
         ))
         #expect(host.log.contains("markRead:nil"))
+    }
+
+    // MARK: Workspace-level notifications (issue #12387)
+
+    /// manaflow-ai/cmux#12387: a notification posted without a surface has no
+    /// pane to focus, so the workspace becoming the visible one is how it is
+    /// seen. Visiting must read it alongside the focused surface's records,
+    /// and read only it: not a whole-workspace mark-read, which would also
+    /// wipe other panes' manual and restored unread markers.
+    @Test func visitingWorkspaceReadsWorkspaceLevelNotifications() {
+        let (model, host, workspaceId, panelId) = makeModel()
+        let otherSurface = UUID()
+        let otherPanel = UUID()
+        host.unreadNotificationSurfaces = [panelId, otherSurface]
+        host.workspaceWideUnread = [workspaceId]
+        host.manualSurfaceUnread = [otherSurface]
+        host.manualPanelUnread = [otherPanel]
+        host.restoredPanelUnread = [otherPanel]
+
+        model.dismissFocusedPanelNotificationIfActive(workspaceId: workspaceId, context: .activeFocus)
+
+        let prefix = String(panelId.uuidString.prefix(4))
+        #expect(host.log == [
+            "markRead:\(prefix)", "clearFocusedRead:\(prefix)", "notificationFlash",
+            "markWorkspaceLevelRead",
+        ])
+        #expect(host.workspaceWideUnread.isEmpty)
+        // Other panes keep their notifications and unread markers.
+        #expect(host.unreadNotificationSurfaces == [otherSurface])
+        #expect(host.manualSurfaceUnread == [otherSurface])
+        #expect(host.manualPanelUnread == [otherPanel])
+        #expect(host.restoredPanelUnread == [otherPanel])
+
+        // A workspace with only workspace-level records, and no focused
+        // surface at all, is read by the visit alone.
+        let bare = UUID()
+        host.selectedWorkspaceId = bare
+        host.workspaceWideUnread = [bare]
+        host.log.removeAll()
+        model.dismissFocusedPanelNotificationIfActive(workspaceId: bare, context: .explicitWorkspaceResume)
+        #expect(host.log == ["markWorkspaceLevelRead"])
+
+        // Nothing left: a second visit is a no-op, not a repeated mutation.
+        host.log.removeAll()
+        model.dismissFocusedPanelNotificationIfActive(workspaceId: bare, context: .explicitWorkspaceResume)
+        #expect(host.log.isEmpty)
+    }
+
+    @Test func visitingWorkspaceKeepsVisitGuardsForWorkspaceLevelNotifications() {
+        let (model, host, workspaceId, _) = makeModel()
+        host.workspaceWideUnread = [workspaceId]
+
+        // An inactive app has not shown the workspace to the user.
+        host.isAppActive = false
+        model.dismissFocusedPanelNotificationIfActive(workspaceId: workspaceId, context: .activeFocus)
+        #expect(host.workspaceWideUnread == [workspaceId])
+
+        // Neither has a workspace that is not the selected one.
+        host.isAppActive = true
+        host.selectedWorkspaceId = UUID()
+        model.dismissFocusedPanelNotificationIfActive(workspaceId: workspaceId, context: .activeFocus)
+        #expect(host.workspaceWideUnread == [workspaceId])
+        #expect(host.log.isEmpty)
+    }
+
+    @Test func nonFocusedSurfaceDismissalLeavesWorkspaceLevelNotificationUnread() {
+        let (model, host, workspaceId, panelId) = makeModel()
+        let otherSurface = UUID()
+        host.focusedSurfaceIds[workspaceId] = panelId
+        host.workspaceWideUnread = [workspaceId]
+        host.unreadNotificationSurfaces = [otherSurface]
+
+        // Clicking a banner for a surface the workspace is not focused on is not
+        // the user reading the workspace's own notifications.
+        #expect(model.dismissNotificationOnDirectInteraction(
+            workspaceId: workspaceId, surfaceId: otherSurface
+        ))
+        #expect(host.workspaceWideUnread.contains(workspaceId))
     }
 }

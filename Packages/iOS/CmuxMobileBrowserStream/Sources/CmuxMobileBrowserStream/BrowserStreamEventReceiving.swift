@@ -12,6 +12,9 @@ public protocol BrowserStreamEventReceiving: AnyObject {
     /// Marks a stream active after the Mac accepts `stream.start`.
     /// - Parameter descriptor: The descriptor returned by the start request.
     func browserStreamDidStart(_ descriptor: MobileBrowserPanelDescriptor)
+    /// Registers a panel the Mac just created on the phone's behalf.
+    /// - Parameter descriptor: The descriptor returned by the create request.
+    func browserPanelCreated(_ descriptor: MobileBrowserPanelDescriptor)
     /// Resets subscription-local sequencing immediately before `stream.start`.
     /// - Parameter panelID: The Mac browser panel identifier.
     func browserStreamWillStart(panelID: String) async
@@ -21,22 +24,39 @@ public protocol BrowserStreamEventReceiving: AnyObject {
     /// Applies shell connection status to active panels.
     /// - Parameter status: The current shell connection status.
     func setBrowserStreamConnectionStatus(_ status: BrowserStreamSurfaceState.ConnectionStatus)
+    /// Applies a connection status to one panel whose stream does not ride
+    /// the shell's Mac connection (for example an SSH computer's browser).
+    /// - Parameters:
+    ///   - status: The panel's own transport status.
+    ///   - panelID: The browser panel identifier.
+    func setBrowserStreamConnectionStatus(_ status: BrowserStreamSurfaceState.ConnectionStatus, panelID: String)
     /// Marks active streams paused after background stop requests.
     func pauseBrowserStreams()
     /// Routes a raw `browser.frame` payload into the frame pipeline.
     /// - Parameters:
     ///   - payload: The raw event payload.
     ///   - acknowledge: Called after an accepted frame is installed for display.
-    func receiveBrowserFramePayload(_ payload: Data, acknowledge: @escaping BrowserStreamFrameAcknowledging)
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    func receiveBrowserFramePayload(
+        _ payload: Data,
+        acknowledge: @escaping BrowserStreamFrameAcknowledging
+    ) -> String?
     /// Routes a raw `browser.state` payload into panel state.
     /// - Parameter payload: The raw event payload.
-    func receiveBrowserStatePayload(_ payload: Data)
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    func receiveBrowserStatePayload(_ payload: Data) -> String?
     /// Routes a raw `browser.dialog` payload into panel state.
     /// - Parameter payload: Raw event payload.
-    func receiveBrowserDialogPayload(_ payload: Data)
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    func receiveBrowserDialogPayload(_ payload: Data) -> String?
     /// Routes a raw `browser.dialog.resolved` payload into panel state.
     /// - Parameter payload: Raw event payload.
-    func receiveBrowserDialogResolvedPayload(_ payload: Data)
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    func receiveBrowserDialogResolvedPayload(_ payload: Data) -> String?
     /// Claims the visible dialog before its response RPC is sent.
     /// - Parameters:
     ///   - panelID: Browser panel UUID string.

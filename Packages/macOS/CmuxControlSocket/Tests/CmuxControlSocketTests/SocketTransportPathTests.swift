@@ -270,4 +270,130 @@ import Testing
         #expect(failure.stage == "lock")
         #expect(failure.errnoCode == EWOULDBLOCK)
     }
+
+    @Test func staleLockIsRemovedOnlyAfterNonblockingReclaim() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        guard case .acquired(let fd, _) = transport.acquireSocketPathLock(for: path) else {
+            Issue.record("expected lock acquisition to succeed")
+            return
+        }
+        transport.releaseSocketPathLock(fd)
+        #expect(FileManager.default.fileExists(atPath: path + ".lock"))
+        #expect(transport.removeSocketPathLockIfAvailable(for: path))
+        #expect(!FileManager.default.fileExists(atPath: path))
+        #expect(!FileManager.default.fileExists(atPath: path + ".lock"))
+    }
+
+    @Test func refusedSocketNodeIsRemovedBeforeItsLock() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        guard case .acquired(let fd, _) = transport.acquireSocketPathLock(for: path) else {
+            Issue.record("expected lock acquisition to succeed")
+            return
+        }
+        transport.releaseSocketPathLock(fd)
+
+        #expect(transport.removeSocketPathLockIfAvailable(for: path))
+        #expect(!FileManager.default.fileExists(atPath: path))
+        #expect(!FileManager.default.fileExists(atPath: path + ".lock"))
+    }
+
+    @Test func refusedSocketNodeWithoutExistingLockIsRemoved() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: path + ".lock"))
+        #expect(transport.removeSocketPathLockIfAvailable(for: path))
+        #expect(!FileManager.default.fileExists(atPath: path))
+        #expect(!FileManager.default.fileExists(atPath: path + ".lock"))
+    }
+
+    @Test func liveLockHolderIsNeverRemoved() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        guard case .acquired(let fd, _) = transport.acquireSocketPathLock(for: path) else {
+            Issue.record("expected lock acquisition to succeed")
+            return
+        }
+        defer { transport.releaseSocketPathLock(fd) }
+        #expect(!transport.removeSocketPathLockIfAvailable(for: path))
+        #expect(FileManager.default.fileExists(atPath: path + ".lock"))
+    }
+
+    @Test func liveSocketPreventsLockCleanup() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            close(listenerFD)
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        #expect(!transport.removeSocketPathLockIfAvailable(for: path))
+    }
+}
+
+@Suite struct SocketParentDirectoryCreationErrnoTests {
+    let transport = SocketTransport()
+
+    // FileManager wraps mkdir failures in Cocoa-domain errors; the transport
+    // must surface the underlying POSIX errno (EACCES for a read-only parent)
+    // instead of collapsing every non-POSIX-domain error to EIO, which made
+    // Sentry events show a misleading "Input/output error" for permission
+    // problems (CMUXTERM-MACOS-2MHE).
+    @Test func readOnlyParentReportsUnderlyingPosixErrno() throws {
+        let base = URL(
+            fileURLWithPath: "/tmp/cmux-ctlsock-mkdir-\(UUID().uuidString.lowercased().prefix(8))",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer {
+            chmod(base.path, 0o700)
+            try? FileManager.default.removeItem(at: base)
+        }
+        #expect(chmod(base.path, 0o500) == 0)
+
+        let socketPath = base
+            .appendingPathComponent("state", isDirectory: true)
+            .appendingPathComponent("cmux.sock", isDirectory: false)
+            .path
+        let errnoCode = transport.ensureSocketParentDirectoryExists(path: socketPath)
+        #expect(errnoCode == EACCES)
+    }
+
+    @Test func creatableParentReportsNoError() throws {
+        let base = URL(
+            fileURLWithPath: "/tmp/cmux-ctlsock-mkdir-\(UUID().uuidString.lowercased().prefix(8))",
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let socketPath = base
+            .appendingPathComponent("state", isDirectory: true)
+            .appendingPathComponent("cmux.sock", isDirectory: false)
+            .path
+        #expect(transport.ensureSocketParentDirectoryExists(path: socketPath) == nil)
+        var st = stat()
+        #expect(stat((socketPath as NSString).deletingLastPathComponent, &st) == 0)
+    }
 }

@@ -3,11 +3,14 @@ import Bonsplit
 import SwiftUI
 
 struct NotificationsPage: View {
+    let isFocused: Bool
+    let isVisibleInUI: Bool
+
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var tabManager: TabManager
-    @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var ghosttyBackgroundColor = Color(nsColor: GhosttyBackgroundTheme.currentColor())
     @State private var phonePushConfigurationState =
         PhonePushClient.shared.configurationState
 
@@ -31,11 +34,30 @@ struct NotificationsPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear(perform: setInitialFocus)
-        .onChange(of: notificationStore.notifications.first?.id) { _ in
+        .background(ghosttyBackgroundColor)
+        .onAppear {
+            refreshGhosttyBackground()
             setInitialFocus()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            refreshGhosttyBackground()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            refreshGhosttyBackground()
+        }
+        .onChange(of: notificationStore.notifications.first?.id) {
+            setInitialFocus()
+        }
+        .onChange(of: isFocused) {
+            setInitialFocus()
+        }
+        .onChange(of: isVisibleInUI) {
+            setInitialFocus()
+        }
+    }
+
+    private func refreshGhosttyBackground() {
+        ghosttyBackgroundColor = Color(nsColor: GhosttyBackgroundTheme.currentColor())
     }
 
     private var notificationsList: some View {
@@ -56,9 +78,6 @@ struct NotificationsPage: View {
                             // isolated; hop to the main actor for window focus + tab selection.
                             Task { @MainActor in
                                 _ = AppDelegate.shared?.openTerminalNotification(notification)
-                                if notification.clickAction == nil {
-                                    selection = .tabs
-                                }
                             }
                         },
                         onClear: {
@@ -79,16 +98,14 @@ struct NotificationsPage: View {
     }
 
     private func setInitialFocus() {
-        // Only set focus when the notifications page is visible
-        // to avoid stealing focus from the terminal when notifications arrive
-        guard selection == .notifications else { return }
-        guard let firstId = notificationStore.notifications.first?.id else {
+        // Background-mounted pane tabs must not claim focus when their feed changes.
+        guard isFocused,
+              isVisibleInUI,
+              let firstId = notificationStore.notifications.first?.id else {
             focusedNotificationId = nil
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            focusedNotificationId = firstId
-        }
+        focusedNotificationId = firstId
     }
 
     private var header: some View {
@@ -201,8 +218,7 @@ struct NotificationsPage: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            CmuxSystemSymbolImage(magnified: "bell.slash", pointSize: 32)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(magnified: "bell.slash", pointSize: 32, tint: .secondary)
             Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
                 .cmuxFont(.headline)
             Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
@@ -214,8 +230,7 @@ struct NotificationsPage: View {
 
     private var workspaceUnreadIndicatorState: some View {
         VStack(spacing: 8) {
-            CmuxSystemSymbolImage(magnified: "bell.badge", pointSize: 32)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(magnified: "bell.badge", pointSize: 32, tint: .secondary)
             Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
                 .cmuxFont(.headline)
         }
@@ -293,6 +308,7 @@ struct ShortcutAnnotation: View {
 }
 
 struct NotificationRow: View, Equatable {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     // Closures and the focus binding are recreated by the parent on every render
     // and excluded from ==. Equality compares only the value snapshot the row
     // actually renders, so `.equatable()` can suppress body re-evaluation for
@@ -318,11 +334,11 @@ struct NotificationRow: View, Equatable {
             Button(action: onOpen) {
                 HStack(alignment: .top, spacing: 12) {
                     Circle()
-                        .fill(notification.isRead ? Color.clear : cmuxAccentColor())
+                        .fill(notification.isRead ? Color.clear : cmuxAccent.color)
                         .frame(width: 8, height: 8)
                         .overlay(
                             Circle()
-                                .stroke(cmuxAccentColor().opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
+                                .stroke(cmuxAccent.color.opacity(notification.isRead ? 0.2 : 1), lineWidth: 1)
                         )
                         .padding(.top, 6)
 
@@ -364,20 +380,32 @@ struct NotificationRow: View, Equatable {
             .modifier(DefaultActionModifier(isActive: isFocused))
 
             Button(action: onClear) {
-                CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: 14)
-                    .foregroundColor(.secondary)
+                CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: 14, tint: .secondary)
             }
             .buttonStyle(.plain)
             // CmuxSystemSymbolImage renders an AppKit NSImage with no accessibility
             // description, so the icon-only button needs an explicit label (the prior
             // SwiftUI system-symbol path used to supply one implicitly).
             .accessibilityLabel(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
+            .safeHelp(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
         }
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
+        .contextMenu {
+            Button(String(localized: "notifications.open", defaultValue: "Open")) {
+                onOpen()
+            }
+            Button(String(localized: "notifications.copy", defaultValue: "Copy")) {
+                TerminalNotificationClipboard.copy(notification, workspaceTitle: tabTitle)
+            }
+            Divider()
+            Button(String(localized: "notifications.dismiss", defaultValue: "Dismiss"), role: .destructive) {
+                onClear()
+            }
+        }
     }
 }
 

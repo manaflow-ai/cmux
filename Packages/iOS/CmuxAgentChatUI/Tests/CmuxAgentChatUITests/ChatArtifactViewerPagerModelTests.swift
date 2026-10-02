@@ -83,7 +83,7 @@ struct ChatArtifactViewerPagerModelTests {
             stream: { path, onChunk in
                 let totalSize = path == logPath ? logSize : 1
                 try await onChunk(ChatArtifactChunk(
-                    data: Data("x".utf8),
+                    data: Data(repeating: 0x78, count: Int(totalSize)),
                     offset: 0,
                     totalSize: totalSize,
                     eof: true

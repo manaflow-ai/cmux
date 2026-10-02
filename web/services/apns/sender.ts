@@ -24,12 +24,15 @@ export interface ApnsTarget {
   readonly deviceToken: string;
   readonly bundleId: string;
   readonly environment: string; // "sandbox" | "production"
+  readonly installationId?: string;
+  readonly pushKeyId?: string;
 }
 
 export interface ApnsSendResult {
   /** Stable database identity used for retry persistence; never sent to APNs. */
   readonly targetId?: string;
   readonly deviceToken: string;
+  readonly bundleId?: string;
   readonly status: number; // 0 = transport error / timeout
   readonly reason?: string;
   /** Provider-requested retry delay, never surfaced to clients verbatim. */
@@ -343,20 +346,23 @@ export async function sendApnsNotification(
   sessionPool: ApnsSessionPool | null = defaultSessionPool(transport),
 ): Promise<ApnsSendResult[]> {
   if (targets.length === 0) return [];
-  const body = Buffer.from(JSON.stringify(buildApnsPayload(input)));
-  // The collapse-id coalesces repeated updates for the same notification into
-  // one delivered banner (the dismiss lever itself is the `cmux.notificationId`
-  // payload key, which iOS maps to delivered banners; the request identifier
-  // equaling the collapse-id is observed OS behavior, not a contract). APNs
-  // caps it at 64 bytes; a UUID is 36, but guard anyway so an over-long id
-  // degrades to "no collapse" instead of a 400.
+  const bodies = new Map<string, Buffer>();
+  // The collapse-id coalesces repeated updates for one exact Mac app instance
+  // and notification into one delivered banner. The dismiss lever itself is
+  // the `cmux.notificationId` payload key, which iOS maps to delivered banners;
+  // the request identifier equaling the collapse-id is observed OS behavior,
+  // not a contract. APNs caps it at 64 bytes.
   // Never set on a dismiss push: a collapse would try to REPLACE the delivered
   // banner with the invisible dismiss payload instead of leaving removal to the
   // app's background handler.
   const collapseId =
     input.kind === "dismiss"
       ? undefined
-      : collapseIdFor(input.notificationId ?? input.correlationId);
+      : collapseIdFor(
+          input.notificationId ?? input.correlationId,
+          input.macDeviceId,
+          input.macInstanceTag,
+        );
   const expiration =
     typeof input.expirationEpochSeconds === "number"
       ? String(input.expirationEpochSeconds)
@@ -384,31 +390,25 @@ export async function sendApnsNotification(
       });
       continue;
     }
+    const selected = selectRecipientPayload(input, t);
+    if (!selected) {
+      invalidEnvironmentResults.push({
+        deviceToken: t.deviceToken, status: 409, reason: "push_recipient_key_changed", prune: false,
+      });
+      continue;
+    }
+    const body = Buffer.from(JSON.stringify(buildApnsPayload(selected)));
+    if (body.byteLength > APNS_MAX_PAYLOAD_BYTES) {
+      invalidEnvironmentResults.push({
+        deviceToken: t.deviceToken, status: 413, reason: "PayloadTooLarge", prune: false,
+      });
+      continue;
+    }
+    bodies.set(apnsTargetBodyKey(t), body);
     (byHost.get(host) ?? byHost.set(host, []).get(host)!).push(t);
   }
 
   if (byHost.size === 0) return invalidEnvironmentResults;
-
-  if (body.byteLength > APNS_MAX_PAYLOAD_BYTES) {
-    const oversizedResults = [...byHost.values()]
-      .flat()
-      .map((target): ApnsSendResult => ({
-        deviceToken: target.deviceToken,
-        status: 413,
-        reason: "PayloadTooLarge",
-        prune: false,
-      }));
-    const byToken = new Map(
-      [...oversizedResults, ...invalidEnvironmentResults].map((result) => [
-        result.deviceToken,
-        result,
-      ]),
-    );
-    return targets.flatMap((target) => {
-      const result = byToken.get(target.deviceToken);
-      return result ? [result] : [];
-    });
-  }
 
   let jwt: string;
   try {
@@ -441,7 +441,7 @@ export async function sendApnsNotification(
         host,
         hostTargets,
         jwt,
-        body,
+        bodies,
         timeoutMs,
         collapseId,
         priority,
@@ -464,13 +464,32 @@ export async function sendApnsNotification(
   });
 }
 
+function selectRecipientPayload(
+  input: ApnsNotificationInput,
+  target: ApnsTarget,
+): ApnsNotificationInput | null {
+  if (!input.encryptedPayloads?.length) return input;
+  const candidates = input.encryptedPayloads.filter((envelope) =>
+    envelope.installationID === target.installationId && envelope.keyID === target.pushKeyId
+  );
+  if (candidates.length !== 1) return null;
+  const tuple = candidates[0]!.tuple as Record<string, unknown> | undefined;
+  if (tuple?.iosBuildID !== target.bundleId) return null;
+  return { ...input, encryptedPayloads: candidates };
+}
+
+function apnsTargetBodyKey(target: ApnsTarget): string {
+  return [target.deviceToken, target.bundleId, target.installationId, target.pushKeyId].join("\0");
+}
+
 /**
  * Delivers one logical source event with bounded, per-token retries.
  *
  * Successful/permanent targets are removed after each attempt, so a partial
  * APNs result never re-alerts devices that already accepted the event. The
- * opaque correlation id is also the collapse fallback, and every attempt
- * carries one absolute expiry so queued retries cannot become stale alerts.
+ * opaque correlation id is the collapse fallback when no notification id is
+ * available, and every attempt carries one absolute expiry so queued retries
+ * cannot become stale alerts.
  */
 export async function sendApnsNotificationReliably(
   config: ApnsConfig,
@@ -640,10 +659,22 @@ async function defaultRetryDelay(
   });
 }
 
-/** A valid (≤64-byte) apns-collapse-id for the notification id, or undefined. */
-function collapseIdFor(notificationId: string | null | undefined): string | undefined {
+/** A valid (≤64-byte) collapse id, scoped by exact Mac app instance when known. */
+function collapseIdFor(
+  notificationId: string | null | undefined,
+  macDeviceId?: string | null,
+  macInstanceTag?: string | null,
+): string | undefined {
   const id = notificationId?.trim();
   if (!id) return undefined;
+  const device = macDeviceId?.trim();
+  const tag = macInstanceTag?.trim();
+  if (device && tag) {
+    return `cmux-${crypto
+      .createHash("sha256")
+      .update(`v1\0${device.toLowerCase()}\0${tag}\0${id}`)
+      .digest("base64url")}`;
+  }
   return Buffer.byteLength(id, "utf8") <= 64 ? id : undefined;
 }
 
@@ -665,6 +696,7 @@ function canonicalApnsId(
 function connectionErrorResults(hostTargets: readonly ApnsTarget[]): ApnsSendResult[] {
   return hostTargets.map((target) => ({
     deviceToken: target.deviceToken,
+    bundleId: target.bundleId,
     status: 0,
     reason: "connection_error",
     prune: false,
@@ -687,7 +719,7 @@ async function sendHostGroup(
   host: string,
   hostTargets: readonly ApnsTarget[],
   jwt: string,
-  body: Buffer,
+  bodies: ReadonlyMap<string, Buffer>,
   timeoutMs: number,
   collapseId: string | undefined,
   priority: string | undefined,
@@ -709,7 +741,7 @@ async function sendHostGroup(
           connectionError,
           hostTargets,
           jwt,
-          body,
+          bodies,
           deadlineMs,
           collapseId,
           priority,
@@ -733,7 +765,7 @@ async function sendHostTargets(
   connectionError: Promise<null>,
   hostTargets: readonly ApnsTarget[],
   jwt: string,
-  body: Buffer,
+  bodies: ReadonlyMap<string, Buffer>,
   deadlineMs: number,
   collapseId: string | undefined,
   priority: string | undefined,
@@ -751,7 +783,7 @@ async function sendHostTargets(
     client,
     jwt,
     hostTargets[0]!,
-    body,
+    bodies.get(apnsTargetBodyKey(hostTargets[0]!))!,
     deadlineMs,
     connectionError,
     collapseId,
@@ -773,7 +805,7 @@ async function sendHostTargets(
         client,
         jwt,
         hostTargets[index]!,
-        body,
+        bodies.get(apnsTargetBodyKey(hostTargets[index]!))!,
         deadlineMs,
         connectionError,
         collapseId,
@@ -860,6 +892,7 @@ function sendOne(
       settled = true;
       resolve({
         deviceToken: target.deviceToken,
+        bundleId: target.bundleId,
         status,
         reason,
         ...(retryAfterSeconds == null ? {} : { retryAfterSeconds }),

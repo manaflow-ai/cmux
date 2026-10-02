@@ -81,7 +81,7 @@ extension MobileShellComposite {
         // visible hint, not when the toolbar indicator actually renders
         // (chrome, navigation state, or backgrounding can defer that).
         guard macUpdateHintSessionState.shownSignatures.insert(
-            "\(macDeviceID)|\(instanceTag ?? "")|\(hint.dismissalSignature)"
+            "\(CmxMacAppInstanceIdentity(macDeviceID: macDeviceID, instanceTag: instanceTag).id)|\(hint.dismissalSignature)"
         ).inserted else { return }
         analytics.capture("ios_mac_update_hint_eligible", analyticsProperties(for: hint))
     }

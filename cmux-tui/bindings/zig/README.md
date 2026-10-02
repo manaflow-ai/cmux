@@ -214,7 +214,7 @@ try renderer.connect(grant.endpoint(), grant.token().reveal());
 Grant data is available only through accessors. Formatting a grant or token
 prints `[REDACTED]`.
 
-Generated protocol-v10 compatibility APIs remain available only under the
+Generated protocol-v12 compatibility APIs remain available only under the
 explicit raw namespace:
 
 ```zig

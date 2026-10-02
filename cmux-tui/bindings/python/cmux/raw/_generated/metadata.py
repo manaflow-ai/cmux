@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
-MUX_PROTOCOL = 10
-IR_SHA256 = '95b6c2dc8101ca1690c39b3dd40e32565dd23e01ed9fabe55270c56ba5532f91'
+MUX_PROTOCOL = 12
+IR_SHA256 = '2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298'
 
 
 @dataclass(frozen=True)
@@ -62,6 +62,8 @@ COMMANDS = {
         'attach',
         {
             'cols': CommandFieldMetadata(None, 'attach-initial-size'),
+            'expected_generation': CommandFieldMetadata(None, 'attach-identity-v1'),
+            'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
             'mode': CommandFieldMetadata(7, None),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'surface': CommandFieldMetadata(None, None),
@@ -266,6 +268,17 @@ COMMANDS = {
         {
         },
     ),
+    'client-focus': CommandMetadata(
+        'client-focus',
+        'control',
+        12,
+        'client-focus-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'client_id': CommandFieldMetadata(None, None),
+        },
+    ),
     'close-pane': CommandMetadata(
         'close-pane',
         'control',
@@ -367,6 +380,7 @@ COMMANDS = {
             'argv': CommandFieldMetadata(None, None),
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, 'creation-attempt-keys-v1'),
             'operation': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
@@ -428,6 +442,7 @@ COMMANDS = {
         {
             'lease': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+            'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
     'detach-client': CommandMetadata(
@@ -438,7 +453,9 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'by': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'client': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
     'export-layout': CommandMetadata(
@@ -475,6 +492,16 @@ COMMANDS = {
             'pane': CommandFieldMetadata(None, None),
         },
     ),
+    'get-browser-provider': CommandMetadata(
+        'get-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'get-cell-pixels': CommandMetadata(
         'get-cell-pixels',
         'frontend',
@@ -498,6 +525,17 @@ COMMANDS = {
             'subject_key': CommandFieldMetadata(None, None),
         },
     ),
+    'get-size-state': CommandMetadata(
+        'get-size-state',
+        'control',
+        12,
+        'shared-sizing-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'identify': CommandMetadata(
         'identify',
         'control',
@@ -517,6 +555,17 @@ COMMANDS = {
         None,
         {
             'kind': CommandFieldMetadata(None, None),
+        },
+    ),
+    'journal-frontend-event': CommandMetadata(
+        'journal-frontend-event',
+        'control',
+        10,
+        'frontend-journal-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'event': CommandFieldMetadata(None, None),
         },
     ),
     'list-agents': CommandMetadata(
@@ -561,6 +610,26 @@ COMMANDS = {
         {
         },
     ),
+    'machine-listening-tcp': CommandMetadata(
+        'machine-listening-tcp',
+        'control',
+        12,
+        'machine-listening-tcp-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'machine-usage': CommandMetadata(
+        'machine-usage',
+        'control',
+        12,
+        'machine-usage-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
     'mark-workspaces-provider-managed': CommandMetadata(
         'mark-workspaces-provider-managed',
         'provider-authority',
@@ -584,6 +653,18 @@ COMMANDS = {
             'ttl_ms': CommandFieldMetadata(None, None),
         },
     ),
+    'mint-terminal-renderer-by-terminal': CommandMetadata(
+        'mint-terminal-renderer-by-terminal',
+        'frontend',
+        11,
+        None,
+        ('frontend',),
+        None,
+        {
+            'terminal': CommandFieldMetadata(None, None),
+            'ttl_ms': CommandFieldMetadata(None, None),
+        },
+    ),
     'move-tab': CommandMetadata(
         'move-tab',
         'control',
@@ -595,6 +676,18 @@ COMMANDS = {
             'index': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-tab-to-workspace': CommandMetadata(
+        'move-tab-to-workspace',
+        'control',
+        12,
+        'tab-workspace-move-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
         },
     ),
     'move-terminal': CommandMetadata(
@@ -712,6 +805,18 @@ COMMANDS = {
             'rows': CommandFieldMetadata(None, None),
         },
     ),
+    'note-size-activity': CommandMetadata(
+        'note-size-activity',
+        'control',
+        12,
+        'shared-sizing-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'view': CommandFieldMetadata(None, None),
+        },
+    ),
     'notify': CommandMetadata(
         'notify',
         'control',
@@ -748,6 +853,25 @@ COMMANDS = {
         {
             'dir': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+        },
+    ),
+    'paste-image': CommandMetadata(
+        'paste-image',
+        'control',
+        12,
+        'terminal-image-paste-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'lease': CommandFieldMetadata(None, None),
+            'mime': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'size': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'upload_id': CommandFieldMetadata(None, None),
         },
     ),
     'ping': CommandMetadata(
@@ -815,6 +939,33 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'reattach-view': CommandMetadata(
+        'reattach-view',
+        'control',
+        12,
+        'sizing-view-detach-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'counts': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'register-browser-provider': CommandMetadata(
+        'register-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
+            'authentication': CommandFieldMetadata(None, None),
+            'bearer_token': CommandFieldMetadata(None, None),
+            'endpoint': CommandFieldMetadata(None, None),
+            'provider_id': CommandFieldMetadata(None, None),
+            'targets': CommandFieldMetadata(None, None),
+        },
+    ),
     'release-attached-view-size': CommandMetadata(
         'release-attached-view-size',
         'frontend',
@@ -825,6 +976,7 @@ COMMANDS = {
         {
             'lease': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+            'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
     'release-surface-size': CommandMetadata(
@@ -929,6 +1081,19 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'report-focus': CommandMetadata(
+        'report-focus',
+        'control',
+        12,
+        'client-focus-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'client_id': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'tab': CommandFieldMetadata(None, None),
+        },
+    ),
     'resize-attached-view': CommandMetadata(
         'resize-attached-view',
         'frontend',
@@ -938,9 +1103,11 @@ COMMANDS = {
         None,
         {
             'cols': CommandFieldMetadata(None, None),
+            'identity': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'lease': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+            'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
     'resize-surface': CommandMetadata(
@@ -1061,6 +1228,16 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'server-stats': CommandMetadata(
+        'server-stats',
+        'local-admin',
+        12,
+        'server-stats-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'set-cell-pixels': CommandMetadata(
         'set-cell-pixels',
         'frontend',
@@ -1082,8 +1259,13 @@ COMMANDS = {
         None,
         {
             'capabilities': CommandFieldMetadata(None, None),
+            'device_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
+            'device_kind': CommandFieldMetadata(12, 'shared-sizing-v1'),
+            'device_name': CommandFieldMetadata(12, 'shared-sizing-v1'),
+            'display_name': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'kind': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+            'user_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
     ),
     'set-client-sizing': CommandMetadata(
@@ -1132,6 +1314,35 @@ COMMANDS = {
             'ratio': CommandFieldMetadata(None, None),
         },
     ),
+    'set-size-counts': CommandMetadata(
+        'set-size-counts',
+        'control',
+        12,
+        'shared-sizing-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'client': CommandFieldMetadata(None, None),
+            'counts': CommandFieldMetadata(None, None),
+            'lease': CommandFieldMetadata(None, None),
+            'participant': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'view': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-size-policy': CommandMetadata(
+        'set-size-policy',
+        'control',
+        12,
+        'shared-sizing-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'policy': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-split-ratio': CommandMetadata(
         'set-split-ratio',
         'control',
@@ -1143,6 +1354,19 @@ COMMANDS = {
             'ratio': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(9, 'layout-undo-v1'),
+        },
+    ),
+    'set-terminal-idle-policy': CommandMetadata(
+        'set-terminal-idle-policy',
+        'control',
+        12,
+        'terminal-idle-close-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'idle_close_seconds': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
     'set-viewport-pane-width': CommandMetadata(
@@ -1258,6 +1482,62 @@ COMMANDS = {
             'revision': CommandFieldMetadata(None, None),
         },
     ),
+    'unregister-browser-provider': CommandMetadata(
+        'unregister-browser-provider',
+        'local-admin',
+        10,
+        'browser-provider-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'url-open': CommandMetadata(
+        'url-open',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'terminal_id': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-claim': CommandMetadata(
+        'url-open-claim',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        None,
+        {
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-result': CommandMetadata(
+        'url-open-result',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        None,
+        {
+            'opened': CommandFieldMetadata(None, None),
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-subscribe': CommandMetadata(
+        'url-open-subscribe',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        'subscribe',
+        {
+            'terminal_ids': CommandFieldMetadata(None, None),
+        },
+    ),
     'vt-state': CommandMetadata(
         'vt-state',
         'control',
@@ -1297,6 +1577,7 @@ COMMANDS = {
 }
 
 EVENTS = {
+    'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),
     'client-attached': EventMetadata('client-attached', 6, None, ('subscribe',), 'emitted'),
@@ -1305,12 +1586,14 @@ EVENTS = {
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
+    'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
+    'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
     'output': EventMetadata('output', 5, None, ('attach-byte',), 'emitted'),
     'overflow': EventMetadata('overflow', 7, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
@@ -1325,6 +1608,7 @@ EVENTS = {
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),
     'surface-output': EventMetadata('surface-output', 5, None, ('subscribe',), 'emitted'),
@@ -1336,6 +1620,7 @@ EVENTS = {
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),
     'tree-changed': EventMetadata('tree-changed', 5, None, ('subscribe',), 'emitted'),
+    'url-open': EventMetadata('url-open', 12, None, ('control',), 'emitted'),
     'vt-state': EventMetadata('vt-state', 5, None, ('attach-byte',), 'emitted'),
     'window-title-requested': EventMetadata('window-title-requested', 6, None, ('subscribe',), 'emitted'),
     'workspace-added': EventMetadata('workspace-added', 7, None, ('subscribe-deltas',), 'emitted'),

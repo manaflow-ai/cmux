@@ -1,4 +1,3 @@
-public import AppKit
 public import Foundation
 
 /// Decides whether a sidebar row's shortcut-hint visibility should use the
@@ -19,42 +18,7 @@ public struct SidebarShortcutHintFreezePolicy {
     }
 }
 
-/// Whether an in-flight sidebar drag should be reset when a drop lands outside
-/// the sidebar.
-public struct SidebarOutsideDropResetPolicy {
-    public init() {}
-
-    public func shouldResetDrag(draggedTabId: UUID?, hasSidebarDragPayload: Bool) -> Bool {
-        draggedTabId != nil && hasSidebarDragPayload
-    }
-}
-
-/// Failsafe rules for clearing a stuck sidebar drag (mouse released outside a
-/// drop target, app resigned active, escape pressed).
-public struct SidebarDragFailsafePolicy {
-    public static let clearDelay: TimeInterval = 0.15
-
-    public init() {}
-
-    public func shouldRequestClear(isDragActive: Bool, isLeftMouseButtonDown: Bool) -> Bool {
-        isDragActive && !isLeftMouseButtonDown
-    }
-
-    public func shouldRequestClearWhenMonitoringStarts(isLeftMouseButtonDown: Bool) -> Bool {
-        shouldRequestClear(
-            isDragActive: true,
-            isLeftMouseButtonDown: isLeftMouseButtonDown
-        )
-    }
-
-    public func shouldRequestClear(forMouseEventType eventType: NSEvent.EventType) -> Bool {
-        eventType == .leftMouseUp
-    }
-}
-
-/// Decides whether a native sidebar drag whose transient state was cleared
-/// may be recovered from the workspace id still carried by AppKit's active
-/// pasteboard session.
+/// Decides whether a live native sidebar session may be mirrored across windows.
 public struct SidebarWorkspaceDragActivationPolicy: Sendable {
     public init() {}
 
@@ -65,5 +29,16 @@ public struct SidebarWorkspaceDragActivationPolicy: Sendable {
         isSourceGroupAnchor: Bool
     ) -> Bool {
         !isLocalWorkspace && isSourceGroupAnchor
+    }
+
+    /// Alias retained for call sites that describe the operation as mirroring.
+    public func shouldRejectMirroring(
+        isLocalWorkspace: Bool,
+        isSourceGroupAnchor: Bool
+    ) -> Bool {
+        shouldRejectRecovery(
+            isLocalWorkspace: isLocalWorkspace,
+            isSourceGroupAnchor: isSourceGroupAnchor
+        )
     }
 }

@@ -54,16 +54,36 @@ extension ContentView {
 
     func registerSurfaceNavigationCommandHandlers(
         _ registry: inout CommandPaletteHandlerRegistry,
+        dock: DockSplitStore? = nil,
         preferredWindow: @escaping () -> NSWindow?
     ) {
         registry.register(commandId: "palette.nextTabInPane") {
+            if let dock {
+                _ = dock.performShortcutCommand(.selectNextSurface)
+                return
+            }
             tabManager.selectNextSurface()
         }
         registry.register(commandId: "palette.previousTabInPane") {
+            if let dock {
+                _ = dock.performShortcutCommand(.selectPreviousSurface)
+                return
+            }
             tabManager.selectPreviousSurface()
         }
         for movement in SurfacePaneMovement.allCases {
             registry.register(commandId: movement.commandID) {
+                if let dock {
+                    if !dock.performShortcutCommand(
+                        .moveSurfaceToPane(
+                            movement,
+                            allowMissingDestinationSplit: true
+                        )
+                    ) {
+                        NSSound.beep()
+                    }
+                    return
+                }
                 guard let preferredWindow = preferredWindow() else {
                     NSSound.beep()
                     return

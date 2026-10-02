@@ -4,8 +4,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createTranslator } from "use-intl/core";
 import {
   changelogPath,
+  changelogStaticVersionCount,
   changelogVersionDescription,
   changelogVersionPath,
+  changelogVersionsForPrerender,
   localizedChangelogPath,
   ChangelogStore,
   parseChangelog,
@@ -20,6 +22,13 @@ import middleware from "../proxy";
 import { locales } from "../i18n/routing";
 import { ChangelogRelease } from "../app/[locale]/(landing)/docs/changelog/changelog-release";
 import { generateStaticParams } from "../app/[locale]/(landing)/docs/changelog/[version]/page";
+import {
+  changelogMedia,
+  type VersionMedia,
+} from "../app/[locale]/(landing)/docs/changelog/changelog-media";
+import { ChangelogVideoView } from "../app/[locale]/(landing)/docs/changelog/changelog-video";
+import { existsSync, statSync } from "fs";
+import path from "path";
 
 type Messages = typeof import("../messages/en.json");
 
@@ -60,6 +69,7 @@ Release intro.
           fixed: "修正",
           removed: "削除",
           contributors: "コントリビューター",
+          tryIt: "試してみる",
         }}
         versionHref={localizedChangelogPath("ja", release.version)}
         first
@@ -102,15 +112,23 @@ Release intro.
     expect(store.versions()[0]?.version).toBe("2.0.0");
   });
 
-  test("pre-renders a route for every version in the source changelog", () => {
+  test("pre-renders recent versions and keeps historical routes available", () => {
     const versions = changelogStore
       .versions()
       .map((release) => release.version);
+    const expectedStaticVersions = versions.slice(0, changelogStaticVersionCount);
 
     expect(generateStaticParams()).toEqual(
-      versions.map((version) => ({ version })),
+      expectedStaticVersions.map((version) => ({ version })),
     );
     expect(versions.length).toBeGreaterThan(80);
+    expect(expectedStaticVersions.length).toBe(changelogStaticVersionCount);
+    expect(changelogVersionsForPrerender(changelogStore.versions())).toHaveLength(
+      changelogStaticVersionCount,
+    );
+    expect(generateStaticParams()).not.toContainEqual({
+      version: versions.at(-1),
+    });
     expect(versions[0]).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
@@ -224,8 +242,167 @@ Release intro.
       for (const label of Object.values(labels)) {
         expect(label.trim().length).toBeGreaterThan(0);
       }
+      // Assert the raw message: a missing key makes the translator return the
+      // namespaced key itself, which is non-empty.
+      expect(typeof messages.docs.changelog.tryIt).toBe("string");
+      expect(messages.docs.changelog.tryIt.trim().length).toBeGreaterThan(0);
+      expect(t("tryIt")).toBe(messages.docs.changelog.tryIt);
       expect(t("versionTitle", { version: "1.2.3" })).toContain("1.2.3");
       expect(t("releaseNavLabel", { version: "1.2.3" })).toContain("1.2.3");
+    }
+  });
+});
+
+const englishLabels = {
+  added: "Added",
+  changed: "Changed",
+  fixed: "Fixed",
+  removed: "Removed",
+  contributors: "Contributors",
+  tryIt: "Try it",
+};
+
+const sampleRelease = {
+  version: "9.9.9",
+  date: "2026-09-20",
+  intro: "",
+  sections: [{ heading: "Added", items: ["Something"] }],
+};
+
+function renderRelease(media: VersionMedia) {
+  return renderToStaticMarkup(
+    <ChangelogRelease
+      release={sampleRelease}
+      locale="en"
+      media={media}
+      sectionLabels={englishLabels}
+      first
+    />,
+  );
+}
+
+function count(html: string, needle: string) {
+  return html.split(needle).length - 1;
+}
+
+describe("changelog patch notes cards", () => {
+  test("renders a Try it row only for features that have one", () => {
+    const html = renderRelease({
+      title: "Sample",
+      features: [
+        {
+          title: "Remote",
+          description: "Connect anywhere.",
+          tryIt: "Run `cmux ssh user@host` to connect.",
+        },
+        { title: "Quiet", description: "Nothing to try." },
+      ],
+    });
+
+    expect(count(html, "data-changelog-feature")).toBe(2);
+    expect(count(html, "data-changelog-try-it")).toBe(1);
+    expect(html).toContain("Try it");
+    expect(html).toContain("<code>cmux ssh user@host</code>");
+  });
+
+  test("text-only cards pair up and a trailing card spans the row", () => {
+    const html = renderRelease({
+      title: "Sample",
+      features: [
+        { title: "A", description: "a" },
+        { title: "B", description: "b" },
+        { title: "C", description: "c" },
+      ],
+    });
+    expect(count(html, "sm:col-span-2")).toBe(1);
+    expect(html.indexOf("sm:col-span-2")).toBeGreaterThan(
+      html.indexOf(">B</h3>"),
+    );
+  });
+
+  test("server markup shows the still clip without autoplay", () => {
+    const html = renderRelease({
+      title: "Sample",
+      features: [
+        {
+          title: "Clip",
+          description: "Moves.",
+          video: {
+            src: "/changelog/9.9.9/clip.mp4",
+            webm: "/changelog/9.9.9/clip.webm",
+            poster: "/changelog/0.61.0-open-with.png",
+          },
+        },
+      ],
+    });
+
+    expect(html).toContain("<video");
+    expect(html).toContain('poster="/changelog/0.61.0-open-with.png"');
+    expect(html).not.toContain("autoPlay");
+    expect(html).not.toMatch(/<video[^>]*\sloop/);
+    expect(html).not.toContain("controls");
+    expect(html).toContain("sm:col-span-2");
+  });
+
+  test("clips loop silently without controls when motion is allowed", () => {
+    const video = {
+      src: "/changelog/9.9.9/clip.mp4",
+      webm: "/changelog/9.9.9/clip.webm",
+      poster: "/changelog/9.9.9/clip.png",
+    };
+    const moving = renderToStaticMarkup(
+      <ChangelogVideoView
+        video={video}
+        label="Clip"
+        width={1600}
+        height={900}
+        reducedMotion={false}
+      />,
+    );
+    expect(moving).toContain("autoPlay");
+    expect(moving).toMatch(/<video[^>]*\sloop/);
+    expect(moving).toContain("playsInline");
+    expect(moving).toMatch(/<video[^>]*\smuted/);
+    expect(moving).not.toContain("controls");
+    expect(moving).toContain("aspect-ratio:1600 / 900");
+    expect(moving.indexOf("video/webm")).toBeLessThan(
+      moving.indexOf("video/mp4"),
+    );
+
+    const still = renderToStaticMarkup(
+      <ChangelogVideoView video={video} label="Clip" reducedMotion />,
+    );
+    expect(still).not.toContain("autoPlay");
+    expect(still).not.toMatch(/<video[^>]*\sloop/);
+    expect(still).toContain('poster="/changelog/9.9.9/clip.png"');
+    expect(still).toContain('preload="none"');
+  });
+
+  test("the latest documented release says how to try each feature", () => {
+    const [latest] = Object.values(changelogMedia);
+    for (const feature of latest.features ?? []) {
+      expect(feature.tryIt?.trim().length ?? 0).toBeGreaterThan(0);
+    }
+  });
+
+  test("every referenced changelog media file exists and clips stay small", () => {
+    const publicPath = (file: string) =>
+      path.join(process.cwd(), "public", file);
+    for (const media of Object.values(changelogMedia)) {
+      const files = [media.hero];
+      for (const feature of media.features ?? []) {
+        files.push(feature.image, feature.video?.poster);
+        for (const clip of [feature.video?.src, feature.video?.webm]) {
+          if (!clip) continue;
+          expect(existsSync(publicPath(clip))).toBe(true);
+          expect(statSync(publicPath(clip)).size).toBeLessThanOrEqual(
+            2 * 1024 * 1024,
+          );
+        }
+      }
+      for (const file of files) {
+        if (file) expect(existsSync(publicPath(file))).toBe(true);
+      }
     }
   });
 });

@@ -1,4 +1,5 @@
 public import CmuxCore
+internal import CmuxFoundation
 public import CmuxRemoteDaemon
 internal import CmuxSettings
 internal import Darwin
@@ -26,6 +27,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     private let configuration: WorkspaceRemoteConfiguration
     private let remotePath: String
     private let localPort: Int
+    private let credential: BrowserProxyCredential
     private let strings: RemoteDaemonStrings
     let ptyBridgeStrings: any RemotePTYBridgeStrings
     let clock: any RemoteProxyRetryClock
@@ -44,6 +46,8 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// - Parameters:
     ///   - remotePath: Resolved remote path of the daemon binary.
     ///   - localPort: Loopback port to bind the proxy listener to.
+    ///   - credential: Credential every proxy client must present before a
+    ///     daemon stream opens.
     ///   - strings: App-resolved daemon error strings, passed through to the
     ///     RPC client (localization stays app-side).
     ///   - ptyBridgeStrings: App-resolved PTY attach error strings, passed
@@ -56,6 +60,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         localPort: Int,
+        credential: BrowserProxyCredential,
         strings: RemoteDaemonStrings,
         ptyBridgeStrings: any RemotePTYBridgeStrings,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
@@ -64,6 +69,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         self.configuration = configuration
         self.remotePath = remotePath
         self.localPort = localPort
+        self.credential = credential
         self.strings = strings
         self.ptyBridgeStrings = ptyBridgeStrings
         self.clock = clock
@@ -86,7 +92,10 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                     configuration: configuration,
                     remotePath: remotePath,
                     strings: strings,
-                    cliRequestHandler: Self.makeCLIRequestHandler(configuration: configuration)
+                    cliRequestHandler: Self.makeCLIRequestHandler(
+                        configuration: configuration,
+                        strings: strings
+                    )
                 ) { [weak self] detail in
                     guard let self else { return }
                     self.queue.async {
@@ -219,6 +228,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
 
         let session = RemoteDaemonProxySession(
             connection: connection,
+            credential: credential,
             rpcClient: rpcClient,
             queue: queue
         ) { [weak self] id in
@@ -231,14 +241,21 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         session.start()
     }
 
-    private static func makeCLIRequestHandler(configuration: WorkspaceRemoteConfiguration) -> (@Sendable (Data) throws -> Data)? {
+    private static func makeCLIRequestHandler(
+        configuration: WorkspaceRemoteConfiguration,
+        strings: RemoteDaemonStrings
+    ) -> (@Sendable (Data) throws -> Data)? {
         guard let localSocketPath = configuration.localSocketPath?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !localSocketPath.isEmpty else {
             return nil
         }
         return { request in
-            switch validateCloudCLIRequest(request, ownerWorkspaceID: configuration.ownerWorkspaceID) {
+            switch validateCloudCLIRequest(
+                request,
+                ownerWorkspaceID: configuration.ownerWorkspaceID,
+                strings: strings
+            ) {
             case .forward(let forwardedRequest):
                 return try roundTripUnixSocket(socketPath: localSocketPath, request: forwardedRequest)
             case .reject(let response):
@@ -255,7 +272,11 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// Validates VM-originated CLI bridge requests before they hit the local
     /// app socket. The websocket lease authenticates the daemon; this method
     /// keeps VM processes from becoming arbitrary local cmux socket clients.
-    internal static func validateCloudCLIRequest(_ request: Data, ownerWorkspaceID: UUID?) -> CloudCLIRequestValidation {
+    internal static func validateCloudCLIRequest(
+        _ request: Data,
+        ownerWorkspaceID: UUID?,
+        strings: RemoteDaemonStrings
+    ) -> CloudCLIRequestValidation {
         let requestLimitBytes = 64 * 1024
         guard request.count <= requestLimitBytes else {
             return .reject(cloudCLIErrorResponse(
@@ -327,6 +348,13 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 surfaceKey: "surface_id",
                 requireWorkspace: true,
                 requireSurface: true
+            )
+        case "notification.clear":
+            return validateCloudCLINotificationClear(
+                requestID: requestID,
+                params: params,
+                ownerWorkspaceID: ownerWorkspaceID,
+                strings: strings
             )
         default:
             return .reject(cloudCLIErrorResponse(
@@ -421,6 +449,138 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         return .forward(data + Data([0x0A]))
     }
 
+    /// Cloud callers may retract only the surface-scoped notifications owned by
+    /// their VM workspace. Never forward the caller resolver or a workspace-wide
+    /// clear across the relay boundary: both would let a VM clear unrelated host
+    /// notifications.
+    private static func validateCloudCLINotificationClear(
+        requestID: Any?,
+        params: [String: Any],
+        ownerWorkspaceID: UUID,
+        strings: RemoteDaemonStrings
+    ) -> CloudCLIRequestValidation {
+        let hasNonNullValue: (String) -> Bool = { key in
+            guard let value = params[key] else { return false }
+            return !(value is NSNull)
+        }
+
+        let caller: Bool
+        if hasNonNullValue("caller") {
+            guard let decodedCaller = cloudCLIFlagValue(params["caller"]) else {
+                return .reject(cloudCLIErrorResponse(
+                    id: requestID,
+                    code: "invalid_params",
+                    message: strings.cloudNotificationClearCallerInvalid
+                ))
+            }
+            caller = decodedCaller
+        } else {
+            caller = false
+        }
+
+        let hasWorkspaceSelector = hasNonNullValue("workspace_id")
+            || hasNonNullValue("tab_id")
+        let hasSurfaceSelector = hasNonNullValue("surface_id")
+        let hasCallerOnlySelectors = [
+            "preferred_workspace_id",
+            "preferred_surface_id",
+            "caller_tty",
+            "prefer_tty",
+        ].contains(where: hasNonNullValue)
+
+        if !caller, hasCallerOnlySelectors {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: strings.cloudNotificationClearCallerSelectorsRequireCaller
+            ))
+        }
+        if caller, hasWorkspaceSelector || hasSurfaceSelector {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: strings.cloudNotificationClearCallerScopeConflict
+            ))
+        }
+
+        let workspaceValue: Any?
+        let surfaceValue: Any?
+        if caller {
+            workspaceValue = params["preferred_workspace_id"]
+            surfaceValue = params["preferred_surface_id"]
+        } else {
+            workspaceValue = hasNonNullValue("workspace_id")
+                ? params["workspace_id"]
+                : params["tab_id"]
+            surfaceValue = params["surface_id"]
+        }
+
+        guard let workspaceRaw = (workspaceValue as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              let requestedWorkspaceID = UUID(uuidString: workspaceRaw) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: strings.cloudNotificationClearWorkspaceInvalid
+            ))
+        }
+        guard requestedWorkspaceID == ownerWorkspaceID else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "remote_cli_workspace_denied",
+                message: strings.cloudNotificationClearWorkspaceDenied
+            ))
+        }
+        guard let surfaceRaw = (surfaceValue as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              let surfaceID = UUID(uuidString: surfaceRaw) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: strings.cloudNotificationClearSurfaceInvalid
+            ))
+        }
+
+        let forwarded: [String: Any] = [
+            "id": requestID ?? NSNull(),
+            "method": "notification.clear",
+            "params": [
+                "workspace_id": requestedWorkspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ]
+        guard JSONSerialization.isValidJSONObject(forwarded),
+              let data = try? JSONSerialization.data(withJSONObject: forwarded, options: []) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "encode_error",
+                message: strings.cloudNotificationClearEncodingFailed
+            ))
+        }
+        return .forward(data + Data([0x0A]))
+    }
+
+    /// Decodes the same boolean spellings accepted by the local v2 parameter
+    /// parser, so relay validation cannot disagree with the coordinator about a
+    /// caller selector's meaning.
+    private static func cloudCLIFlagValue(_ value: Any?) -> Bool? {
+        if let value = value as? Bool {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.boolValue
+        }
+        guard let value = value as? String else { return nil }
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return nil
+        }
+    }
+
     private static func cloudCLIErrorResponse(id: Any?, code: String, message: String) -> Data {
         let response: [String: Any] = [
             "id": id ?? NSNull(),
@@ -462,7 +622,23 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         return envelope["ok"] as? Bool == true
     }
 
-    private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
+    /// Sends one validated cloud CLI request to the local cmux socket,
+    /// authenticating first when a socket password is configured.
+    ///
+    /// - Parameters:
+    ///   - socketPath: The local cmux control socket.
+    ///   - request: The validated, newline-terminated request.
+    ///   - peerCheck: Check run on the listening peer before anything,
+    ///     the password included, is written.
+    ///   - socketPassword: Reads the configured socket password.
+    internal static func roundTripUnixSocket(
+        socketPath: String,
+        request: Data,
+        peerCheck: UnixSocketPeerCheck = UnixSocketPeerCheck(),
+        socketPassword: () -> String? = {
+            SocketControlPasswordStore().configuredPassword(allowLazyKeychainFallback: true)
+        }
+    ) throws -> Data {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw NSError(domain: "cmux.remote.cli-bridge", code: 1, userInfo: [
@@ -504,8 +680,14 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 NSLocalizedDescriptionKey: "failed to connect to local cmux socket",
             ])
         }
+        // Check the listener before the password or request leaves this process.
+        guard peerCheck.isTrustedPeer(fd) else {
+            throw NSError(domain: "cmux.remote.cli-bridge", code: 9, userInfo: [
+                NSLocalizedDescriptionKey: "local cmux socket is not owned by the current user",
+            ])
+        }
 
-        if let socketPassword = SocketControlPasswordStore().configuredPassword(allowLazyKeychainFallback: true),
+        if let socketPassword = socketPassword(),
            !socketPassword.isEmpty {
             try writeAll(cloudCLIAuthLoginRequest(password: socketPassword), to: fd)
             let authResponse = try readLineFromUnixSocket(fd: fd)

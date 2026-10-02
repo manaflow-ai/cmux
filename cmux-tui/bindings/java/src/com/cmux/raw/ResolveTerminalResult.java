@@ -11,7 +11,7 @@ import java.util.Objects;
 
 
 public final class ResolveTerminalResult implements WireValue {
-    private final Object exit;
+    private final TerminalExit exit;
     private final String generation;
     private final Object launchSpec;
     private final TerminalLifecycle lifecycle;
@@ -24,7 +24,7 @@ public final class ResolveTerminalResult implements WireValue {
 
     private ResolveTerminalResult(Builder builder) {
         if (!builder.exitSet) throw new IllegalArgumentException("exit is required");
-        this.exit = builder.exit == null ? null : Wire.immutableJson(builder.exit);
+        this.exit = builder.exit;
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
         if (!builder.launchSpecSet) throw new IllegalArgumentException("launch_spec is required");
@@ -47,7 +47,7 @@ public final class ResolveTerminalResult implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
-    public Object exit() { return exit; }
+    public TerminalExit exit() { return exit; }
     public String generation() { return generation; }
     public Object launchSpec() { return launchSpec; }
     public TerminalLifecycle lifecycle() { return lifecycle; }
@@ -62,7 +62,7 @@ public final class ResolveTerminalResult implements WireValue {
         Map<String, Object> object = Wire.object(value, "ResolveTerminalResult");
         Builder builder = builder();
         Object rawExit = Wire.required(object, "exit");
-        builder.exit(rawExit == null ? null : Wire.immutableJson(rawExit));
+        builder.exit(rawExit == null ? null : TerminalExit.fromWire(rawExit));
         Object rawGeneration = Wire.required(object, "generation");
         builder.generation(Wire.string(rawGeneration, "ResolveTerminalResult.generation"));
         Object rawLaunchSpec = Wire.required(object, "launch_spec");
@@ -113,7 +113,7 @@ public final class ResolveTerminalResult implements WireValue {
     public String toString() { return "ResolveTerminalResult" + toWire(); }
 
     public static final class Builder {
-        private Object exit;
+        private TerminalExit exit;
         private boolean exitSet;
         private String generation;
         private boolean generationSet;
@@ -134,7 +134,7 @@ public final class ResolveTerminalResult implements WireValue {
         private String workspaceKey;
         private boolean workspaceKeySet;
 
-        public Builder exit(Object value) {
+        public Builder exit(TerminalExit value) {
             this.exit = value;
             this.exitSet = true;
             return this;

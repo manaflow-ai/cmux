@@ -126,6 +126,25 @@ struct CmxIrohConnectionCloseAttributionTests {
     }
 
     @Test
+    func classifiesWhitelistedServerReasonAndFailure() {
+        let attribution = CmxIrohConnectionCloseAttribution.classify(
+            "closed by peer: admission_lease_expired (code 42)"
+        )
+        #expect(attribution.remoteReason == .admissionLeaseExpired)
+        #expect(attribution.failureKind == .admissionLeaseExpired)
+        #expect(attribution.applicationErrorCode == 42)
+    }
+
+    @Test
+    func ignoresLookalikeFreeFormCloseReason() {
+        let attribution = CmxIrohConnectionCloseAttribution.classify(
+            "closed by peer: admission_lease_expired_but_not_protocol (code 42)"
+        )
+        #expect(attribution.remoteReason == .unknown)
+        #expect(attribution.failureKind == .connectionClosed)
+    }
+
+    @Test
     func classifiesDisplayPeerReset() {
         #expect(
             CmxIrohConnectionCloseAttribution.classify("reset by peer")

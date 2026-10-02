@@ -15,22 +15,25 @@ extension Workspace {
     /// Moves keyboard focus through the rendered pane hierarchy. A selected
     /// remote-tmux window owns a nested split tree, so it gets first refusal;
     /// an edge with no inner neighbor falls through to the workspace tree.
-    func moveFocus(direction: NavigationDirection) {
+    @discardableResult
+    func moveFocus(direction: NavigationDirection) -> Bool {
         if layoutMode == .canvas {
-            moveCanvasFocus(direction: direction)
-            return
+            return moveCanvasFocus(direction: direction)
         }
         if let focusedPanelId,
            let mirror = remoteTmuxWindowMirror(forPanelId: focusedPanelId) {
             switch mirror.navigateFocus(direction: direction) {
-            case .moved, .invalid:
-                return
+            case .moved:
+                return true
+            case .invalid:
+                return false
             case .edge:
                 break
             }
         }
 
         let previousFocusedPanelId = focusedPanelId
+        let previousFocusedPaneId = bonsplitController.focusedPaneId
         if let previousFocusedPanelId, let previous = panels[previousFocusedPanelId] {
             previous.unfocus()
         }
@@ -40,6 +43,8 @@ extension Workspace {
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
+        return previousFocusedPanelId != focusedPanelId ||
+            previousFocusedPaneId != bonsplitController.focusedPaneId
     }
 
     /// Moves the focused surface into another pane, optionally creating a
@@ -98,11 +103,12 @@ extension Workspace {
             )
         } else if let directionalSplit,
                   let tabId = surfaceIdFromPanelId(panelId),
-                  let newPaneId = bonsplitController.splitPane(
+                  let newPaneId = splitPaneMovingTab(
                       sourcePaneId,
                       orientation: directionalSplit.orientation,
                       movingTab: tabId,
-                      insertFirst: directionalSplit.insertFirst
+                      insertFirst: directionalSplit.insertFirst,
+                      focusIntent: .activateMovedTab
                   ) {
             bonsplitController.focusPane(newPaneId)
             bonsplitController.selectTab(tabId)
@@ -176,7 +182,12 @@ extension Workspace {
 
     /// Surface-kind mapping used by workspace state snapshots.
     func surfaceKind(for panel: any Panel) -> String {
-        switch panel.panelType {
+        Self.surfaceKind(for: panel.panelType)
+    }
+
+    /// Surface-kind mapping used by snapshots and mobile mapping parity tests.
+    static func surfaceKind(for panelType: PanelType) -> String {
+        switch panelType {
         case .terminal:
             return SurfaceKind.terminal.rawValue
         case .browser:
@@ -199,12 +210,16 @@ extension Workspace {
             return SurfaceKind.extensionBrowser.rawValue
         case .workspaceTodo:
             return SurfaceKind.todo.rawValue
+        case .notifications:
+            return SurfaceKind.notifications.rawValue
         case .cloudVMLoading:
             return SurfaceKind.cloudVMLoading.rawValue
         case .mobilePairing:
             return SurfaceKind.mobilePairing.rawValue
         case .accountSignIn:
             return SurfaceKind.accountSignIn.rawValue
+        case .cloudVPNSetup:
+            return SurfaceKind.cloudVPNSetup.rawValue
         }
     }
 

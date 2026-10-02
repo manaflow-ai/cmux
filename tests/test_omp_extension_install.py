@@ -157,6 +157,8 @@ class MockCmuxSocket:
                 "source": "pid",
                 "pid_resolution": pid_resolution,
             }
+        elif method == "agent.hook.enqueue":
+            result = {}
         elif method == "surface.resume.set":
             result = {"ok": True}
         elif method == "feed.push":
@@ -291,8 +293,13 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
     if launch_command.get("workingDirectory") != str(workspace):
         print(f"FAIL: omp hook persisted wrong working directory: {launch_command!r}")
         return False
-    if launch_command.get("environment") != {"PI_CONFIG_DIR": ".custom-omp"}:
-        print(f"FAIL: omp hook did not persist PI_CONFIG_DIR for resume: {launch_command!r}")
+    expected_environment = {"PI_CONFIG_DIR": ".custom-omp"}
+    captured_path = hook_env.get("PATH", "").strip()
+    if captured_path:
+        expected_environment["PATH"] = captured_path
+    if launch_command.get("environment") != expected_environment:
+        print(f"FAIL: omp hook persisted wrong replay-safe environment: {launch_command!r}")
+        print(f"expected environment: {expected_environment!r}")
         return False
     if "secret-should-not-persist" in json.dumps(session, sort_keys=True):
         print(f"FAIL: omp hook persisted secret environment data: {session!r}")
@@ -466,14 +473,23 @@ rmdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null || true
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 const extensionPath = process.env.CMUX_TEST_OMP_EXTENSION_PATH;
-const mod = await import(extensionPath);
-if (typeof mod.default !== "function") throw new Error("missing default export");
-const handlers = new Map();
-mod.default({
-  on(name, handler) {
-    handlers.set(name, handler);
-  }
-});
+// OMP loads a fresh copy of the extension module for every session in the
+// process (unique ?mtime= cache-busting import URLs), so module scope is
+// per-session. Give each simulated session its own module instance.
+async function loadExtensionInstance(cacheBust) {
+  const mod = await import(`${extensionPath}?mtime=${cacheBust}`);
+  if (typeof mod.default !== "function") throw new Error("missing default export");
+  const instanceHandlers = new Map();
+  mod.default({
+    on(name, handler) {
+      instanceHandlers.set(name, handler);
+    }
+  });
+  return instanceHandlers;
+}
+const handlers = await loadExtensionInstance("2001");
+const nestedHandlers = await loadExtensionInstance("2002");
+const workerHandlers = await loadExtensionInstance("2003");
 for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown"]) {
   if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
 }
@@ -498,7 +514,18 @@ const nestedCtx = {
     getSessionFile() { return process.env.CMUX_TEST_OMP_NESTED_SESSION_FILE; }
   }
 };
+const workerCtx = {
+  cwd: "/tmp/omp-project",
+  sessionManager: {
+    getSessionId() { return "omp-worker-task-session"; },
+    getSessionFile() { return process.env.CMUX_TEST_OMP_PARENT_SESSION_FILE; }
+  }
+};
 let currentSessionId = "omp-session-test";
+async function switchSession(sessionId, reason) {
+  currentSessionId = sessionId;
+  await handlers.get("session_switch")({ reason, previousSessionFile: undefined }, parentCtx);
+}
 async function expectHandlerCompletion(promise, label) {
   let completed = false;
   promise.then(() => { completed = true; });
@@ -545,9 +572,9 @@ await handlers.get("agent_end")({
   ],
   stopReason: "completed"
 }, parentCtx);
-await handlers.get("session_start")({}, nestedCtx);
-await handlers.get("before_agent_start")({ prompt: "review the storage race" }, nestedCtx);
-await handlers.get("agent_end")({
+await nestedHandlers.get("session_start")({}, nestedCtx);
+await nestedHandlers.get("before_agent_start")({ prompt: "review the storage race" }, nestedCtx);
+await nestedHandlers.get("agent_end")({
   messages: [
     { role: "user", content: "review the storage race" },
     { role: "assistant", content: [{ type: "text", text: "nested done" }] }
@@ -567,24 +594,28 @@ const firstPhasePids = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
 if (firstPhasePids.length !== 3) {
   throw new Error(`nested OMP task session spawned a hook child: ${firstPhasePids}`);
 }
-currentSessionId = "priority-stop-session";
-await handlers.get("session_start")({}, parentCtx);
+// Top-level session transitions go through session_switch; the queued Stop
+// must survive session-start/prompt pressure that overflows the hook queue.
+await switchSession("priority-stop-session", "new");
+const switchHookPid = await stoppedHookPID(4);
 await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, parentCtx);
-for (let index = 0; index < 40; index += 1) {
-  currentSessionId = `priority-prompt-${index}`;
+for (let index = 0; index < 10; index += 1) {
+  await switchSession(`priority-prompt-${index}`, "new");
   await handlers.get("before_agent_start")({ prompt: `priority prompt ${index}` }, parentCtx);
 }
-await releaseHook(4);
+// A finished task-tool subagent's session teardown (arriving through its own
+// module instance) must not drain or evict the owner session's queued hooks.
+await workerHandlers.get("session_shutdown")({}, workerCtx);
+process.kill(switchHookPid, "SIGCONT");
 await waitForCompletedHooks(4);
-await releaseHook(5);
-await waitForCompletedHooks(5);
-const priorityPromptPid = await stoppedHookPID(6);
-const priorityDrain = handlers.get("session_shutdown")({}, parentCtx);
-process.kill(priorityPromptPid, "SIGCONT");
-await waitForCompletedHooks(6);
-await priorityDrain;
-currentSessionId = "omp-session-test";
-await handlers.get("session_start")({}, parentCtx);
+// active switch hook + 16-entry queue: the stop, 10 session-starts, and the
+// 5 prompts that survive eviction (2 evicted by session-starts, 3 dropped at
+// the full queue).
+for (let hook = 5; hook <= 20; hook += 1) {
+  await releaseHook(hook);
+  await waitForCompletedHooks(hook);
+}
+await switchSession("omp-session-test", "resume");
 for (let index = 0; index < 40; index += 1) {
   await handlers.get("before_agent_start")({ prompt: `hung omp ${index}` }, parentCtx);
 }
@@ -592,12 +623,12 @@ await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, paren
 await handlers.get("session_shutdown")({}, parentCtx);
 const hungPidLines = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
 const startedArgs = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG);
-if (hungPidLines.length !== 8) {
+if (hungPidLines.length !== 22) {
   throw new Error(`shutdown did not start the queued Stop after cancelling the active hook: ${hungPidLines}`);
 }
 if (
-  startedArgs.at(-2) !== "hooks omp session-start" ||
-  startedArgs.at(-1) !== "hooks omp stop"
+  startedArgs.at(-2) !== "hooks enqueue omp session-start" ||
+  startedArgs.at(-1) !== "hooks enqueue omp stop"
 ) {
   throw new Error(`shutdown did not preserve the queued Stop after timeout: ${startedArgs}`);
 }
@@ -613,6 +644,9 @@ for (const rawPid of hungPidLines.slice(-2)) {
 }
 """
         try:
+            # The choreography starts ~22 hook children sequentially (SIGSTOP,
+            # release, await completion each), so give it generous headroom on
+            # loaded machines and CI runners.
             check = subprocess.run(
                 [bun, "--eval", check_source],
                 cwd=root,
@@ -620,7 +654,7 @@ for (const rawPid of hungPidLines.slice(-2)) {
                 text=True,
                 check=False,
                 env=check_env,
-                timeout=20,
+                timeout=120,
             )
         except subprocess.TimeoutExpired:
             pid_lines = [
@@ -655,7 +689,7 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        expected_invocations = 6
+        expected_invocations = 20
         args_log = wait_for_stable_text(fake_args_log, expected_invocations, timeout=20.0)
         stdin_log = wait_for_stable_text(fake_stdin_log, expected_invocations * 2, timeout=20.0)
         env_log = wait_for_stable_text(fake_env_log, expected_invocations * 4, timeout=20.0)
@@ -664,9 +698,9 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"FAIL: expected exactly {expected_invocations} hook invocations, got {args_lines!r}")
             return 1
         for expected in [
-            "hooks omp session-start",
-            "hooks omp prompt-submit",
-            "hooks omp stop",
+            "hooks enqueue omp session-start",
+            "hooks enqueue omp prompt-submit",
+            "hooks enqueue omp stop",
         ]:
             if expected not in args_log:
                 print(f"FAIL: extension did not invoke {expected}, got {args_log!r}")
@@ -684,7 +718,19 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"FAIL: stop hook payload was missing: {stdin_log!r}")
             return 1
         if '"session_id":"priority-stop-session","cwd":"/tmp/omp-project","hook_event_name":"Stop"' not in stdin_log:
-            print(f"FAIL: queued stop hook was evicted under prompt pressure: {stdin_log!r}")
+            print(f"FAIL: queued stop hook was evicted under session-start/prompt pressure: {stdin_log!r}")
+            return 1
+        if '"session_id":"omp-worker-task-session"' in stdin_log:
+            print(f"FAIL: a non-owner session id reached cmux hooks: {stdin_log!r}")
+            return 1
+        if '"session_id":"priority-prompt-9","cwd":"/tmp/omp-project","hook_event_name":"SessionStart"' not in stdin_log:
+            print(f"FAIL: session_switch did not rebind the switched session: {stdin_log!r}")
+            return 1
+        if '"prompt":"priority prompt 2"' not in stdin_log:
+            print(f"FAIL: surviving queued prompt was not delivered: {stdin_log!r}")
+            return 1
+        if '"prompt":"priority prompt 0"' in stdin_log or '"prompt":"priority prompt 7"' in stdin_log:
+            print(f"FAIL: evicted/dropped prompt hooks were still delivered: {stdin_log!r}")
             return 1
         if '"prompt":"hello omp 39"' not in stdin_log or '"last_assistant_message":"done"' not in stdin_log:
             print(f"FAIL: extension did not pass prompt/assistant payload, got {stdin_log!r}")
@@ -830,6 +876,61 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"stdout={config_uninstall.stdout.strip()}")
             print(f"stderr={config_uninstall.stderr.strip()}")
             return 1
+    with tempfile.TemporaryDirectory(prefix="cmux-omp-agent-dir-") as td:
+        # Pi and OMP both read PI_CODING_AGENT_DIR, so someone who runs the two
+        # side by side and points Pi at a directory sends OMP there too.
+        # OMP_AGENT_DIR is OMP's own override and has to win.
+        # https://github.com/manaflow-ai/cmux/issues/4955
+        root = Path(td)
+        home = root / "home"
+        home.mkdir()
+        omp_agent_dir = root / "omp-agent-dir"
+        pi_agent_dir = root / "pi-agent-dir"
+
+        env = os.environ.copy()
+        env["HOME"] = str(home)
+        env["OMP_AGENT_DIR"] = str(omp_agent_dir)
+        env["PI_CODING_AGENT_DIR"] = str(pi_agent_dir)
+        env.pop("PI_CONFIG_DIR", None)
+
+        install = subprocess.run(
+            [cli_path, "hooks", "omp", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if install.returncode != 0:
+            print("FAIL: omp extension install failed under OMP_AGENT_DIR")
+            print(f"exit={install.returncode}")
+            print(f"stdout={install.stdout.strip()}")
+            print(f"stderr={install.stderr.strip()}")
+            return 1
+
+        omp_extension = omp_agent_dir / "extensions" / "cmux-omp-session.ts"
+        if not omp_extension.exists():
+            print(f"FAIL: OMP_AGENT_DIR ignored, expected extension at {omp_extension}")
+            return 1
+        if (pi_agent_dir / "extensions" / "cmux-omp-session.ts").exists():
+            print("FAIL: OMP install wrote into PI_CODING_AGENT_DIR while OMP_AGENT_DIR was set")
+            return 1
+
+        uninstall = subprocess.run(
+            [cli_path, "hooks", "omp", "uninstall", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if uninstall.returncode != 0 or omp_extension.exists():
+            print("FAIL: omp extension uninstall did not respect OMP_AGENT_DIR")
+            print(f"exit={uninstall.returncode}")
+            print(f"stdout={uninstall.stdout.strip()}")
+            print(f"stderr={uninstall.stderr.strip()}")
+            return 1
+
     print("PASS: generated OMP extension installs, emits complete cmux hook payloads, and persists hook sessions")
     return 0
 

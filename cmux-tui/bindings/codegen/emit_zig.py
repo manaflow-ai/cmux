@@ -400,7 +400,7 @@ class ZigEmitter:
                 "value: wire.Value) !@This() {",
             ]
         )
-        # Pane is the only untagged union in protocol 10. Its `dead` literal
+        # Pane is the only untagged union in the current protocol. Its `dead` literal
         # is the stable discriminator and avoids speculative allocations.
         if name == "Pane":
             lines.extend(

@@ -47,13 +47,22 @@ public:
     [[nodiscard]] Result<std::string> receive(Timeout timeout) override;
     void close() noexcept override;
 
+#if defined(CMUX_CPP_TESTING)
+    void set_before_receive_wait_for_testing(std::function<void()> hook);
+#endif
+
 private:
     struct Impl;
     explicit UnixTransport(std::unique_ptr<Impl> impl);
     std::unique_ptr<Impl> impl_;
 };
 
+// Returns a validated default path. Empty and other invalid input map to a
+// per-input isolated path; use try_default_socket_path when a connector
+// needs an invalid_argument result before any path use.
 [[nodiscard]] std::string default_socket_path(std::string_view session = "main");
+// Validates the session name before joining it into the derived path.
+[[nodiscard]] Result<std::string> try_default_socket_path(std::string_view session = "main");
 [[nodiscard]] std::string socket_path_from_environment();
 [[nodiscard]] Result<std::string> resolve_socket_path(
     std::string_view explicit_path,

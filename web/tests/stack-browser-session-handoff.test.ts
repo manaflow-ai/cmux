@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { StackServerApp } from "@stackframe/stack";
+import type { StackServerApp } from "@hexclave/next";
 import { NextRequest, NextResponse } from "next/server";
 
 import { createStackBrowserSessionHandoffAdapter } from

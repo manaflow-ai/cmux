@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension SessionRestorableAgentSnapshot {
@@ -14,9 +15,9 @@ extension SessionRestorableAgentSnapshot {
         let container = try decoder.container(keyedBy: SnapshotCodingKeys.self)
         let persistedKind = try container.decode(String.self, forKey: .kind)
         let registration = try container.decodeIfPresent(
-            CmuxVaultAgentRegistration.self,
+            SessionPersistedVaultAgentRegistration.self,
             forKey: .registration
-        )?.migratedPersistedBuiltInRegistration
+        )?.registration
         guard let kind = RestorableAgentKind(
             persistedRawValue: persistedKind,
             registration: registration
@@ -49,12 +50,25 @@ extension SessionRestorableAgentSnapshot {
         includeWorkingDirectoryPrefix: Bool,
         restoringWorkingDirectory: String? = nil
     ) -> String? {
-        let effectiveWorkingDirectory = restoringWorkingDirectory ?? workingDirectory
+        resumeCommand(
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            workingDirectorySelection: .recordedFallback(preferred: restoringWorkingDirectory)
+        )
+    }
+
+    func resumeCommand(
+        includeWorkingDirectoryPrefix: Bool,
+        workingDirectorySelection: RestorableAgentWorkingDirectorySelection
+    ) -> String? {
+        let effectiveWorkingDirectory = workingDirectorySelection.resolved(
+            snapshotWorkingDirectory: workingDirectory,
+            launchWorkingDirectory: launchCommand?.workingDirectory
+        )
         if kind.restoreMode == .relaunchCommand {
             return AgentRelaunchCommandBuilder().shellCommand(
                 kind: kind,
                 launchCommand: launchCommand,
-                workingDirectory: effectiveWorkingDirectory,
+                resolvedWorkingDirectory: effectiveWorkingDirectory,
                 includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
             )
         }
@@ -62,7 +76,8 @@ extension SessionRestorableAgentSnapshot {
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: effectiveWorkingDirectory,
+            resolvedWorkingDirectory: effectiveWorkingDirectory,
+            discardRecordedCwdOptions: workingDirectorySelection.discardsRecordedCwdOptions,
             registrationOverride: registration,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
             observedPermissionMode: permissionMode

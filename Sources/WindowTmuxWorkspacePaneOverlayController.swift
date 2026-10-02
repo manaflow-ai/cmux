@@ -15,10 +15,14 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedReferenceView: NSView?
     private var lastRenderState: TmuxWorkspacePaneOverlayRenderState?
-    private var pendingGeometryRefresh = false
 
     var hasRenderedState: Bool {
         lastRenderState != nil || !containerView.isHidden
+    }
+
+    /// Geometry supplied to the overlay is measured in this view's coordinates.
+    var coordinateReferenceView: NSView? {
+        ensureInstalled() ? installedReferenceView : nil
     }
 
     static func controller(for window: NSWindow, createIfNeeded: Bool) -> WindowTmuxWorkspacePaneOverlayController? {
@@ -40,7 +44,8 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
                 activePaneBorderRect: nil,
                 activePaneBorderColorHex: nil,
                 flashStartedAt: nil,
-                flashReason: nil
+                flashReason: nil,
+                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
             )
         )
         super.init()
@@ -107,7 +112,8 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
                 activePaneBorderRect: model.activePaneBorderRect,
                 activePaneBorderColorHex: model.activePaneBorderColorHex,
                 flashStartedAt: model.flashStartedAt,
-                flashReason: model.flashReason
+                flashReason: model.flashReason,
+                workspaceAttentionColor: model.workspaceAttentionColor
             )
             containerView.alphaValue = 1
             containerView.isHidden = false
@@ -120,22 +126,17 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
                 activePaneBorderRect: nil,
                 activePaneBorderColorHex: nil,
                 flashStartedAt: nil,
-                flashReason: nil
+                flashReason: nil,
+                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
             )
             containerView.alphaValue = 0
             containerView.isHidden = true
         }
     }
 
-    func scheduleGeometryRefresh(stateProvider: @MainActor @escaping () -> TmuxWorkspacePaneOverlayRenderState?) {
-        guard !pendingGeometryRefresh else { return }
-        pendingGeometryRefresh = true
-        // Divider drags can emit many geometry snapshots; one overlay update per
-        // main-actor turn is enough to keep the active border aligned.
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            pendingGeometryRefresh = false
-            update(state: stateProvider())
-        }
+    func updateWorkspaceAttentionColor(_ color: WorkspaceAttentionColor) {
+        guard let lastRenderState else { return }
+        update(state: lastRenderState.replacingWorkspaceAttentionColor(with: color))
     }
+
 }

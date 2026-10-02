@@ -84,6 +84,10 @@ extension TerminalController: ControlDebugContext {
         ProWelcomeChecklistPresenter.present()
     }
 
+    func controlDebugShowNativePricing() {
+        ProUpgradePresenter.presentNativePricingPreview()
+    }
+
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }
@@ -119,8 +123,6 @@ extension TerminalController: ControlDebugContext {
     func controlDebugPanelSnapshotReset(surfaceArgument: String) -> String {
         panelSnapshotReset(surfaceArgument)
     }
-
-    func controlDebugCaptureScreenshot(label: String) -> String { captureScreenshot(label) }
 
     func controlDebugShowCanvasCommandScrollHint(
         routing: ControlRoutingSelectors

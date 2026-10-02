@@ -23,11 +23,12 @@ fn test_duration(duration: Duration) -> Duration {
     duration.saturating_mul(scale)
 }
 
-fn read_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Value {
+fn read_json(ws: &mut tungstenite::WebSocket<std::net::TcpStream>) -> Option<Value> {
     loop {
-        match ws.read().unwrap() {
-            Message::Text(text) => return serde_json::from_str(&text).unwrap(),
-            Message::Binary(bytes) => return serde_json::from_slice(&bytes).unwrap(),
+        match ws.read().ok()? {
+            Message::Text(text) => return Some(serde_json::from_str(&text).unwrap()),
+            Message::Binary(bytes) => return Some(serde_json::from_slice(&bytes).unwrap()),
+            Message::Close(_) => return None,
             _ => {}
         }
     }
@@ -124,6 +125,63 @@ fn guarded_client(path: &std::path::Path, id: u64) -> BufReader<UnixStream> {
     reader
 }
 
+fn browser_provider(
+    path: &std::path::Path,
+    endpoint: String,
+    tab_id: &str,
+    target_id: &str,
+) -> BufReader<UnixStream> {
+    let mut stream = UnixStream::connect(path).unwrap();
+    let mut line = json!({
+        "id": 1,
+        "cmd": "register-browser-provider",
+        "provider_id": "browser-runtime-integration",
+        "endpoint": endpoint,
+        "authentication": "none",
+        "targets": [{"tab_id": tab_id, "target_id": target_id}],
+    })
+    .to_string()
+    .into_bytes();
+    line.push(b'\n');
+    stream.write_all(&line).unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut response = String::new();
+    reader.read_line(&mut response).unwrap();
+    let response: Value = serde_json::from_str(&response).unwrap();
+    assert_eq!(response["ok"], true, "browser provider registration failed: {response}");
+    reader
+}
+
+fn update_browser_provider(
+    reader: &mut BufReader<UnixStream>,
+    endpoint: String,
+    tab_id: &str,
+    target_id: &str,
+) {
+    let mut line = json!({
+        "id": 2,
+        "cmd": "register-browser-provider",
+        "provider_id": "browser-runtime-integration",
+        "endpoint": endpoint,
+        "authentication": "none",
+        "targets": [{"tab_id": tab_id, "target_id": target_id}],
+    })
+    .to_string()
+    .into_bytes();
+    line.push(b'\n');
+    reader.get_mut().write_all(&line).unwrap();
+    let mut response = String::new();
+    reader.read_line(&mut response).unwrap();
+    let response: Value = serde_json::from_str(&response).unwrap();
+    assert_eq!(response["ok"], true, "browser provider update failed: {response}");
+}
+
+fn surface_tab_id(mux: &Mux, surface: u64) -> String {
+    mux.surface(surface)
+        .and_then(|surface| surface.resource_identity().map(|identity| identity.tab_id.to_string()))
+        .expect("browser surface has a stable tab identity")
+}
+
 fn recv_method(rx: &mpsc::Receiver<Value>, method: &str) -> Value {
     recv_method_where(rx, method, |_| true)
 }
@@ -171,15 +229,74 @@ fn recv_attach_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
 }
 
 fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
-    let start = Instant::now();
+    let deadline = Instant::now() + test_duration(timeout);
     loop {
         if let Some(value) = f() {
             return Some(value);
         }
-        if start.elapsed() > timeout {
+        if Instant::now() >= deadline {
             return None;
         }
         thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn run_reconnect_provider_endpoint(
+    listener: TcpListener,
+    target_id: &'static str,
+    session_id: &'static str,
+    frame_data: &'static str,
+    mut disconnect: Option<mpsc::Receiver<()>>,
+) {
+    let (stream, _) = listener.accept().unwrap();
+    let mut ws = accept(stream).unwrap();
+    while let Some(request) = read_json(&mut ws) {
+        let id = request["id"].clone();
+        match request["method"].as_str().unwrap() {
+            "Target.setDiscoverTargets" => {
+                write_json(&mut ws, json!({"id": id, "result": {}}));
+            }
+            "Target.createTarget" => panic!("provider mode must not create an isolated target"),
+            "Target.attachToTarget" => {
+                assert_eq!(request["params"]["targetId"], target_id);
+                write_json(&mut ws, json!({"id": id, "result": {"sessionId": session_id}}));
+            }
+            "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
+            "Page.enable"
+            | "Page.setLifecycleEventsEnabled"
+            | "Emulation.setDeviceMetricsOverride" => {
+                write_json(&mut ws, json!({"id": id, "result": {}}));
+            }
+            "Page.startScreencast" => {
+                write_json(&mut ws, json!({"id": id, "result": {}}));
+                write_json(
+                    &mut ws,
+                    json!({
+                        "method": "Page.screencastFrame",
+                        "sessionId": session_id,
+                        "params": {
+                            "data": frame_data,
+                            "metadata": {"deviceWidth": 80, "deviceHeight": 40},
+                            "sessionId": 91
+                        }
+                    }),
+                );
+            }
+            "Page.screencastFrameAck" => {
+                if let Some(disconnect) = disconnect.take() {
+                    disconnect.recv_timeout(Duration::from_secs(30)).unwrap();
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    let _ = ws.close(None);
+                    break;
+                }
+                write_json(&mut ws, json!({"id": id, "result": {}}));
+            }
+            "Target.detachFromTarget" => {
+                write_json(&mut ws, json!({"id": id, "result": {}}));
+            }
+            "Target.closeTarget" => panic!("provider mode must not close a browser-owned tab"),
+            method => panic!("unexpected reconnect CDP method {method}"),
+        }
     }
 }
 
@@ -196,9 +313,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        let mut next_target = 1u32;
         let mut start_count = 0u32;
-        let mut closed = 0u32;
         let mut opener_second_frame_sent = false;
         let mut opener_drag_frame_sent = false;
         let mut opener_ack_count = 0u32;
@@ -206,8 +321,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         let mut main_loader = 1u32;
         let mut main_url = "https://example.test".to_string();
 
-        loop {
-            let request = read_json(&mut ws);
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -215,11 +329,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                 "Target.setDiscoverTargets" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
-                "Target.createTarget" => {
-                    let target = format!("target-{next_target}");
-                    next_target += 1;
-                    write_json(&mut ws, json!({"id": id, "result": {"targetId": target}}));
-                }
+                "Target.createTarget" => panic!("provider mode must not create an isolated target"),
                 "Target.attachToTarget" => {
                     let target = request["params"]["targetId"].as_str().unwrap();
                     let session = target.replace("target", "session");
@@ -496,24 +606,17 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     }
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
-                "Target.closeTarget" => {
-                    write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
-                    closed += 1;
-                    if closed >= 2 {
-                        assert_eq!(opener_ack_count, 4);
-                        break;
-                    }
+                "Target.detachFromTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
+                "Target.closeTarget" => panic!("provider mode must not close a browser-owned tab"),
                 method => panic!("unexpected CDP method {method}"),
             }
         }
+        assert_eq!(opener_ack_count, 4);
     });
 
-    let opts = SurfaceOptions {
-        cdp_url: Some(format!("ws://{addr}/devtools/browser/fake")),
-        browser_discover: false,
-        ..Default::default()
-    };
+    let opts = SurfaceOptions::default();
     let mux = Mux::new("browser-socket-test", opts);
     let socket_path = std::env::temp_dir()
         .join(format!(
@@ -529,6 +632,12 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     );
     assert_eq!(created["ok"], true);
     let surface = created["data"]["surface"].as_u64().unwrap();
+    let _provider = browser_provider(
+        &socket_path,
+        format!("ws://{addr}/devtools/browser/fake"),
+        &surface_tab_id(&mux, surface),
+        "target-1",
+    );
     frame_tx.send(()).unwrap();
     wait_for(
         || mux.surface(surface)?.browser_frame().filter(|frame| frame.seq == 1),
@@ -536,9 +645,8 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     )
     .expect("initial browser frame before sized attach");
 
-    // A second tab in the same pane, sized differently, becomes the active
-    // tab. The popup adopted from `surface` below must be sized from
-    // `surface` (the opener), not from this now-active tab.
+    // A second tab in the same pane must remain independent of provider-side
+    // target discovery. Native cmux-browser is the only topology authority.
     let other_tab =
         rpc(&socket_path, json!({"id": 100, "cmd": "new-tab", "cwd": "/", "cols": 40, "rows": 20}));
     assert_eq!(other_tab["ok"], true, "new-tab failed: {other_tab}");
@@ -671,76 +779,9 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     let dialog = recv_method(&seen_rx, "Page.handleJavaScriptDialog");
     assert_eq!(dialog["sessionId"], "session-1");
     assert_eq!(dialog["params"]["accept"], false);
-    let popup_attach = recv_method(&seen_rx, "Target.attachToTarget");
-    assert_eq!(popup_attach["params"]["targetId"], "target-popup");
-    let popup_surface = wait_for(
-        || {
-            mux.with_state(|state| {
-                let popup =
-                    state.surfaces.keys().copied().find(|candidate| {
-                        *candidate != surface && *candidate != other_tab_surface
-                    })?;
-                (state.surfaces.len() == 3).then_some(popup)
-            })
-        },
-        Duration::from_secs(10),
-    )
-    .expect("popup tab adopted");
-    assert_eq!(
-        mux.surface(popup_surface).unwrap().size(),
-        (10, 5),
-        "popup must inherit the opener's size, not the pane's active (non-opener) tab"
-    );
-    let popup_snapshot = wait_for(
-        || {
-            let snapshot = rpc(
-                &socket_path,
-                json!({
-                    "protocol": "cmux.protocol/2",
-                    "type": "request",
-                    "id": "popup-public-snapshot",
-                    "operation": "session.snapshot",
-                    "params": {
-                        "machine": "current",
-                        "session": "current"
-                    }
-                }),
-            );
-            if snapshot["ok"] != true {
-                return None;
-            }
-            snapshot["result"]["browsers"]
-                .as_array()?
-                .iter()
-                .any(|browser| browser["url"] == "https://popup.test")
-                .then_some(snapshot)
-        },
-        Duration::from_secs(10),
-    )
-    .expect("adopted popup entered the durable public projection");
-    assert_eq!(popup_snapshot["result"]["browsers"].as_array().unwrap().len(), 2);
-    let popup_start = recv_method_where(&seen_rx, "Page.startScreencast", |value| {
-        value["sessionId"] == "session-popup"
-    });
-    assert_eq!(popup_start["sessionId"], "session-popup");
     let opener_frame = mux.surface(surface).and_then(|surface| surface.browser_frame()).unwrap();
     assert_eq!(opener_frame.session_id, "session-1");
     assert_eq!(opener_frame.seq, 2);
-    let popup_frame = wait_for(
-        || {
-            mux.surface(popup_surface)
-                .and_then(|surface| surface.browser_frame())
-                .filter(|frame| frame.seq == 1)
-        },
-        Duration::from_secs(10),
-    )
-    .expect("popup surface received its own frame");
-    assert_eq!(popup_frame.session_id, "session-popup");
-    assert_eq!(popup_frame.data_b64, "cG9wdXA=");
-    let opener_frame_after_popup =
-        mux.surface(surface).and_then(|surface| surface.browser_frame()).unwrap();
-    assert_eq!(opener_frame_after_popup.session_id, "session-1");
-    assert_eq!(opener_frame_after_popup.seq, 2);
     while seen_rx.try_recv().is_ok() {}
     thread::sleep(Duration::from_millis(100));
     while let Ok(value) = seen_rx.try_recv() {
@@ -750,10 +791,33 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                 .and_then(|params| params.get("targetId"))
                 .and_then(|target| target.as_str()),
             Some("target-unrelated"),
-            "unrelated popup target was attached"
+            "provider discovery must not adopt a browser-owned popup"
+        );
+        assert_ne!(
+            value
+                .get("params")
+                .and_then(|params| params.get("targetId"))
+                .and_then(|target| target.as_str()),
+            Some("target-popup"),
+            "provider discovery must not invent canonical popup topology"
         );
     }
-    mux.with_state(|state| assert_eq!(state.surfaces.len(), 3));
+    mux.with_state(|state| {
+        assert_eq!(state.surfaces.len(), 2);
+        assert!(state.surfaces.contains_key(&other_tab_surface));
+    });
+    let snapshot = rpc(
+        &socket_path,
+        json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "id": "provider-topology-snapshot",
+            "operation": "session.snapshot",
+            "params": {"machine": "current", "session": "current"}
+        }),
+    );
+    assert_eq!(snapshot["ok"], true, "public snapshot failed: {snapshot}");
+    assert_eq!(snapshot["result"]["browsers"].as_array().unwrap().len(), 1);
 
     let stale_mouse = rpc(
         &socket_path,
@@ -964,12 +1028,12 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let (seen_tx, seen_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
 
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        loop {
-            let request = read_json(&mut ws);
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -977,9 +1041,7 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
                 "Target.setDiscoverTargets" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
-                "Target.createTarget" => {
-                    write_json(&mut ws, json!({"id": id, "result": {"targetId": "target-1"}}));
-                }
+                "Target.createTarget" => panic!("provider mode must not create an isolated target"),
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
@@ -994,21 +1056,22 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
                     // Deliberately never respond. The browser worker may
                     // sit in CdpClient::call until timeout, but this mux
                     // socket connection must remain usable.
+                    let _ = release_rx.recv();
+                    write_json(
+                        &mut ws,
+                        json!({"id": id, "error": {"code": -32000, "message": "released"}}),
+                    );
                 }
-                "Target.closeTarget" => {
-                    write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
-                    break;
+                "Target.detachFromTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
+                "Target.closeTarget" => panic!("provider mode must not close a browser-owned tab"),
                 method => panic!("unexpected CDP method {method}"),
             }
         }
     });
 
-    let opts = SurfaceOptions {
-        cdp_url: Some(format!("ws://{addr}/devtools/browser/fake")),
-        browser_discover: false,
-        ..Default::default()
-    };
+    let opts = SurfaceOptions::default();
     let mux = Mux::new("browser-wedged-navigate-test", opts);
     let socket_path = std::env::temp_dir()
         .join(format!(
@@ -1024,6 +1087,12 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
     );
     assert_eq!(created["ok"], true);
     let surface = created["data"]["surface"].as_u64().unwrap();
+    let _provider = browser_provider(
+        &socket_path,
+        format!("ws://{addr}/devtools/browser/fake"),
+        &surface_tab_id(&mux, surface),
+        "target-1",
+    );
     wait_for(
         || matches!(mux.surface(surface)?.browser_status()?, BrowserStatus::Live).then_some(()),
         Duration::from_secs(10),
@@ -1091,6 +1160,9 @@ fn wedged_browser_navigate_does_not_block_same_socket_connection() {
         "wedged browser close blocked for {:?}",
         close_started.elapsed()
     );
+    for _ in 0..2 {
+        let _ = release_tx.send(());
+    }
     mux.shutdown();
     server::cleanup(&socket_path);
     server.join().unwrap();
@@ -1113,8 +1185,7 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        loop {
-            let request = read_json(&mut ws);
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -1122,9 +1193,7 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
                 "Target.setDiscoverTargets" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
-                "Target.createTarget" => {
-                    write_json(&mut ws, json!({"id": id, "result": {"targetId": "target-1"}}));
-                }
+                "Target.createTarget" => panic!("provider mode must not create an isolated target"),
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
@@ -1179,20 +1248,16 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
                         }),
                     );
                 }
-                "Target.closeTarget" => {
-                    write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
-                    break;
+                "Target.detachFromTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
+                "Target.closeTarget" => panic!("provider mode must not close a browser-owned tab"),
                 method => panic!("unexpected CDP method {method}"),
             }
         }
     });
 
-    let opts = SurfaceOptions {
-        cdp_url: Some(format!("ws://{addr}/devtools/browser/fake")),
-        browser_discover: false,
-        ..Default::default()
-    };
+    let opts = SurfaceOptions::default();
     let mux = Mux::new("browser-history-collapse-test", opts);
     let socket_path = std::env::temp_dir()
         .join(format!(
@@ -1208,6 +1273,12 @@ fn queued_back_and_forward_do_not_collapse_while_worker_is_blocked() {
     );
     assert_eq!(created["ok"], true);
     let surface = created["data"]["surface"].as_u64().unwrap();
+    let _provider = browser_provider(
+        &socket_path,
+        format!("ws://{addr}/devtools/browser/fake"),
+        &surface_tab_id(&mux, surface),
+        "target-1",
+    );
     wait_for(
         || matches!(mux.surface(surface)?.browser_status()?, BrowserStatus::Live).then_some(()),
         Duration::from_secs(10),
@@ -1260,12 +1331,12 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let (seen_tx, seen_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
 
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        loop {
-            let request = read_json(&mut ws);
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -1273,9 +1344,7 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
                 "Target.setDiscoverTargets" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
-                "Target.createTarget" => {
-                    write_json(&mut ws, json!({"id": id, "result": {"targetId": "target-1"}}));
-                }
+                "Target.createTarget" => panic!("provider mode must not create an isolated target"),
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
@@ -1289,24 +1358,25 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
                 "Page.navigate" => {
                     // Never respond: the worker stays inside the CDP call so the
                     // bounded command queue cannot drain.
+                    let _ = release_rx.recv();
+                    write_json(
+                        &mut ws,
+                        json!({"id": id, "error": {"code": -32000, "message": "released"}}),
+                    );
                 }
                 "Page.reload" | "Page.navigateToHistoryEntry" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
-                "Target.closeTarget" => {
-                    write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
-                    break;
+                "Target.detachFromTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
+                "Target.closeTarget" => panic!("provider mode must not close a browser-owned tab"),
                 method => panic!("unexpected CDP method {method}"),
             }
         }
     });
 
-    let opts = SurfaceOptions {
-        cdp_url: Some(format!("ws://{addr}/devtools/browser/fake")),
-        browser_discover: false,
-        ..Default::default()
-    };
+    let opts = SurfaceOptions::default();
     let mux = Mux::new("browser-control-backpressure-test", opts);
     let socket_path = std::env::temp_dir()
         .join(format!(
@@ -1322,6 +1392,12 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
     );
     assert_eq!(created["ok"], true);
     let surface = created["data"]["surface"].as_u64().unwrap();
+    let _provider = browser_provider(
+        &socket_path,
+        format!("ws://{addr}/devtools/browser/fake"),
+        &surface_tab_id(&mux, surface),
+        "target-1",
+    );
     wait_for(
         || matches!(mux.surface(surface)?.browser_status()?, BrowserStatus::Live).then_some(()),
         Duration::from_secs(10),
@@ -1359,6 +1435,7 @@ fn control_command_reports_backpressure_when_worker_queue_is_full() {
         "a full command queue must be reported as ok:false, not silently dropped with ok:true"
     );
 
+    release_tx.send(()).unwrap();
     mux.close_surface(surface).unwrap();
     mux.shutdown();
     server::cleanup(&socket_path);
@@ -1375,8 +1452,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        loop {
-            let request = read_json(&mut ws);
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -1384,9 +1460,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
                 "Target.setDiscoverTargets" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
-                "Target.createTarget" => {
-                    write_json(&mut ws, json!({"id": id, "result": {"targetId": "target-1"}}));
-                }
+                "Target.createTarget" => panic!("provider mode must not create an isolated target"),
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
@@ -1415,26 +1489,35 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
                 "Page.screencastFrameAck" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
-                "Target.closeTarget" => {
-                    write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
-                    break;
+                "Target.detachFromTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
+                "Target.closeTarget" => panic!("provider mode must not close a browser-owned tab"),
                 method => panic!("unexpected CDP method {method}"),
             }
         }
     });
 
-    let opts = SurfaceOptions {
-        cdp_url: Some(format!("ws://{addr}/devtools/browser/fake")),
-        browser_discover: false,
-        browser_max_capture_megapixels: 0.01,
-        ..Default::default()
-    };
+    let opts = SurfaceOptions { browser_max_capture_megapixels: 0.01, ..Default::default() };
     let mux = Mux::new("browser-scale-test", opts);
+    let socket_path = std::env::temp_dir()
+        .join(format!(
+            "cmux-browser-scale-test-{}-{}",
+            std::process::id(),
+            SOCKET_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+        .join("session.sock");
+    server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
     mux.set_cell_pixel_size(100, 100);
     let surface = mux
         .new_browser_tab("example.test".to_string(), None, Some((100, 100)))
         .expect("browser tab");
+    let _provider = browser_provider(
+        &socket_path,
+        format!("ws://{addr}/devtools/browser/fake"),
+        &surface_tab_id(&mux, surface.id),
+        "target-1",
+    );
 
     let metrics = recv_method(&seen_rx, "Emulation.setDeviceMetricsOverride");
     assert_eq!(metrics["sessionId"], "session-1");
@@ -1445,8 +1528,18 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     assert_eq!(screencast["params"]["maxWidth"], 100);
     assert_eq!(screencast["params"]["maxHeight"], 100);
 
-    let frame = wait_for(|| surface.browser_frame(), test_duration(Duration::from_secs(10)))
-        .expect("browser emitted its first authoritative frame");
+    let (frame, frame_seq) = wait_for(
+        || {
+            if !matches!(surface.browser_status(), Some(BrowserStatus::Live)) {
+                return None;
+            }
+            let frame = surface.browser_frame()?;
+            let frame_seq = surface.browser_frame_seq()?;
+            (frame.seq == frame_seq).then_some((frame, frame_seq))
+        },
+        Duration::from_secs(10),
+    )
+    .expect("browser produced a pointer-authoritative frame");
     assert_eq!(frame.data_b64, "c2NhbGU=");
     surface
         .browser_mouse_event_for_frame(
@@ -1455,7 +1548,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
             5_000.0,
             Some("left"),
             Some(1),
-            Some(frame.seq),
+            Some(frame_seq),
         )
         .unwrap();
     let mouse = recv_method(&seen_rx, "Input.dispatchMouseEvent");
@@ -1464,6 +1557,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
     assert_eq!(mouse["params"]["y"], 50.0);
 
     mux.shutdown();
+    server::cleanup(&socket_path);
     server.join().unwrap();
 }
 
@@ -1477,8 +1571,7 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
     let server = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
         let mut ws = accept(stream).unwrap();
-        loop {
-            let request = read_json(&mut ws);
+        while let Some(request) = read_json(&mut ws) {
             let id = request["id"].clone();
             let method = request["method"].as_str().unwrap().to_string();
             seen_tx.send(request.clone()).unwrap();
@@ -1486,9 +1579,7 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
                 "Target.setDiscoverTargets" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
-                "Target.createTarget" => {
-                    write_json(&mut ws, json!({"id": id, "result": {"targetId": "target-1"}}));
-                }
+                "Target.createTarget" => panic!("provider mode must not create an isolated target"),
                 "Target.attachToTarget" => {
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": "session-1"}}));
                 }
@@ -1519,23 +1610,33 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
                 "Page.screencastFrameAck" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
-                "Target.closeTarget" => {
-                    write_json(&mut ws, json!({"id": id, "result": {"success": true}}));
-                    break;
+                "Target.detachFromTarget" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
+                "Target.closeTarget" => panic!("provider mode must not close a browser-owned tab"),
                 method => panic!("unexpected CDP method {method}"),
             }
         }
     });
 
-    let opts = SurfaceOptions {
-        cdp_url: Some(format!("ws://{addr}/devtools/browser/fake")),
-        browser_discover: false,
-        ..Default::default()
-    };
+    let opts = SurfaceOptions::default();
     let mux = Mux::new("browser-stall-nudge-test", opts);
+    let socket_path = std::env::temp_dir()
+        .join(format!(
+            "cmux-browser-stall-test-{}-{}",
+            std::process::id(),
+            SOCKET_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+        .join("session.sock");
+    server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
     let surface =
         mux.new_browser_tab("example.test".to_string(), None, Some((10, 5))).expect("browser tab");
+    let _provider = browser_provider(
+        &socket_path,
+        format!("ws://{addr}/devtools/browser/fake"),
+        &surface_tab_id(&mux, surface.id),
+        "target-1",
+    );
     wait_for(
         || matches!(surface.browser_status(), Some(BrowserStatus::Live)).then_some(()),
         Duration::from_secs(30),
@@ -1563,7 +1664,232 @@ fn stalled_external_browser_nudges_target_once_before_interaction() {
     assert_eq!(second_mouse["params"]["x"], 13.0);
 
     mux.shutdown();
+    server::cleanup(&socket_path);
     server.join().unwrap();
+}
+
+#[test]
+fn provider_disconnect_reconnects_without_closing_canonical_browser_topology() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let first_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let first_addr = first_listener.local_addr().unwrap();
+    let second_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let second_addr = second_listener.local_addr().unwrap();
+    let (disconnect_tx, disconnect_rx) = mpsc::channel();
+    let first_server = thread::spawn(move || {
+        run_reconnect_provider_endpoint(
+            first_listener,
+            "target-first",
+            "session-first",
+            "Zmlyc3Q=",
+            Some(disconnect_rx),
+        );
+    });
+    let second_server = thread::spawn(move || {
+        run_reconnect_provider_endpoint(
+            second_listener,
+            "target-second",
+            "session-second",
+            "c2Vjb25k",
+            None,
+        );
+    });
+
+    let mux = Mux::new("browser-provider-reconnect-test", SurfaceOptions::default());
+    let socket_path = std::env::temp_dir()
+        .join(format!(
+            "cmux-bp-reconnect-{}-{}",
+            std::process::id(),
+            SOCKET_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+        .join("session.sock");
+    server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
+    let surface =
+        mux.new_browser_tab("example.test".to_string(), None, Some((10, 5))).expect("browser tab");
+    let tab_id = surface_tab_id(&mux, surface.id);
+    let mut provider = browser_provider(
+        &socket_path,
+        format!("ws://{first_addr}/devtools/browser/first"),
+        &tab_id,
+        "target-first",
+    );
+    wait_for(
+        || {
+            let frame = surface.browser_frame()?;
+            (matches!(surface.browser_status(), Some(BrowserStatus::Live))
+                && frame.session_id == "session-first"
+                && frame.data_b64 == "Zmlyc3Q=")
+                .then_some(())
+        },
+        Duration::from_secs(10),
+    )
+    .expect("first provider target became live");
+
+    disconnect_tx.send(()).unwrap();
+    wait_for(
+        || {
+            matches!(
+                surface.browser_status(),
+                Some(BrowserStatus::Starting | BrowserStatus::Failed(_))
+            )
+            .then_some(())
+        },
+        Duration::from_secs(10),
+    )
+    .expect("provider disconnect became observable");
+    mux.with_state(|state| {
+        assert_eq!(state.surfaces.len(), 1);
+        assert!(state.surfaces.contains_key(&surface.id));
+    });
+
+    update_browser_provider(
+        &mut provider,
+        format!("ws://{second_addr}/devtools/browser/second"),
+        &tab_id,
+        "target-second",
+    );
+    wait_for(
+        || {
+            let frame = surface.browser_frame()?;
+            (matches!(surface.browser_status(), Some(BrowserStatus::Live))
+                && frame.session_id == "session-second"
+                && frame.data_b64 == "c2Vjb25k")
+                .then_some(())
+        },
+        Duration::from_secs(10),
+    )
+    .expect("replacement provider target reattached");
+    mux.with_state(|state| {
+        assert_eq!(state.surfaces.len(), 1);
+        assert!(state.surfaces.contains_key(&surface.id));
+    });
+
+    mux.close_surface(surface.id).unwrap();
+    drop(provider);
+    mux.shutdown();
+    server::cleanup(&socket_path);
+    first_server.join().unwrap();
+    second_server.join().unwrap();
+}
+
+#[test]
+fn provider_target_revision_reattaches_on_the_same_browser_connection() {
+    let _guard = TEST_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (detached_tx, detached_rx) = mpsc::channel();
+    let cdp_server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut ws = accept(stream).unwrap();
+        while let Some(request) = read_json(&mut ws) {
+            let id = request["id"].clone();
+            match request["method"].as_str().unwrap() {
+                "Target.setDiscoverTargets" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.attachToTarget" => {
+                    let target = request["params"]["targetId"].as_str().unwrap();
+                    let session = match target {
+                        "target-first" => "session-first",
+                        "target-second" => "session-second",
+                        other => panic!("unexpected provider target {other}"),
+                    };
+                    write_json(&mut ws, json!({"id": id, "result": {"sessionId": session}}));
+                }
+                "Page.getFrameTree" => write_default_frame_tree(&mut ws, id),
+                "Page.enable"
+                | "Page.setLifecycleEventsEnabled"
+                | "Emulation.setDeviceMetricsOverride" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Page.startScreencast" => {
+                    let session = request["sessionId"].as_str().unwrap();
+                    let data = match session {
+                        "session-first" => "Zmlyc3Q=",
+                        "session-second" => "c2Vjb25k",
+                        other => panic!("unexpected provider session {other}"),
+                    };
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                    write_json(
+                        &mut ws,
+                        json!({
+                            "method": "Page.screencastFrame",
+                            "sessionId": session,
+                            "params": {
+                                "data": data,
+                                "metadata": {"deviceWidth": 80, "deviceHeight": 40},
+                                "sessionId": if session == "session-first" { 81 } else { 82 }
+                            }
+                        }),
+                    );
+                }
+                "Page.screencastFrameAck" => {
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.detachFromTarget" => {
+                    detached_tx
+                        .send(request["params"]["sessionId"].as_str().unwrap().to_string())
+                        .unwrap();
+                    write_json(&mut ws, json!({"id": id, "result": {}}));
+                }
+                "Target.closeTarget" => {
+                    panic!("provider mode must not close a browser-owned tab")
+                }
+                method => panic!("unexpected same-endpoint CDP method {method}"),
+            }
+        }
+    });
+
+    let mux = Mux::new("browser-provider-target-revision-test", SurfaceOptions::default());
+    let socket_path = std::env::temp_dir()
+        .join(format!(
+            "cmux-bp-target-revision-{}-{}",
+            std::process::id(),
+            SOCKET_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+        .join("session.sock");
+    server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
+    let surface =
+        mux.new_browser_tab("example.test".to_string(), None, Some((10, 5))).expect("browser tab");
+    let tab_id = surface_tab_id(&mux, surface.id);
+    let endpoint = format!("ws://{addr}/devtools/browser/shared");
+    let mut provider = browser_provider(&socket_path, endpoint.clone(), &tab_id, "target-first");
+    wait_for(
+        || {
+            let frame = surface.browser_frame()?;
+            (matches!(surface.browser_status(), Some(BrowserStatus::Live))
+                && frame.session_id == "session-first"
+                && frame.data_b64 == "Zmlyc3Q=")
+                .then_some(())
+        },
+        Duration::from_secs(10),
+    )
+    .expect("first provider target became live");
+
+    update_browser_provider(&mut provider, endpoint, &tab_id, "target-second");
+    assert_eq!(detached_rx.recv_timeout(Duration::from_secs(10)).unwrap(), "session-first");
+    wait_for(
+        || {
+            let frame = surface.browser_frame()?;
+            (matches!(surface.browser_status(), Some(BrowserStatus::Live))
+                && frame.session_id == "session-second"
+                && frame.data_b64 == "c2Vjb25k")
+                .then_some(())
+        },
+        Duration::from_secs(10),
+    )
+    .expect("replacement target reattached on the existing CDP connection");
+    mux.with_state(|state| {
+        assert_eq!(state.surfaces.len(), 1);
+        assert!(state.surfaces.contains_key(&surface.id));
+    });
+
+    mux.close_surface(surface.id).unwrap();
+    assert_eq!(detached_rx.recv_timeout(Duration::from_secs(10)).unwrap(), "session-second");
+    drop(provider);
+    mux.shutdown();
+    server::cleanup(&socket_path);
+    cdp_server.join().unwrap();
 }
 
 #[test]
@@ -1573,12 +1899,16 @@ fn browser_tab_creation_is_async_and_surfaces_bootstrap_failure() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.local_addr().unwrap().port()
     };
-    let opts = SurfaceOptions {
-        cdp_url: Some(format!("ws://127.0.0.1:{closed_port}/devtools/browser/missing")),
-        browser_discover: false,
-        ..Default::default()
-    };
+    let opts = SurfaceOptions::default();
     let mux = Mux::new("browser-async-failure-test", opts);
+    let socket_path = std::env::temp_dir()
+        .join(format!(
+            "cmux-browser-async-failure-test-{}-{}",
+            std::process::id(),
+            SOCKET_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+        .join("session.sock");
+    server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
     let started = Instant::now();
     let surface = mux
         .new_browser_tab("example.test".to_string(), None, Some((10, 5)))
@@ -1590,6 +1920,13 @@ fn browser_tab_creation_is_async_and_surfaces_bootstrap_failure() {
     );
     assert_eq!(surface.kind(), SurfaceKind::Browser);
     mux.with_state(|state| assert_eq!(state.surfaces.len(), 1));
+    assert_eq!(surface.browser_status(), Some(BrowserStatus::Starting));
+    let _provider = browser_provider(
+        &socket_path,
+        format!("ws://127.0.0.1:{closed_port}/devtools/browser/missing"),
+        &surface_tab_id(&mux, surface.id),
+        "target-1",
+    );
     let status = wait_for(
         || match surface.browser_status() {
             Some(BrowserStatus::Failed(error)) => Some(error),
@@ -1606,4 +1943,5 @@ fn browser_tab_creation_is_async_and_surfaces_bootstrap_failure() {
         "{status}"
     );
     mux.shutdown();
+    server::cleanup(&socket_path);
 }

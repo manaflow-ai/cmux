@@ -18,6 +18,9 @@ public enum MobileCoreRPCAttachTicketPolicy: Sendable, Equatable {
 /// All stored properties are immutable `let`s of `Sendable` types (the session
 /// is an actor), so this is genuinely `Sendable` without opting out of checking.
 public final class MobileCoreRPCClient: MobileSyncing, Sendable {
+    /// Stable identity for this logical client across focused/control role
+    /// handoffs. A replacement client receives a new identity.
+    public let instanceID: String = UUID().uuidString
     private static let independentEventPreparationTimeoutNanoseconds: UInt64 = 3_000_000_000
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
@@ -25,6 +28,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let transportRequest: CmxByteTransportRequest
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
+    /// Whether this session is bound to an exact Tailscale endpoint the user
+    /// authorized locally, rather than an endpoint learned through discovery.
+    public var usesLocallyAuthorizedTailscaleRoute: Bool {
+        guard route.kind == .tailscale else { return false }
+        switch transportRequest.authorizationMode {
+        case .legacyTailscaleBearer, .userAuthorizedTailscalePairing:
+            return true
+        case .stackBearer, .transportAdmission:
+            return false
+        }
+    }
     private let allowsStackAuthFallback: Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
@@ -43,6 +57,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - legacyTailscaleAuthorizationEvidence: Exact local capability retained
     ///     only for a pairing that predates Iroh. Mismatched evidence is ignored,
     ///     leaving the raw Tailscale route fail-closed.
+    ///   - irohDirectOnlyDialCandidates: The per-Computer Direct method's
+    ///     complete path allowlist for an Iroh route. Ignored for other route
+    ///     kinds; `nil` = the normal Iroh dial plan.
     ///   - transportConnectObserver: Optional synchronous sink for privacy-safe
     ///     transport dial lifecycle events. The observer must return immediately.
     public init(
@@ -52,6 +69,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         allowsStackAuthFallback: Bool = false,
         legacyTailscaleAuthorizationEvidence: CmxLegacyTailscaleAuthorizationEvidence? = nil,
         userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization? = nil,
+        irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -95,7 +113,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             route: route,
             expectedPeerDeviceID: ticket.macDeviceID,
             authorizationMode: authorizationMode,
-            sessionPurpose: sessionPurpose
+            sessionPurpose: sessionPurpose,
+            irohDirectOnlyDialCandidates: route.kind == .iroh
+                ? irohDirectOnlyDialCandidates
+                : nil
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
@@ -143,6 +164,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     public func disconnect() async {
         retire()
         await session.tearDown(error: .connectionClosed)
+    }
+
+    /// Returns the native transport's close snapshot without creating or
+    /// replacing a connection. `nil` means the transport does not expose this
+    /// optional observation seam.
+    public func isTransportClosed() async -> Bool? {
+        await session.isTransportClosed()
     }
 
     /// Retire this client and await both its installed transport close and any
@@ -333,7 +361,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     public func sendRequestAndAuthenticatedHostStatus(
         _ requestData: Data,
         timeoutNanoseconds: UInt64? = nil,
-        hostStatusTimeoutNanoseconds: @Sendable () -> UInt64? = { nil }
+        hostStatusTimeoutNanoseconds: @Sendable () -> UInt64? = { nil },
+        acceptCombinedHostStatus: Bool = false
     ) async throws -> (response: Data, hostStatusResponse: Data) {
         guard let request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any],
               Self.requestRequiresAuth(request) else {
@@ -343,6 +372,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             requestData,
             timeoutNanoseconds: timeoutNanoseconds
         )
+        if acceptCombinedHostStatus,
+           let combinedHostStatus = Self.combinedHostStatusResponse(
+               in: authorized.response
+           ) {
+            return (authorized.response, combinedHostStatus)
+        }
         let hostStatusTimeout = hostStatusTimeoutNanoseconds()
         if hostStatusTimeout == 0 {
             throw MobileShellConnectionError.requestTimedOut
@@ -353,6 +388,22 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             hostStatusStackToken: authorized.stackAccessToken
         )
         return (authorized.response, hostStatus.response)
+    }
+
+    /// Extracts the authenticated host proof included in a v2 workspace-list
+    /// response. Older Macs omit this field, so callers continue with the
+    /// separate host-status request.
+    private static func combinedHostStatusResponse(in data: Data) -> Data? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hostStatus = object["host_status"] as? [String: Any],
+              JSONSerialization.isValidJSONObject(hostStatus) else {
+            return nil
+        }
+        guard let encoded = try? JSONSerialization.data(withJSONObject: hostStatus),
+              (try? MobileHostStatusResponse.decode(encoded)) != nil else {
+            return nil
+        }
+        return encoded
     }
 
     private func sendRequestOperation(
@@ -402,6 +453,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
+    /// Wire opt-in for one server->client stream per terminal surface (see
+    /// `IrxSurfaceEventLaneProtocol` on the host).
+    static let surfaceEventLanesParameterKey = "surface_event_lanes"
+    static let surfaceEventLanesParameterValue = "v1"
+
     /// Adds the rolling-compatible opt-in only after the Iroh accept owner is
     /// installed. Older hosts ignore the field and continue control delivery.
     private func requestAdvertisingIndependentEvents(
@@ -427,6 +483,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return requestData
         }
         params["event_transport"] = "iroh_server_events_v1"
+        if runtime.independentEventsMergeSurfaceLanes {
+            // Older hosts ignore the field and keep render-grid output on the
+            // shared events lane; newer hosts echo it when they granted lanes.
+            params[Self.surfaceEventLanesParameterKey] = Self.surfaceEventLanesParameterValue
+        }
         request["params"] = params
         return (try? JSONSerialization.data(withJSONObject: request)) ?? requestData
     }
@@ -687,7 +748,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return false
         case "workspace.create", "mobile.task.attachment.upload":
             return false
-        case "workspace.action", "workspace.close":
+        case "workspace.action", "workspace.close", "mobile.surface.focus",
+             "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
+             "mobile.panel.artifact.thumbnail":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
@@ -704,6 +767,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
+             "mobile.terminal.reattach",
+             "mobile.terminal.size_policy.set",
+             "mobile.terminal.participant.disconnect",
              "mobile.terminal.artifact.scan",
              "mobile.terminal.artifact.stat",
              "mobile.terminal.artifact.fetch",
@@ -717,13 +783,15 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.events.probe":
             return false
         case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
-             "notification.feed.mark_all_read":
+             "notification.feed.mark_all_read",
+             "feed.list", "feed.text", "feed.permission.reply", "feed.question.reply",
+             "feed.exit_plan.reply":
             // Feed authority is the authenticated account/peer connection, not
             // a workspace-selection ticket. Omit an irrelevant scoped attach
             // token so legacy pairings cannot accidentally narrow the global
             // feed; Stack auth is still attached to every TCP request.
             return true
-        case "mobile.browser.list":
+        case "mobile.browser.list", "mobile.browser.create":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
