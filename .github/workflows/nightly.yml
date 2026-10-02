@@ -1014,13 +1014,11 @@ jobs:
             xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
       - name: Install compilation dependencies
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Build pinned acpmux for the compilation cache
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         env:
           CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
         run: |
