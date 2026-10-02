@@ -299,7 +299,28 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
 </script>`,
           ),
         };
-      return { html: shell(file, `<div class="punch-viewer-svgpage">${esc(file.slides.map((s) => s.title).join(" "))}</div>`) };
+      return {
+        html: shell(
+          file,
+          `<svg id="filmstrip" width="200" height="${file.slides.length * 110}">${file.slides.map((s, i) => `<g id="filmstrip-slide-${i}-p${i}"><rect x="10" y="${i * 110 + 5}" width="150" height="90" fill="#eee"></rect></g>`).join("")}</svg>
+<div class="punch-viewer-svgpage">${esc(file.slides.map((s) => s.title).join(" "))}</div>
+<div id="speakernotes"><div id="speakernotes-workspace" role="textbox" aria-label="Speaker notes" tabindex="0" style="min-height:40px"></div></div>
+<script>
+// As live: thumbnails g#filmstrip-slide-<i>-<pageId> select a slide; the
+// notes textbox takes typed keys (Meta+A selects all notes; Escape commits).
+let slide = 0, notes = null, replaceAll = false;
+document.querySelectorAll("#filmstrip g").forEach((g, i) => g.addEventListener("click", () => { slide = i; }));
+const nw = document.getElementById("speakernotes-workspace");
+nw.addEventListener("click", () => { nw.focus(); notes = ""; replaceAll = false; });
+nw.addEventListener("keydown", (e) => {
+  if (e.metaKey && e.key.toLowerCase() === "a") { e.preventDefault(); replaceAll = true; return; }
+  if (e.key === "Enter") { e.preventDefault(); notes += "\\n"; return; }
+  if (e.key === "Escape") { if (notes !== null) post("notes", { index: slide, text: notes, replaceAll }); notes = null; return; }
+  if (e.key.length === 1 && !e.metaKey) { e.preventDefault(); notes += e.key; }
+});
+</script>`,
+        ),
+      };
     }
     if (op === "htmlview" && file.kind === "spreadsheets") return { html: `<html><head><title>${esc(file.title)} - Google Sheets</title></head><body><ul>${file.sheets.map((s) => `<li id="sheet-button-${s.gid}"><a href="#">${esc(s.name)}</a></li>`).join("")}</ul></body></html>` };
     if (op === "export") {
@@ -337,6 +358,7 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
     if (action === "title") file.title = data.title;
     if (action === "trash") file.trashed = true;
     if (action === "append") file.blocks.push({ type: "paragraph", text: data.text });
+    if (action === "notes") file.slides[data.index].notes = data.replaceAll ? data.text : file.slides[data.index].notes + data.text;
     if (action === "replace") return { json: { count: replaceIn(file, data.find, data.replace) } };
     return { json: { ok: true } };
   }

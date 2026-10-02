@@ -82,6 +82,14 @@ test("googleSlides.slides lists each slide's title, text and speaker notes; repl
   assert.equal(files.get("1deckPRIVATE00000000000000000000x").slides[0].body[1], "Q2: scale");
 });
 
+test("googleSlides.setNotes replaces one slide's speaker notes on a private deck and verifies", async () => {
+  assert.deepEqual(await s.value(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "First line\\nSecond line")`), { status: "notes set", slide: 2, verified: true });
+  const slides = files.get("1deckPRIVATE00000000000000000000x").slides;
+  assert.equal(slides[1].notes, "First line\nSecond line");
+  assert.equal(slides[0].notes, "Say hello");
+  assert.match(await s.error(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 9, "x")`), /slide 9 does not exist; the deck has 2 slides/);
+});
+
 test("editing a shared doc or deck is a draft until confirmed", async () => {
   env.state.editors.files.get("1docPRIVATE000000000000000000000x").shared = true;
   try {
