@@ -18,8 +18,8 @@ enum CloudTreeCreateActionBuilder {
                 // New Cloud Machine is the button above the section
                 // (`CloudNewMachineButton`), so the empty fleet's
                 // double-click-only "New Machine" placeholder goes.
-                guard canCreateMachine else { break }
                 node.children.removeAll { $0.id == "cloud-machines-section/empty" || $0.id == newWorkspaceNodeID }
+                guard canCreateMachine else { break }
                 if fleetListIsCurrent, hasWorkspaceDestination(node.children) {
                     node.children.insert(CloudTreeNode(id: newWorkspaceNodeID, kind: .createAction(.newWorkspaceOnResolvedMachine)), at: 0)
                 }
