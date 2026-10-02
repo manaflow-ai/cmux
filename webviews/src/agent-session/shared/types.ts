@@ -30,6 +30,9 @@ export type AgentSessionTheme = {
   accentText?: string;
   danger: string;
   shadow: string;
+  /// The terminal's 16 ANSI colors, for syntax colors that follow the theme; the cmux-next
+  /// pane sends it, others keep Codex's syntax colors.
+  palette?: string[];
 };
 
 export type AppContext = {

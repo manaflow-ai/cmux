@@ -4,6 +4,8 @@
 // Sources/CmuxNextAgentPane/AgentPaneTheme.swift: the harness must color the
 // pane as the app does.
 
+import fs from "node:fs";
+
 const rgb = (hex, alpha = 1) => ({ r: ((hex >> 16) & 255) / 255, g: ((hex >> 8) & 255) / 255, b: (hex & 255) / 255, a: alpha });
 
 /// `ThemeInput.ghosttyDefault`: the theme when the Ghostty config sets none.
@@ -13,6 +15,20 @@ export const ghosttyDefault = {
   palette: [0x1d1f21, 0xcc6666, 0xb5bd68, 0xf0c674, 0x81a2be, 0xb294bb, 0x8abeb7, 0xc5c8c6, 0x666666, 0xd54e53, 0xb9ca4a, 0xe7c547, 0x7aa6da, 0xc397d8, 0x70c0b1, 0xeaeaea].map((hex) => rgb(hex)),
   backgroundOpacity: 1,
 };
+
+/// A theme from Ghostty's theme files (Resources/ghostty/themes/<name>), read as Ghostty
+/// reads `palette = N=#rrggbb`, `background` and `foreground`. Missing entries keep the default's.
+export function ghosttyThemeFile(file) {
+  const theme = { ...ghosttyDefault, palette: [...ghosttyDefault.palette] };
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    const match = /^\s*(palette|background|foreground)\s*=\s*(?:(\d+)=)?#?([0-9a-fA-F]{6})\s*$/.exec(line);
+    if (!match) continue;
+    const color = rgb(parseInt(match[3], 16));
+    if (match[1] === "palette") theme.palette[Number(match[2])] = color;
+    else theme[match[1]] = color;
+  }
+  return theme;
+}
 
 const luminance = ({ r, g, b }) => {
   const linear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -93,5 +109,7 @@ export function agentPaneTheme(input) {
     accentText: css(withAlpha(page, 1)),
     danger: css(t.danger),
     shadow: css(t.shadow),
+    // The terminal's ANSI colors in order, for syntax colors that follow the theme.
+    palette: (input.palette.length >= 8 ? input.palette : ghosttyDefault.palette).slice(0, 16).map(css),
   };
 }
