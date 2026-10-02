@@ -11,6 +11,13 @@ import Testing
 #endif
 
 extension CmuxTuiSurfaceProviderTests {
+    @Test func linkExitDescriptionDoesNotExposeRawStderr() {
+        let error = CloudMachineLink.LinkError.exited(
+            status: 7, output: "authorization: bearer secret-token\nremote diagnostic"
+        )
+        #expect(error.errorDescription == "cmux-tui link exited with status 7")
+    }
+
     @Test func sshLinkPassesTheSelectedSessionToItsClient() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-link-\(UUID().uuidString)", isDirectory: true)
@@ -145,18 +152,15 @@ extension CmuxTuiSurfaceProviderTests {
         } catch {
             Issue.record("a cancelled link connect returned \(error) instead of CancellationError")
         }
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
-        var helperExited = false
-        while clock.now < deadline {
-            let killResult = Darwin.kill(helperPID, 0)
-            let killErrno = errno
-            if killResult == -1 && killErrno == ESRCH {
-                helperExited = true
-                break
-            }
-            try? await Task.sleep(for: .milliseconds(25))
-        }
-        #expect(helperExited, "cancellation must reap descendants holding link pipes")
+        var helperInfo = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        errno = 0
+        let infoSize = proc_pidinfo(
+            pid_t(helperPID), PROC_PIDTBSDINFO, 0, &helperInfo, Int32(expectedSize)
+        )
+        let helperStopped = Int(infoSize) == expectedSize
+            ? helperInfo.pbi_status == UInt32(SZOMB)
+            : errno == ESRCH
+        #expect(helperStopped, "cancellation must stop descendants holding link pipes before returning")
     }
 }

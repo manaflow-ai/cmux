@@ -95,9 +95,10 @@ public actor CloudMachineLink {
                 return "cmux-tui could not be started: \(detail)"
             case .failureMessage(let detail):
                 return detail
-            case .exited(let status, let output):
-                let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
-                return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
+            case .exited(let status, _):
+                // Stderr may contain credentials or other remote-controlled text.
+                // Keep it on the typed error for diagnostics, outside visible copy.
+                return "cmux-tui link exited with status \(status)"
             case .timedOut:
                 return "cmux-tui link did not report a socket within the connect timeout."
             }
@@ -134,10 +135,8 @@ public actor CloudMachineLink {
     // hops back into the actor through a Task, so nothing else touches them.
     private var process: CloudLinkProcess?
     private var processExit: CloudLinkFirstValue<Int32>?
+    private var processExitObserverTask: Task<Void, Never>?
     private var stderrDrainTask: Task<Void, Never>?
-    /// The link client's dedicated group lets cancellation terminate helpers that
-    /// inherited the client's stdout or stderr pipes.
-    private var processGroupIdentifier: Int32?
     /// One local JSON resource connection shared by every control request for
     /// this machine. Terminal attachment streams are still allowed to subscribe
     /// separately while they migrate onto this same multiplexer.
@@ -240,16 +239,19 @@ public actor CloudMachineLink {
             throw LinkError.spawnFailed(error.localizedDescription)
         }
         let processExit = process.exit
-        Task.detached { [weak self, process] in
-            let status = await processExit.result ?? -1
-            await self?.linkProcessDidExit(process, status: status)
+        let processExitObserver = Task.detached { [weak self, process] in
+            guard let status = await processExit.result, !Task.isCancelled else { return }
+            guard let self else {
+                process.killDescendantsAndReap()
+                return
+            }
+            await self.linkProcessDidExit(process, status: status)
         }
+        processExitObserverTask = processExitObserver
         state = .connecting
         lastError = nil
-        let processGroupIdentifier = process.processGroupIdentifier
         self.process = process
         self.processExit = processExit
-        self.processGroupIdentifier = processGroupIdentifier
         let stderrDrain = drainStderr(process.standardError.fileHandleForReading)
         stderrDrainTask = stderrDrain
 
@@ -288,8 +290,7 @@ public actor CloudMachineLink {
                     // stderr, not the deadline it never reached.
                     await Self.terminateAndWait(
                         process,
-                        exit: processExit,
-                        processGroupIdentifier: processGroupIdentifier
+                        exit: processExit
                     )
                     await Self.awaitStderrDrain(stderrDrain)
                     let status = await processExit.result ?? -1
@@ -304,18 +305,19 @@ public actor CloudMachineLink {
                 throw LinkError.exited(status: status, output: stderrTail.joined(separator: "\n"))
             }
         } catch {
+            processExitObserver.cancel()
+            if self.process === process { processExitObserverTask = nil }
             state = .error
             lastError = Self.errorText(error)
             await Self.terminateAndWait(
                 process,
-                exit: processExit,
-                processGroupIdentifier: processGroupIdentifier
+                exit: processExit
             )
             await Self.awaitStderrDrain(stderrDrain)
+            await processExitObserver.value
             if self.process === process {
                 self.process = nil
                 self.processExit = nil
-                self.processGroupIdentifier = nil
                 self.stderrDrainTask = nil
             }
             await releaseHubLeaseOnce()
@@ -332,6 +334,9 @@ public actor CloudMachineLink {
     }
 
     public func disconnect() async {
+        let exitObserver = processExitObserverTask
+        exitObserver?.cancel()
+        processExitObserverTask = nil
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -348,12 +353,10 @@ public actor CloudMachineLink {
         changesContinuation.finish()
         await cancelEventsStream()
         if let process, let processExit {
-            let processGroupIdentifier = self.processGroupIdentifier
             let stderrDrain = self.stderrDrainTask
             await Self.terminateAndWait(
                 process,
-                exit: processExit,
-                processGroupIdentifier: processGroupIdentifier
+                exit: processExit
             )
             if let stderrDrain {
                 await Self.awaitStderrDrain(stderrDrain)
@@ -361,10 +364,10 @@ public actor CloudMachineLink {
             if self.process === process {
                 self.process = nil
                 self.processExit = nil
-                self.processGroupIdentifier = nil
                 self.stderrDrainTask = nil
             }
         }
+        await exitObserver?.value
         await resourceConnection?.close()
         resourceConnection = nil
         await releaseHubLeaseOnce()
@@ -684,13 +687,13 @@ public actor CloudMachineLink {
     }
 
     private func linkProcessDidExit(_ exitedProcess: CloudLinkProcess, status: Int32) async {
-        guard process === exitedProcess else { return }
-        let processGroupIdentifier = self.processGroupIdentifier
+        guard process === exitedProcess, !Task.isCancelled else { return }
         if let stderrDrainTask {
             await Self.awaitStderrDrain(stderrDrainTask)
         }
-        Self.forceKillProcessGroup(processGroupIdentifier)
-        exitedProcess.reap()
+        guard process === exitedProcess, !Task.isCancelled else { return }
+        exitedProcess.killDescendantsAndReap()
+        guard process === exitedProcess, !Task.isCancelled else { return }
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -699,9 +702,10 @@ public actor CloudMachineLink {
         cancelEventsStabilityReset()
         eventsRecoveryPhase = .healthy
         await cancelEventsStream()
+        guard process === exitedProcess, !Task.isCancelled else { return }
         process = nil
         processExit = nil
-        processGroupIdentifier = nil
+        processExitObserverTask = nil
         stderrDrainTask = nil
         connected = nil
         let stderrGeneration = self.stderrGeneration
@@ -739,37 +743,11 @@ public actor CloudMachineLink {
         ).errorDescription
     }
 
-    /// Foundation aborts if a running `Process` is released. Keep a detached exit
-    /// waiter alive because the caller can already be cancelled when cleanup starts.
-    /// Starts a dedicated process group so a cancelled link cannot leave helper
-    /// processes behind holding the link pipes open. `Process.run()` has no
-    /// process-group option, so the parent claims the group immediately after
-    /// launch; a failed claim falls back to leader-only cleanup.
-    private nonisolated static func establishProcessGroup(for process: Process) -> Int32? {
-        let identifier = process.processIdentifier
-        guard identifier > 1, identifier != getpid(), setpgid(identifier, identifier) == 0,
-              getpgid(identifier) == identifier else { return nil }
-        return identifier
-    }
-
-    /// Sends a signal only to a group established by `establishProcessGroup`.
-    /// Sends a signal only to a group established by `CloudLinkProcess`.
-    /// The host process group is excluded so a failed or reused PID cannot take
-    /// down the app that owns the link.
-    @discardableResult
-    private nonisolated static func signalProcessGroup(_ identifier: Int32?, signal: Int32) -> Bool {
-        guard let identifier,
-              identifier > 1,
-              identifier != getpid(),
-              identifier != getpgrp(),
-              Darwin.kill(-identifier, 0) == 0 else { return false }
-        return Darwin.kill(-identifier, signal) == 0
-    }
-
-    private nonisolated static func forceKillProcessGroup(_ identifier: Int32?) {
-        signalProcessGroup(identifier, signal: SIGKILL)
-    }
-
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     private nonisolated static func waitForExit(
         _ exit: CloudLinkFirstValue<Int32>,
         upTo limit: Duration
@@ -793,29 +771,26 @@ public actor CloudMachineLink {
         }
     }
 
-    /// Foundation aborts if a running `Process` is released. The exit observer
-    /// remains independent from the actor that owns the link. A stubborn leader
-    /// is escalated to SIGKILL, and the group is killed once more before the
-    /// observed leader is reaped to catch descendants that inherited the pipes.
+    /// Cleanup keeps an uncancelled exit waiter alive even when connect was
+    /// cancelled. The process wrapper owns all signals and the final reap.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     private nonisolated static func terminateAndWait(
         _ process: CloudLinkProcess,
-        exit: CloudLinkFirstValue<Int32>,
-        processGroupIdentifier: Int32?
+        exit: CloudLinkFirstValue<Int32>
     ) async {
-        let exitTask = Task { await exit.result }
+        let exitTask = Task.detached { await exit.result }
         if process.isRunning {
-            if !signalProcessGroup(processGroupIdentifier, signal: SIGTERM) {
-                _ = Darwin.kill(process.processIdentifier, SIGTERM)
-            }
+            process.signal(SIGTERM)
             if !(await waitForExit(exit, upTo: .seconds(1))) {
-                if !signalProcessGroup(processGroupIdentifier, signal: SIGKILL) {
-                    _ = Darwin.kill(process.processIdentifier, SIGKILL)
-                }
+                process.signal(SIGKILL)
             }
         }
         _ = await exitTask.value
-        forceKillProcessGroup(processGroupIdentifier)
-        process.reap()
+        process.killDescendantsAndReap()
     }
 
     private func releaseHubLeaseOnce() async {
@@ -898,9 +873,9 @@ private enum CloudLinkCommandOutcome: Sendable, Equatable {
 /// the group before the child can run and keeps the exit waiter independent from
 /// the actor that owns the link.
 ///
-/// The wrapper is unchecked Sendable because its immutable PID, pipes, and one-shot
-/// ``CloudLinkFirstValue`` are only passed between the actor and the dedicated
-/// reaper thread; no mutable pipe state is shared across callers.
+/// The wrapper is unchecked Sendable because its pipes and PID are immutable,
+/// ``CloudLinkFirstValue`` synchronizes exit delivery, and the lifecycle lock
+/// serializes signaling, exit observation, and reaping.
 private final class CloudLinkProcess: @unchecked Sendable {
     let processIdentifier: Int32
     let processGroupIdentifier: Int32
@@ -1020,23 +995,45 @@ private final class CloudLinkProcess: @unchecked Sendable {
     }
 
     var isRunning: Bool {
-        Darwin.kill(processIdentifier, 0) == 0
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return !didReap && !didExit
+    }
+
+    /// The unreaped child reserves its PID. Serialize every signal with reaping
+    /// so repeated cleanup cannot target a group that has reused that identifier.
+    func signal(_ signal: Int32) {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard !didReap else { return }
+        signalGroup(signal)
+        // The client can change its group. Its owned PID remains a safe fallback.
+        if !didExit { _ = Darwin.kill(processIdentifier, signal) }
+    }
+
+    /// Only called while the lifecycle lock reserves the leader's PID.
+    private func signalGroup(_ signal: Int32) {
+        guard processGroupIdentifier > 1,
+              processGroupIdentifier != getpid(),
+              processGroupIdentifier != getpgrp() else { return }
+        _ = Darwin.kill(-processGroupIdentifier, signal)
     }
 
     private func startReaper() {
-        let processIdentifier: Int32 = self.processIdentifier
-        let exit = self.exit
-        let thread = Thread {
+        let thread = Thread { [self] in
             var info = siginfo_t()
             var result: Int32
             repeat {
                 result = waitid(P_PID, id_t(processIdentifier), &info, WEXITED | WNOWAIT)
             } while result == -1 && errno == EINTR
-            guard result == 0 else {
-                exit.resolve(-1)
-                return
-            }
-            let status = info.si_code == CLD_EXITED ? info.si_status : 128 + info.si_status
+            lifecycleLock.lock()
+            didExit = true
+            // If waitid lost child ownership, never signal this PID again.
+            if result != 0 { didReap = true }
+            lifecycleLock.unlock()
+            let status = result == 0
+                ? (info.si_code == CLD_EXITED ? info.si_status : 128 + info.si_status)
+                : -1
             exit.resolve(status)
         }
         thread.name = "cmux-cloud-link-reaper"
@@ -1044,24 +1041,25 @@ private final class CloudLinkProcess: @unchecked Sendable {
         thread.start()
     }
 
-    /// Reaps the observed child after its process group has been cleaned up.
-    /// The exit observer uses WNOWAIT so the leader's PID cannot be recycled
-    /// while cleanup still needs to signal its group.
-    func reap() {
-        reapLock.lock()
-        guard !didReap else {
-            reapLock.unlock()
-            return
-        }
-        didReap = true
-        reapLock.unlock()
+    /// WNOWAIT reserves the exited leader until the final descendant signal.
+    /// Signaling and waitpid share one lock, making all later cleanup a no-op.
+    func killDescendantsAndReap() {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard didExit, !didReap else { return }
+        signalGroup(SIGKILL)
         var status: Int32 = 0
+        var result: Int32
         repeat {
-            _ = waitpid(processIdentifier, &status, 0)
-        } while errno == EINTR
+            result = waitpid(processIdentifier, &status, 0)
+        } while result == -1 && errno == EINTR
+        if result == processIdentifier || (result == -1 && errno == ECHILD) {
+            didReap = true
+        }
     }
 
-    private let reapLock = NSLock()
+    private let lifecycleLock = NSLock()
+    private var didExit = false
     private var didReap = false
 
     private static func withCStringArray<T>(

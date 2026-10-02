@@ -5,6 +5,11 @@ extension CloudMachineLink {
     /// reads its last lines: they can still be in flight when the process
     /// exits. A child the client started can hold the pipe open, so the wait
     /// is bounded.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated static func awaitStderrDrain(_ drain: Task<Void, Never>, upTo limit: Duration = .seconds(1)) async {
         let drained = CloudLinkFirstValue<Bool>()
         Task.detached {
