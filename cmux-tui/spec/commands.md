@@ -410,16 +410,22 @@ output (`A` prompt start, `B` input start, `C` command start, `D[;exit]`
 command end) and appends one `shell.command.finished` journal record per
 finished command, from the reserved producer `cmux_shell` (class observation,
 sensitivity sensitive, subject the terminal and its ancestors):
-`{command, cwd, exit_code, started_at_ms, duration_ms}`. `command` is the
-screen text of the `B` row from the `B` column, read at `C`, trimmed, without
-control characters and cut at 1 KiB (null when the shell sends no `B`);
-multi-row command lines keep their first row. `cwd` is the local path of the
-OSC 7 directory at `C` (null when it names another host); times are decimal
-strings. A `D` without a `C` (an empty Enter) records
-nothing; an `A` while a command runs ends it with a null `exit_code`. While off,
-nothing is recorded and no screen text is read; only the cursor position at
-the last `B` is kept, so the command typed at the prompt shown when recording
-turns on keeps its line.
+`{command, cwd, exit_code, started_at_ms, duration_ms}`. `command` is the text
+of the newest block of cells Ghostty marks as input (after `B`, until `C`),
+read at `C`: the semantics are assigned byte by byte while the output is
+parsed, so typeahead, prompt redraws and reflow do not change it. It is
+trimmed, without control characters and cut at 1 KiB; null on the alternate
+screen or when no input cell is found. `cwd` is the local path of the OSC 7
+directory at `C` (null when it names another host); times are decimal
+strings. A `D` without a `C` (an empty Enter) records nothing; an `A` while a
+command runs ends it with a null `exit_code`. A terminal records at most 10
+commands a second; one daemon worker appends them in order from a queue of
+256 (more drop with a diagnostic). While off, marks are dropped and the
+screen is never read. Only the daemon writes `cmux_shell` records:
+`session.journal.append` refuses that producer and it cannot be installed
+or replaced as a plugin. The switch is one daemon-wide value that any
+trusted local client sets (not per client), and turning it off keeps the
+records already written.
 
 Params: `{enabled: bool}`. Result: `{enabled: bool}`.
 

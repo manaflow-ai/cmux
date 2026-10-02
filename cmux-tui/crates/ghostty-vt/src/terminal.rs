@@ -2955,8 +2955,61 @@ impl Terminal {
     /// chunked (typeahead, redraws) and survives reflow. `None` on the
     /// alternate screen or when no input cell is found.
     pub fn latest_input_text(&mut self, max_rows: u32) -> Option<String> {
-        let _ = max_rows;
-        None
+        if self.active_screen() == Screen::Alternate {
+            return None;
+        }
+        let scrollbar = self.scrollbar()?;
+        let (_, cursor_y) = self.cursor_position()?;
+        let active_top = scrollbar.total.checked_sub(u64::from(self.rows()))?;
+        let cursor_row = active_top + u64::from(cursor_y);
+        let lowest = cursor_row.saturating_sub(u64::from(max_rows));
+        let cols = self.cols();
+        let mut first: Option<(u16, u64)> = None;
+        let mut last: Option<(u16, u64)> = None;
+        let mut row = cursor_row;
+        loop {
+            match (self.input_span(row, cols), last) {
+                (Some((start, end)), None) => {
+                    first = Some((start, row));
+                    last = Some((end, row));
+                }
+                (Some((start, _)), Some(_)) => first = Some((start, row)),
+                (None, Some(_)) => break,
+                (None, None) => {}
+            }
+            if row <= lowest {
+                break;
+            }
+            row -= 1;
+        }
+        self.selection_text_absolute(first?, last?)
+    }
+
+    /// First and last column of the cells OSC 133 marks as input in screen
+    /// row `row`.
+    fn input_span(&self, row: u64, cols: u16) -> Option<(u16, u16)> {
+        let mut first = None;
+        let mut last = None;
+        for x in 0..cols {
+            let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, x, row)?;
+            let mut cell = sys::GhosttyCell::default();
+            if check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut cell) }).is_err() {
+                continue;
+            }
+            let mut semantic = sys::GHOSTTY_CELL_SEMANTIC_OUTPUT;
+            let read = check(unsafe {
+                sys::ghostty_cell_get(
+                    cell,
+                    sys::GHOSTTY_CELL_DATA_SEMANTIC_CONTENT,
+                    (&mut semantic as *mut sys::GhosttyCellSemanticContent).cast(),
+                )
+            });
+            if read.is_ok() && semantic == sys::GHOSTTY_CELL_SEMANTIC_INPUT {
+                first.get_or_insert(x);
+                last = Some(x);
+            }
+        }
+        Some((first?, last?))
     }
 
     /// Monotonic revision of recognized OSC 133 prompt-phase markers.
