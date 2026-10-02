@@ -42,6 +42,11 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_WATCH,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
+    method::MUX_HANDOFF_PREPARE,
+    method::MUX_HANDOFF_GET,
+    method::MUX_HANDOFF_DRAFT,
+    method::MUX_HANDOFF_START,
+    method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
     "_acpmux/models",
     "_acpmux/peer_add",
@@ -761,6 +766,11 @@ pub(super) async fn handle_request(
             hub.shutdown.notify_one();
             Ok(json!({}))
         }
+        method::MUX_HANDOFF_PREPARE
+        | method::MUX_HANDOFF_GET
+        | method::MUX_HANDOFF_DRAFT
+        | method::MUX_HANDOFF_START
+        | method::MUX_HANDOFF_DISCARD => Err(RpcError::method_not_found(m)),
         // Anything else that names a session goes to the agent untouched.
         other => {
             if let Ok(key) = session_key(&params) {
