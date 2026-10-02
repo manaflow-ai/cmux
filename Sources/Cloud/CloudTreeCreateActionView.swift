@@ -44,7 +44,7 @@ struct CloudTreeCreateActionView: View {
                 .padding(.vertical, CloudTreeHoverStyle.verticalInset)
         )
         .animation(reduceMotion || !animatesHover ? nil : .easeOut(duration: isHovered ? CloudTreeHoverStyle.fadeIn : CloudTreeHoverStyle.fadeOut), value: isHovered)
-        .help(action.title)
+        .help(action.unavailableHelp ?? action.title)
         .accessibilityLabel(action.title)
         .accessibilityIdentifier(action.accessibilityIdentifier)
     }

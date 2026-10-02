@@ -38,6 +38,15 @@ struct RightSidebarModeBarTabWidthsTests {
         #expect(widths.prefix(4).allSatisfy { $0 == 30 })
     }
 
+    @Test("A tab with a wider floor narrows the others instead of overflowing the bar")
+    func widerFloorStaysWithinTheBar() {
+        let widths = RightSidebarModeBarTabWidths(natural: natural, floors: [30, 50, 30, 30, 30], selected: 4, available: 214).widths
+        #expect(widths[4] == 64)
+        #expect(widths[1] == 50)
+        #expect(abs(widths.reduce(0, +) - 214) < 0.001)
+        #expect(widths.allSatisfy { $0 >= 30 })
+    }
+
     @Test("Without a selected tab every tab shares the bar")
     func noSelection() {
         let widths = RightSidebarModeBarTabWidths(natural: natural, floors: floors, selected: nil, available: 200).widths

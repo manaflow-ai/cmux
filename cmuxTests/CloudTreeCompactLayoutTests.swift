@@ -191,14 +191,14 @@ struct CloudTreeCompactLayoutTests {
         let folder = try #require(nodes.first { $0.id == fixture.folderID("ws_1") })
         // Cloud workspaces start collapsed; open this one for the disclosure checks.
         outline.expandItem(folder)
-        // Displays is the group header that shares the workspaces' level.
-        let section = try #require(nodes.first { $0.structureTag == "displaysPool" })
+        // A closed folder at the same level, beside the open one.
+        let section = try #require(nodes.first { $0.id == fixture.folderID("ws_2") })
         fixture.container.layoutSubtreeIfNeeded()
         let scale = Double(percent) / 100
         let folderGap = try leadingGap(folder, in: outline)
         let sectionGap = try leadingGap(section, in: outline)
         #expect(abs(folderGap - sectionGap) <= 4 * scale,
-                "Folder and header use the same close spacing, allowing glyph side bearings: \(folderGap), \(sectionGap)")
+                "Open and closed folders use the same close spacing, allowing glyph side bearings: \(folderGap), \(sectionGap)")
         #expect(folderGap <= 6 * scale, "Read rows do not reserve an empty unread column")
         for row in 0..<outline.numberOfRows {
             // The machine's tab row and its closing gap have their own heights.

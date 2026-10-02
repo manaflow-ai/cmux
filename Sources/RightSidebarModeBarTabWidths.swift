@@ -40,7 +40,6 @@ struct RightSidebarModeBarTabWidths {
             }
             open.removeAll { satisfied.contains($0) }
         }
-
         widths = result
     }
 }

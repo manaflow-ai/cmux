@@ -2,10 +2,10 @@ import CmuxCloud
 import CmuxSurfaceCatalogModel
 
 /// Regroups a Cloud machine's rows for display, after the catalog tree is
-/// built: its workspaces sit directly under the machine (followed by New
-/// Workspace), then Displays, then one tab row for Ports, Terminals and
-/// Resources, then a spacer before the next machine. The Terminals tab lists
-/// every terminal on the machine, each with the workspace it is in.
+/// built: New Workspace and its workspaces sit directly under the machine,
+/// then one tab row for Ports, Terminals, Displays and Resources,
+/// then a spacer before the next machine. The Terminals tab lists every
+/// terminal on the machine, each with the workspace it is in.
 ///
 /// Display only. The catalog tree keeps its groups, so saved order, pins and
 /// the catalog's own reorders are unchanged. The tab row takes the id of the
@@ -67,12 +67,11 @@ struct CloudTreeMachineDetailLayout {
             }
         }
         var rows: [CloudTreeNode] = []
-        var displays: CloudTreeNode?
         var pools: [CloudTreeMachineDetailTab: CloudTreeNode] = [:]
         func collect(_ child: CloudTreeNode) {
             switch child.kind {
             case .workspacesGroup: rows.append(contentsOf: child.children)
-            case .displaysPool: displays = child
+            case .displaysPool: pools[.displays] = child
             case .portsGroup: pools[.ports] = child
             case .terminalsPool: pools[.terminals] = child
             case .resourcesPool: pools[.resources] = child
@@ -82,7 +81,6 @@ struct CloudTreeMachineDetailLayout {
             }
         }
         node.children.forEach(collect)
-        if let displays { rows.append(displays) }
         let tabs = CloudTreeMachineDetailTab.allCases.filter { pools[$0] != nil }
         if !tabs.isEmpty {
             let row = tabRow(machine: machine, tabs: tabs, pools: pools)
@@ -117,11 +115,17 @@ struct CloudTreeMachineDetailLayout {
         if let terminals = pools[.terminals], case .terminalsPool(_, let count) = terminals.kind {
             counts[.terminals] = count
         }
+        if let displays = pools[.displays], case .displaysPool(_, let count, _) = displays.kind {
+            counts[.displays] = count
+        }
         let payload = CloudTreeMachineDetailTabs(machine: machine, tabs: tabs, counts: counts, selected: selected)
         let open = selected.flatMap { pools[$0] }
         var children = open?.children ?? []
         if selected == .terminals, let terminals = open {
             children = terminalsTabRows(terminals, machine: machine)
+        }
+        if selected == .displays, let displays = open {
+            children = displaysTabRows(displays, machine: machine)
         }
         let row = CloudTreeNode(id: open?.id ?? "\(Self.baseID(machine))/details", kind: .machineDetailTabs(payload), children: children)
         row.detailPools = tabs.compactMap { pools[$0] }
@@ -138,6 +142,13 @@ struct CloudTreeMachineDetailLayout {
         }
         rows.append(contentsOf: terminals.children.map(Self.labelledWithWorkspace))
         return rows
+    }
+
+    /// New Display, then the machine's displays, or the pool's own empty row.
+    private func displaysTabRows(_ displays: CloudTreeNode, machine: SurfaceMachineID) -> [CloudTreeNode] {
+        guard machine.cloudMachineID != nil, case .displaysPool(_, _, let canCreate) = displays.kind else { return displays.children }
+        return [CloudTreeNode(id: "\(Self.baseID(machine))/displays/new-display", kind: .createAction(.newDisplay(machine, canCreate: canCreate)))]
+            + displays.children
     }
 
     /// The same terminal row with its workspace names as its detail.

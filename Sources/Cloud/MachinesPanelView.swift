@@ -246,6 +246,12 @@ struct MachinesPanelView: View {
             teamScopeLoading
         } else {
             content
+            if includesCloud {
+                CloudRefreshMachinesButton(
+                    isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+                    action: refreshMachines
+                )
+            }
         }
     }
 
@@ -488,7 +494,6 @@ struct MachinesPanelView: View {
                 debugSource: "cloudTree.cloudMachinesSection"
             )
         }
-        nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
@@ -510,7 +515,6 @@ struct MachinesPanelView: View {
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: canCreateCloudMachine,
-            cloudFleetListIsCurrent: viewModel.listProblem == nil && !viewModel.isNetworkOffline,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest ?? selectionReveal,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)

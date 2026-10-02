@@ -2,8 +2,8 @@ import CmuxCloud
 import CmuxFoundation
 import SwiftUI
 
-/// One row of tabs under a Cloud machine's workspaces: Ports, Terminals and
-/// Resources, each with its count. One tab is open at a time and its rows
+/// One row of tabs under a Cloud machine's workspaces: Ports, Terminals,
+/// Displays and Resources, each with its count. One tab is open at a time and its rows
 /// show below; clicking the open tab closes it.
 ///
 /// Compact tabs on the sidebar itself, with no track: each is as wide as its
@@ -20,15 +20,14 @@ struct CloudTreeMachineDetailTabsView: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(tabs.tabs, id: \.self) { tab in
-                CloudTreeMachineDetailTabButton(
-                    tab: tab,
-                    count: tabs.count(for: tab),
-                    isSelected: tabs.selected == tab,
-                    style: style
-                ) { select(tab) }
-            }
+        // The roomiest strip that fits wins, so a narrow sidebar tightens the
+        // tabs, then drops their counts, before any title truncates. Nothing
+        // is ever clipped: the last strip shrinks its titles instead.
+        ViewThatFits(in: .horizontal) {
+            strip(.regular)
+            strip(.tight)
+            strip(.titlesOnly)
+            strip(.truncating)
         }
         .padding(.leading, leading)
         .padding(.trailing, CloudTreeHoverStyle.horizontalInset)
@@ -39,7 +38,33 @@ struct CloudTreeMachineDetailTabsView: View {
         .accessibilityIdentifier("CloudMachineDetailTabs")
     }
 
-    /// Space between the Displays row and the tabs.
+    @ViewBuilder
+    private func strip(_ density: CloudTreeMachineDetailTabDensity) -> some View {
+        let row = HStack(spacing: density.spacing) {
+            ForEach(tabs.tabs, id: \.self) { tab in
+                CloudTreeMachineDetailTabButton(
+                    tab: tab,
+                    count: density.showsCounts ? tabs.count(for: tab) : nil,
+                    isSelected: tabs.selected == tab,
+                    style: style,
+                    horizontalPadding: density.horizontalPadding
+                ) { select(tab) }
+            }
+        }
+        // A tighter tab starts later by what it saved, so the first title
+        // stays on the column the open tab's rows line up with.
+        .padding(.leading, GlobalFontMagnification.scaledSize(
+            CloudTreeMachineDetailTabButtonMetrics.horizontalPadding - density.horizontalPadding,
+            percent: magnification
+        ))
+        if density.truncates {
+            row
+        } else {
+            row.fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    /// Space between the rows above and the tabs.
     static let topGap: CGFloat = 6
 
     /// Where an open tab's rows start their highlight: the first tab's edge.
@@ -66,17 +91,18 @@ private struct CloudTreeMachineDetailTabButton: View {
     let count: Int?
     let isSelected: Bool
     let style: CloudTreeStyle
+    var horizontalPadding = CloudTreeMachineDetailTabButtonMetrics.horizontalPadding
     let action: () -> Void
     @State private var isHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
-    private static let horizontalPadding = CloudTreeMachineDetailTabButtonMetrics.horizontalPadding
     private static let height = CloudTreeMachineDetailTabButtonMetrics.height
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            // The smaller count sits on the title's baseline, not its middle.
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(tab.title)
                     .cmuxFont(size: style.detailSize + 0.5, weight: isSelected ? .medium : .regular, design: style.fontDesign)
                     .foregroundStyle(isSelected || isHovered ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
@@ -90,7 +116,7 @@ private struct CloudTreeMachineDetailTabButton: View {
                         .fixedSize()
                 }
             }
-            .padding(.horizontal, Self.horizontalPadding)
+            .padding(.horizontal, GlobalFontMagnification.scaledSize(horizontalPadding, percent: magnification))
             .frame(height: GlobalFontMagnification.scaledSize(Self.height, percent: magnification))
             .background(segment)
             .contentShape(Rectangle())
@@ -112,6 +138,21 @@ private struct CloudTreeMachineDetailTabButton: View {
                 isSelected ? CloudTreeHoverStyle.selectedOpacity : (isHovered ? CloudTreeHoverStyle.hoverOpacity : 0)
             ))
     }
+}
+
+/// How much room each tab takes, from roomiest to tightest.
+enum CloudTreeMachineDetailTabDensity: Equatable {
+    case regular, tight, titlesOnly, truncating
+
+    var horizontalPadding: CGFloat {
+        self == .regular ? CloudTreeMachineDetailTabButtonMetrics.horizontalPadding : 4
+    }
+
+    var spacing: CGFloat { self == .regular ? 2 : 1 }
+
+    var showsCounts: Bool { self == .regular || self == .tight }
+
+    var truncates: Bool { self == .truncating }
 }
 
 /// Segment size, shared with the row height (`CloudTreeRowHeight`).

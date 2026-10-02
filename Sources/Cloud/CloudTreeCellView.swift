@@ -229,6 +229,16 @@ final class CloudTreeCellView: NSTableCellView {
         updatePresenceSubscription()
     }
 
+    /// New Workspace puts its "+" on the chevron column of the folders under
+    /// it; other create rows start on the icon grid like their siblings.
+    private static func createRowContentInset(_ action: CloudTreeCreateAction, level: Int, style: CloudTreeStyle) -> CGFloat {
+        guard case .newWorkspace = action else { return CloudTreeLayoutMetrics().contentLeading(level: level, style: style) }
+        let chevronCenter = CloudTreeNSOutlineView.leadingMargin
+            + CGFloat(max(0, level)) * style.indentPerLevel
+            + style.rowGrid.disclosureSlot / 2
+        return GlobalFontMagnification.scaledSize(chevronCenter - style.iconSlot / 2)
+    }
+
     private func configureDisplayHost(node: CloudTreeNode, style: CloudTreeStyle) {
         // Reused cells can have been hidden from VoiceOver for a spacer row.
         // Restore AppKit's original setting before any early-return content
@@ -245,7 +255,7 @@ final class CloudTreeCellView: NSTableCellView {
                 CloudTreeCreateActionView(
                     action: action, nodeActions: nodeActions, style: style, isHovered: hovered,
                     contentInset: configuredPanelLevel.map { CloudTreeMachineDetailTabsView.panelContentLeading(tabRowLevel: $0, style: style) }
-                        ?? CloudTreeLayoutMetrics().contentLeading(level: configuredLevel, style: style),
+                        ?? Self.createRowContentInset(action, level: configuredLevel, style: style),
                     hoverLeading: configuredPanelLevel.map { CloudTreeMachineDetailTabsView.panelHighlightLeading(tabRowLevel: $0, style: style) }
                         ?? CloudTreeHoverStyle.leading(level: configuredLevel, style: style),
                     animatesHover: hoverAnimates
