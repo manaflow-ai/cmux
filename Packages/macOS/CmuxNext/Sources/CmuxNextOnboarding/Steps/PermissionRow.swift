@@ -32,7 +32,11 @@ final class PermissionRow: NSView {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
+        // `height` tall, growing only for a detail line a translation wraps.
+        let preferred = heightAnchor.constraint(equalToConstant: Self.height)
+        preferred.priority = .defaultLow
         NSLayoutConstraint.activate([
+            preferred,
             heightAnchor.constraint(greaterThanOrEqualToConstant: Self.height),
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4), icon.centerYAnchor.constraint(equalTo: centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 24),
