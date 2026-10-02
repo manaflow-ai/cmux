@@ -289,6 +289,8 @@ public final class TerminalSession {
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
         if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
         surfaceHasContent = false
+        // The fresh surface has no search; an open find bar searches it again.
+        find.surfaceReplaced()
     }
 
     /// A new surface starts from the app config, so only a theme needs

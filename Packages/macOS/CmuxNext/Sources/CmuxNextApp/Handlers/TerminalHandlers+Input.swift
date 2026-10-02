@@ -22,7 +22,8 @@ extension TerminalHandlers {
                 let find = entry.session.find
                 // The text argument, else the last query, else the selection.
                 let seed = invocation["text"]?.stringValue ?? (find.query.isEmpty ? selection(of: entry) : nil)
-                find.open(seed: seed)
+                // A socket or CLI run shows the bar without taking the keyboard.
+                find.open(seed: seed, takeFocus: invocation.allowsViewChange)
             case .placeholder:
                 return
             }
@@ -32,12 +33,13 @@ extension TerminalHandlers {
         registry.bind("hideFind", invoke: { invocation in
             guard let (_, content) = ctx.visibleContent(invocation) else { return }
             guard case .terminal(let entry) = content else { return ctx.refuse(RefusalStrings.browserFindClosesWithEscape) }
-            entry.session.find.close()
+            // A socket or CLI run leaves focus and the selection alone.
+            entry.session.find.close(restoringFocus: invocation.allowsViewChange)
         })
         registry.bind("useSelectionForFind", invoke: { invocation in
             guard let entry = ctx.terminal(invocation) else { return }
             guard let text = selection(of: entry) ?? ctx.refuse(RefusalStrings.nothingSelected) else { return }
-            entry.session.find.open(seed: text)
+            entry.session.find.open(seed: text, takeFocus: invocation.allowsViewChange)
         })
     }
 
@@ -50,7 +52,10 @@ extension TerminalHandlers {
             entry.chrome.perform(forward ? .findNext : .findPrevious)
         case .terminal(let entry):
             // Opens the bar with the last query when it is closed.
-            guard entry.session.find.navigate(forward ? .next : .previous) else { return ctx.refuse(RefusalStrings.noActiveFind) }
+            let direction: TerminalFindDirection = forward ? .next : .previous
+            guard entry.session.find.navigate(direction, takeFocus: invocation.allowsViewChange) else {
+                return ctx.refuse(RefusalStrings.noActiveFind)
+            }
         case .placeholder:
             return
         }

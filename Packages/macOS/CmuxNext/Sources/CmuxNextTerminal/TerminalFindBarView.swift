@@ -217,7 +217,7 @@ final class TerminalFindBarView: NSView {
     }
 
     private static var closeLabel: String {
-        String(localized: "terminal.find.done", defaultValue: "Done", bundle: .module)
+        String(localized: "terminal.find.close", defaultValue: "Close", bundle: .module)
     }
 }
 

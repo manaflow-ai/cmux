@@ -64,7 +64,7 @@ public final class TerminalFindController {
             // Closing ended the search; reopening runs the query again.
             if !query.isEmpty { search(query) }
         }
-        focusRequest += 1
+        if takeFocus { focusRequest += 1 }
     }
 
     /// Searches for `text` as the user types it. Empty text stops the search.
@@ -91,7 +91,7 @@ public final class TerminalFindController {
     public func navigate(_ direction: TerminalFindDirection, takeFocus: Bool = true) -> Bool {
         guard !query.isEmpty else { return false }
         guard isPresented else {
-            open()
+            open(takeFocus: takeFocus)
             return true
         }
         // The user is stepping now; a pending reveal would skip a match.
@@ -112,14 +112,16 @@ public final class TerminalFindController {
         isPresented = false
         resetResults()
         target?.endSearch()
-        target?.clearSelection()
-        target?.focusTerminal()
+        guard restoringFocus, let target else { return }
+        if !target.isSelectionPinned { target.clearSelection() }
+        target.focusTerminal()
     }
 
     /// The terminal swapped in a fresh surface (a reconnect replay), which
     /// has no search: while the bar is open, search the new one again.
     public func surfaceReplaced() {
-        // Placeholder for the failing tests.
+        guard isPresented, !query.isEmpty else { return }
+        search(query)
     }
 
     /// Ghostty started a search itself (its own `start_search` or
