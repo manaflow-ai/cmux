@@ -2,6 +2,7 @@
 
 import { Button } from "@base-ui-components/react/button";
 import { Field } from "@base-ui-components/react/field";
+import { Tabs } from "@base-ui-components/react/tabs";
 import { useHexclaveApp, useUser, type CurrentUser } from "@hexclave/next";
 import { KnownErrors } from "@hexclave/shared";
 import { getPasswordError } from "@hexclave/shared/dist/helpers/password";
@@ -41,12 +42,12 @@ export type CmuxSignInMessages = {
   signUpSubtitle: string;
   continueWithProvider: string;
   signInWithPasskey: string;
-  or: string;
+  orContinueWith: string;
   emailLabel: string;
   emailPlaceholder: string;
   continueWithEmail: string;
-  usePasswordInstead: string;
-  useEmailCodeInstead: string;
+  emailCodeTab: string;
+  emailPasswordTab: string;
   passwordLabel: string;
   repeatPasswordLabel: string;
   signInButton: string;
@@ -596,7 +597,7 @@ function SignInForm({ mode, messages, returnTo, prefillEmail = null, lastUsedMet
         ))}
         {passkeyAvailable && <PasskeyButton messages={messages} />}
         {inIframe && hasOAuth && <p className="text-xs text-muted">{messages.embeddedDisabled}</p>}
-        {hasEmail && (hasOAuth || passkeyAvailable) && <OrDivider text={messages.or} />}
+        {hasEmail && (hasOAuth || passkeyAvailable) && <OrDivider text={messages.orContinueWith} />}
         {hasEmail && (
           <EmailMethods
             mode={mode}
@@ -647,7 +648,7 @@ function FormHeader({ mode, messages, notice, onBack }: {
 
 function OrDivider({ text }: { text: string }) {
   return (
-    <div className="my-2 flex items-center gap-2.5 font-mono text-[11px] text-muted">
+    <div className="my-2 flex items-center gap-2.5 text-xs text-muted">
       <span aria-hidden="true" className="h-px flex-1 bg-border" />
       {text}
       <span aria-hidden="true" className="h-px flex-1 bg-border" />
@@ -908,28 +909,32 @@ function EmailMethods({ mode, messages, returnTo, magicLinkEnabled, credentialEn
     (startWithPassword && credentialEnabled) || !magicLinkEnabled ? "password" : "code",
   );
   const [email, setEmail] = useState(prefillEmail ?? "");
-  const canSwitch = magicLinkEnabled && credentialEnabled;
 
+  const form = (shown: "code" | "password") =>
+    shown === "code" ? (
+      <EmailCode messages={messages} email={email} onEmailChange={setEmail} />
+    ) : mode === "sign-in" ? (
+      <PasswordSignIn messages={messages} returnTo={returnTo} email={email} onEmailChange={setEmail} focusPassword={prefillEmail !== null} />
+    ) : (
+      <PasswordSignUp messages={messages} email={email} onEmailChange={setEmail} />
+    );
+  if (!(magicLinkEnabled && credentialEnabled)) return form(method);
+
+  // Both enabled: the hosted screen's segmented control, the code first.
   return (
-    <div className="grid gap-2">
-      {method === "code" ? (
-        <EmailCode messages={messages} email={email} onEmailChange={setEmail} />
-      ) : mode === "sign-in" ? (
-        <PasswordSignIn messages={messages} returnTo={returnTo} email={email} onEmailChange={setEmail} focusPassword={prefillEmail !== null} />
-      ) : (
-        <PasswordSignUp messages={messages} email={email} onEmailChange={setEmail} />
-      )}
-      {canSwitch && (
-        <Button
-          className={`justify-self-start text-sm ${linkClass}`}
-          onClick={() => setMethod(method === "code" ? "password" : "code")}
-        >
-          {method === "code" ? messages.usePasswordInstead : messages.useEmailCodeInstead}
-        </Button>
-      )}
-    </div>
+    <Tabs.Root value={method} onValueChange={(value) => setMethod(value === "password" ? "password" : "code")} className="grid gap-2">
+      <Tabs.List className="grid grid-cols-2 border border-border p-0.5">
+        <Tabs.Tab value="code" className={segmentClass}>{messages.emailCodeTab}</Tabs.Tab>
+        <Tabs.Tab value="password" className={segmentClass}>{messages.emailPasswordTab}</Tabs.Tab>
+      </Tabs.List>
+      <Tabs.Panel value="code" className="grid gap-2">{method === "code" && form("code")}</Tabs.Panel>
+      <Tabs.Panel value="password" className="grid gap-2">{method === "password" && form("password")}</Tabs.Panel>
+    </Tabs.Root>
   );
 }
+
+const segmentClass =
+  "h-[30px] cursor-pointer px-2 text-sm text-muted transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground data-[active]:bg-foreground/[0.08] data-[active]:text-foreground";
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
