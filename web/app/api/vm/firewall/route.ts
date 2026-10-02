@@ -48,7 +48,9 @@ function endpointTraffic(value: Record<string, unknown>, field: string): Pick<En
 function validCidr(value: string): boolean {
   const slash = value.lastIndexOf("/");
   if (slash <= 0 || slash === value.length - 1) return false;
-  const prefix = Number(value.slice(slash + 1));
+  const prefixText = value.slice(slash + 1);
+  if (!/^\d+$/.test(prefixText)) return false;
+  const prefix = Number(prefixText);
   const address = value.slice(0, slash);
   const ipv4 = address.split(".");
   if (ipv4.length === 4 && ipv4.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return Number.isInteger(prefix) && prefix >= 0 && prefix <= 32;
