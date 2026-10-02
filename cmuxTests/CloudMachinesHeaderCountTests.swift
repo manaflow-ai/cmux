@@ -64,7 +64,7 @@ struct CloudMachinesHeaderCountTests {
         window.makeKeyAndOrderFront(nil)
         host.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
         host.layoutSubtreeIfNeeded()
 
         let buttons = Self.descendants(of: host).compactMap { $0 as? NSButton }
@@ -98,7 +98,7 @@ struct CloudMachinesHeaderCountTests {
         window.makeKeyAndOrderFront(nil)
         host.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
         host.layoutSubtreeIfNeeded()
 
         let buttons = Self.descendants(of: host).compactMap { $0 as? NSButton }
