@@ -17,7 +17,7 @@ import PackageDescription
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
 //   CmuxNextDesign, CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
-//   CmuxNextSettingsWindow -> Settings, Design, Actions (the Settings window, SwiftUI; the App supplies SettingsWindowHost)
+//   CmuxNextSettingsWindow -> Settings, Design, Actions, Wakeups (the Settings window, SwiftUI; the App supplies SettingsWindowHost)
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
@@ -109,6 +109,7 @@ let package = Package(
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextTerminal",
+                "CmuxNextTerminalFind",
                 "CmuxNextTabs",
                 "CmuxNextSidebar",
                 "CmuxNextPalette",
@@ -543,6 +544,7 @@ let package = Package(
                 "CmuxNextDesign",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextCopyMode",
+                "CmuxNextTerminalFind",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
             resources: [
@@ -561,6 +563,20 @@ let package = Package(
             name: "CmuxNextTerminalGeometryTests",
             dependencies: ["CmuxNextTerminalGeometry"],
             swiftSettings: uiSwiftSettings
+        ),
+        // The terminal find bar's state and search flow (count, next/previous,
+        // reveal, close). No GhosttyKit, so it has tests; CmuxNextTerminal
+        // wires it to Ghostty's search bindings and draws the bar. No default
+        // main-actor isolation: its value types are test arguments, which
+        // Swift Testing builds off the main actor.
+        .target(
+            name: "CmuxNextTerminalFind",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextTerminalFindTests",
+            dependencies: ["CmuxNextTerminalFind"],
+            swiftSettings: daemonSwiftSettings
         ),
         // Copy mode's vim key table and cursor-box geometry. No GhosttyKit, so
         // it has tests; CmuxNextTerminal drives Ghostty's keyboard-copy API.
@@ -675,7 +691,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextSettingsWindow",
-            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions"],
+            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups"],
             resources: [
                 .process("Localizable.xcstrings"),
             ],
