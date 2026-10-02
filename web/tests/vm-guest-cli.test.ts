@@ -1546,6 +1546,13 @@ describe("in-VM cmux shim: agent primitives", () => {
         expect(unsupported.status).toBe(2);
         expect(unsupported.stderr).toContain("full-access is not supported for the selected agent");
       }
+      const unsupportedSubcommand = await runStateful(
+        dir,
+        ["vm", "agent", peer, "--agent", "codex", "--permission-mode", "full-access", "exec", "write docs"],
+      );
+      expect(unsupportedSubcommand.status).toBe(2);
+      expect(unsupportedSubcommand.stderr).toContain("full-access cannot be combined with provider subcommands");
+      expect(unsupportedSubcommand.calls).toEqual([]);
     });
 
     test("vm env set delivers values only inside the typed base64 payload of the receive handshake", async () => {

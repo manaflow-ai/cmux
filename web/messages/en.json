@@ -131,7 +131,8 @@
     "permissionModePassThroughUnsupported": "agent: full-access cannot be combined with provider subcommands; pass a bare prompt instead",
     "peerPermissionModeNeedsValue": "vm agent: --permission-mode needs prompt or full-access",
     "peerPermissionModeUnsupported": "vm agent: unsupported permission mode '%s' (choose prompt or full-access)",
-    "peerPermissionModeProviderUnsupported": "vm agent: --permission-mode full-access is not supported for the selected agent"
+    "peerPermissionModeProviderUnsupported": "vm agent: --permission-mode full-access is not supported for the selected agent",
+    "peerPermissionModePassThroughUnsupported": "vm agent: full-access cannot be combined with provider subcommands; pass a bare prompt instead"
   },
   "billingRecovery": {
     "message": "If we found an account, check your email for next steps",

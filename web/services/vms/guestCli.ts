@@ -2281,6 +2281,13 @@ peer_agent() {
       ;;
     *) die_message 2 peerPermissionModeUnsupported "\$cmux_pa_permission_mode" ;;
   esac
+  if [ "\$cmux_pa_permission_mode" = "full-access" ] && [ "\$#" -gt 0 ] && [ "\$1" != "--" ]; then
+    case "\$1" in
+      -*|mcp|config|doctor|update|install|auth|setup-token|plugin|agents|exec|e|login|logout|apply|resume|completion|debug|sandbox|cloud|app-server|features|run|serve|web|models|upgrade|agent|session|export|import|github|acp|list)
+        die_message 2 peerPermissionModePassThroughUnsupported
+        ;;
+    esac
+  fi
   [ -z "\$cmux_pa_timeout" ] || timeout_ms "\$cmux_pa_timeout" "vm agent" >/dev/null
   use_peer "\$cmux_pa_peer"
   [ -n "\$cmux_pa_ws" ] || cmux_pa_ws="\$(target_workspace)"

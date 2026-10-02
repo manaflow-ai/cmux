@@ -131,7 +131,8 @@
     "permissionModePassThroughUnsupported": "agent: full-access と provider サブコマンドは併用できません。プロンプトを直接渡してください",
     "peerPermissionModeNeedsValue": "vm agent: --permission-mode には prompt または full-access が必要です",
     "peerPermissionModeUnsupported": "vm agent: 対応していない permission mode「%s」です（prompt または full-access を選択してください）",
-    "peerPermissionModeProviderUnsupported": "vm agent: --permission-mode full-access は選択したエージェントではサポートされていません"
+    "peerPermissionModeProviderUnsupported": "vm agent: --permission-mode full-access は選択したエージェントではサポートされていません",
+    "peerPermissionModePassThroughUnsupported": "vm agent: full-access と provider サブコマンドは併用できません。プロンプトを直接渡してください"
   },
   "billingRecovery": {
     "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください",
