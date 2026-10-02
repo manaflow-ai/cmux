@@ -43,8 +43,10 @@ import Testing
         let model = ComputerUseStepModel(source: source)
         model.start()
         source.current.screenRecording = true
+        let following = model.task
         model.stop()
-        for _ in 0..<50 { await Task.yield() }
+        // The cancelled loop runs to its end, so whatever it would apply has been.
+        await following?.value
         #expect(model.permissions == .none)
     }
 

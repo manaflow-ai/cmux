@@ -12,7 +12,7 @@ public final class ComputerUseStepModel {
     /// The list the drag tile is helping with, while it shows.
     public private(set) var helping: ComputerUsePermissionPane?
     @ObservationIgnored let source: (any ComputerUsePermissionSource)?
-    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private(set) var task: Task<Void, Never>?
 
     init(source: (any ComputerUsePermissionSource)?) {
         self.source = source
