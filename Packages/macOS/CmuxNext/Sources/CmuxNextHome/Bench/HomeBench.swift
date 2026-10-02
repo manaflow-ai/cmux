@@ -9,6 +9,7 @@ import QuartzCore
 /// 1.5 refresh periods. Main-thread work per frame is the run loop's busy time
 /// between two frames (Core Animation's commit included); CPU is the main
 /// thread's CPU time over the same span. `completion` gets one JSON object.
+@MainActor
 public enum HomeBench {
     private static var driver: HomeBenchDriver?
 

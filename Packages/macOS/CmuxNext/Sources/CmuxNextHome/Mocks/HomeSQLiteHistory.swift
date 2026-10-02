@@ -5,7 +5,7 @@ import SQLite3
 /// (`messages(seq, id, sent_at, json)`, `meta`, `participants`; seq 0-based
 /// there, 1-based here), for the 1M-message bench. Pages are read and
 /// decoded on the reader actor, never on the main thread.
-public struct HomeSQLiteHistory: HomeMockHistory {
+public nonisolated struct HomeSQLiteHistory: HomeMockHistory {
     public let count: Int
     public let title: String
     public let participants: [HomeParticipant]
