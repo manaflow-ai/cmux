@@ -93,14 +93,11 @@ private struct WorkspacePanelContentHostView: View {
                 return workspace.bonsplitController.selectedTabId(inPane: paneId) == tabId
             },
             onFocus: onFocus,
-            onFocusTextBox: {
-                guard isWorkspaceInputActive else { return }
-                guard workspace.panels[panel.id] != nil else { return }
-                // Composer focus must select the pane without scheduling the
-                // terminal first-responder follow-up that would steal focus
-                // back from the text box.
-                workspace.focusPanelFromTerminalInput(panel.id, trigger: .standard)
-            },
+            onFocusTextBox: WorkspaceContentView.makeComposerFocusHandler(
+                workspace: workspace,
+                panel: panel,
+                isWorkspaceInputActive: isWorkspaceInputActive
+            ),
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
             onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
@@ -210,6 +207,21 @@ struct WorkspaceContentView: View {
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
+
+    /// Builds the production callback used when a terminal composer becomes
+    /// first responder. It selects the live panel's pane without scheduling a
+    /// second terminal focus request that could steal the composer responder.
+    static func makeComposerFocusHandler(
+        workspace: Workspace,
+        panel: any Panel,
+        isWorkspaceInputActive: Bool
+    ) -> () -> Void {
+        {
+            guard isWorkspaceInputActive else { return }
+            guard workspace.panels[panel.id] != nil else { return }
+            workspace.focusPanelFromTerminalInput(panel.id, trigger: .standard)
+        }
+    }
 
     var body: some View {
 #if DEBUG
