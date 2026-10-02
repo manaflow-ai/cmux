@@ -15,6 +15,7 @@ import {
   UserProfile
 } from "./schemas.ts"
 import { automationOps } from "./automation-ops.ts"
+import { integrationOps } from "./integrations.ts"
 
 export { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
@@ -156,7 +157,8 @@ export const cloudOps = [
   TeamDirectory,
   HostEnroll,
   HostRemove,
-  ...automationOps
+  ...automationOps,
+  ...integrationOps
 ] as const
 
 export type CloudOpName = (typeof cloudOps)[number]["name"]

@@ -10,7 +10,8 @@
     "grant",
     "host",
     "automation",
-    "run"
+    "run",
+    "connection"
   ],
   "types": {
     "Automation": {
@@ -325,6 +326,145 @@
         }
       }
     },
+    "Connection": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConnectionId"
+          }
+        },
+        "owner": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
+        },
+        "created_by": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "provider": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "IntegrationProvider"
+          }
+        },
+        "account": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "object",
+              "fields": {
+                "key": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "name": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "url": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "scopes_requested": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "scopes_granted": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ConnectionStatus"
+          }
+        },
+        "status_detail": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "sharing": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "private",
+              "team"
+            ]
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
+    "ConnectionId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^conn_[a-z0-9]{20}$",
+      "description": "One integration connection (a provider account linked to a team)."
+    },
+    "ConnectionStatus": {
+      "kind": "enum",
+      "values": [
+        "pending",
+        "active",
+        "needs_reauth",
+        "error",
+        "revoked"
+      ]
+    },
     "CronSpec": {
       "kind": "object",
       "fields": {
@@ -591,6 +731,14 @@
         "daemon",
         "web",
         "vm"
+      ]
+    },
+    "IntegrationProvider": {
+      "kind": "enum",
+      "values": [
+        "github",
+        "linear",
+        "slack"
       ]
     },
     "OpClass": {
@@ -6164,6 +6312,144 @@
         }
       }
     },
+    "github.issue.comment": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "repo": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_.-]{1,100}\\/[A-Za-z0-9_.-]{1,100}$"
+            }
+          },
+          "issue": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "body": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 65000
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.unavailable",
+        "mutation.indeterminate",
+        "provider.error",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "send-external",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "github issue comment",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "github"
+      },
+      "docs": "Comment on a GitHub issue or pull request as the cmux GitHub App installation.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "repo": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/[A-Za-z0-9_.-]{1,100}$"
+          },
+          "issue": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000000
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65000
+          }
+        },
+        "required": [
+          "connection",
+          "repo",
+          "issue",
+          "body"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
     "host.enroll": {
       "class": "mutation",
       "idempotency": "required",
@@ -7656,6 +7942,1283 @@
             "additionalProperties": true
           }
         }
+      }
+    },
+    "integration.complete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "state": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4000
+            }
+          },
+          "code": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2000
+            }
+          },
+          "installation_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9]{1,20}$"
+            }
+          },
+          "setup_action": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 40
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "Connection"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.not_configured",
+        "integration.state_invalid",
+        "mutation.indeterminate",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "integration"
+      },
+      "docs": "Finish a connection from the provider's redirect (the signed-in user must be the one who started it).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "installation_id": {
+            "type": "string",
+            "pattern": "^[0-9]{1,20}$"
+          },
+          "setup_action": {
+            "type": "string",
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/Connection",
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          },
+          "ConnectionStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "needs_reauth",
+              "error",
+              "revoked"
+            ]
+          },
+          "Connection": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "owner": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "created_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "provider": {
+                "$ref": "#/$defs/IntegrationProvider"
+              },
+              "account": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "name"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "scopes_requested": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scopes_granted": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "$ref": "#/$defs/ConnectionStatus"
+              },
+              "status_detail": {
+                "type": "string"
+              },
+              "sharing": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "owner",
+              "created_by",
+              "provider",
+              "account",
+              "scopes_requested",
+              "scopes_granted",
+              "status",
+              "sharing",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "integration.connect": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "provider": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "IntegrationProvider"
+            }
+          },
+          "scopes": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 80
+              }
+            }
+          },
+          "sharing": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "private",
+                "team"
+              ]
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "connection": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "Connection"
+                }
+              },
+              "authorize_url": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.limit",
+        "integration.not_configured",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "integration connect",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "integration"
+      },
+      "docs": "Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "$ref": "#/$defs/IntegrationProvider"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "maxItems": 30
+          },
+          "sharing": {
+            "type": "string",
+            "enum": [
+              "private",
+              "team"
+            ]
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/Connection"
+          },
+          "authorize_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection",
+          "authorize_url"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          },
+          "ConnectionStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "needs_reauth",
+              "error",
+              "revoked"
+            ]
+          },
+          "Connection": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "owner": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "created_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "provider": {
+                "$ref": "#/$defs/IntegrationProvider"
+              },
+              "account": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "name"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "scopes_requested": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scopes_granted": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "$ref": "#/$defs/ConnectionStatus"
+              },
+              "status_detail": {
+                "type": "string"
+              },
+              "sharing": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "owner",
+              "created_by",
+              "provider",
+              "account",
+              "scopes_requested",
+              "scopes_granted",
+              "status",
+              "sharing",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "integration.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "connections": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "Connection"
+              }
+            }
+          },
+          "providers": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "provider": {
+                    "required": true,
+                    "type": {
+                      "kind": "ref",
+                      "name": "IntegrationProvider"
+                    }
+                  },
+                  "configured": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "integration list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "integration"
+      },
+      "docs": "List the team's connections the caller may use (no secrets) and which providers this deployment can connect.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Connection"
+            }
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "$ref": "#/$defs/IntegrationProvider"
+                },
+                "configured": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "provider",
+                "configured"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "connections",
+          "providers",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          },
+          "ConnectionStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "needs_reauth",
+              "error",
+              "revoked"
+            ]
+          },
+          "Connection": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "owner": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "created_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "provider": {
+                "$ref": "#/$defs/IntegrationProvider"
+              },
+              "account": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "name"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "scopes_requested": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scopes_granted": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "$ref": "#/$defs/ConnectionStatus"
+              },
+              "status_detail": {
+                "type": "string"
+              },
+              "sharing": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "owner",
+              "created_by",
+              "provider",
+              "account",
+              "scopes_requested",
+              "scopes_granted",
+              "status",
+              "sharing",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "integration.revoke": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "Connection"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "integration revoke",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "integration"
+      },
+      "docs": "Disconnect: deletes the stored provider credential at once and marks the connection revoked.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/Connection",
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          },
+          "ConnectionStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "active",
+              "needs_reauth",
+              "error",
+              "revoked"
+            ]
+          },
+          "Connection": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ConnectionId"
+              },
+              "owner": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "created_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "provider": {
+                "$ref": "#/$defs/IntegrationProvider"
+              },
+              "account": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "name"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "scopes_requested": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scopes_granted": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "$ref": "#/$defs/ConnectionStatus"
+              },
+              "status_detail": {
+                "type": "string"
+              },
+              "sharing": {
+                "type": "string",
+                "enum": [
+                  "private",
+                  "team"
+                ]
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "owner",
+              "created_by",
+              "provider",
+              "account",
+              "scopes_requested",
+              "scopes_granted",
+              "status",
+              "sharing",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "linear.issue.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "team_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            }
+          },
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 500
+            }
+          },
+          "description": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 100000
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.unavailable",
+        "mutation.indeterminate",
+        "provider.error",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "linear issue create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "linear"
+      },
+      "docs": "Create a Linear issue in a Linear team as the cmux app.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "team_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 100000
+          }
+        },
+        "required": [
+          "connection",
+          "team_id",
+          "title"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "slack.post_as_bot": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "channel": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Z0-9]{2,30}$"
+            }
+          },
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 40000
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.unavailable",
+        "mutation.indeterminate",
+        "provider.error",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "send-external",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "slack post_as_bot",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "slack"
+      },
+      "docs": "Post a message to a Slack channel as the cmux bot.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "channel": {
+            "type": "string",
+            "pattern": "^[A-Z0-9]{2,30}$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40000
+          }
+        },
+        "required": [
+          "connection",
+          "channel",
+          "text"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
       }
     },
     "team.directory": {

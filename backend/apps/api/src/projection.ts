@@ -77,6 +77,20 @@ const statements: Record<string, (p: Record<string, unknown>, stream: string, se
       ]
     ]
   },
+  "connection.upsert": (p, stream, seq) => {
+    const account = p.account as { key?: string; name?: string } | null
+    return [
+      `INSERT INTO connections (id, team_id, created_by, provider, account_key, account_name, scopes_requested, scopes_granted, status, sharing, created_at, updated_at, source_stream, source_seq)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11 / 1000.0), to_timestamp($12 / 1000.0), $13, $14)
+       ON CONFLICT (id) DO UPDATE SET account_key = excluded.account_key, account_name = excluded.account_name, scopes_granted = excluded.scopes_granted,
+         status = excluded.status, sharing = excluded.sharing, updated_at = excluded.updated_at, source_stream = excluded.source_stream, source_seq = excluded.source_seq
+       WHERE connections.source_seq < excluded.source_seq`,
+      [
+        p.id, p.owner, p.created_by, p.provider, account?.key ?? null, account?.name ?? null,
+        JSON.stringify(p.scopes_requested ?? []), JSON.stringify(p.scopes_granted ?? []), p.status, p.sharing, p.created_at, p.updated_at, stream, seq
+      ]
+    ]
+  },
   "host.delete": (p, stream, seq) => [
     `UPDATE hosts SET deleted_at = now(), source_stream = $2, source_seq = $3, updated_at = now() WHERE id = $1 AND source_seq < $3`,
     [p.id, stream, seq]

@@ -9,7 +9,9 @@ import {
   CurrentPrincipal,
   Forbidden,
   OwnerUnreachable,
+  providerOpNames,
   Unauthenticated,
+  type Connection,
   type CurrentPrincipalShape
 } from "@cmux/protocol"
 import { Effect, Layer, Redacted } from "effect"
@@ -17,7 +19,10 @@ import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { authenticate, mintAccessToken, publicJwks, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
+import type { ExternalReply } from "./connection-do.ts"
 import { automationHookPath, automationHookSecret } from "./ingress/automation-hook.ts"
+import { providers } from "./integrations/providers.ts"
+import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 
@@ -61,6 +66,8 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
       return { stub: env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `team:${p.team}` }
     case "cloud:SchedulerDO":
       return { stub: env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `scheduler:${p.team}` }
+    case "cloud:ConnectionDO":
+      return { stub: env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `connections:${p.team}` }
     default:
       throw new Error(`no route for owner ${owner}`)
   }
@@ -84,6 +91,26 @@ const submitTo = (owner: string, principalIn: Principal, frame: { op: string; pa
     },
     catch: unreachable
   }))
+
+const callbackUrl = () => `${(env.DASHBOARD_ORIGIN ?? "").replace(/\/$/, "")}/integrations/callback`
+
+/** integration.complete and provider ops: verified state (complete), then the ConnectionDO's external path. */
+const externalOp = (principalIn: Principal, frame: { op: string; params: unknown; idempotency_key: string }) =>
+  Effect.gen(function* () {
+    const principal = yield* principalFor("cloud:ConnectionDO", principalIn)
+    let extra: { redirect_uri?: string; state?: { conn: string; provider: string } } = {}
+    if (frame.op === "integration.complete") {
+      const token = (frame.params as { state?: unknown } | null)?.state
+      const st = typeof token === "string" ? yield* Effect.promise(() => verifyState(env, token)) : undefined
+      // The state must name this user and team: a link from someone else cannot finish their connection under this session.
+      if (!st || st.user !== principal.user || st.team !== principal.team) {
+        return { ok: false, op: frame.op, error: { code: "integration.state_invalid", message: "the connection link expired or belongs to someone else", retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
+      }
+      extra = { redirect_uri: callbackUrl(), state: { conn: st.conn, provider: st.provider } }
+    }
+    const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(principal.team!))
+    return yield* Effect.tryPromise({ try: () => rpc<ExternalReply>(stub.external(principal.team!, principal, { ...frame, ...extra })), catch: unreachable })
+  })
 
 /** Folds the requester frames (result|reject, request-settled) into one HTTP response. */
 const toResponse = (op: string, frames: ReadonlyArray<OwnerFrame>) => {
@@ -147,8 +174,24 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           origin: payload.origin ?? "cli",
           ...(payload.expected_revision ? { expected_revision: payload.expected_revision } : {})
         }
+        // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
+        if (payload.op === "integration.complete" || providerOpNames.has(payload.op)) return yield* externalOp(principal, frame)
+        if (payload.op === "integration.connect") {
+          const provider = (payload.params as { provider?: string } | null)?.provider
+          const impl = provider === "github" || provider === "linear" || provider === "slack" ? providers[provider] : undefined
+          if (impl && (!env.INTEGRATIONS_KEK || !env.DASHBOARD_ORIGIN || !impl.configured(env))) {
+            return { ok: false, op: payload.op, error: { code: "integration.not_configured", message: `${provider} is not configured on this deployment`, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
+          }
+        }
         const { frames } = yield* submitTo(def.owner, principal, frame)
         const response = toResponse(payload.op, frames)
+        if (payload.op === "integration.connect" && response.ok) {
+          const c = response.value as Connection
+          const impl = providers[c.provider]
+          const state = yield* Effect.promise(() => signState(env, { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider }))
+          const scopes = c.scopes_requested.length > 0 ? c.scopes_requested : impl.defaultScopes
+          return { ...response, value: { connection: c, authorize_url: impl.authorizeUrl(env, state, scopes, callbackUrl()) } }
+        }
         // The personal team exists once the user exists (a team of one, identity spec section 2).
         if (payload.op === "user.ensure" && response.ok) {
           // Keyed by the user.ensure transaction: a retry of that request replays, a new ensure re-applies.

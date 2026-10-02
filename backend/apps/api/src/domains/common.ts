@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudOpByName, schedulerInternalOps, type CloudOpDef } from "@cmux/protocol"
+import { cloudOpByName, connectionInternalOps, schedulerInternalOps, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -70,5 +70,6 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
-  ...schedulerInternalOps.map((d) => [d.name, d] as const)
+  ...schedulerInternalOps.map((d) => [d.name, d] as const),
+  ...connectionInternalOps.map((d) => [d.name, d] as const)
 ])
