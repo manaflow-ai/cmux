@@ -5,6 +5,8 @@ import {
   accountAnalyticsForwardLeases,
   accountDeletionTombstones,
   accountMutationLeases,
+  coderouterHandoffLeases,
+  coderouterRouteTokens,
   cloudOrganizations,
   cloudRuntimes,
   cloudVmBaseGenerations,
@@ -12,6 +14,7 @@ import {
   cloudVmBillingGrants,
   cloudVmDomains,
   cloudVmLeases,
+  cloudVmObservedDestroyCleanups,
   cloudVmPublicationAuthCodes,
   cloudVmPublications,
   cloudVmPublicationSessions,
@@ -202,11 +205,14 @@ const updateRows = mock((table: unknown) => ({
   },
 }));
 const insertRows = mock((table: unknown) => ({
-  values: (values: unknown) => ({
-    onConflictDoUpdate: async () => {
-      routeEvents.push("tombstone-upsert");
-    },
-  }),
+  values: (values: unknown) => {
+    insertedRows.push({ table, values });
+    return {
+      onConflictDoUpdate: async () => {
+        routeEvents.push("tombstone-upsert");
+      },
+    };
+  },
 }));
 const listUserVms = mock((...args: unknown[]) => {
   const [userId, billingTeamId] = args as [string, string | null | undefined];
@@ -367,6 +373,7 @@ let deletedTables: unknown[] = [];
 let deletedWhere: Array<{ readonly table: unknown; readonly condition: unknown }> = [];
 let selectedWhere: Array<{ readonly table: unknown; readonly condition: unknown }> = [];
 let updatedRows: Array<{ readonly table: unknown; readonly values: unknown }> = [];
+let insertedRows: Array<{ readonly table: unknown; readonly values: unknown }> = [];
 let tombstoneUpdates: unknown[] = [];
 let tombstoneCompleteError: unknown = null;
 let tombstoneCleanupIncompleteError: unknown = null;
@@ -729,6 +736,7 @@ beforeEach(() => {
   deletedWhere = [];
   selectedWhere = [];
   updatedRows = [];
+  insertedRows = [];
   tombstoneUpdates = [];
   tombstoneCompleteError = null;
   tombstoneCleanupIncompleteError = null;
@@ -870,6 +878,8 @@ describe("account deletion route", () => {
     const nonStripeUpdates = updatedRows.filter(({ table }) =>
       table !== stripeSubscriptions &&
       table !== stripeCustomers &&
+      table !== coderouterHandoffLeases &&
+      table !== coderouterRouteTokens &&
       table !== cloudOrganizations &&
       table !== cloudVmDomains
     );
@@ -884,8 +894,11 @@ describe("account deletion route", () => {
       { table: cloudVmBases, values: { lastOpenedByUserId: null } },
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
     ]);
-    for (const update of updatedRows) {
-      if (update.table === cloudOrganizations) continue; // Organization metadata has no updatedAt column.
+    for (const update of updatedRows.filter(({ table }) =>
+      table !== coderouterHandoffLeases &&
+      table !== coderouterRouteTokens &&
+      table !== cloudOrganizations
+    )) {
       expect((update.values as { readonly updatedAt?: unknown }).updatedAt).toBeInstanceOf(Date);
     }
     expect(deletedVaultObjects).toEqual([
@@ -950,12 +963,10 @@ describe("account deletion route", () => {
       )
     );
     expect(leaseRefreshes.length).toBeGreaterThanOrEqual(3);
-    expect(routeEvents).toEqual([
+    expect(routeEvents.filter((event) => event !== "transaction-lock")).toEqual([
       "transaction",
-      "transaction-lock",
       "tombstone-upsert",
       "transaction",
-      "transaction-lock",
       "analytics-lease-cleanup",
       "posthog-delete",
       "metadata-update",
@@ -973,10 +984,8 @@ describe("account deletion route", () => {
       "vault-delete",
       "vault-delete",
       "transaction",
-      "transaction-lock",
       "stack-delete",
       "transaction",
-      "transaction-lock",
     ]);
   });
 
@@ -1526,7 +1535,9 @@ describe("account deletion route", () => {
     expect(conditionColumnNames(subscriptionDelete?.condition)).toContain("stack_team_id");
     const customerDelete = deletedWhere.find((entry) => entry.table === stripeCustomers);
     expect(conditionColumnNames(customerDelete?.condition)).toContain("stack_team_id");
-    expect(transactionExecute).toHaveBeenCalledTimes(6);
+    // Account deletion now takes both the deletion fence and the handoff
+    // authority locks before invalidating bearer authority.
+    expect(transactionExecute).toHaveBeenCalledTimes(18);
     const grantDelete = deletedWhere.find((entry) => entry.table === cloudVmBillingGrants);
     expect(conditionColumnNames(grantDelete?.condition)).toContain("billing_customer_id");
     const baseDelete = deletedWhere.find((entry) => entry.table === cloudVmBases);
@@ -1691,7 +1702,7 @@ describe("account deletion route", () => {
       providerVmId: "shared-team-vm",
       provider: "freestyle",
     });
-    expect(transactionExecute).toHaveBeenCalledTimes(4);
+    expect(transactionExecute).toHaveBeenCalledTimes(14);
   });
 
   test("uses the listed Stack team when selectedTeam has no member listing", async () => {
@@ -2103,7 +2114,7 @@ describe("account deletion route", () => {
       destroyedVms: 2,
     });
     expect(transaction).toHaveBeenCalledTimes(3);
-    expect(transactionExecute).toHaveBeenCalledTimes(3);
+    expect(transactionExecute).toHaveBeenCalledTimes(9);
     expect(transactionSelect).toHaveBeenCalledTimes(4);
     expect(deletedTableCount).toBe(0);
     expect(deleteStackUser).not.toHaveBeenCalled();
@@ -2146,6 +2157,58 @@ describe("account deletion route", () => {
 
     expect(response.status).toBe(200);
     expect(deletedTables).toContain(cloudVms);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("completes account deletion after transferring unsupported legacy home-volume cleanup", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000769",
+      provider: "freestyle",
+      providerVmId: "provider-vm-destroyed",
+      status: "destroyed",
+      providerMetadata: {
+        cmuxObservedDestroyCleanup: { homeVolume: "legacy-home-volume" },
+      },
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, destroyedVms: 2 });
+    expect(insertedRows).toContainEqual({
+      table: cloudVmObservedDestroyCleanups,
+      values: [{
+        vmId: "00000000-0000-4000-8000-000000000769",
+        provider: "freestyle",
+        cleanup: { homeVolume: "legacy-home-volume" },
+      }],
+    });
+    expect(deletedTables).toContain(cloudVms);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
+
+  test("completes account deletion after transferring pending credential revocation", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000770",
+      provider: "freestyle",
+      providerVmId: "provider-vm-destroyed",
+      status: "destroyed",
+      providerMetadata: {
+        cmuxObservedDestroyCleanup: { modelPlane: true },
+      },
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(insertedRows).toContainEqual({
+      table: cloudVmObservedDestroyCleanups,
+      values: [{
+        vmId: "00000000-0000-4000-8000-000000000770",
+        provider: "freestyle",
+        cleanup: { modelPlane: true },
+      }],
+    });
     expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
@@ -2484,12 +2547,10 @@ describe("account deletion route", () => {
       (values as { readonly status?: unknown; readonly errorMessage?: unknown }).status === "failed" &&
       (values as { readonly errorMessage?: unknown }).errorMessage === "Error: raw [redacted] leaked by upstream"
     )).toBe(true);
-    expect(routeEvents).toEqual([
+    expect(routeEvents.filter((event) => event !== "transaction-lock")).toEqual([
       "transaction",
-      "transaction-lock",
       "tombstone-upsert",
       "transaction",
-      "transaction-lock",
       "analytics-lease-cleanup",
       "posthog-delete",
       "metadata-update",
@@ -2499,7 +2560,6 @@ describe("account deletion route", () => {
       "destroy-vm",
       "delete-private-networking",
       "transaction",
-      "transaction-lock",
       "stack-delete",
     ]);
     expect(consoleError).toHaveBeenCalledWith(

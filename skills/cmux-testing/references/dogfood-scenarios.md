@@ -114,7 +114,7 @@ the `paths` globs [PR media](#pr-media) picks it by:
 | `{"clickAt": {"x": 0.1, "y": 0.2}}`, `hoverAt` | Acts on a point in the main window, 0 to 1 from the top left. Both also take `"modifiers"`. |
 | `{"clickAt": {"x": 0.5, "y": 0.4}, "modifiers": ["command"]}` | A cmd-click. Same modifier names as `key`. Needed for anything behind cmd-click, such as opening a link in terminal output. The modifiers are held as global keyboard state around the click, so a cmd-`hover` works the same way for hover affordances. |
 | `{"dragAt": {"from": {"x": 0.2, "y": 0.5}, "to": {"x": 0.1, "y": 0.5}, "duration": 0.2}}` | Presses at `from` and drags to `to`, in the same window space. Use it for resizers and other drag handles. |
-| `{"menu": ["File", "New Workspace"]}` | Clicks through the menu bar. |
+| `{"menu": ["File", "New Workspace"]}` | Clicks through the menu bar. Each element after the first names a direct child of the menu the one before it opened, so a submenu item needs its submenu in the path (`["File", "Workspace", "Rename Workspace…"]`). Titles repeat across menus and at different depths inside one menu, and only the full path tells them apart. |
 | `{"socket": "method", "params": {...}, "save": "name"}` | A v2 control socket request. The reply is attached; `save` keeps its `result`, and a later param `"${name.workspace_id}"` reads a field from it. |
 | `{"socketLine": "agent_journal_append {...}"}` | One raw v1 socket line, for verbs with no v2 method. Every `${name.path}` inside it is replaced with a saved value; numeric path parts index arrays (`${ws.surfaces.0.id}`). A reply starting with `ERROR` fails the step. |
 | `{"expect": target, "exists": false}` | Checks that an element exists (or not). |

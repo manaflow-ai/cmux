@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CmuxSettings
 
 @MainActor
 final class AgentSessionProcessStore {
@@ -22,7 +23,15 @@ final class AgentSessionProcessStore {
         }
         let sessionId = UUID().uuidString
         let launchArguments = plan.arguments
-        let launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
+        var launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
+        if AutomationCatalogSection().canonicalAgentScratch.value(in: .standard) {
+            let scratchDirectory = try AgentSessionScratchDirectory.prepare(
+                sessionID: sessionId,
+                provider: plan.provider
+            )
+            launchEnvironment["TMPDIR"] = scratchDirectory.path
+            launchEnvironment["CMUX_AGENT_ARTIFACT_ROOT"] = scratchDirectory.path
+        }
         let process = try AgentSessionOwnedProcessLauncher().prepare(
             plan: plan, workingDirectory: workingDirectory, environment: launchEnvironment
         )
