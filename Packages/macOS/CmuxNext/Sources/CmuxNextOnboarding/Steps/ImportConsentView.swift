@@ -11,6 +11,9 @@ final class ImportConsentView: NSView {
     private let model: ImportStepModel
     private let list = NSStackView()
     private let keychain = OnboardingLabel.make(color: Palette.textSecondary, lines: 4)
+    private let denied = OnboardingLabel.make(OnboardingStrings.passwordsAuthDenied, font: OnboardingMetrics.captionFont,
+                                              color: Palette.textSecondary, lines: 2)
+    private var actions: [NSButton] = []
     private var rows: [String: ImportProfileRow] = [:]
     private var shownProfiles: [BrowserSourceProfile]?
 
@@ -23,15 +26,19 @@ final class ImportConsentView: NSView {
         let title = OnboardingLabel.make(OnboardingStrings.passwordsTitle, font: .systemFont(ofSize: 15, weight: .semibold), lines: 2)
         let heading = NSStackView(views: [lock, title])
         heading.spacing = 8
+        // Pinned to the stack's width below, so the title wraps to its full two-line height.
+        heading.alignment = .firstBaseline
         list.orientation = .vertical
         list.alignment = .leading
         list.spacing = 2
         let store = OnboardingLabel.make(OnboardingStrings.passwordsStore, font: OnboardingMetrics.captionFont, color: Palette.textTertiary, lines: 3)
         let back = OnboardingControl.plainButton(OnboardingStrings.back, target: self, action: #selector(goBack))
         let without = OnboardingControl.plainButton(OnboardingStrings.importWithoutPasswords, target: self, action: #selector(skipPasswords))
-        let actions = NSStackView(views: [back, without])
-        actions.spacing = 16
-        let stack = NSStackView(views: [heading, keychain, list, store, actions])
+        actions = [back, without]
+        let buttons = NSStackView(views: actions)
+        buttons.spacing = 16
+        denied.isHidden = true
+        let stack = NSStackView(views: [heading, keychain, list, store, denied, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
@@ -41,9 +48,11 @@ final class ImportConsentView: NSView {
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            heading.widthAnchor.constraint(equalTo: stack.widthAnchor),
             list.widthAnchor.constraint(equalTo: stack.widthAnchor),
             keychain.widthAnchor.constraint(equalTo: stack.widthAnchor),
             store.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            denied.widthAnchor.constraint(equalTo: stack.widthAnchor),
         ])
     }
 
@@ -69,9 +78,12 @@ final class ImportConsentView: NSView {
             }
             keychain.stringValue = OnboardingStrings.passwordsKeychain(Self.quotedList(model.passwordKeychainItems))
         }
+        // While Touch ID is up the choice is fixed; a cancelled one says nothing was read.
         for profile in profiles {
-            rows[profile.id]?.update(checked: model.passwordConsent.contains(profile.id), editable: true, state: .idle)
+            rows[profile.id]?.update(checked: model.passwordConsent.contains(profile.id), editable: !model.authorizing, state: .idle)
         }
+        actions.forEach { $0.isEnabled = !model.authorizing }
+        denied.isHidden = !model.authorizationDenied
     }
 
     /// “Microsoft Edge Safe Storage” and “Google Chrome Safe Storage”, in the user's quotation marks and list style.

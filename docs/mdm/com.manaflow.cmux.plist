@@ -214,6 +214,21 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>columnMajor</string>
+			<key>pfm_name</key>
+			<string>layout.frameOrientation</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>columnMajor</string>
+				<string>rowMajor</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Dock Corners</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>200</integer>
 			<key>pfm_name</key>
 			<string>layout.minimumPaneWidth</string>
