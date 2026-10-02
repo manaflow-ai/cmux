@@ -29,6 +29,8 @@ enum MacConversationRow: Hashable {
 struct MacReplyQuote: Hashable {
     var text: String
     var isOutgoing: Bool
+    var senderInitials: String
+    var senderColorHex: String?
 }
 
 enum MacMessageFooter: Hashable {
@@ -44,6 +46,7 @@ struct MacMessageRowModel: Hashable {
     var isGroup: Bool
     var senderName: String?
     var senderInitials: String
+    var senderColorHex: String?
     var showsSenderName: Bool
     var showsAvatar: Bool
     var showsTail: Bool
@@ -80,7 +83,9 @@ enum MacConversationRowBuilder {
             let quote = message.replyToID.flatMap { store.message(id: $0) }.map {
                 MacReplyQuote(
                     text: $0.text.isEmpty ? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module) : $0.text,
-                    isOutgoing: $0.senderID == meID
+                    isOutgoing: $0.senderID == meID,
+                    senderInitials: info.participant($0.senderID)?.initials ?? "",
+                    senderColorHex: info.participant($0.senderID)?.colorHex
                 )
             }
             rows.append(.message(MacMessageRowModel(
@@ -90,6 +95,7 @@ enum MacConversationRowBuilder {
                 isGroup: isGroup,
                 senderName: sender?.name,
                 senderInitials: sender?.initials ?? "",
+                senderColorHex: sender?.colorHex,
                 showsSenderName: isGroup && !isOutgoing && (entry.isFirstInRun || quote != nil),
                 showsAvatar: isGroup && !isOutgoing && entry.isLastInRun,
                 showsTail: entry.isLastInRun || quote != nil,
@@ -145,6 +151,7 @@ struct MacMessageLayout {
     var senderNameFrame: CGRect?
     var quoteFrame: CGRect?
     var quoteTextFrame: CGRect?
+    var quoteAvatarFrame: CGRect?
     var threadPath: CGPath?
     var imageFrames: [CGRect]
     var bubbleFrame: CGRect?
@@ -224,7 +231,7 @@ extension MacMessageLayout {
         let avatarColumn = model.isGroup ? t.avatarSize + t.avatarGap : 0
         let incomingLeading = margin + avatarColumn
         let isFailed = model.footer == .notDelivered
-        let outgoingTrailing = width - margin - (isFailed ? 24 : 0)
+        let outgoingTrailing = width - t.outgoingMargin - (isFailed ? 26 : 0)
         let available = model.isOutgoing ? width : width - avatarColumn
         let maxBubble = min(t.maxBubbleWidth, floor(available * t.maxBubbleWidthFraction))
 
@@ -245,7 +252,7 @@ extension MacMessageLayout {
             let bodyWidth = min(maxBubble, size.width + 20)
             let h = textHeight + 10
             let frame = quote.isOutgoing
-                ? CGRect(x: width - margin - bodyWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
+                ? CGRect(x: width - t.outgoingMargin - bodyWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
                 : CGRect(x: incomingLeading - t.tailWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
             quoteFrame = frame
             let bodyMinX = quote.isOutgoing ? frame.minX : frame.minX + t.tailWidth
@@ -255,8 +262,8 @@ extension MacMessageLayout {
 
         var senderNameFrame: CGRect?
         if model.showsSenderName, model.senderName != nil {
-            senderNameFrame = CGRect(x: incomingLeading + 11, y: y, width: maxBubble, height: 14)
-            y += 16
+            senderNameFrame = CGRect(x: incomingLeading + t.senderNameInset, y: y, width: maxBubble, height: 13)
+            y += 14
         }
 
         if !model.reactionKinds.isEmpty { y += 14 }
@@ -309,19 +316,21 @@ extension MacMessageLayout {
         let reactionAnchor: CGPoint? = model.reactionKinds.isEmpty ? nil
             : (model.isOutgoing ? CGPoint(x: firstBody.minX, y: firstBody.minY) : CGPoint(x: firstBody.maxX, y: firstBody.minY))
 
+        // The avatar's bottom lines up with the bottom of the tail.
+        let tailBottom = primary.maxY + (model.showsTail && bubbleFrame != nil ? t.tailDrop : 0)
         let avatarFrame: CGRect? = model.showsAvatar
-            ? CGRect(x: margin, y: primary.maxY - t.avatarSize, width: t.avatarSize, height: t.avatarSize)
+            ? CGRect(x: margin, y: tailBottom - t.avatarSize, width: t.avatarSize, height: t.avatarSize)
             : nil
         let failedBadgeFrame: CGRect? = isFailed
-            ? CGRect(x: width - margin - 18, y: primary.midY - 9, width: 18, height: 18)
+            ? CGRect(x: width - t.outgoingMargin - 18, y: primary.midY - 9, width: 18, height: 18)
             : nil
 
         let bodyTrailing = model.isOutgoing ? outgoingTrailing : primary.maxX
         let bodyLeading = model.isOutgoing ? primary.minX : incomingLeading
         func footerRect(_ y: CGFloat) -> CGRect {
             model.isOutgoing
-                ? CGRect(x: margin, y: y, width: bodyTrailing - 6 - margin, height: 14)
-                : CGRect(x: bodyLeading + 6, y: y, width: width - bodyLeading - 6 - margin, height: 14)
+                ? CGRect(x: margin, y: y, width: bodyTrailing - 5 - margin, height: 14)
+                : CGRect(x: bodyLeading + 5, y: y, width: width - bodyLeading - 5 - margin, height: 14)
         }
         let tailExtra: CGFloat = model.showsTail && bubbleFrame != nil ? t.tailDrop : 0
         y = max(y, primary.maxY + tailExtra)
@@ -341,14 +350,26 @@ extension MacMessageLayout {
             y += 2 + 14
         }
 
+        // Messages: the quoted message's sender gets a tiny avatar beside the
+        // quote, and the thread line drops from under it, curving into the reply.
         var threadPath: CGPath?
-        if let quoteFrame, model.replyQuote != nil {
-            let x = model.isGroup ? margin + t.avatarSize / 2 : incomingLeading - t.tailWidth - 6
+        var quoteAvatarFrame: CGRect?
+        if let quoteFrame, let quote = model.replyQuote {
+            let tiny: CGFloat = 16
+            let column = margin + t.avatarSize / 2
+            if !quote.isOutgoing {
+                quoteAvatarFrame = CGRect(x: column - tiny / 2, y: quoteFrame.maxY - tiny + 3, width: tiny, height: tiny)
+            }
+            let startY = (quoteAvatarFrame?.maxY ?? quoteFrame.midY) + 4
+            let endY = model.isOutgoing ? primary.maxY : (avatarFrame?.minY ?? primary.maxY) - 4
             let path = CGMutablePath()
-            path.move(to: CGPoint(x: x + 10, y: quoteFrame.midY))
-            path.addQuadCurve(to: CGPoint(x: x, y: quoteFrame.midY + 10), control: CGPoint(x: x, y: quoteFrame.midY))
-            let end = (avatarFrame?.minY ?? primary.midY) - 4
-            path.addLine(to: CGPoint(x: x, y: max(quoteFrame.midY + 12, end)))
+            path.move(to: CGPoint(x: column, y: startY))
+            if model.isOutgoing {
+                path.addLine(to: CGPoint(x: column, y: max(startY + 10, endY - 10)))
+                path.addQuadCurve(to: CGPoint(x: column + 12, y: max(startY + 20, endY)), control: CGPoint(x: column, y: max(startY + 20, endY)))
+            } else {
+                path.addLine(to: CGPoint(x: column, y: max(startY + 6, endY)))
+            }
             threadPath = path
         }
 
@@ -359,6 +380,7 @@ extension MacMessageLayout {
             senderNameFrame: senderNameFrame,
             quoteFrame: quoteFrame,
             quoteTextFrame: quoteTextFrame,
+            quoteAvatarFrame: quoteAvatarFrame,
             threadPath: threadPath,
             imageFrames: imageFrames,
             bubbleFrame: bubbleFrame,

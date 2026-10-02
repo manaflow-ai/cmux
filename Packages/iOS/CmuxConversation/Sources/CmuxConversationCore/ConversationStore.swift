@@ -42,7 +42,22 @@ public final class ConversationStore {
     public private(set) var typingParticipantIDs: [String] = []
     public private(set) var connection: ConversationConnectionState = .connecting
 
-    public var onChange: (@MainActor (ConversationStoreChange) -> Void)?
+    public var onChange: (@MainActor (ConversationStoreChange) -> Void)? {
+        get { primaryObserver }
+        set { primaryObserver = newValue }
+    }
+    private var primaryObserver: (@MainActor (ConversationStoreChange) -> Void)?
+    private var observers: [@MainActor (ConversationStoreChange) -> Void] = []
+
+    /// Additional listeners (a sidebar preview, a window title) beside `onChange`.
+    public func addObserver(_ observer: @escaping @MainActor (ConversationStoreChange) -> Void) {
+        observers.append(observer)
+    }
+
+    private func notify(_ change: ConversationStoreChange) {
+        primaryObserver?(change)
+        for observer in observers { observer(change) }
+    }
 
     public let pageSize: Int
     private let backend: any ConversationBackend
@@ -111,7 +126,7 @@ public final class ConversationStore {
             self.info = info
             self.meID = meID
             connection = .connected
-            onChange?(.connection)
+            notify(.connection)
             if lagged || !hasLoadedNewest {
                 loadNewest(rebase: lagged)
             }
@@ -123,7 +138,7 @@ public final class ConversationStore {
             setTyping(participantID, isTyping)
         case .disconnected:
             connection = .reconnecting
-            onChange?(.connection)
+            notify(.connection)
         }
     }
 
@@ -162,7 +177,7 @@ public final class ConversationStore {
         }
         // Only sends from this device count as "mine" for scrolling; the same
         // account on another device behaves like any other sender.
-        onChange?(.live(insertedRowIDs: isNew ? [incoming.rowID] : [], sentByMe: false))
+        notify(.live(insertedRowIDs: isNew ? [incoming.rowID] : [], sentByMe: false))
     }
 
     /// Inserts or merges a message. Returns true when a new row appeared.
@@ -244,7 +259,7 @@ public final class ConversationStore {
         if isTyping {
             if !typingParticipantIDs.contains(participantID) {
                 typingParticipantIDs.append(participantID)
-                onChange?(.typing)
+                notify(.typing)
             }
             typingExpiry[participantID]?.cancel()
             let clock = clock
@@ -264,7 +279,7 @@ public final class ConversationStore {
         typingExpiry[participantID] = nil
         guard let index = typingParticipantIDs.firstIndex(of: participantID) else { return }
         typingParticipantIDs.remove(at: index)
-        if notify { onChange?(.typing) }
+        if notify { self.notify(.typing) }
     }
 
     // MARK: History
@@ -301,7 +316,7 @@ public final class ConversationStore {
         bufferedLive = []
         for message in buffered { ingestBuffered(message) }
         older = page.hasMore ? .idle : .exhausted
-        onChange?(.reset)
+        notify(.reset)
         if olderWanted { loadOlder() }
     }
 
@@ -316,11 +331,11 @@ public final class ConversationStore {
         }
         guard let oldestSeq = messages.first(where: { $0.seq != nil })?.seq else {
             older = .exhausted
-            onChange?(.older)
+            notify(.older)
             return
         }
         older = .loading
-        onChange?(.older)
+        notify(.older)
         olderTask = Task { [weak self] in
             var attempt = 0
             while !Task.isCancelled {
@@ -332,11 +347,11 @@ public final class ConversationStore {
                 } catch {
                     attempt += 1
                     self.older = .retrying(attempt: attempt)
-                    self.onChange?(.older)
+                    self.notify(.older)
                     try? await self.clock.sleep(for: Self.backoff(attempt))
                     guard self.olderWanted else {
                         self.older = .idle
-                        self.onChange?(.older)
+                        self.notify(.older)
                         return
                     }
                 }
@@ -359,7 +374,7 @@ public final class ConversationStore {
         }
         if inserted { sortAndReindex() }
         older = page.hasMore ? .idle : .exhausted
-        onChange?(.prepended)
+        notify(.prepended)
     }
 
     static func backoff(_ attempt: Int) -> Duration {
@@ -397,7 +412,7 @@ public final class ConversationStore {
         )
         upsert(pending)
         sortAndReindex()
-        onChange?(.live(insertedRowIDs: [pending.rowID], sentByMe: true))
+        notify(.live(insertedRowIDs: [pending.rowID], sentByMe: true))
         setLocalTyping(false)
         transmit(clientID: clientID, images: images)
         return pending.rowID
@@ -409,7 +424,7 @@ public final class ConversationStore {
               let clientID = message.clientMessageID,
               let index = indexByID[message.id] else { return }
         messages[index].delivery = .sending
-        onChange?(.live(insertedRowIDs: [], sentByMe: true))
+        notify(.live(insertedRowIDs: [], sentByMe: true))
         let images = message.attachments.compactMap { attachment -> (data: Data, width: Int, height: Int, mimeType: String)? in
             guard let data = attachment.localData else { return nil }
             return (data, attachment.width, attachment.height, "image/jpeg")
@@ -423,7 +438,7 @@ public final class ConversationStore {
               messages[index].seq == nil, messages[index].delivery?.isFailed == true else { return }
         messages.remove(at: index)
         sortAndReindex()
-        onChange?(.live(insertedRowIDs: [], sentByMe: true))
+        notify(.live(insertedRowIDs: [], sentByMe: true))
     }
 
     private func transmit(clientID: String, images: [(data: Data, width: Int, height: Int, mimeType: String)]) {
@@ -445,7 +460,7 @@ public final class ConversationStore {
                 var acked = try await self.backend.send(draft)
                 if acked.delivery == nil { acked.delivery = .sent }
                 if self.upsert(acked) { self.sortAndReindex() }
-                self.onChange?(.live(insertedRowIDs: [], sentByMe: true))
+                self.notify(.live(insertedRowIDs: [], sentByMe: true))
             } catch {
                 self.markFailed(clientID: clientID, reason: String(describing: error))
             }
@@ -456,7 +471,7 @@ public final class ConversationStore {
         guard let index = messages.firstIndex(where: { $0.clientMessageID == clientID }),
               messages[index].seq == nil else { return }
         messages[index].delivery = .failed(reason)
-        onChange?(.live(insertedRowIDs: [], sentByMe: true))
+        notify(.live(insertedRowIDs: [], sentByMe: true))
     }
 
     // MARK: Reactions, typing, read
@@ -469,12 +484,12 @@ public final class ConversationStore {
             message.reactions.append(ConversationReactionMark(participantID: meID, reaction: reaction))
         }
         messages[index] = message
-        onChange?(.live(insertedRowIDs: [], sentByMe: true))
+        notify(.live(insertedRowIDs: [], sentByMe: true))
         Task { [weak self] in
             guard let self else { return }
             if let updated = try? await self.backend.react(messageID: messageID, reaction: reaction) {
                 self.upsert(updated)
-                self.onChange?(.live(insertedRowIDs: [], sentByMe: false))
+                self.notify(.live(insertedRowIDs: [], sentByMe: false))
             }
         }
     }
@@ -494,7 +509,7 @@ public final class ConversationStore {
         let original = messages[index]
         messages[index].text = trimmed
         messages[index].editedAt = Date()
-        onChange?(.live(insertedRowIDs: [], sentByMe: false))
+        notify(.live(insertedRowIDs: [], sentByMe: false))
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -504,7 +519,7 @@ public final class ConversationStore {
                 guard let index = self.indexByID[messageID] else { return }
                 self.messages[index] = original
             }
-            self.onChange?(.live(insertedRowIDs: [], sentByMe: true))
+            self.notify(.live(insertedRowIDs: [], sentByMe: true))
         }
     }
 

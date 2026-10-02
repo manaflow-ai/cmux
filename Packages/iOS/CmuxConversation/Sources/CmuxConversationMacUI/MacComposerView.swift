@@ -50,7 +50,20 @@ final class MacComposerTextView: NSTextView {
 final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     weak var delegate: (any MacComposerViewDelegate)?
     let appsButton = NSButton()
-    let field = MacFlippedView()
+    /// The glass pill (NSGlassEffectView on macOS 26).
+    let field: NSView = {
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.cornerRadius = 15.75
+            return glass
+        }
+        let view = MacFlippedView()
+        view.layer?.cornerRadius = 15.75
+        return view
+    }()
+    private let fieldContent = MacFlippedView()
+    private let audioButton = MacGlyphView()
+    private let emojiGlyph = MacGlyphView()
     let scrollView = NSScrollView()
     let textView = MacComposerTextView()
     private let placeholder = makeMacLabel()
@@ -63,12 +76,13 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     var isReplyMode = false { didSet { updatePlaceholder() } }
     var isEditMode = false { didSet { updatePlaceholder() } }
     var maximumFieldHeight: CGFloat = 220
-    private(set) var fieldHeight: CGFloat = 28
+    /// Measured: the pill is 32 pt tall and sits 11 pt above the window bottom.
+    private(set) var fieldHeight: CGFloat = 32
     private let lineHeight = MacConversationTheme.lineHeight
-    private let minFieldHeight: CGFloat = 28
+    private let minFieldHeight: CGFloat = 32
     private let attachmentHeight: CGFloat = 80
 
-    var preferredHeight: CGFloat { fieldHeight + 20 }
+    var preferredHeight: CGFloat { fieldHeight + 11.5 + 8 }
 
     var text: String {
         get { textView.string }
@@ -84,21 +98,30 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        appsButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: String(localized: "conversation.composer.plus", defaultValue: "Apps", bundle: .module))
-        appsButton.symbolConfiguration = .init(pointSize: 13, weight: .semibold)
-        appsButton.isBordered = false
-        appsButton.wantsLayer = true
-        appsButton.layer?.cornerRadius = 14
-        appsButton.contentTintColor = .secondaryLabelColor
+        // Palette (non-template) symbols keep full label contrast in inactive
+        // windows, as Messages' composer glyphs do.
+        appsButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: String(localized: "conversation.composer.plus", defaultValue: "Apps", bundle: .module))?
+            .withSymbolConfiguration(.init(pointSize: 15, weight: .medium).applying(.init(paletteColors: [.labelColor])))
+        if #available(macOS 26.0, *) {
+            appsButton.bezelStyle = .glass
+            appsButton.controlSize = .large
+            appsButton.borderShape = .circle
+        } else {
+            appsButton.isBordered = false
+        }
+        appsButton.contentTintColor = .labelColor
         appsButton.target = self
         appsButton.action = #selector(appsTapped)
         appsButton.setAccessibilityIdentifier("conversation.composer.plus")
         addSubview(appsButton)
 
-        field.layer?.cornerRadius = 14
-        field.layer?.borderWidth = 1
         addSubview(field)
-        field.addSubview(attachmentStrip)
+        if #available(macOS 26.0, *), let glass = field as? NSGlassEffectView {
+            glass.contentView = fieldContent
+        } else {
+            field.addSubview(fieldContent)
+        }
+        fieldContent.addSubview(attachmentStrip)
 
         textView.isRichText = false
         textView.allowsUndo = true
@@ -129,19 +152,30 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.verticalScrollElasticity = .none
-        field.addSubview(scrollView)
+        fieldContent.addSubview(scrollView)
 
         placeholder.font = MacConversationTheme.bodyFont
-        placeholder.textColor = .placeholderTextColor
-        field.addSubview(placeholder)
+        placeholder.textColor = .tertiaryLabelColor
+        fieldContent.addSubview(placeholder)
 
-        emojiButton.image = NSImage(systemSymbolName: "face.smiling", accessibilityDescription: String(localized: "conversation.composer.emoji", defaultValue: "Emoji", bundle: .module))
-        emojiButton.symbolConfiguration = .init(pointSize: 14, weight: .regular)
-        emojiButton.isBordered = false
-        emojiButton.contentTintColor = .secondaryLabelColor
+        // Glass buttons re-template their image (the inverse face lost its fill),
+        // so the glyph rides in an image view above the glass.
+        emojiButton.setAccessibilityLabel(String(localized: "conversation.composer.emoji", defaultValue: "Emoji", bundle: .module))
+        if #available(macOS 26.0, *) {
+            emojiButton.bezelStyle = .glass
+            emojiButton.controlSize = .large
+            emojiButton.borderShape = .circle
+        } else {
+            emojiButton.isBordered = false
+        }
+        emojiButton.contentTintColor = .labelColor
         emojiButton.target = self
         emojiButton.action = #selector(emojiTapped)
-        field.addSubview(emojiButton)
+        addSubview(emojiButton)
+        addSubview(emojiGlyph)
+
+        audioButton.setAccessibilityLabel(String(localized: "conversation.composer.audio", defaultValue: "Record audio", bundle: .module))
+        fieldContent.addSubview(audioButton)
 
         registerForDraggedTypes([.fileURL, .png, .tiff])
         updatePlaceholder()
@@ -151,28 +185,99 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Messages' five-bar audio glyph (no SF Symbol matches): 1.75 pt bars,
+    /// 3.6 pt apart, heights 4/7/14/7/4 pt, secondary label color.
+    private static func waveformGlyph(color: NSColor) -> NSImage {
+        let image = NSImage(size: NSSize(width: 16.5, height: 14), flipped: true) { rect in
+            color.setFill()
+            for (index, height) in [4.0, 7.0, 14.0, 7.0, 4.0].enumerated() {
+                let x = 0.0 + Double(index) * 3.6
+                let bar = NSRect(x: x, y: (rect.height - height) / 2, width: 1.75, height: height)
+                NSBezierPath(roundedRect: bar, xRadius: 0.875, yRadius: 0.875).fill()
+            }
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    /// Messages' grinning emoji glyph: a solid 15 pt face with knocked-out eyes
+    /// and an open grin whose upper teeth stay solid.
+    private static func emojiGlyph(color: NSColor) -> NSImage {
+        let image = NSImage(size: NSSize(width: 15, height: 15), flipped: true) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.setFillColor(color.cgColor)
+            context.fillEllipse(in: rect)
+            context.setBlendMode(.clear)
+            context.fillEllipse(in: CGRect(x: 4.0, y: 3.3, width: 2.0, height: 3.1))
+            context.fillEllipse(in: CGRect(x: 9.0, y: 3.3, width: 2.0, height: 3.1))
+            let mouth = CGMutablePath()
+            mouth.move(to: CGPoint(x: 3.0, y: 7.7))
+            mouth.addLine(to: CGPoint(x: 12.0, y: 7.7))
+            mouth.addCurve(to: CGPoint(x: 3.0, y: 7.7), control1: CGPoint(x: 11.8, y: 13.9), control2: CGPoint(x: 3.2, y: 13.9))
+            context.addPath(mouth)
+            context.fillPath()
+            context.setBlendMode(.normal)
+            context.addPath(mouth)
+            context.clip()
+            context.fill(CGRect(x: 2.5, y: 7.7, width: 10, height: 2.0))
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    private func updateGlyphs() {
+        // Fixed resolved colors: the glass container otherwise dims dynamic
+        // label colors in inactive windows, which Messages does not.
+        let dark = effectiveAppearance.isDarkMac
+        emojiGlyph.image = Self.emojiGlyph(color: dark ? NSColor(white: 0.96, alpha: 1) : NSColor(white: 0.1, alpha: 1))
+        audioButton.image = Self.waveformGlyph(color: dark ? NSColor(white: 0.53, alpha: 1) : NSColor(white: 0.45, alpha: 1))
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()
     }
 
     private func updateColors() {
-        layer?.backgroundColor = resolved(MacConversationTheme.background, in: self)
-        appsButton.layer?.backgroundColor = resolved(.quaternaryLabelColor, in: self)
-        field.layer?.borderColor = resolved(.separatorColor, in: self)
-        field.layer?.backgroundColor = resolved(.textBackgroundColor, in: self)
+        updateGlyphs()
+        // Transparent: the split view accessory supplies the scroll edge effect behind it.
+        layer?.backgroundColor = nil
+        if #unavailable(macOS 26.0) {
+            field.layer?.backgroundColor = resolved(.controlBackgroundColor, in: self)
+        }
     }
 
     override func layout() {
         super.layout()
-        let side: CGFloat = 12
-        appsButton.frame = CGRect(x: side, y: bounds.height - 10 - 28, width: 28, height: 28)
-        let fieldX = appsButton.frame.maxX + 8
-        field.frame = CGRect(x: fieldX, y: bounds.height - 10 - fieldHeight, width: bounds.width - fieldX - side, height: fieldHeight)
+        // Measured against macOS 26 Messages (window coordinates): 30 pt glass
+        // circles 12.5 pt from the window's trailing edge, 9.5 pt between circle
+        // and pill, pill bottom 11 pt above the window bottom. The split view
+        // accessory adds its own padding, so solve for the window-relative gap.
+        let circle: CGFloat = 30
+        var side: CGFloat = 11.5
+        var bottomInset: CGFloat = 11
+        if let window, let contentBounds = window.contentView?.bounds {
+            let inWindow = convert(bounds, to: nil)
+            side = max(0, 11.5 - (contentBounds.width - inWindow.maxX))
+            bottomInset = max(0, 11 - inWindow.minY)
+        }
+        let fieldBottom = bounds.height - bottomInset
+        appsButton.frame = CGRect(x: max(0, side - 1.5), y: fieldBottom - (minFieldHeight + circle) / 2, width: circle, height: circle)
+        emojiButton.frame = CGRect(x: bounds.width - side - circle, y: fieldBottom - (minFieldHeight + circle) / 2, width: circle, height: circle)
+        emojiGlyph.frame = emojiButton.frame
+        let fieldX = appsButton.frame.maxX + 9.5
+        field.frame = CGRect(x: fieldX, y: fieldBottom - fieldHeight, width: emojiButton.frame.minX - 9.5 - fieldX, height: fieldHeight)
+        fieldContent.frame = field.bounds
+        if #available(macOS 26.0, *), let glass = field as? NSGlassEffectView {
+            glass.cornerRadius = min(fieldHeight, minFieldHeight) / 2
+        }
+        let content = fieldContent.bounds
         var textTop: CGFloat = 0
         attachmentStrip.isHidden = attachments.isEmpty
         if !attachments.isEmpty {
-            attachmentStrip.frame = CGRect(x: 8, y: 6, width: field.bounds.width - 16, height: attachmentHeight)
+            attachmentStrip.frame = CGRect(x: 8, y: 6, width: content.width - 16, height: attachmentHeight)
             textTop = attachmentHeight + 10
             var x: CGFloat = 0
             for (index, view) in attachmentStrip.subviews.enumerated() where index < attachments.count {
@@ -183,15 +288,18 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
                 x += w + 6
             }
         }
-        scrollView.frame = CGRect(x: 10, y: textTop + 5.5, width: field.bounds.width - 10 - 30, height: field.bounds.height - textTop - 5.5)
+        let textInset: CGFloat = 11
+        let verticalInset = (minFieldHeight - lineHeight) / 2
+        scrollView.frame = CGRect(x: textInset, y: textTop + verticalInset, width: content.width - textInset - 34, height: content.height - textTop - verticalInset)
         textView.minSize = CGSize(width: 0, height: lineHeight)
         textView.maxSize = CGSize(width: scrollView.frame.width, height: .greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.textContainer?.containerSize = CGSize(width: scrollView.frame.width, height: .greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
         textView.frame.size.width = scrollView.contentSize.width
-        placeholder.frame = CGRect(x: 10, y: textTop + 5.5, width: field.bounds.width - 50, height: lineHeight)
-        emojiButton.frame = CGRect(x: field.bounds.width - 28, y: field.bounds.height - 24, width: 22, height: 20)
+        placeholder.frame = CGRect(x: textInset, y: textTop + verticalInset, width: content.width - textInset - 40, height: lineHeight)
+        audioButton.frame = CGRect(x: content.width - 29, y: content.height - minFieldHeight + 5, width: 22, height: minFieldHeight - 10)
+        audioButton.isHidden = hasContent
     }
 
     func textDidChange(_ notification: Notification) {
@@ -200,6 +308,7 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
 
     private func textDidChange() {
         updatePlaceholder()
+        needsLayout = true
         updateHeight()
         delegate?.composerDidChangeText(self)
     }
@@ -305,3 +414,18 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
     }
 }
 #endif
+
+/// Draws a fixed-color glyph image centered, through the layer, so inactive
+/// window dimming (applied to NSImageView/NSButton content) does not touch it.
+final class MacGlyphView: MacFlippedView {
+    var image: NSImage? { didSet { needsLayout = true } }
+
+    override func layout() {
+        super.layout()
+        guard let image, let layer else { layer?.contents = nil; return }
+        let scale = window?.backingScaleFactor ?? 2
+        layer.contentsScale = scale
+        layer.contents = image.cgImage(forProposedRect: nil, context: nil, hints: [.ctm: AffineTransform(scale: scale)])
+        layer.contentsGravity = .center
+    }
+}

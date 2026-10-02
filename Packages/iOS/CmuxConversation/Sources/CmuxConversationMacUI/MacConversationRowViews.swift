@@ -54,7 +54,7 @@ final class MacBubbleLayer: CAShapeLayer {
         let t = MacConversationTheme.self
         path = ConversationBubbleGeometry.path(
             in: rect, side: side, tail: tail,
-            radius: t.bubbleCornerRadius, tailWidth: t.tailWidth, tailDrop: t.tailDrop
+            radius: t.bubbleCornerRadius, tailWidth: t.tailWidth, tailDrop: t.tailDrop, style: .macOS
         )
     }
 }
@@ -83,6 +83,22 @@ final class MacAvatarView: MacFlippedView {
 
     var initials = "" { didSet { label.stringValue = initials } }
 
+    /// Tints the monogram with a participant color (Messages derives one per contact).
+    var colorHex: String? {
+        didSet {
+            guard let colorHex, let base = NSColor(hexString: colorHex) else {
+                gradient.colors = [
+                    NSColor(srgbRed: 0.66, green: 0.69, blue: 0.74, alpha: 1).cgColor,
+                    NSColor(srgbRed: 0.53, green: 0.56, blue: 0.62, alpha: 1).cgColor,
+                ]
+                return
+            }
+            // Messages monograms are muted contact tints, not saturated colors.
+            let muted = base.blended(withFraction: 0.6, of: NSColor(srgbRed: 0.45, green: 0.47, blue: 0.5, alpha: 1))!
+            gradient.colors = [muted.blended(withFraction: 0.15, of: .white)!.cgColor, muted.blended(withFraction: 0.2, of: .black)!.cgColor]
+        }
+    }
+
     override func layout() {
         super.layout()
         layer?.cornerRadius = bounds.width / 2
@@ -91,6 +107,14 @@ final class MacAvatarView: MacFlippedView {
         label.font = .systemFont(ofSize: bounds.width * 0.4, weight: .semibold)
         let h = label.font!.boundingRectForFont.height
         label.frame = CGRect(x: -4, y: (bounds.height - h) / 2 + 1, width: bounds.width + 8, height: h)
+    }
+}
+
+extension NSColor {
+    convenience init?(hexString: String) {
+        var value: UInt64 = 0
+        guard Scanner(string: hexString.trimmingCharacters(in: CharacterSet(charactersIn: "#"))).scanHexInt64(&value) else { return nil }
+        self.init(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
 }
 
@@ -142,6 +166,7 @@ final class MacMessageRowView: MacFlippedView {
     let quoteLabel = makeMacLabel()
     let threadLine = CAShapeLayer()
     let avatar = MacAvatarView()
+    let quoteAvatar = MacAvatarView()
     let badge = MacFlippedView()
     let badgeLabel = makeMacLabel()
     let editedLabel = makeMacLabel()
@@ -179,6 +204,7 @@ final class MacMessageRowView: MacFlippedView {
         footerLabel.font = MacConversationTheme.footerFont
         emojiLabel.font = .systemFont(ofSize: MacConversationTheme.emojiOnlyFontSize)
         addSubview(avatar)
+        addSubview(quoteAvatar)
         addSubview(badge)
         badge.addSubview(badgeLabel)
         failedBadge.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)
@@ -237,6 +263,12 @@ final class MacMessageRowView: MacFlippedView {
             quoteBubble.isHidden = true
             quoteLabel.isHidden = true
         }
+        quoteAvatar.isHidden = layout.quoteAvatarFrame == nil
+        if let frame = layout.quoteAvatarFrame, let quote = model.replyQuote {
+            quoteAvatar.frame = frame
+            quoteAvatar.initials = quote.senderInitials
+            quoteAvatar.colorHex = quote.senderColorHex
+        }
         threadLine.path = layout.threadPath
         threadLine.isHidden = layout.threadPath == nil
         threadLine.strokeColor = resolved(MacConversationTheme.threadLine, in: self)
@@ -245,6 +277,7 @@ final class MacMessageRowView: MacFlippedView {
         if let frame = layout.avatarFrame {
             avatar.frame = frame
             avatar.initials = model.senderInitials
+            avatar.colorHex = model.senderColorHex
         }
 
         configureBadge(model, layout: layout)
@@ -343,7 +376,7 @@ final class MacMessageRowView: MacFlippedView {
             let mask = CAShapeLayer()
             mask.path = ConversationBubbleGeometry.path(
                 in: CGRect(origin: .zero, size: frame.size), side: model.isOutgoing ? .trailing : .leading, tail: tailed,
-                radius: MacConversationTheme.bubbleCornerRadius, tailWidth: MacConversationTheme.tailWidth, tailDrop: 0
+                radius: MacConversationTheme.bubbleCornerRadius, tailWidth: MacConversationTheme.tailWidth, tailDrop: 0, style: .macOS
             )
             view.layer?.mask = mask
             let attachment = model.message.attachments[index]

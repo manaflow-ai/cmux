@@ -39,6 +39,9 @@ import CmuxSentryReporting
 import CmuxSidebar
 import CmuxGit
 import os
+#if DEBUG
+import CmuxConversationMacUI
+#endif
 
 private nonisolated let sudoApprovalLogger = Logger(
     subsystem: "com.cmuxterm.app",
@@ -1645,6 +1648,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        // DEBUG lab: open the Messages-style conversation surface against a
+        // conversation-sim URL in CMUX_UITEST_CONVERSATION_LAB.
+        MacConversationLab.openIfRequested()
+        #endif
         // Start the one browser-availability watcher before any gated view or
         // menu mounts: it is lazy, and its consumers only observe its
         // notification, so nothing else would bring it up (#10866).

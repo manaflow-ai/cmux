@@ -29,11 +29,16 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     let scrollView = NSScrollView()
     let tableView = MacTranscriptTableView()
-    let header = MacConversationHeaderView()
     let composer = MacComposerView()
+    /// The window puts the composer in its bottom accessory and the title in its toolbar.
+    var onComposerHeightChange: (() -> Void)?
+    var onInfoChange: ((ConversationInfo, String?, Bool) -> Void)?
     let layoutCache = MacMessageLayoutCache()
     private let initialSpinner = NSProgressIndicator()
-    private var composerHeight: NSLayoutConstraint?
+    private let topEdge = NSVisualEffectView()
+    private let topEdgeMask = CAGradientLayer()
+    private let topEdgeTint = NSView()
+    private let topEdgeTintMask = CAGradientLayer()
 
     private(set) var rows: [MacConversationRow] = []
     private var rowIndex: [String: Int] = [:]
@@ -46,6 +51,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     // Reply / edit state.
     private var replyTarget: ConversationMessage?
+    private var replyFocus: MacReplyFocusView?
     private var editingMessageID: String?
     private let replyBanner = MacReplyBanner()
 
@@ -96,15 +102,27 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(scrollView)
 
-        header.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(header)
-        composer.translatesAutoresizingMaskIntoConstraints = false
         composer.delegate = self
-        view.addSubview(composer)
         replyBanner.translatesAutoresizingMaskIntoConstraints = false
         replyBanner.isHidden = true
         replyBanner.onClose = { [weak self] in self?.exitReplyOrEdit() }
         view.addSubview(replyBanner)
+
+        // Soft top edge: content scrolling under the toolbar blurs and fades,
+        // matching the system scroll edge effect Messages shows there.
+        topEdge.material = .headerView
+        topEdge.blendingMode = .withinWindow
+        topEdge.state = .active
+        topEdge.wantsLayer = true
+        topEdge.layer?.mask = topEdgeMask
+        topEdgeMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+        topEdgeMask.locations = [0, 0.55, 1]
+        topEdgeTint.wantsLayer = true
+        topEdgeTint.layer?.mask = topEdgeTintMask
+        topEdgeTintMask.colors = [NSColor.black.cgColor, NSColor.black.withAlphaComponent(0.6).cgColor, NSColor.clear.cgColor]
+        topEdgeTintMask.locations = [0, 0.45, 1]
+        view.addSubview(topEdge)
+        view.addSubview(topEdgeTint)
 
         initialSpinner.style = .spinning
         initialSpinner.controlSize = .regular
@@ -113,24 +131,15 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         view.addSubview(initialSpinner)
         initialSpinner.startAnimation(nil)
 
-        let height = composer.heightAnchor.constraint(equalToConstant: composer.preferredHeight)
-        composerHeight = height
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            // The content pane extends under the floating sidebar; the transcript starts beside it.
+            scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            header.topAnchor.constraint(equalTo: view.topAnchor),
-            header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            header.heightAnchor.constraint(equalToConstant: MacConversationHeaderView.height),
-            composer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            composer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            composer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            height,
-            replyBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            replyBanner.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
             replyBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            replyBanner.bottomAnchor.constraint(equalTo: composer.topAnchor),
+            replyBanner.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             replyBanner.heightAnchor.constraint(equalToConstant: 30),
             initialSpinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             initialSpinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
@@ -147,10 +156,20 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     public override func viewDidAppear() {
         super.viewDidAppear()
         view.window?.makeFirstResponder(composer.textView)
+        if hasPositioned, isPinnedToBottom { scrollToBottom() }
     }
+
 
     public override func viewDidLayout() {
         super.viewDidLayout()
+        let edgeHeight = view.safeAreaInsets.top + 18
+        // Starts above the view so the band reaches the window's top edge.
+        let edgeFrame = CGRect(x: view.safeAreaInsets.left, y: -40, width: view.bounds.width - view.safeAreaInsets.left, height: edgeHeight + 40)
+        topEdge.frame = edgeFrame
+        topEdgeTint.frame = edgeFrame
+        topEdgeMask.frame = topEdge.bounds
+        topEdgeTintMask.frame = topEdgeTint.bounds
+        topEdgeTint.layer?.backgroundColor = resolved(MacConversationTheme.background, in: view)
         updateInsets()
         let width = scrollView.contentSize.width
         // One column, exactly as wide as the visible transcript.
@@ -170,8 +189,9 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     private func updateInsets() {
-        let top = MacConversationHeaderView.height
-        let bottom = composer.frame.height + (replyBanner.isHidden ? 0 : 30) + 8
+        // The toolbar and the composer accessory arrive as safe-area insets.
+        let top = view.safeAreaInsets.top
+        let bottom = view.safeAreaInsets.bottom + (replyBanner.isHidden ? 0 : 30) + 8
         let content = tableView.bounds.height
         let visible = scrollView.bounds.height - top - bottom
         // Short transcripts sit at the bottom, like Messages.
@@ -266,7 +286,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             initialSpinner.stopAnimation(nil)
             initialSpinner.isHidden = true
         }
-        if let info = store.info { header.configure(info: info, meID: store.meID, connected: store.connection == .connected) }
+        if let info = store.info { onInfoChange?(info, store.meID, store.connection == .connected) }
         if case .connection = change { return }
 
         let newRows = MacConversationRowBuilder.rows(store: store)
@@ -410,7 +430,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     func composerDidChangeHeight(_ composer: MacComposerView) {
-        composerHeight?.constant = composer.preferredHeight
+        onComposerHeightChange?()
         view.layoutSubtreeIfNeeded()
         updateInsets()
     }
@@ -429,7 +449,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         let text = composer.text
         composer.clearAfterSend()
         pendingSendRowID = store.send(text: text, images: images, replyToID: replyTo)
-        if replyTarget != nil { exitReplyOrEdit() }
+        if replyTarget != nil { exitReplyOrEdit(sent: true) }
     }
 
     func composerDidTapApps(_ composer: MacComposerView) {
@@ -459,10 +479,41 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         replyTarget = message
         composer.isReplyMode = true
         composer.isEditMode = false
-        replyBanner.configure(title: String(localized: "conversation.composer.reply", defaultValue: "Reply", bundle: .module), text: message.text)
-        replyBanner.isHidden = false
+        replyBanner.isHidden = true
         updateInsets()
+        showReplyFocus(for: message)
         view.window?.makeFirstResponder(composer.textView)
+    }
+
+    /// Messages' reply mode: the transcript blurs behind a lifted copy of the
+    /// message being answered, which springs down to sit on the composer.
+    private func showReplyFocus(for message: ConversationMessage) {
+        replyFocus?.removeFromSuperview()
+        guard let index = rows.firstIndex(where: { if case let .message(model) = $0 { return model.message.id == message.id } else { return false } }),
+              let row = rowView(at: index) else { return }
+        let focus = MacReplyFocusView(frame: scrollView.frame)
+        focus.messageID = message.id
+        focus.autoresizingMask = [.width, .height]
+        focus.onDismiss = { [weak self] in self?.exitReplyOrEdit() }
+        view.addSubview(focus, positioned: .above, relativeTo: scrollView)
+        let source = row.convert(row.bounds, to: focus)
+        let bottomInset = view.safeAreaInsets.bottom + 10
+        var target = source
+        target.origin.y = focus.isFlipped ? focus.bounds.height - bottomInset - source.height : bottomInset
+        focus.present(snapshotOf: row, from: source, to: target)
+        replyFocus = focus
+    }
+
+    private func dismissReplyFocus(sent: Bool) {
+        guard let focus = replyFocus else { return }
+        replyFocus = nil
+        var destination: CGRect?
+        if !sent, let message = focus.messageID,
+           let index = rows.firstIndex(where: { if case let .message(model) = $0 { return model.message.id == message } else { return false } }),
+           let row = rowView(at: index) {
+            destination = row.convert(row.bounds, to: focus)
+        }
+        focus.dismiss(returningTo: destination)
     }
 
     func enterEdit(_ message: ConversationMessage) {
@@ -477,7 +528,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         view.window?.makeFirstResponder(composer.textView)
     }
 
-    func exitReplyOrEdit() {
+    func exitReplyOrEdit(sent: Bool = false) {
+        dismissReplyFocus(sent: sent)
         if editingMessageID != nil { composer.clearAfterSend() }
         replyTarget = nil
         editingMessageID = nil
@@ -916,105 +968,95 @@ final class MacReplyBanner: MacFlippedView {
     @objc private func closeTapped() { onClose?() }
 }
 
-/// macOS 26 Messages conversation header: a glass bar with the avatar and
-/// name centered, call and info buttons at the trailing edge.
-final class MacConversationHeaderView: MacFlippedView {
-    static let height: CGFloat = 52
-    private let glass: NSView
-    private let avatar = MacAvatarView()
-    private let name = makeMacLabel()
-    private let status = makeMacLabel()
-    private let video = NSButton()
-    private let info = NSButton()
+#endif
+
+/// The reply-mode backdrop: a within-window blur over the transcript with a
+/// snapshot of the answered message lifted above it. Clicking the blur cancels.
+final class MacReplyFocusView: NSView {
+    var onDismiss: (() -> Void)?
+    var messageID: String?
+    private let blur = NSVisualEffectView()
+    private let snapshotView = MacFlippedView()
+    private var snapshot: CALayer { snapshotView.layer! }
 
     override init(frame: NSRect) {
-        if #available(macOS 26.0, *) {
-            glass = NSGlassEffectView()
-        } else {
-            let blur = NSVisualEffectView()
-            blur.material = .headerView
-            blur.blendingMode = .withinWindow
-            glass = blur
-        }
         super.init(frame: frame)
-        addSubview(glass)
-        addSubview(avatar)
-        name.font = .systemFont(ofSize: 13, weight: .semibold)
-        name.alignment = .center
-        name.maximumNumberOfLines = 1
-        addSubview(name)
-        status.font = .systemFont(ofSize: 10)
-        status.textColor = .secondaryLabelColor
-        status.alignment = .center
-        addSubview(status)
-        for (button, symbol, label) in [
-            (video, "video", String(localized: "conversation.header.action", defaultValue: "Call", bundle: .module)),
-            (info, "info.circle", String(localized: "conversation.header.info", defaultValue: "Details", bundle: .module)),
-        ] {
-            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-            button.symbolConfiguration = .init(pointSize: 14, weight: .regular)
-            button.isBordered = false
-            button.contentTintColor = .secondaryLabelColor
-            addSubview(button)
-        }
+        wantsLayer = true
+        blur.material = .underWindowBackground
+        blur.blendingMode = .withinWindow
+        blur.state = .active
+        blur.frame = bounds
+        blur.autoresizingMask = [.width, .height]
+        blur.alphaValue = 0
+        addSubview(blur)
+        addSubview(snapshotView)
+        setAccessibilityIdentifier("conversation.replyFocus")
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(info: ConversationInfo, meID: String?, connected: Bool) {
-        name.stringValue = info.title
-        let other = info.participants.first { $0.id != meID }
-        avatar.initials = info.kind == .group ? String(info.title.prefix(2)).uppercased() : (other?.initials ?? "")
-        status.stringValue = connected ? "" : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module)
-        needsLayout = true
+    override var isFlipped: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if !snapshotView.frame.contains(point) { onDismiss?() }
     }
 
-    override func layout() {
-        super.layout()
-        glass.frame = bounds
-        avatar.frame = CGRect(x: bounds.midX - 12, y: 6, width: 24, height: 24)
-        name.frame = CGRect(x: 60, y: 31, width: bounds.width - 120, height: 16)
-        status.frame = CGRect(x: 60, y: 31, width: bounds.width - 120, height: 14)
-        status.isHidden = status.stringValue.isEmpty
-        name.isHidden = !status.isHidden
-        info.frame = CGRect(x: bounds.width - 36, y: 16, width: 22, height: 20)
-        video.frame = CGRect(x: bounds.width - 66, y: 16, width: 24, height: 20)
+    // AppKit-backed layers anchor at their origin, so position == frame origin.
+    func present(snapshotOf row: NSView, from source: CGRect, to target: CGRect) {
+        // Render the layer tree: bubbles are CALayers that cacheDisplay skips.
+        let scale = window?.backingScaleFactor ?? 2
+        let size = row.bounds.size
+        if let layer = row.layer, size.width > 0, size.height > 0,
+           let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            context.scaleBy(x: scale, y: scale)
+            context.translateBy(x: 0, y: size.height)
+            context.scaleBy(x: 1, y: -1)
+            NSAppearance.current = row.effectiveAppearance
+            layer.render(in: context)
+            snapshot.contents = context.makeImage()
+        }
+        snapshot.contentsScale = scale
+        snapshotView.frame = target
+        let lift = CASpringAnimation(keyPath: "position")
+        lift.fromValue = NSValue(point: source.origin)
+        lift.toValue = NSValue(point: target.origin)
+        lift.damping = 26
+        lift.stiffness = 300
+        lift.mass = 1
+        lift.duration = lift.settlingDuration
+        snapshot.add(lift, forKey: "lift")
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.22
+            blur.animator().alphaValue = 1
+        }
+    }
+
+    func dismiss(returningTo destination: CGRect?) {
+        if let destination {
+            let current = snapshot.presentation()?.position ?? snapshot.position
+            snapshotView.frame = destination
+            let drop = CASpringAnimation(keyPath: "position")
+            drop.fromValue = NSValue(point: current)
+            drop.toValue = NSValue(point: destination.origin)
+            drop.damping = 26
+            drop.stiffness = 300
+            drop.duration = drop.settlingDuration
+            snapshot.add(drop, forKey: "drop")
+        } else {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 1
+            fade.toValue = 0
+            fade.duration = 0.18
+            snapshot.opacity = 0
+            snapshot.add(fade, forKey: "fade")
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = destination == nil ? 0.18 : 0.28
+            blur.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated { self?.removeFromSuperview() }
+        })
     }
 }
-
-/// Opens the conversation lab window (DEBUG hosts only).
-@MainActor
-public enum MacConversationLab {
-    private static var windows: [NSWindowController] = []
-
-    /// Reads `CMUX_UITEST_CONVERSATION_LAB` (a conversation-sim WebSocket URL).
-    public static func openIfRequested(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        guard let raw = environment["CMUX_UITEST_CONVERSATION_LAB"], let url = URL(string: raw) else { return }
-        open(endpoint: url)
-    }
-
-    @discardableResult
-    public static func open(endpoint: URL) -> MacConversationViewController {
-        let store = ConversationStore(backend: ConversationSimBackend(endpoint: endpoint))
-        let controller = MacConversationViewController(store: store)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 760),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered, defer: false
-        )
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.title = String(localized: "conversation.lab.title", defaultValue: "Conversation", bundle: .module)
-        window.contentViewController = controller
-        window.minSize = NSSize(width: 360, height: 420)
-        window.setContentSize(NSSize(width: 620, height: 760))
-        window.center()
-        window.identifier = .init("cmux.conversationLab")
-        let windowController = NSWindowController(window: window)
-        windows.append(windowController)
-        windowController.showWindow(nil)
-        return controller
-    }
-}
-#endif

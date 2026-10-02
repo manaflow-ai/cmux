@@ -8,6 +8,13 @@ public enum ConversationBubbleGeometry {
         case trailing
     }
 
+    /// iOS tails curl out past the body edge; macOS tails tuck under the
+    /// bottom corner and point down, inside the body's width.
+    public enum TailStyle: Sendable {
+        case iOS
+        case macOS
+    }
+
     /// `rect` includes the tail area on `side` whether or not a tail is drawn,
     /// so tailed and tailless bubbles in a run share one body edge. A tailed
     /// bubble also draws `tailDrop` below `rect`.
@@ -17,7 +24,8 @@ public enum ConversationBubbleGeometry {
         tail: Bool,
         radius: CGFloat,
         tailWidth: CGFloat,
-        tailDrop: CGFloat
+        tailDrop: CGFloat,
+        style: TailStyle = .iOS
     ) -> CGPath {
         var body = rect
         body.size.width -= tailWidth
@@ -29,7 +37,9 @@ public enum ConversationBubbleGeometry {
         var transform = side == .leading
             ? CGAffineTransform(translationX: rect.maxX, y: rect.minY).scaledBy(x: -1, y: 1)
             : CGAffineTransform(translationX: rect.minX, y: rect.minY)
-        let path = trailingTailPath(width: body.width, height: body.height, radius: r, tailWidth: tailWidth, tailDrop: tailDrop)
+        let path = style == .macOS
+            ? macTrailingTailPath(width: body.width, height: body.height, radius: r, tailDrop: tailDrop)
+            : trailingTailPath(width: body.width, height: body.height, radius: r, tailWidth: tailWidth, tailDrop: tailDrop)
         return path.copy(using: &transform) ?? path
     }
 
@@ -49,6 +59,31 @@ public enum ConversationBubbleGeometry {
         // Rounded tip, then the inner edge back into the bottom of the body.
         p.addCurve(to: CGPoint(x: w - 4, y: h + d - 1.2), control1: CGPoint(x: w + t * 0.95 + 0.6, y: h + d + 0.9), control2: CGPoint(x: w - 2.2, y: h + d - 0.2))
         p.addCurve(to: CGPoint(x: w - r * 1.05, y: h), control1: CGPoint(x: w - 7, y: h + d * 0.55), control2: CGPoint(x: w - r * 0.65, y: h))
+        p.addLine(to: CGPoint(x: r, y: h))
+        p.addCurve(to: CGPoint(x: 0, y: h - r), control1: CGPoint(x: r * k, y: h), control2: CGPoint(x: 0, y: h - r * k))
+        p.addLine(to: CGPoint(x: 0, y: r))
+        p.addCurve(to: CGPoint(x: r, y: 0), control1: CGPoint(x: 0, y: r * k), control2: CGPoint(x: r * k, y: 0))
+        p.closeSubpath()
+        return p
+    }
+
+    /// macOS Messages: the bottom-trailing corner rounds in early, then a
+    /// short tail drops `tailDrop` below the body with its tip just inside
+    /// the trailing edge, and sweeps back into the bottom edge.
+    private static func macTrailingTailPath(width w: CGFloat, height h: CGFloat, radius r: CGFloat, tailDrop d: CGFloat) -> CGPath {
+        let k: CGFloat = 0.4477
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: r, y: 0))
+        p.addLine(to: CGPoint(x: w - r, y: 0))
+        p.addCurve(to: CGPoint(x: w, y: r), control1: CGPoint(x: w - r * k, y: 0), control2: CGPoint(x: w, y: r * k))
+        p.addLine(to: CGPoint(x: w, y: max(r, h - r * 0.5)))
+        // A small concave notch where the corner would be.
+        p.addCurve(to: CGPoint(x: w - 3.2, y: h - 0.6), control1: CGPoint(x: w, y: h - r * 0.18), control2: CGPoint(x: w - 1.2, y: h - 1.4))
+        // The tail: down and slightly back toward the trailing edge.
+        p.addCurve(to: CGPoint(x: w - 2.4, y: h + d), control1: CGPoint(x: w - 4.6, y: h + d * 0.35), control2: CGPoint(x: w - 4.2, y: h + d * 0.8))
+        // Rounded tip, then the underside back into the bottom edge.
+        p.addCurve(to: CGPoint(x: w - 5.6, y: h + d - 0.8), control1: CGPoint(x: w - 1.2, y: h + d + 0.9), control2: CGPoint(x: w - 3.6, y: h + d + 0.3))
+        p.addCurve(to: CGPoint(x: w - r * 0.95, y: h), control1: CGPoint(x: w - 8.5, y: h + d * 0.5), control2: CGPoint(x: w - r * 0.62, y: h))
         p.addLine(to: CGPoint(x: r, y: h))
         p.addCurve(to: CGPoint(x: 0, y: h - r), control1: CGPoint(x: r * k, y: h), control2: CGPoint(x: 0, y: h - r * k))
         p.addLine(to: CGPoint(x: 0, y: r))

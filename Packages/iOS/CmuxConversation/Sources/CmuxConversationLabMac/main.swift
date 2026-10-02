@@ -26,19 +26,25 @@ if arguments.count > 3 {
                         let reply: String
                         if line.hasPrefix("resize ") {
                             let size = line.dropFirst(7).split(separator: "x").compactMap { Double($0) }
-                            if size.count == 2, let window = controller.view.window {
+                            if size.count == 2, let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.conversationLab" }) {
                                 window.setContentSize(NSSize(width: size[0], height: size[1]))
                                 reply = "ok"
                             } else {
                                 reply = "error usage resize WxH"
                             }
+                        } else if line.hasPrefix("select ") {
+                            MacConversationLab.select(String(line.dropFirst(7)))
+                            reply = "ok"
                         } else if line == "window" {
-                            reply = "window \(controller.view.window?.windowNumber ?? 0)"
+                            reply = "window \(NSApp.windows.first(where: { $0.identifier?.rawValue == "cmux.conversationLab" })?.windowNumber ?? 0)"
+                        } else if line == "deactivate" {
+                            app.deactivate()
+                            reply = "ok"
                         } else if line.hasPrefix("appearance ") {
                             app.appearance = NSAppearance(named: line.hasSuffix("light") ? .aqua : .darkAqua)
                             reply = "ok"
                         } else {
-                            reply = controller.labCommand(line)
+                            reply = (MacConversationLab.selectedController ?? controller).labCommand(line)
                         }
                         print("\(line) -> \(reply)")
                         fflush(stdout)
