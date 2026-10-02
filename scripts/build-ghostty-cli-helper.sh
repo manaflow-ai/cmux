@@ -392,7 +392,9 @@ build_helper() {
   local metal_toolchain
   metal_toolchain="${CMUX_METAL_TOOLCHAIN_IDENTIFIER:-}"
   if [[ -z "$metal_toolchain" ]]; then
-    metal_toolchain="$(xcodebuild -showComponent MetalToolchain -json 2>/dev/null \
+    # Use the system shim explicitly. Xcode build phases can provide a
+    # different PATH and leave the installed cryptex toolchain undiscoverable.
+    metal_toolchain="$(/usr/bin/xcodebuild -showComponent MetalToolchain -json 2>/dev/null \
       | /usr/bin/python3 -c 'import json, sys; print(json.load(sys.stdin).get("toolchainIdentifier", ""))' \
       2>/dev/null || true)"
   fi
@@ -404,9 +406,12 @@ build_helper() {
     # Xcode exports TOOLCHAINS=com.apple.dt.toolchain.XcodeDefault, which
     # hides the separately installed Metal Toolchain from xcrun. Select the
     # installed Metal component explicitly while keeping SDKROOT unset for Zig.
-    if [[ -n "$metal_toolchain" ]]; then
+    if [[ -n "$metal_toolchain" ]] && \
+      /usr/bin/xcrun --toolchain "$metal_toolchain" --find metal >/dev/null 2>&1; then
+      echo "Using Metal toolchain $metal_toolchain"
       env -u SDKROOT TOOLCHAINS="$metal_toolchain" "${args[@]}"
     else
+      echo "Metal toolchain lookup failed; using the default Xcode toolchain" >&2
       env -u SDKROOT -u TOOLCHAINS "${args[@]}"
     fi
   )
