@@ -146,6 +146,13 @@ export class MockAcpmuxSocket {
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
   private sessions: Record<string, any>[] = [];
+  /// Folder trust as acpmux would read it from the agents' stores: the seeded projects the
+  /// user has worked in are trusted; billing-service and dotfiles were never decided.
+  private trust = new Map<string, string>([
+    ["~/code/cmux", "trusted"],
+    ["~/code/acpmux", "trusted"],
+    ["~/code/atlas-web", "trusted"],
+  ]);
   private events: EventRecord[] = [];
   private seq = 0;
   private turns = 0;
@@ -292,6 +299,16 @@ export class MockAcpmuxSocket {
           });
         this.queue = turn.catch(() => undefined);
         return turn;
+      }
+      case "acp.trust.get": {
+        const cwd = String(params.cwd ?? "");
+        return { cwd, level: this.trust.get(cwd) ?? "unknown" };
+      }
+      case "acp.trust.set": {
+        const cwd = String(params.cwd ?? "");
+        const level = params.level === "untrusted" ? "untrusted" : "trusted";
+        this.trust.set(cwd, level);
+        return { cwd, level };
       }
       default:
         return {};

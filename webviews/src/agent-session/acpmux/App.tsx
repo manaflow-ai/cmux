@@ -26,6 +26,9 @@ import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
+import { needsTrust, type TrustSource } from "./folderTrust";
+import { TRUST_LABELS, TrustFolderDialog } from "./TrustFolderDialog";
+import { agentName } from "./agents";
 import { DiffPanel } from "./DiffPanel";
 import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
@@ -93,6 +96,12 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
     },
   );
 }
+
+/// Folder trust lives with acpmux (or the mock daemon), else the native host.
+const trustSource: TrustSource = {
+  get: (cwd) => callNative("acp.trust.get", { cwd }),
+  set: (cwd, level) => callNative("acp.trust.set", { cwd, level }),
+};
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
@@ -645,6 +654,24 @@ function AcpmuxPane() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // A new chat centers its composer under the hero, as Codex's home does.
   const freshChat = isNewChat(snapshot);
+  // The first prompt in a folder the user hasn't decided on waits behind "Trust this folder?".
+  const [trustAsk, setTrustAsk] = useState<{ cwd: string; agent: string; answer(go: boolean): void }>();
+  const sendContext = useRef({ freshChat, cwd: snapshot.summary?.cwd, harness: snapshot.summary?.harness });
+  sendContext.current = { freshChat, cwd: snapshot.summary?.cwd, harness: snapshot.summary?.harness };
+  const confirmSend = useCallback(async () => {
+    const { freshChat: fresh, cwd, harness } = sendContext.current;
+    if (!fresh || !cwd || !(await needsTrust(trustSource, cwd))) return true;
+    return new Promise<boolean>((resolve) =>
+      setTrustAsk({
+        cwd,
+        agent: harness ? agentName(harness) : TRUST_LABELS.agent,
+        answer: (go) => {
+          setTrustAsk(undefined);
+          resolve(go);
+        },
+      }),
+    );
+  }, []);
   // Codex's turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
   // The open changes view: a turn of one session, and the control that opened it.
@@ -884,6 +911,8 @@ function AcpmuxPane() {
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
+          "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
+          "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
         };
         client.snapshot();
       } catch (error) {
@@ -980,8 +1009,20 @@ function AcpmuxPane() {
           draft={draft}
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
+          confirmSend={confirmSend}
         />
       </div>
+      {trustAsk && (
+        <TrustFolderDialog
+          cwd={trustAsk.cwd}
+          agent={trustAsk.agent}
+          onTrust={async () => {
+            await trustSource.set(trustAsk.cwd, "trusted");
+            trustAsk.answer(true);
+          }}
+          onCancel={() => trustAsk.answer(false)}
+        />
+      )}
     </section>
   );
 }

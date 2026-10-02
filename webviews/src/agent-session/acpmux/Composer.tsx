@@ -38,6 +38,9 @@ type Props = {
   accessory?: React.ReactNode;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
+  /// Asked before a prompt goes, such as whether the user trusts the folder. False keeps the
+  /// prompt in the box unsent; a failure sends it, so a host that can't answer never blocks.
+  confirmSend?(prompt: string): Promise<boolean>;
 };
 
 /// The prompt box with the agent's `/` command menu, drawn as Codex's composer:
@@ -47,7 +50,19 @@ type Props = {
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
-export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leading, accessory, onAttach }: Props) {
+export function Composer({
+  snapshot,
+  chips: Chips,
+  onSend,
+  onStop,
+  draft,
+  leading,
+  accessory,
+  onAttach,
+  confirmSend,
+}: Props) {
+  // A send waiting on confirmSend; a second Enter meanwhile does nothing.
+  const confirming = useRef(false);
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -114,12 +129,25 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
   const submit = (event: React.SyntheticEvent) => {
     event.preventDefault();
     const prompt = unwrapped().trim();
-    plusDraft.current = undefined;
-    if (!prompt) return;
-    edit("", 0);
-    sentAt.current = Date.now();
-    refocusSend.current = document.activeElement?.classList.contains("acpmux-send") ?? false;
-    onSend(prompt);
+    if (!prompt) plusDraft.current = undefined;
+    if (!prompt || confirming.current) return;
+    const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
+    const send = () => {
+      plusDraft.current = undefined;
+      edit("", 0);
+      sentAt.current = Date.now();
+      refocusSend.current = fromSend;
+      onSend(prompt);
+    };
+    if (!confirmSend) return send();
+    confirming.current = true;
+    void confirmSend(prompt)
+      .catch(() => true)
+      .then((go) => {
+        confirming.current = false;
+        if (go) send();
+        else textarea.current?.focus();
+      });
   };
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   const mention = () => {

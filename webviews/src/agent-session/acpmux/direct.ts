@@ -475,6 +475,16 @@ export class AcpmuxDirectClient {
     );
   }
 
+  /// Whether the user trusts `cwd` (folderTrust.ts).
+  trustGet(cwd: string): Promise<unknown> {
+    return this.request("acp.trust.get", { cwd });
+  }
+
+  /// Records the user's trust in `cwd` in each agent's own store (folderTrust.ts).
+  trustSet(cwd: string, level: string): Promise<unknown> {
+    return this.request("acp.trust.set", { cwd, level });
+  }
+
   private request(method: string, params: Record<string, unknown>): Promise<any> {
     if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("acpmux WebSocket is not open"));
     const id = this.nextRequest++;
