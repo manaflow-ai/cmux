@@ -50,6 +50,7 @@ const en = {
   "project.none": "No matching projects",
   "link.copyChat": "Copy chat link",
   "link.sessionMissing": "This chat isn't available. It was deleted, or it's on a machine that isn't connected.",
+  "permission.required": "Permission required",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -102,6 +103,7 @@ const ja: Record<StringKey, string> = {
   "project.none": "一致するプロジェクトはありません",
   "link.copyChat": "チャットのリンクをコピー",
   "link.sessionMissing": "このチャットは利用できません。削除されたか、接続されていないマシン上にあります。",
+  "permission.required": "許可が必要です",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

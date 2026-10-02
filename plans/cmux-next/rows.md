@@ -359,6 +359,18 @@ cmux-tui serves `rows-v1` (awaitingPin until the pin owner cuts a pin).
   drop between rows, close of the last pane of a row, rows inside a sticky column, an old app
   against a `rows-v1` daemon.
 
+## Step 2 status (2026-10-02)
+
+Reducer rows are implemented on branch `feat-cmux-next-layoutmodel` (5188b2e4f21, review
+fixes 4da1547bf3e): `Column.rows` partitions the column's ordered panes into consecutive runs
+(`Row { id, height_permille, len }`; empty = one implicit row, so the daemon projection and
+every existing op are unchanged); ops `InsertRow` (refuses content already placed),
+`MoveTabToRow` (respawn; own place per R6), `SetRowHeights` (stale row set refused, `fit` sums
+to 1000), `FlattenRows`; invariant `Violation::RowLayout`. 23 crate tests including a property
+test (5000 cases on nx-remote) pass, fmt and clippy are clean. Not landed: the hosted cmux-tui
+verification could not be dispatched (GitHub API 403 on 2026-10-02 22:41 UTC); it lands when
+that run is green. `Destination::Row` is `MoveTabToRow` (no Destination enum exists yet).
+
 ## Steps (each lands alone; feat-cmux-next stays shippable)
 
 1. This note, TLA+ model with TLC numbers.

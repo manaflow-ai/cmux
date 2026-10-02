@@ -43,6 +43,7 @@ public final class TabPaletteProvider: PaletteProvider {
                         title: PaletteStrings.renameTab,
                         placeholder: PaletteStrings.tabNamePlaceholder,
                         initialText: tab.title,
+                        skipsUnchangedText: true,
                         submitTitle: PaletteStrings.renameTo,
                         submit: { source.renameTab(id: id, to: $0) }
                     ))),

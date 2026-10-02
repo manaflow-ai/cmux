@@ -45,8 +45,8 @@ import Testing
     }
 
     @Test func markWaitsForTheHostedDaemon() {
-        #expect(DaemonCapabilities.shared.awaitingPin.contains(DaemonCapabilities.shared.notificationMarkUnread))
-        #expect(!DaemonCapabilities.shared.optional.contains(DaemonCapabilities.shared.notificationMarkUnread))
+        #expect(!DaemonCapabilities.shared.awaitingPin.contains(DaemonCapabilities.shared.notificationMarkUnread))
+        #expect(DaemonCapabilities.shared.optional.contains(DaemonCapabilities.shared.notificationMarkUnread))
         #expect(DaemonCapabilities.shared.advertised.contains("notification-mark-unread-v1"))
     }
 }
