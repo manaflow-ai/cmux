@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 /// A long-lived JSON-lines connection to one local cmux-tui session socket.
 ///
@@ -53,6 +54,10 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
     private var pendingWriteTokens: [UUID?] = []
     private var pendingWriteHead = 0
     private var cancelledWriteTokens = Set<UUID>()
+    // Tracks admission blocks before they reach the serial queue. A cancellation
+    // that wins this race leaves a fence for exactly that block; completed writes
+    // never enter the fence set.
+    private let admissionTokens = OSAllocatedUnfairLock(initialState: Set<UUID>())
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
     private let pendingWriteByteLimit = 256 * 1024
@@ -95,6 +100,7 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     /// Connects to the local link socket and starts line delivery.
     public func start() async throws {
+        admissionTokens.withLock { $0.insert(token) }
         try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 queue.async { [self] in
@@ -164,6 +170,7 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
         try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 queue.async { [self, line] in
+                    admissionTokens.withLock { $0.remove(token) }
                     if cancelledWriteTokens.remove(token) != nil {
                         continuation.resume(throwing: CheckedSendError.notSent)
                         return
@@ -192,12 +199,10 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func cancelCheckedWrite(_ token: UUID) {
         queue.async { [self] in
             guard let index = pendingWriteTokens.firstIndex(where: { $0 == token }) else {
-                // The write already drained before the cancellation callback
-                // reached the queue. Keep only a bounded fence for the rare
-                // inverse ordering where the enqueue block is still pending.
-                cancelledWriteTokens.insert(token)
-                if cancelledWriteTokens.count > 1024 {
-                    cancelledWriteTokens.removeFirst()
+                // If the enqueue block is still pending, leave a fence for that
+                // block. Once admission has run, a completed write needs no fence.
+                if admissionTokens.withLock({ $0.contains(token) }) {
+                    cancelledWriteTokens.insert(token)
                 }
                 return
             }

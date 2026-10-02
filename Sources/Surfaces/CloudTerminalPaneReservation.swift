@@ -34,6 +34,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         var remoteRebindInFlight = false
         var remoteRebindToken: UUID?
         var remoteRebindTask: Task<Void, Never>?
+        var remoteAwaitingRebind = false
         var discarded = false
     }
 
@@ -103,6 +104,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteRebindToken = nil
             state.remoteRebindTask?.cancel()
             state.remoteRebindTask = nil
+            state.remoteAwaitingRebind = false
             promoteRequestedRouterIfReadyLocked(&state)
         }
     }
@@ -124,6 +126,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteRebindToken = nil
             state.remoteRebindTask?.cancel()
             state.remoteRebindTask = nil
+            state.remoteAwaitingRebind = false
             if let existing = state.remoteSink, existing.terminalID == terminalID {
                 startRemoteWorkerLocked(&state)
                 promoteRequestedRouterIfReadyLocked(&state)
@@ -184,6 +187,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteRebindToken = nil
             state.remoteRebindTask?.cancel()
             state.remoteRebindTask = nil
+            state.remoteAwaitingRebind = false
             state.router = nil
             state.discarded = true
         }
@@ -270,6 +274,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                 // untouched suffix remains ordered in `pending`.
                 state.remoteBindingPending = false
                 state.remoteRebind = nil
+                state.remoteAwaitingRebind = false
                 promoteRequestedRouterIfReadyLocked(&state)
             }
         }
@@ -329,6 +334,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             clearRemoteQueueLocked(&state)
             state.remoteSink = nil
             state.remoteBindingPending = true
+            state.remoteAwaitingRebind = true
             state.remoteInFlight = false
             startRemoteRebindLocked(&state)
         }
@@ -346,6 +352,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteBindingPending = false
             state.remoteBindingToken = nil
             state.remoteRebind = nil
+            state.remoteAwaitingRebind = false
             state.remoteInFlight = false
             promoteRequestedRouterIfReadyLocked(&state)
         }
@@ -369,6 +376,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         guard state.router == nil,
               let requestedRouter = state.requestedRouter,
               !state.remoteBindingPending,
+              !state.remoteAwaitingRebind,
               state.remoteWorker == nil,
               remoteQueueIsEmptyLocked(state),
               !state.remoteInFlight else { return }
