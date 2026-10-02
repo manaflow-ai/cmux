@@ -13,6 +13,19 @@ pub(super) struct Plan {
     pub(super) global: GlobalArgs,
 }
 
+pub(super) fn command(
+    args: &[String],
+    global: GlobalArgs,
+) -> Result<Option<super::command::ParsedCommand>, UsageError> {
+    if args.first().map(String::as_str) != Some("run") {
+        return Ok(None);
+    }
+    if args[1..].iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
+        return Ok(Some(super::command::ParsedCommand::Help(Some("run".to_owned()))));
+    }
+    Ok(Some(super::command::ParsedCommand::CodeMode(parse(&args[1..], global)?)))
+}
+
 pub(super) fn parse(args: &[String], global: GlobalArgs) -> Result<Plan, UsageError> {
     let Some(script) = args.first() else {
         return Err(UsageError::new("cmux run needs a TypeScript script path"));

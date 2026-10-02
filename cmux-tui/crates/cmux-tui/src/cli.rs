@@ -231,7 +231,7 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "run") => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
@@ -243,11 +243,8 @@ fn parse_command(
     if let Some(command) = docs::command(&command_args, global.clone())? {
         return Ok(command);
     }
-    if command_args[0] == "run" {
-        if command_args[1..].iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
-            return Ok(ParsedCommand::Help(Some("run".to_owned())));
-        }
-        return Ok(ParsedCommand::CodeMode(code_mode::parse(&command_args[1..], global)?));
+    if let Some(command) = code_mode::command(&command_args, global)? {
+        return Ok(command);
     }
     if has_help_option(&command_args) {
         let words = command_args
@@ -549,7 +546,6 @@ fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
         messages.root_remote_usage, messages.root_server_usage, messages.root_server_scope,
     )
 }
-
 const MACHINE_HELP: &str = "\
 USAGE
   cmux machine list
@@ -557,13 +553,11 @@ USAGE
   cmux machine <selector> session list
   cmux machine <selector> session <selector> open
 ";
-
 const SESSION_HELP_PREFIX: &str = "\
 USAGE
   cmux session list
   cmux session <selector> open|show|snapshot|ping|shutdown
 ";
-
 const SESSION_HELP_SUFFIX: &str = "\
   cmux session <selector> creation <correlation-key> resolve
   cmux session <selector> events [--generation <value> --revision <decimal>]
@@ -588,7 +582,6 @@ const SESSION_HELP_SUFFIX: &str = "\
   cmux session <selector> window title clear
   cmux session <selector> terminal defaults set [OPTIONS]
 ";
-
 fn session_help(
     messages: &crate::localization::SessionResetMessages,
     local_server: &crate::localization::LocalServerMessages,

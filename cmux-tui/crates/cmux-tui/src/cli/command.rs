@@ -16,7 +16,6 @@ pub(super) enum ParsedCommand {
     CodeMode(super::code_mode::Plan),
     Command { global: GlobalArgs, plan: CommandPlan },
 }
-
 pub(super) enum CommandPlan {
     Server(super::lifecycle::ServerPlan),
     AgentHooks(crate::agent_hook_install::Plan),
