@@ -30,7 +30,7 @@ import {
   type WorkspaceDetail,
 } from "./rowDetail";
 import {
-  newWorkspace,
+  newTerminalWorkspace,
   openFromHistory,
   openSessionIds,
   seedStack,
@@ -165,10 +165,8 @@ export function WorkspaceShell() {
           className="proto-rail-button"
           aria-label="New workspace"
           title={terminalStyle ? "New workspace (terminal)" : "New workspace"}
-          onClick={() => {
-            show(newWorkspace(stack, terminalStyle ? "terminal" : "agent"));
-            if (!terminalStyle) void window.cmuxAcpmuxActions?.["chat.new"]?.({});
-          }}
+          // Only classic cmux's terminal workspace is modelled; a new chat needs the pane to name its session.
+          onClick={terminalStyle ? () => show(newTerminalWorkspace(stack)) : undefined}
         >
           <PlusIcon />
         </button>
