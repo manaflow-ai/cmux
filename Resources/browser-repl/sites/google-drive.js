@@ -85,11 +85,18 @@
           return t.withTab(`https://docs.google.com/${kind}/create${q}`, async (page) => {
             await t.waitIn(page, () => /\/d\/[\w-]+\/edit/.test(location.pathname) && !!document.querySelector(".docs-title-input"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.create", what: "the new file's editor", timeout: 45000 });
             const id = /\/d\/([\w-]+)\//.exec(new URL(page.url()).pathname)[1];
+            // A rename typed while the editor loads is lost: rename once it
+            // settles, then confirm through the tab title, retrying.
             const input = page.locator(".docs-title-input").first();
-            await input.click();
-            await input.fill(title);
-            await input.press("Enter");
-            await t.sleep(800);
+            let renamed = false;
+            for (let attempt = 0; attempt < 4 && !renamed; attempt++) {
+              await t.sleep(attempt ? 1500 : 1500);
+              await input.click();
+              await input.fill(title);
+              await input.press("Enter");
+              renamed = await t.waitIn(page, (want) => document.title.startsWith(want + " - "), title, { timeout: 3000, what: "the new title" }).then(() => true, () => false);
+            }
+            if (!renamed) throw new S.SiteError("rename_failed", `googleDrive.create: created ${kind} ${id} but could not name it`);
             created.add(id);
             return { id, url: `https://docs.google.com/${kind}/d/${id}/edit`, title };
           });
