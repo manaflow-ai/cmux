@@ -20,7 +20,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openFilesPane",
         ],
         .noObject: [
-            "openSettings", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
+            "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
             "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV",
@@ -74,13 +74,13 @@ nonisolated extension ActionSurfaceCatalog {
             "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerOpenWith", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest", "checklistEditItem",
             "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-            "checklistAttachImages",
+            "checklistAttachImages", "cloudExec",
         ],
         .focusMove: [
             "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "selectWorkspaceByNumber", "workspace.selectFirst",
-            "workspace.selectLast", "workspace.selectLastUsed", "room.next", "room.previous", "room.selectByNumber",
-            "room.switch", "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
+            "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",
+            "space.switch", "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
             "canvasRevealFocusedPane", "nextSurface", "prevSurface", "selectSurfaceByNumber", "palette.goToTab",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
             "focusBrowserAddressBar", "focusRightSidebar", "vaultFocusSession", "jumpToUnread",
@@ -111,7 +111,7 @@ nonisolated extension ActionSurfaceCatalog {
             "findPrevious", "hideFind", "toggleUnread",
         ],
         .dragGesture: [
-            "room.move", "browser.extension.move", "bookmark.move",
+            "space.move", "browser.extension.move", "bookmark.move",
         ],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",

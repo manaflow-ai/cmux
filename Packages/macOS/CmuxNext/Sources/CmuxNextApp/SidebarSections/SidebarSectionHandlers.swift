@@ -111,7 +111,7 @@ enum SidebarSectionHandlers {
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
             return .sectionUpdate(section.id, SectionPatch(showsTitle: !section.showsTitle))
         }
-        bind("sidebar.section.toggleRoomScope") { [weak services = context.services] invocation, doc in
+        bind("sidebar.section.toggleSpaceScope") { [weak services = context.services] invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
             guard section.room == nil else { return .sectionUpdate(section.id, SectionPatch(room: .clear)) }
             let room = services?.windows.active?.state.profileID.rawValue

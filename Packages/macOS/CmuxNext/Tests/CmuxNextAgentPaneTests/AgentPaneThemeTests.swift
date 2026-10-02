@@ -101,8 +101,9 @@ import Testing
     /// page must too: its own copy of the color over the sheet (0.8 over 0.8
     /// is 0.96) is a near-solid block over the blur. The field adds only a
     /// faint tint; text and labels on the accent stay opaque. A macOS glass
-    /// style makes the window non-opaque even at opacity 1.
-    @Test(arguments: [(0.8, 20), (1.0, -1)])
+    /// style makes the window non-opaque even at opacity 1; every material
+    /// (frosted, regular and clear glass) keeps the page clear.
+    @Test(arguments: [(0.8, 20), (0.8, 0), (1.0, -1), (0.6, -2)])
     func aTranslucentWindowsPaneLetsAsMuchThroughAsTheTerminal(opacity: Double, blur: Int) throws {
         let tokens = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E2E), foreground: ThemeRGB(hex: 0xCDD6F4),
                                                          backgroundOpacity: opacity, backgroundBlur: blur))

@@ -1,0 +1,63 @@
+.acpmux-handoff-review {
+  width: min(760px, calc(100% - 36px));
+  margin: 24px auto;
+  color: var(--agent-text);
+  overflow: auto;
+  padding-bottom: 24px;
+}
+.acpmux-handoff-provenance { margin: 0 0 8px; font-weight: 500; }
+.acpmux-handoff-project { margin: 0 0 24px; color: var(--agent-muted); overflow-wrap: anywhere; }
+.acpmux-handoff-review form { display: grid; gap: 16px; }
+.acpmux-handoff-review label { display: grid; gap: 8px; font-size: 12px; color: var(--agent-muted); }
+.acpmux-handoff-review textarea, .acpmux-handoff-review input:not([type=checkbox]) {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+  color: var(--agent-text);
+  background: var(--acpmux-composer-tray);
+}
+.acpmux-handoff-review .acpmux-handoff-confirm { display: flex; align-items: center; gap: 8px; }
+.acpmux-handoff-confirm input { accent-color: var(--agent-text); }
+.acpmux-handoff-review details label { margin-top: 12px; }
+.acpmux-handoff-review summary { cursor: pointer; color: var(--agent-muted); }
+.acpmux-handoff-coverage { margin: 0; color: var(--agent-muted); font-size: 11px; }
+.acpmux-handoff-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.acpmux-handoff-buttons button {
+  border: 0;
+  border-radius: 16px;
+  padding: 8px 12px;
+  font: inherit;
+  color: var(--agent-text);
+  background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, transparent));
+  cursor: pointer;
+}
+.acpmux-handoff-buttons button[type=button] { background: none; color: var(--agent-muted); }
+.acpmux-handoff-buttons button:disabled { opacity: .45; cursor: default; }
+.acpmux-handoff-review :focus-visible { outline: 1px solid var(--agent-muted); outline-offset: 2px; }
+.acpmux-handoff-review [role=alert] { margin: 0; color: var(--agent-text); }
+.acpmux-handoff-header-tools { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.acpmux-session-coverage { max-width: 160px; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: var(--agent-muted); }
+.acpmux-handoff-targets { position: relative; }
+.acpmux-handoff-targets > summary { list-style: none; cursor: pointer; color: var(--agent-muted); padding: 4px 8px; }
+.acpmux-handoff-targets > div {
+  position: absolute;
+  z-index: 10;
+  right: 0;
+  top: 100%;
+  padding: 6px;
+  min-width: 160px;
+  border-radius: 10px;
+  background: var(--acpmux-menu-bg);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+.acpmux-handoff-targets button { display: block; width: 100%; text-align: left; border: 0; border-radius: 6px; background: none; color: var(--agent-text); padding: 8px; font: inherit; cursor: pointer; }
+.acpmux-handoff-targets button:hover { background: var(--acpmux-menu-hover); }
+.acpmux-handoff-targets button:disabled { color: var(--agent-muted); cursor: default; }
+
+.acpmux-handoff-targets > button { color: var(--agent-muted); width: auto; white-space: nowrap; }
+.acpmux-handoff-error { margin: 8px 24px; color: var(--agent-text); font-size: 12px; }

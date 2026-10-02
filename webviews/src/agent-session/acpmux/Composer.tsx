@@ -12,7 +12,7 @@ import { t } from "./i18n";
 const STOP_GUARD_MS = 600;
 
 export const COMPOSER_LABELS = {
-  placeholder: "Ask anything, @ for context, / for commands",
+  placeholder: "Do anything",
   add: "Add",
   mention: "Mention a file or folder",
   attach: "Attach files or images",
@@ -40,6 +40,8 @@ type Props = {
   accessory?: React.ReactNode;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
+  /// Starts a new chat in another project; the tray's project pill chooses only when set.
+  onProject?(cwd: string): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -49,7 +51,17 @@ type Props = {
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
-export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leading, accessory, onAttach }: Props) {
+export function Composer({
+  snapshot,
+  chips: Chips,
+  onSend,
+  onStop,
+  draft,
+  leading,
+  accessory,
+  onAttach,
+  onProject,
+}: Props) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -211,7 +223,17 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
           ))}
         </ol>
       )}
-      <ComposerContext summary={snapshot.summary} />
+      <ComposerContext
+        summary={snapshot.summary}
+        sessions={snapshot.sessions}
+        onProject={
+          onProject &&
+          ((cwd) => {
+            onProject(cwd);
+            field.current?.focus();
+          })
+        }
+      />
       <div className="acpmux-composer-box">
         {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
         {open && (
