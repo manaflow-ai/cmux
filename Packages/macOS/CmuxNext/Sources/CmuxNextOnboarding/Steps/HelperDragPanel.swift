@@ -22,20 +22,20 @@ final class HelperDragPanel: NSPanel {
         let line = OnboardingLabel.make(OnboardingStrings.computerUseHelperDrag, font: OnboardingMetrics.captionFont,
                                         color: Palette.textSecondary, lines: 2)
         line.preferredMaxLayoutWidth = 220
-        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: OnboardingStrings.computerUseHelperClose) ?? NSImage(),
-                             target: nil, action: nil)
-        close.isBordered = false
-        close.contentTintColor = Palette.textTertiary
-        close.toolTip = OnboardingStrings.computerUseHelperClose
+        let close = HelperPanelCloseButton(target: nil, action: nil)
         let stack = NSStackView(views: [tile, line, close])
         stack.alignment = .centerY
         stack.spacing = 12
         stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 12)
         let size = stack.fittingSize
-        let surface = Glass.makeOverlayPanel(content: stack, cornerRadius: 14)
+        let surface = Glass.makeOverlayPanel(content: stack)
+        // A window's content view sizes by its frame, not constraints.
+        surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = NSRect(origin: .zero, size: size)
-        stack.frame = surface.contentView.bounds
+        surface.layoutSubtreeIfNeeded()
+        stack.frame = NSRect(origin: .zero, size: size)
         contentView = surface
+        ThemeStore.shared.adopt(self)
         setContentSize(size)
         close.target = self
         close.action = #selector(closePressed)

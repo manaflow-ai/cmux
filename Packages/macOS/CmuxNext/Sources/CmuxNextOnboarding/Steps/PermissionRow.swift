@@ -27,7 +27,7 @@ final class PermissionRow: NSView {
         check.contentTintColor = Palette.success
         done.setViews([check, OnboardingLabel.make(OnboardingStrings.computerUseDone, color: Palette.textSecondary)], in: .leading)
         done.spacing = 5
-        allow.setAccessibilityLabel("\(OnboardingStrings.computerUseAllow) \(title)")
+        allow.setAccessibilityLabel(OnboardingStrings.computerUseAllowNamed(title))
         for view in [icon, names, allow, done] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)

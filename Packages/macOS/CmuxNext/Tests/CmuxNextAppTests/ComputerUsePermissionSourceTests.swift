@@ -32,4 +32,13 @@ import Testing
         first.cancel()
         #expect(await first.value == nil)
     }
+
+    @Test func aSocketFileWithNoDaemonIsNotListening() throws {
+        let path = FileManager.default.temporaryDirectory.appending(path: "cu-\(UUID().uuidString.prefix(8)).sock").path
+        #expect(!AppComputerUsePermissionSource.isListening(path))
+        // A leftover file where a socket was: still nobody to answer.
+        try Data().write(to: URL(fileURLWithPath: path))
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        #expect(!AppComputerUsePermissionSource.isListening(path))
+    }
 }

@@ -8,6 +8,10 @@ extension OnboardingStrings {
                defaultValue: "Agents can see and use your apps when you ask them to. macOS needs two permissions for that.", bundle: .module)
     }
     static var computerUseAllow: String { String(localized: "onboarding.computerUse.allow", defaultValue: "Allow", bundle: .module) }
+    /// Allow's VoiceOver label, naming the grant ("Allow Accessibility").
+    static func computerUseAllowNamed(_ name: String) -> String {
+        String(format: String(localized: "onboarding.computerUse.allow.named", defaultValue: "Allow %@", bundle: .module), name)
+    }
     static var computerUseDone: String { String(localized: "onboarding.computerUse.done", defaultValue: "Done", bundle: .module) }
     static func computerUseName(_ pane: ComputerUsePermissionPane) -> String {
         switch pane {

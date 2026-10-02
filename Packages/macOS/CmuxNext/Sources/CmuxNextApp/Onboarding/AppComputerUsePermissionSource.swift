@@ -18,12 +18,41 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
         self.configuration = configuration
     }
 
-    /// A source over the default socket, or nil when this Mac has no
-    /// cmux-cua daemon socket (onboarding then leaves the step out).
+    /// A source over the default socket, or nil when no cmux-cua daemon
+    /// listens there (onboarding then leaves the step out). A socket file
+    /// left by a daemon that exited does not count.
     static func local() -> AppComputerUsePermissionSource? {
         let configuration = AgentActivitySocketSource.Configuration.standard(machineName: "")
-        guard FileManager.default.fileExists(atPath: configuration.socketPath) else { return nil }
+        guard isListening(configuration.socketPath) else { return nil }
         return AppComputerUsePermissionSource(configuration: configuration)
+    }
+
+    /// Whether a process accepts connections on the Unix socket at `path`.
+    /// The descriptor is non-blocking, so a local connect returns at once:
+    /// accepted, refused (no daemon), or EAGAIN (a daemon with a full
+    /// backlog, which still counts).
+    static func isListening(_ path: String) -> Bool {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let capacity = MemoryLayout.size(ofValue: address.sun_path)
+        guard path.utf8.count < capacity else { return false }
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: path.utf8)
+            buffer[path.utf8.count] = 0
+        }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var one: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        let result = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                // concurrency-allow: O_NONBLOCK local connect, answered at once and never waits on the daemon
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        return result == 0 || errno == EAGAIN
     }
 
     func permissions() -> AsyncStream<ComputerUsePermissions> {

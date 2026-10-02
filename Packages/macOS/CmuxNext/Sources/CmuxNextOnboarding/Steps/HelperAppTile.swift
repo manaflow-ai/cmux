@@ -14,7 +14,7 @@ final class HelperAppTile: NSView, NSDraggingSource {
         translatesAutoresizingMaskIntoConstraints = false
         let icon = NSImageView(image: NSWorkspace.shared.icon(forFile: appURL.path))
         icon.imageScaling = .scaleProportionallyUpOrDown
-        let name = OnboardingLabel.make(appURL.deletingPathExtension().lastPathComponent)
+        let name = OnboardingLabel.make(Self.displayName(appURL))
         let stack = NSStackView(views: [icon, name])
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -25,8 +25,18 @@ final class HelperAppTile: NSView, NSDraggingSource {
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 8), stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
         ])
         setAccessibilityRole(.button)
-        setAccessibilityLabel(appURL.deletingPathExtension().lastPathComponent)
+        setAccessibilityLabel(Self.displayName(appURL))
     }
+
+    /// The name Finder shows (localized, no extension).
+    static func displayName(_ appURL: URL) -> String {
+        let name = FileManager.default.displayName(atPath: appURL.path)
+        return name.hasSuffix(".app") ? String(name.dropLast(4)) : name
+    }
+
+    /// The panel sits over System Settings with cmux in the background:
+    /// the first click must start the drag.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }

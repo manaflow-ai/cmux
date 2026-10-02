@@ -64,10 +64,10 @@ final class ComputerUseStepView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Leaving the step (or closing onboarding) takes the panel with it.
-        if window == nil {
-            panel?.orderOut(nil)
-            panel = nil
-            panelPane = nil
-        }
+        // Back in a window (a gallery switch), a pending grant's panel returns.
+        panel?.orderOut(nil)
+        panel = nil
+        panelPane = nil
+        if window != nil { render() }
     }
 }
