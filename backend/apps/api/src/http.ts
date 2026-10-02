@@ -39,7 +39,31 @@ const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
 })
 
 const userStub = (user: string) => env.USER_DO.get(env.USER_DO.idFromName(user))
-const teamStub = (team: string) => env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
+
+/** Shape every owner DO exposes over RPC (OwnerDO). */
+interface OwnerStub {
+  submit(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin?: string; expected_revision?: string }): Promise<unknown>
+  readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<unknown>
+}
+
+/**
+ * Owner routing: which object owns an op for this principal. UserDO is keyed by
+ * the user; TeamDO and SchedulerDO by the principal's team (phase 1: the
+ * personal team from the token; Stack teams will need a TeamDO membership check
+ * before routing to a team other than the token's).
+ */
+const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: string; stream: string } => {
+  switch (owner) {
+    case "cloud:UserDO":
+      return { stub: userStub(p.user!) as unknown as OwnerStub, entity: p.user!, stream: `user:${p.user}` }
+    case "cloud:TeamDO":
+      return { stub: env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `team:${p.team}` }
+    case "cloud:SchedulerDO":
+      return { stub: env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `scheduler:${p.team}` }
+    default:
+      throw new Error(`no route for owner ${owner}`)
+  }
+}
 
 const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreachable", message: String(e), retryable: true })
 
@@ -54,8 +78,8 @@ const principalFor = (owner: string, p: Principal) =>
 const submitTo = (owner: string, principalIn: Principal, frame: { op: string; params: unknown; idempotency_key: string; origin?: string; expected_revision?: string }) =>
   Effect.flatMap(principalFor(owner, principalIn), (principal) => Effect.tryPromise({
     try: (): Promise<SubmitResult> => {
-      const f = { t: "op" as const, ...frame } as Parameters<ReturnType<typeof userStub>["submit"]>[2]
-      return rpc<SubmitResult>(owner === "cloud:UserDO" ? userStub(principal.user!).submit(principal.user!, principal, f) : teamStub(principal.team!).submit(principal.team!, principal, f))
+      const route = ownerRoute(owner, principal)
+      return rpc<SubmitResult>(route.stub.submit(route.entity, principal, { t: "op" as const, ...frame }))
     },
     catch: unreachable
   }))
@@ -145,17 +169,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
         const reader = yield* principalFor(def.owner, principal)
-        const r = yield* Effect.tryPromise({
-          try: () =>
-            rpc<ReadResult>(
-              def.owner === "cloud:UserDO"
-                ? userStub(reader.user!).readOp(reader.user!, reader, payload.op, payload.params)
-                : teamStub(reader.team!).readOp(reader.team!, reader, payload.op, payload.params)
-            ),
-          catch: unreachable
-        })
-        if (!r.ok) return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
-        return { op: payload.op, value: r.value, stream: def.owner === "cloud:UserDO" ? `user:${principal.user}` : `team:${principal.team}`, revision: r.revision }
+        const route = ownerRoute(def.owner, reader)
+        const r = yield* Effect.tryPromise({ try: () => rpc<ReadResult>(route.stub.readOp(route.entity, reader, payload.op, payload.params)), catch: unreachable })
+        if (!r.ok) {
+          if (r.code === "selector.not_found" || r.code === "validation.invalid") return yield* new BadRequest({ code: r.code, message: r.message })
+          return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+        }
+        return { op: payload.op, value: r.value, stream: route.stream, revision: r.revision }
       })
     )
     .handle("debug", () =>
