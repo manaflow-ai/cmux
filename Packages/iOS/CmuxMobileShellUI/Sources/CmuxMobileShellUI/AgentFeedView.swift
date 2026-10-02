@@ -234,6 +234,7 @@ struct AgentFeedView: View {
             }
         }
         .listStyle(.plain)
+        .accessibilityIdentifier("AgentFeedScrollContainer")
         // Swiping the feed lowers the keyboard, so an abandoned inline reply
         // never pins it over the timeline.
         .scrollDismissesKeyboard(.interactively)

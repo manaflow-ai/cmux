@@ -187,16 +187,16 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        let list = app.tables.firstMatch
-        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        let scrollContainer = app.descendants(matching: .any)["AgentFeedScrollContainer"]
+        XCTAssertTrue(scrollContainer.waitForExistence(timeout: 10))
         let metrics = app.descendants(matching: .any)["AgentFeedScrollStressMetrics"]
         XCTAssertTrue(metrics.waitForExistence(timeout: 5))
 
         for _ in 0..<14 {
-            list.swipeUp(velocity: .fast)
+            scrollContainer.swipeUp(velocity: .fast)
         }
         for _ in 0..<14 {
-            list.swipeDown(velocity: .fast)
+            scrollContainer.swipeDown(velocity: .fast)
         }
 
         let complete = XCTNSPredicateExpectation(
