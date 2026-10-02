@@ -31,9 +31,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 <!-- generated: action surfaces -->
 
-## Counts (724 actions)
+## Counts (730 actions)
 
-Palette 721, CLI verbs 422, right-click 413, MCP tools 368.
+Palette 727, CLI verbs 428, right-click 413, MCP tools 374.
 
 ## Menus
 
@@ -47,7 +47,7 @@ Palette 721, CLI verbs 422, right-click 413, MCP tools 368.
 - **sidebarBackground**: newTab newBrowserWorkspace openFolder newWorkspaceGroup [new] > (workspace.newAtTop workspace.newAtBottom workspace.newOnMachine space.new reopenClosedWorkspace reopenPreviousSession | newCloudWorkspace remote.connect | sidebar.home.add sidebar.item.add sidebar.section.add) | [group] > (workspaceGroup.collapseAll workspaceGroup.expandAll) | [move] > (workspace.sortByName workspace.sortByLastUsed workspace.sortByDirectory) | toggleSidebar appStore.show | sidebar.layout.reset
 - **terminalSelection**: terminalCopy terminalPaste terminal.selectAll useSelectionForFind terminal.sendText | [split] > (splitRight splitDown splitLeft splitUp) [agent] > (palette.forkAgentConversationRight palette.forkAgentConversationNewTab palette.forkAgentConversationLeft palette.forkAgentConversationTop palette.forkAgentConversationBottom palette.forkAgentConversationNewWorkspace) | [options] > (clearScreenKeepScrollback resetTerminal terminal.clear) | toggleSplitZoom | palette.terminalOpenDirectory
 - **browserPage**: browserBack browserForward browserReload browserHardReload | browserTheme[choices] [options] > (toggleBrowserFocusMode toggleBrowserDesignMode) | bookmark.addPage | toggleBrowserDeveloperTools [tools] > (palette.browserOpenDefault browserScreenshotPage browserScreenshotSection | browser.pageInfo > (browser.pageInfo browser.pageInfo.connection browser.pageInfo.certificate | browser.pageInfo.setPermission browser.pageInfo.resetPermissions | browser.pageInfo.cookies browser.pageInfo.manageSiteData browser.pageInfo.deleteSiteData | browser.pageInfo.siteSettings browser.pageInfo.aboutThisPage) showBrowserJavaScriptConsole inspectBrowserElement | browser.extensions.menu browser.extensions.manage browser.extensions.webStore browser.extensions.loadUnpacked)
-- **cloudMachine**: cloudFilesList cloudFileRead cloudFileWrite cloudFileMkdir cloudFileRemove cloudFileStat cloudPrepareSCP | cloudNewTerminal cloudOpenMachine cloudSSH | cloudRenameMachine | [connection] > (cloudResizeMachine palette.cloud.status palette.cloud.snapshot palette.cloud.fork palette.cloud.handoff palette.cloud.ports palette.cloud.promoteTemplate palette.cloud.restore cloudPauseMachine cloudResumeMachine | palette.cloud.deleteSnapshot) | palette.cloud.tools [copy] > (cloudCopyMachineID cloudCopyLink cloudCopyPort) | cloudKillMachine
+- **cloudMachine**: cloudFilesList cloudFileRead cloudFileWrite cloudFileMkdir cloudFileRemove cloudFileStat cloudPrepareSCP cloudTunnelAttach cloudTunnelDetach cloudTunnelRotateKey cloudFirewallList cloudFirewallCreate cloudFirewallDelete | cloudNewTerminal cloudOpenMachine cloudSSH | cloudRenameMachine | [connection] > (cloudResizeMachine palette.cloud.status palette.cloud.snapshot palette.cloud.fork palette.cloud.handoff palette.cloud.ports palette.cloud.promoteTemplate palette.cloud.restore cloudPauseMachine cloudResumeMachine | palette.cloud.deleteSnapshot) | palette.cloud.tools [copy] > (cloudCopyMachineID cloudCopyLink cloudCopyPort) | cloudKillMachine
 - **sshMachine**: remote.newWorkspace | remote.reconnect remote.disconnect remote.install | remote.forget
 - **newTab**: newSurface openBrowser.chromium browserProfile.newTab palette.newAgentChat
 - **profile**: space.newWindow space.newWorkspace | space.new | space.rename [appearance] > (space.setColor > (space.color.grey space.color.blue space.color.red space.color.yellow space.color.green space.color.pink space.color.purple space.color.cyan space.color.orange | space.clearColor) space.setIcon space.clearIcon space.setTheme[choices] space.clearTheme) [options] > (space.setDefaults browserProfile.setSpaceDefault browserProfile.clearSpaceDefault) | [move] > (space.moveLeft space.moveRight) | space.delete

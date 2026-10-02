@@ -1,0 +1,64 @@
+import { defaultProviderId } from "../../../../services/vms/drivers";
+import { jsonResponse, resolveVmRouteAccountScope, vmErrorResponse, withAuthedVmApiRoute } from "../../../../services/vms/routeHelpers";
+import { runVmRoute } from "../../../../services/vms/routeWorkflow";
+import { createVmFirewallRule, deleteVmFirewallRule, getVmFirewallRule, listVmFirewallRules } from "../../../../services/vms/workflows";
+import { parseLenientObjectBody, optionalString } from "../../../../services/vms/routeInput";
+
+type Endpoint = { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: true; port?: number; protocol?: "tcp" | "udp" | "icmp" };
+const endpointKeys = new Set(["vmId", "vpcId", "tunnelId", "cidr", "public", "port", "protocol"]);
+
+function endpoint(raw: unknown, field: string): Endpoint | Response {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field} must be an endpoint object.`, action: "Pass vmId, vpcId, tunnelId, cidr, or public on each endpoint." });
+  const value = raw as Record<string, unknown>;
+  if (Object.keys(value).some((key) => !endpointKeys.has(key))) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field} contains an unsupported field.`, action: "Use only the documented firewall endpoint fields." });
+  const result: Endpoint = {};
+  for (const key of ["vmId", "vpcId", "tunnelId", "cidr"] as const) if (value[key] !== undefined) {
+    if (typeof value[key] !== "string" || !value[key].trim()) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.${key} must be a non-empty string.`, action: "Pass a valid resource id or CIDR." });
+    result[key] = value[key].trim();
+  }
+  if (value.public !== undefined && value.public !== true) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.public must be true when present.`, action: "Set public:true for public traffic." });
+  if (value.public === true) result.public = true;
+  if (value.port !== undefined && (typeof value.port !== "number" || !Number.isInteger(value.port) || value.port < 1 || value.port > 65535)) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.port must be between 1 and 65535.`, action: "Pass an integer port." });
+  if (value.port !== undefined) result.port = value.port as number;
+  if (value.protocol !== undefined && !["tcp", "udp", "icmp"].includes(String(value.protocol))) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.protocol is invalid.`, action: "Use tcp, udp, or icmp." });
+  if (value.protocol !== undefined) result.protocol = value.protocol as Endpoint["protocol"];
+  const identity = [result.vmId, result.vpcId, result.tunnelId, result.cidr, result.public].filter(Boolean);
+  if (identity.length === 0) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field} must identify a resource or address.`, action: "Pass an identity, CIDR, or public:true." });
+  if (result.port !== undefined && !result.protocol) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.protocol is required with port.`, action: "Pass tcp, udp, or icmp with the port." });
+  return result;
+}
+
+export async function GET(request: Request): Promise<Response> {
+  return withAuthedVmApiRoute(request, "/api/vm/firewall", { "cmux.vm.operation": "firewall_list" }, "/api/vm/firewall GET failed", async ({ user }) => {
+    const url = new URL(request.url);
+    const ruleId = optionalString(url.searchParams.get("ruleId"));
+    const result = ruleId
+      ? await runVmRoute(getVmFirewallRule({ userId: user.id, provider: defaultProviderId(), ruleId }), { request })
+      : await runVmRoute(listVmFirewallRules({ userId: user.id, provider: defaultProviderId(), vpcId: optionalString(url.searchParams.get("vpcId")), vmId: optionalString(url.searchParams.get("vmId")), tunnelId: optionalString(url.searchParams.get("tunnelId")) }), { request });
+    if (!result.ok) return result.response;
+    return jsonResponse(ruleId ? result.value : { rules: result.value });
+  });
+}
+
+export async function POST(request: Request): Promise<Response> {
+  return withAuthedVmApiRoute(request, "/api/vm/firewall", { "cmux.vm.operation": "firewall_create" }, "/api/vm/firewall POST failed", async ({ user }) => {
+    const body = await parseLenientObjectBody(request);
+    const source = endpoint(body.source, "source"); if (source instanceof Response) return source;
+    const destination = endpoint(body.destination, "destination"); if (destination instanceof Response) return destination;
+    const description = body.description === undefined ? undefined : optionalString(body.description);
+    if (body.description !== undefined && description === undefined) return vmErrorResponse({ error: "vm_invalid_firewall_description", status: 400, message: "description must be a string.", action: "Pass a short rule description." });
+    const result = await runVmRoute(createVmFirewallRule({ userId: user.id, provider: defaultProviderId(), source, destination, ...(description ? { description } : {}) }), { request });
+    if (!result.ok) return result.response;
+    return jsonResponse(result.value, { status: 201 });
+  });
+}
+
+export async function DELETE(request: Request): Promise<Response> {
+  return withAuthedVmApiRoute(request, "/api/vm/firewall", { "cmux.vm.operation": "firewall_delete" }, "/api/vm/firewall DELETE failed", async ({ user }) => {
+    const ruleId = optionalString(new URL(request.url).searchParams.get("ruleId"));
+    if (!ruleId) return vmErrorResponse({ error: "vm_invalid_firewall_rule", status: 400, message: "ruleId is required.", action: "Pass ?ruleId=... for the rule to delete." });
+    const result = await runVmRoute(deleteVmFirewallRule({ userId: user.id, provider: defaultProviderId(), ruleId }), { request });
+    if (!result.ok) return result.response;
+    return jsonResponse({ deleted: true, ruleId });
+  });
+}

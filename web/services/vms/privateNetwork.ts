@@ -666,6 +666,68 @@ export function revokeVmTunnel(input: {
   });
 }
 
+/** Attach a caller-owned tunnel to its owner network. The network id is checked
+ * against the durable owner mapping so callers cannot use this seam to attach
+ * a tunnel to another account's VPC. */
+export function attachVmTunnelNetwork(input: {
+  readonly userId: string;
+  readonly provider: ProviderId;
+  readonly deviceFingerprint: string;
+  readonly tunnelPurpose: "terminal" | "browser";
+  readonly networkId: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* requirePrivateNetworkingGateway(input.provider);
+    const repo = yield* requirePrivateNetworkingRepo(input.provider);
+    const network = yield* requireOwnerNetwork({ userId: input.userId, provider: input.provider });
+    if (network.providerNetworkId !== input.networkId) return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    const tunnel = yield* repo.findTunnel({ userId: input.userId, deviceFingerprint: input.deviceFingerprint, tunnelPurpose: input.tunnelPurpose });
+    if (!tunnel) return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    if (!providers.attachTunnelNetwork) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider: input.provider, reason: "tunnel attachment is unavailable" }));
+    return yield* providers.attachTunnelNetwork(input.provider, tunnel.providerTunnelId, input.networkId);
+  });
+}
+
+export function detachVmTunnelNetwork(input: {
+  readonly userId: string;
+  readonly provider: ProviderId;
+  readonly deviceFingerprint: string;
+  readonly tunnelPurpose: "terminal" | "browser";
+  readonly networkId: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* requirePrivateNetworkingGateway(input.provider);
+    const repo = yield* requirePrivateNetworkingRepo(input.provider);
+    const network = yield* requireOwnerNetwork({ userId: input.userId, provider: input.provider });
+    if (network.providerNetworkId !== input.networkId) return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    const tunnel = yield* repo.findTunnel({ userId: input.userId, deviceFingerprint: input.deviceFingerprint, tunnelPurpose: input.tunnelPurpose });
+    if (!tunnel) return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    if (!providers.detachTunnelNetwork) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider: input.provider, reason: "tunnel detachment is unavailable" }));
+    yield* providers.detachTunnelNetwork(input.provider, tunnel.providerTunnelId, input.networkId);
+    return { detached: true as const, tunnelId: tunnel.providerTunnelId, networkId: input.networkId };
+  });
+}
+
+export function rotateVmTunnelKey(input: {
+  readonly userId: string;
+  readonly provider: ProviderId;
+  readonly deviceFingerprint: string;
+  readonly tunnelPurpose: "terminal" | "browser";
+  readonly clientPublicKey: string;
+}) {
+  return Effect.gen(function* () {
+    const providers = yield* requirePrivateNetworkingGateway(input.provider);
+    const repo = yield* requirePrivateNetworkingRepo(input.provider);
+    const network = yield* requireOwnerNetwork({ userId: input.userId, provider: input.provider });
+    const tunnel = yield* repo.findTunnel({ userId: input.userId, deviceFingerprint: input.deviceFingerprint, tunnelPurpose: input.tunnelPurpose });
+    if (!tunnel) return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    if (!isWireGuardPublicKey(input.clientPublicKey)) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider: input.provider, reason: "invalid WireGuard public key" }));
+    const live = yield* providers.rotateTunnelKey(input.provider, tunnel.providerTunnelId, input.clientPublicKey.trim(), network.providerNetworkId);
+    yield* repo.updateTunnel({ id: tunnel.id, clientPublicKey: live.clientPublicKey, addressV4: live.addressV4, addressV6: live.addressV6, configIssued: true });
+    return { tunnelId: live.id, clientPublicKey: live.clientPublicKey, serverPublicKey: live.serverPublicKey, clientConfig: live.clientConfig };
+  });
+}
+
 /** A tunnel replaced on its Mac is reaped after this many days with no enrollment or config read. */
 export const DEFAULT_VM_TUNNEL_STALE_AFTER_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;

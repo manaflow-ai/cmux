@@ -129,6 +129,12 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.publicKeyString], targets: [.machine],
                 cliName: "cloud prepare-scp"
             ),
+            ActionDescriptor(id: "cloudTunnelAttach", title: "Attach Cloud Tunnel Network", keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "link", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-attach"),
+            ActionDescriptor(id: "cloudTunnelDetach", title: "Detach Cloud Tunnel Network", keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "link.badge.plus", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-detach"),
+            ActionDescriptor(id: "cloudTunnelRotateKey", title: "Rotate Cloud Tunnel Key", keywords: ["cloud", "tunnel", "key"], category: .cloud, symbol: "key", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.publicKeyString], cliName: "cloud tunnel-rotate-key"),
+            ActionDescriptor(id: "cloudFirewallList", title: "List Cloud Firewall Rules", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield", surfaces: [.palette, .contextMenu], cliName: "cloud firewall-list"),
+            ActionDescriptor(id: "cloudFirewallCreate", title: "Create Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.lefthalf.filled", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud firewall-create"),
+            ActionDescriptor(id: "cloudFirewallDelete", title: "Delete Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.slash", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString, CatalogArgument.confirmBool], cliName: "cloud firewall-delete", destructive: true),
             ActionDescriptor(
                 id: "cloudNewTerminal",
                 title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal on Machine", bundle: .module),

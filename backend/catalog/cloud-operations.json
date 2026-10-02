@@ -136,7 +136,6 @@
     "AutomationId": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^auto_[a-z0-9]{20}$",
       "description": "An automation definition, owned by its team's SchedulerDO."
     },
     "AutomationSettings": {
@@ -488,7 +487,6 @@
     "ConnectionId": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^conn_[a-z0-9]{20}$",
       "description": "One integration connection (a provider account linked to a team)."
     },
     "ConnectionStatus": {
@@ -528,7 +526,6 @@
     "DeviceId": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^dev_[a-z0-9]{20}$",
       "description": "A device (hardware) that groups installs."
     },
     "DeviceStatus": {
@@ -600,7 +597,6 @@
       "kind": "primitive",
       "name": "string",
       "max_length": 253,
-      "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
       "description": "A lowercase DNS name such as acme.com."
     },
     "EnrollmentToken": {
@@ -630,8 +626,7 @@
               "kind": "array",
               "items": {
                 "kind": "primitive",
-                "name": "string",
-                "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+                "name": "string"
               }
             }
           }
@@ -682,13 +677,11 @@
     "EnrollmentTokenHash": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^[A-Za-z0-9_-]{43}$",
       "description": "base64url(SHA-256(token)) without padding."
     },
     "EnrollmentTokenId": {
       "kind": "primitive",
-      "name": "string",
-      "pattern": "^enr_[a-z0-9]{20}$"
+      "name": "string"
     },
     "FeedAction": {
       "kind": "object",
@@ -772,8 +765,7 @@
           "required": true,
           "type": {
             "kind": "primitive",
-            "name": "string",
-            "pattern": "^[a-f0-9]{64}$"
+            "name": "string"
           }
         },
         "ref": {
@@ -1265,13 +1257,11 @@
     "FeedItemId": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^fi_[a-z0-9]{20}$",
       "description": "A feed item; stable when its home moves from a local owner to the cloud."
     },
     "FeedKind": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
       "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
     },
     "FeedOpen": {
@@ -1527,7 +1517,6 @@
     "GrantId": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^grant_[a-z0-9]{20}$",
       "description": "A server-side grant; tokens carry only its id."
     },
     "Host": {
@@ -1582,7 +1571,6 @@
     "HostId": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^host_[a-z0-9]{20}$",
       "description": "A machine's session host, enrolled by its link."
     },
     "Install": {
@@ -1677,7 +1665,6 @@
     "InstallId": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^inst_[a-z0-9]{20}$",
       "description": "One app, CLI or daemon install with its own keypair."
     },
     "InstallKind": {
@@ -1870,7 +1857,7 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 43,
+            "min_length": 22,
             "max_length": 43
           }
         },
@@ -1879,7 +1866,7 @@
           "type": {
             "kind": "primitive",
             "name": "string",
-            "min_length": 43,
+            "min_length": 22,
             "max_length": 43
           }
         }
@@ -1888,8 +1875,7 @@
     },
     "RepoPattern": {
       "kind": "primitive",
-      "name": "string",
-      "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+      "name": "string"
     },
     "Run": {
       "kind": "object",
@@ -2062,7 +2048,6 @@
     "RunId": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^run_[a-z0-9]{20}$",
       "description": "One automation run; also its Workflow instance id."
     },
     "RunState": {
@@ -2129,8 +2114,7 @@
                 "type": {
                   "kind": "primitive",
                   "name": "string",
-                  "max_length": 500,
-                  "pattern": "^https:\\/\\/[^\\s]+$"
+                  "max_length": 500
                 }
               },
               "client_id": {
@@ -2160,8 +2144,7 @@
                   "inner": {
                     "kind": "primitive",
                     "name": "string",
-                    "max_length": 500,
-                    "pattern": "^https:\\/\\/[^\\s]+$"
+                    "max_length": 500
                   }
                 }
               },
@@ -2172,8 +2155,7 @@
                   "inner": {
                     "kind": "primitive",
                     "name": "string",
-                    "max_length": 500,
-                    "pattern": "^https:\\/\\/[^\\s]+$"
+                    "max_length": 500
                   }
                 }
               },
@@ -2184,8 +2166,7 @@
                   "inner": {
                     "kind": "primitive",
                     "name": "string",
-                    "max_length": 500,
-                    "pattern": "^https:\\/\\/[^\\s]+$"
+                    "max_length": 500
                   }
                 }
               }
@@ -2249,8 +2230,7 @@
     },
     "SsoConnectionId": {
       "kind": "primitive",
-      "name": "string",
-      "pattern": "^ssoc_[a-z0-9]{20}$"
+      "name": "string"
     },
     "Step": {
       "kind": "union",
@@ -2430,7 +2410,6 @@
     "TeamId": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^team_[a-z0-9]{20}$",
       "description": "A team; a personal account is a team of one."
     },
     "TeamIntegrationPolicy": {
@@ -3003,8 +2982,7 @@
                 "required": true,
                 "type": {
                   "kind": "primitive",
-                  "name": "string",
-                  "pattern": "^[0-9]+(\\.[0-9]+){0,3}$"
+                  "name": "string"
                 }
               },
               "mode": {
@@ -3377,7 +3355,6 @@
     "TriggerId": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^trg_[a-z0-9]{20}$",
       "description": "One trigger of an automation; assigned by the owner."
     },
     "TriggerInput": {
@@ -3614,7 +3591,6 @@
     "UserId": {
       "kind": "primitive",
       "name": "string",
-      "pattern": "^user_[a-z0-9]{20}$",
       "description": "A cmux user (Stack user id kept as an external id)."
     },
     "UserProfile": {
@@ -4272,7 +4248,6 @@
           },
           "HostId": {
             "type": "string",
-            "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
           "TargetPolicy": {
@@ -4387,17 +4362,14 @@
         "$defs": {
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           },
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "TriggerId": {
             "type": "string",
-            "pattern": "^trg_[a-z0-9]{20}$",
             "description": "One trigger of an automation; assigned by the owner."
           },
           "CronSpec": {
@@ -4799,7 +4771,6 @@
           },
           "HostId": {
             "type": "string",
-            "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
           "TargetPolicy": {
@@ -4909,7 +4880,6 @@
           },
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "Automation": {
@@ -5089,7 +5059,6 @@
         "$defs": {
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           }
         }
@@ -5176,7 +5145,6 @@
         "$defs": {
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           }
         }
@@ -5186,17 +5154,14 @@
         "$defs": {
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           },
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "TriggerId": {
             "type": "string",
-            "pattern": "^trg_[a-z0-9]{20}$",
             "description": "One trigger of an automation; assigned by the owner."
           },
           "CronSpec": {
@@ -5598,7 +5563,6 @@
           },
           "HostId": {
             "type": "string",
-            "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
           "TargetPolicy": {
@@ -5708,7 +5672,6 @@
           },
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "Automation": {
@@ -5906,17 +5869,14 @@
         "$defs": {
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           },
           "TriggerId": {
             "type": "string",
-            "pattern": "^trg_[a-z0-9]{20}$",
             "description": "One trigger of an automation; assigned by the owner."
           },
           "CronSpec": {
@@ -6318,7 +6278,6 @@
           },
           "HostId": {
             "type": "string",
-            "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
           "TargetPolicy": {
@@ -6428,7 +6387,6 @@
           },
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "Automation": {
@@ -6600,7 +6558,6 @@
         "$defs": {
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           }
         }
@@ -6610,22 +6567,18 @@
         "$defs": {
           "RunId": {
             "type": "string",
-            "pattern": "^run_[a-z0-9]{20}$",
             "description": "One automation run; also its Workflow instance id."
           },
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           },
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "TriggerId": {
             "type": "string",
-            "pattern": "^trg_[a-z0-9]{20}$",
             "description": "One trigger of an automation; assigned by the owner."
           },
           "RunState": {
@@ -6878,7 +6831,6 @@
         "$defs": {
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           }
         }
@@ -6904,22 +6856,18 @@
         "$defs": {
           "RunId": {
             "type": "string",
-            "pattern": "^run_[a-z0-9]{20}$",
             "description": "One automation run; also its Workflow instance id."
           },
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           },
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "TriggerId": {
             "type": "string",
-            "pattern": "^trg_[a-z0-9]{20}$",
             "description": "One trigger of an automation; assigned by the owner."
           },
           "RunState": {
@@ -7463,7 +7411,6 @@
         "$defs": {
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           },
           "CronSpec": {
@@ -7830,7 +7777,6 @@
           },
           "HostId": {
             "type": "string",
-            "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
           "TargetPolicy": {
@@ -7945,17 +7891,14 @@
         "$defs": {
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           },
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "TriggerId": {
             "type": "string",
-            "pattern": "^trg_[a-z0-9]{20}$",
             "description": "One trigger of an automation; assigned by the owner."
           },
           "CronSpec": {
@@ -8357,7 +8300,6 @@
           },
           "HostId": {
             "type": "string",
-            "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
           "TargetPolicy": {
@@ -8467,7 +8409,6 @@
           },
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "Automation": {
@@ -8668,12 +8609,10 @@
         "$defs": {
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           },
           "TriggerId": {
             "type": "string",
-            "pattern": "^trg_[a-z0-9]{20}$",
             "description": "One trigger of an automation; assigned by the owner."
           }
         }
@@ -8708,12 +8647,10 @@
         "$defs": {
           "AutomationId": {
             "type": "string",
-            "pattern": "^auto_[a-z0-9]{20}$",
             "description": "An automation definition, owned by its team's SchedulerDO."
           },
           "TriggerId": {
             "type": "string",
-            "pattern": "^trg_[a-z0-9]{20}$",
             "description": "One trigger of an automation; assigned by the owner."
           }
         }
@@ -8804,7 +8741,6 @@
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           }
         }
@@ -8815,7 +8751,6 @@
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
           "TeamDomain": {
@@ -8977,13 +8912,11 @@
         "$defs": {
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
           "TeamDomain": {
@@ -9137,7 +9070,6 @@
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           }
         }
@@ -9157,7 +9089,6 @@
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           }
         }
@@ -9250,7 +9181,6 @@
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           }
         }
@@ -9261,7 +9191,6 @@
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
           "TeamDomain": {
@@ -9419,12 +9348,10 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           },
           "FeedKind": {
             "type": "string",
-            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
             "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
           },
           "FeedPriority": {
@@ -9507,8 +9434,7 @@
                 "maximum": 52428800
               },
               "sha256": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
+                "type": "string"
               },
               "ref": {
                 "type": "string",
@@ -9949,12 +9875,10 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           },
           "FeedKind": {
             "type": "string",
-            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
             "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
           },
           "FeedPriority": {
@@ -10037,8 +9961,7 @@
                 "maximum": 52428800
               },
               "sha256": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
+                "type": "string"
               },
               "ref": {
                 "type": "string",
@@ -10585,7 +10508,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           }
         }
@@ -10604,12 +10526,10 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           },
           "FeedKind": {
             "type": "string",
-            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
             "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
           },
           "FeedPriority": {
@@ -10692,8 +10612,7 @@
                 "maximum": 52428800
               },
               "sha256": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
+                "type": "string"
               },
               "ref": {
                 "type": "string",
@@ -11252,7 +11171,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           },
           "FeedPosterKind": {
@@ -11271,7 +11189,6 @@
           },
           "FeedKind": {
             "type": "string",
-            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
             "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
           },
           "FeedFilter": {
@@ -11328,7 +11245,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           }
         }
@@ -11454,7 +11370,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           },
           "FeedCancelReason": {
@@ -11483,12 +11398,10 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           },
           "FeedKind": {
             "type": "string",
-            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
             "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
           },
           "FeedPriority": {
@@ -11571,8 +11484,7 @@
                 "maximum": 52428800
               },
               "sha256": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
+                "type": "string"
               },
               "ref": {
                 "type": "string",
@@ -12205,7 +12117,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           }
         }
@@ -12224,12 +12135,10 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           },
           "FeedKind": {
             "type": "string",
-            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
             "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
           },
           "FeedPriority": {
@@ -12312,8 +12221,7 @@
                 "maximum": 52428800
               },
               "sha256": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
+                "type": "string"
               },
               "ref": {
                 "type": "string",
@@ -13200,7 +13108,6 @@
         "$defs": {
           "FeedKind": {
             "type": "string",
-            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
             "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
           },
           "FeedPosterKind": {
@@ -13219,7 +13126,6 @@
           },
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           }
         }
@@ -13282,12 +13188,10 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           },
           "FeedKind": {
             "type": "string",
-            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
             "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
           },
           "FeedPriority": {
@@ -13370,8 +13274,7 @@
                 "maximum": 52428800
               },
               "sha256": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
+                "type": "string"
               },
               "ref": {
                 "type": "string",
@@ -14135,7 +14038,6 @@
         "$defs": {
           "FeedKind": {
             "type": "string",
-            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
             "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
           },
           "FeedPriority": {
@@ -14218,8 +14120,7 @@
                 "maximum": 52428800
               },
               "sha256": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
+                "type": "string"
               },
               "ref": {
                 "type": "string",
@@ -14327,12 +14228,10 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           },
           "FeedKind": {
             "type": "string",
-            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
             "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
           },
           "FeedPriority": {
@@ -14415,8 +14314,7 @@
                 "maximum": 52428800
               },
               "sha256": {
-                "type": "string",
-                "pattern": "^[a-f0-9]{64}$"
+                "type": "string"
               },
               "ref": {
                 "type": "string",
@@ -15270,7 +15168,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           },
           "FeedPosterKind": {
@@ -15289,7 +15186,6 @@
           },
           "FeedKind": {
             "type": "string",
-            "pattern": "^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\\.[a-z0-9][a-z0-9-]{0,39})$",
             "description": "notice, a built-in request kind, or a custom kind x-<publisher>.<name>."
           },
           "FeedFilter": {
@@ -15346,7 +15242,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           }
         }
@@ -15476,7 +15371,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           }
         }
@@ -15511,7 +15405,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           }
         }
@@ -15654,7 +15547,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           }
         }
@@ -15689,7 +15581,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           }
         }
@@ -15819,7 +15710,6 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           }
         }
@@ -15854,10 +15744,1230 @@
         "$defs": {
           "FeedItemId": {
             "type": "string",
-            "pattern": "^fi_[a-z0-9]{20}$",
             "description": "A feed item; stable when its home moves from a local owner to the cloud."
           }
         }
+      }
+    },
+    "firewall.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "vmId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "vpcId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "tunnelId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "cidr": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "public": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "port": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "protocol": {
+                  "required": false,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "tcp"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "destination": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "vmId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "vpcId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "tunnelId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "cidr": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "public": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "port": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "protocol": {
+                  "required": false,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "tcp"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "description": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "action": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "allow"
+                  ]
+                }
+              },
+              "source": {
+                "required": true,
+                "type": {
+                  "kind": "object",
+                  "fields": {
+                    "vmId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "vpcId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "tunnelId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "cidr": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "public": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "boolean"
+                      }
+                    },
+                    "port": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "int64"
+                      }
+                    },
+                    "protocol": {
+                      "required": false,
+                      "type": {
+                        "kind": "enum",
+                        "values": [
+                          "tcp"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "destination": {
+                "required": true,
+                "type": {
+                  "kind": "object",
+                  "fields": {
+                    "vmId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "vpcId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "tunnelId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "cidr": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "public": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "boolean"
+                      }
+                    },
+                    "port": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "int64"
+                      }
+                    },
+                    "protocol": {
+                      "required": false,
+                      "type": {
+                        "kind": "enum",
+                        "values": [
+                          "tcp"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "description": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "firewall create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Allow a validated path through the caller's private network.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "destination"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "allow"
+            ]
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "source",
+          "destination"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "firewall.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "rule_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "rule_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "firewall delete",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Delete one firewall rule owned by the caller.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "firewall.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "rule_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "action": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "allow"
+              ]
+            }
+          },
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "vmId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "vpcId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "tunnelId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "cidr": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "public": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "port": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "protocol": {
+                  "required": false,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "tcp"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "destination": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "vmId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "vpcId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "tunnelId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "cidr": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "public": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "port": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "protocol": {
+                  "required": false,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "tcp"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "description": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "firewall get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Read one firewall rule owned by the caller.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "allow"
+            ]
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "source",
+          "destination"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "firewall.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vpc_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "vm_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "tunnel_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "rules": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "id": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "action": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "allow"
+                      ]
+                    }
+                  },
+                  "source": {
+                    "required": true,
+                    "type": {
+                      "kind": "object",
+                      "fields": {
+                        "vmId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "vpcId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "tunnelId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "cidr": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "public": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "boolean"
+                          }
+                        },
+                        "port": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "int64"
+                          }
+                        },
+                        "protocol": {
+                          "required": false,
+                          "type": {
+                            "kind": "enum",
+                            "values": [
+                              "tcp"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "destination": {
+                    "required": true,
+                    "type": {
+                      "kind": "object",
+                      "fields": {
+                        "vmId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "vpcId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "tunnelId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "cidr": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "public": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "boolean"
+                          }
+                        },
+                        "port": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "int64"
+                          }
+                        },
+                        "protocol": {
+                          "required": false,
+                          "type": {
+                            "kind": "enum",
+                            "values": [
+                              "tcp"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "description": {
+                    "required": false,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "firewall list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "List firewall rules attached to the caller's private network.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vpc_id": {
+            "type": "string"
+          },
+          "vm_id": {
+            "type": "string"
+          },
+          "tunnel_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "allow"
+                  ]
+                },
+                "source": {
+                  "type": "object",
+                  "properties": {
+                    "vmId": {
+                      "type": "string"
+                    },
+                    "vpcId": {
+                      "type": "string"
+                    },
+                    "tunnelId": {
+                      "type": "string"
+                    },
+                    "cidr": {
+                      "type": "string"
+                    },
+                    "public": {
+                      "type": "boolean"
+                    },
+                    "port": {
+                      "type": "integer"
+                    },
+                    "protocol": {
+                      "type": "string",
+                      "enum": [
+                        "tcp"
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                },
+                "destination": {
+                  "type": "object",
+                  "properties": {
+                    "vmId": {
+                      "type": "string"
+                    },
+                    "vpcId": {
+                      "type": "string"
+                    },
+                    "tunnelId": {
+                      "type": "string"
+                    },
+                    "cidr": {
+                      "type": "string"
+                    },
+                    "public": {
+                      "type": "boolean"
+                    },
+                    "port": {
+                      "type": "integer"
+                    },
+                    "protocol": {
+                      "type": "string",
+                      "enum": [
+                        "tcp"
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "action",
+                "source",
+                "destination"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "rules"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
       }
     },
     "github.issue.comment": {
@@ -15881,8 +16991,7 @@
             "required": true,
             "type": {
               "kind": "primitive",
-              "name": "string",
-              "pattern": "^(?!\\.{1,2}\\/)[A-Za-z0-9_.-]{1,100}\\/(?!\\.{1,2}$)[A-Za-z0-9_.-]{1,100}$"
+              "name": "string"
             }
           },
           "issue": {
@@ -15966,8 +17075,7 @@
             "$ref": "#/$defs/ConnectionId"
           },
           "repo": {
-            "type": "string",
-            "pattern": "^(?!\\.{1,2}\\/)[A-Za-z0-9_.-]{1,100}\\/(?!\\.{1,2}$)[A-Za-z0-9_.-]{1,100}$"
+            "type": "string"
           },
           "issue": {
             "type": "integer",
@@ -15990,7 +17098,6 @@
         "$defs": {
           "ConnectionId": {
             "type": "string",
-            "pattern": "^conn_[a-z0-9]{20}$",
             "description": "One integration connection (a provider account linked to a team)."
           }
         }
@@ -16112,7 +17219,6 @@
         "$defs": {
           "HostId": {
             "type": "string",
-            "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
           "Platform": {
@@ -16127,12 +17233,10 @@
           },
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
           "Host": {
@@ -16265,7 +17369,6 @@
         "$defs": {
           "HostId": {
             "type": "string",
-            "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           }
         }
@@ -16284,7 +17387,6 @@
         "$defs": {
           "HostId": {
             "type": "string",
-            "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           }
         }
@@ -16417,12 +17519,10 @@
         "$defs": {
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "UserProfile": {
@@ -16465,12 +17565,10 @@
           },
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
           "DeviceId": {
             "type": "string",
-            "pattern": "^dev_[a-z0-9]{20}$",
             "description": "A device (hardware) that groups installs."
           },
           "InstallKind": {
@@ -16511,12 +17609,12 @@
               },
               "x": {
                 "type": "string",
-                "minLength": 43,
+                "minLength": 22,
                 "maxLength": 43
               },
               "y": {
                 "type": "string",
-                "minLength": 43,
+                "minLength": 22,
                 "maxLength": 43
               }
             },
@@ -16531,7 +17629,6 @@
           },
           "GrantId": {
             "type": "string",
-            "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
           "Install": {
@@ -16836,12 +17933,12 @@
               },
               "x": {
                 "type": "string",
-                "minLength": 43,
+                "minLength": 22,
                 "maxLength": 43
               },
               "y": {
                 "type": "string",
-                "minLength": 43,
+                "minLength": 22,
                 "maxLength": 43
               }
             },
@@ -16877,7 +17974,6 @@
           },
           "DeviceId": {
             "type": "string",
-            "pattern": "^dev_[a-z0-9]{20}$",
             "description": "A device (hardware) that groups installs."
           }
         }
@@ -16887,12 +17983,10 @@
         "$defs": {
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
           "DeviceId": {
             "type": "string",
-            "pattern": "^dev_[a-z0-9]{20}$",
             "description": "A device (hardware) that groups installs."
           },
           "InstallKind": {
@@ -16933,12 +18027,12 @@
               },
               "x": {
                 "type": "string",
-                "minLength": 43,
+                "minLength": 22,
                 "maxLength": 43
               },
               "y": {
                 "type": "string",
-                "minLength": 43,
+                "minLength": 22,
                 "maxLength": 43
               }
             },
@@ -16953,7 +18047,6 @@
           },
           "GrantId": {
             "type": "string",
-            "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
           "Install": {
@@ -17122,7 +18215,6 @@
         "$defs": {
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           }
         }
@@ -17132,12 +18224,10 @@
         "$defs": {
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
           "DeviceId": {
             "type": "string",
-            "pattern": "^dev_[a-z0-9]{20}$",
             "description": "A device (hardware) that groups installs."
           },
           "InstallKind": {
@@ -17178,12 +18268,12 @@
               },
               "x": {
                 "type": "string",
-                "minLength": 43,
+                "minLength": 22,
                 "maxLength": 43
               },
               "y": {
                 "type": "string",
-                "minLength": 43,
+                "minLength": 22,
                 "maxLength": 43
               }
             },
@@ -17198,7 +18288,6 @@
           },
           "GrantId": {
             "type": "string",
-            "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
           "Install": {
@@ -17351,7 +18440,6 @@
         "$defs": {
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           }
         }
@@ -17361,12 +18449,10 @@
         "$defs": {
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
           "DeviceId": {
             "type": "string",
-            "pattern": "^dev_[a-z0-9]{20}$",
             "description": "A device (hardware) that groups installs."
           },
           "InstallKind": {
@@ -17407,12 +18493,12 @@
               },
               "x": {
                 "type": "string",
-                "minLength": 43,
+                "minLength": 22,
                 "maxLength": 43
               },
               "y": {
                 "type": "string",
-                "minLength": 43,
+                "minLength": 22,
                 "maxLength": 43
               }
             },
@@ -17427,7 +18513,6 @@
           },
           "GrantId": {
             "type": "string",
-            "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
           "Install": {
@@ -17528,8 +18613,7 @@
             "required": false,
             "type": {
               "kind": "primitive",
-              "name": "string",
-              "pattern": "^[0-9]{1,20}$"
+              "name": "string"
             }
           },
           "setup_action": {
@@ -17609,8 +18693,7 @@
             "maxLength": 2000
           },
           "installation_id": {
-            "type": "string",
-            "pattern": "^[0-9]{1,20}$"
+            "type": "string"
           },
           "setup_action": {
             "type": "string",
@@ -17628,17 +18711,14 @@
         "$defs": {
           "ConnectionId": {
             "type": "string",
-            "pattern": "^conn_[a-z0-9]{20}$",
             "description": "One integration connection (a provider account linked to a team)."
           },
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "IntegrationProvider": {
@@ -17938,17 +19018,14 @@
         "$defs": {
           "ConnectionId": {
             "type": "string",
-            "pattern": "^conn_[a-z0-9]{20}$",
             "description": "One integration connection (a provider account linked to a team)."
           },
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "IntegrationProvider": {
@@ -18218,17 +19295,14 @@
         "$defs": {
           "ConnectionId": {
             "type": "string",
-            "pattern": "^conn_[a-z0-9]{20}$",
             "description": "One integration connection (a provider account linked to a team)."
           },
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "IntegrationProvider": {
@@ -18426,8 +19500,7 @@
             ]
           },
           "RepoPattern": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+            "type": "string"
           },
           "TeamIntegrationPolicy": {
             "type": "object",
@@ -18699,8 +19772,7 @@
             ]
           },
           "RepoPattern": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+            "type": "string"
           }
         }
       },
@@ -18716,8 +19788,7 @@
             ]
           },
           "RepoPattern": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+            "type": "string"
           },
           "TeamIntegrationPolicy": {
             "type": "object",
@@ -18901,7 +19972,6 @@
         "$defs": {
           "ConnectionId": {
             "type": "string",
-            "pattern": "^conn_[a-z0-9]{20}$",
             "description": "One integration connection (a provider account linked to a team)."
           }
         }
@@ -18911,17 +19981,14 @@
         "$defs": {
           "ConnectionId": {
             "type": "string",
-            "pattern": "^conn_[a-z0-9]{20}$",
             "description": "One integration connection (a provider account linked to a team)."
           },
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "IntegrationProvider": {
@@ -19187,7 +20254,6 @@
         "$defs": {
           "ConnectionId": {
             "type": "string",
-            "pattern": "^conn_[a-z0-9]{20}$",
             "description": "One integration connection (a provider account linked to a team)."
           }
         }
@@ -19299,7 +20365,6 @@
         "$defs": {
           "ConnectionId": {
             "type": "string",
-            "pattern": "^conn_[a-z0-9]{20}$",
             "description": "One integration connection (a provider account linked to a team)."
           }
         }
@@ -19338,6 +20403,80 @@
         "$defs": {}
       }
     },
+    "network.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "networks": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "json"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "vpc list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "List the caller-owned private Cloud networks.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "networks": {
+            "type": "array"
+          }
+        },
+        "required": [
+          "networks"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
     "slack.post_as_bot": {
       "class": "mutation",
       "idempotency": "required",
@@ -19359,8 +20498,7 @@
             "required": true,
             "type": {
               "kind": "primitive",
-              "name": "string",
-              "pattern": "^[A-Z0-9]{2,30}$"
+              "name": "string"
             }
           },
           "text": {
@@ -19437,8 +20575,7 @@
             "$ref": "#/$defs/ConnectionId"
           },
           "channel": {
-            "type": "string",
-            "pattern": "^[A-Z0-9]{2,30}$"
+            "type": "string"
           },
           "text": {
             "type": "string",
@@ -19455,7 +20592,6 @@
         "$defs": {
           "ConnectionId": {
             "type": "string",
-            "pattern": "^conn_[a-z0-9]{20}$",
             "description": "One integration connection (a provider account linked to a team)."
           }
         }
@@ -19549,8 +20685,7 @@
         "additionalProperties": true,
         "$defs": {
           "SsoConnectionId": {
-            "type": "string",
-            "pattern": "^ssoc_[a-z0-9]{20}$"
+            "type": "string"
           }
         }
       },
@@ -19558,13 +20693,11 @@
         "$ref": "#/$defs/SsoConnection",
         "$defs": {
           "SsoConnectionId": {
-            "type": "string",
-            "pattern": "^ssoc_[a-z0-9]{20}$"
+            "type": "string"
           },
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
           "SsoConnection": {
@@ -19598,8 +20731,7 @@
                 "properties": {
                   "issuer": {
                     "type": "string",
-                    "maxLength": 500,
-                    "pattern": "^https:\\/\\/[^\\s]+$"
+                    "maxLength": 500
                   },
                   "client_id": {
                     "type": "string",
@@ -19617,8 +20749,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -19629,8 +20760,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -19641,8 +20771,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -19724,8 +20853,7 @@
             "type": {
               "kind": "primitive",
               "name": "string",
-              "max_length": 500,
-              "pattern": "^https:\\/\\/[^\\s]+$"
+              "max_length": 500
             }
           },
           "client_id": {
@@ -19841,8 +20969,7 @@
         "properties": {
           "issuer": {
             "type": "string",
-            "maxLength": 500,
-            "pattern": "^https:\\/\\/[^\\s]+$"
+            "maxLength": 500
           },
           "client_id": {
             "type": "string",
@@ -19896,7 +21023,6 @@
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           }
         }
@@ -19905,13 +21031,11 @@
         "$ref": "#/$defs/SsoConnection",
         "$defs": {
           "SsoConnectionId": {
-            "type": "string",
-            "pattern": "^ssoc_[a-z0-9]{20}$"
+            "type": "string"
           },
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
           "SsoConnection": {
@@ -19945,8 +21069,7 @@
                 "properties": {
                   "issuer": {
                     "type": "string",
-                    "maxLength": 500,
-                    "pattern": "^https:\\/\\/[^\\s]+$"
+                    "maxLength": 500
                   },
                   "client_id": {
                     "type": "string",
@@ -19964,8 +21087,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -19976,8 +21098,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -19988,8 +21109,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -20139,8 +21259,7 @@
         "additionalProperties": true,
         "$defs": {
           "SsoConnectionId": {
-            "type": "string",
-            "pattern": "^ssoc_[a-z0-9]{20}$"
+            "type": "string"
           }
         }
       },
@@ -20148,13 +21267,11 @@
         "$ref": "#/$defs/SsoConnection",
         "$defs": {
           "SsoConnectionId": {
-            "type": "string",
-            "pattern": "^ssoc_[a-z0-9]{20}$"
+            "type": "string"
           },
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
           "SsoConnection": {
@@ -20188,8 +21305,7 @@
                 "properties": {
                   "issuer": {
                     "type": "string",
-                    "maxLength": 500,
-                    "pattern": "^https:\\/\\/[^\\s]+$"
+                    "maxLength": 500
                   },
                   "client_id": {
                     "type": "string",
@@ -20207,8 +21323,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -20219,8 +21334,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -20231,8 +21345,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -20399,17 +21512,14 @@
         "$defs": {
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "SsoConnectionId": {
-            "type": "string",
-            "pattern": "^ssoc_[a-z0-9]{20}$"
+            "type": "string"
           },
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
           "SsoConnection": {
@@ -20443,8 +21553,7 @@
                 "properties": {
                   "issuer": {
                     "type": "string",
-                    "maxLength": 500,
-                    "pattern": "^https:\\/\\/[^\\s]+$"
+                    "maxLength": 500
                   },
                   "client_id": {
                     "type": "string",
@@ -20462,8 +21571,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -20474,8 +21582,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -20486,8 +21593,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -20653,8 +21759,7 @@
         "additionalProperties": true,
         "$defs": {
           "SsoConnectionId": {
-            "type": "string",
-            "pattern": "^ssoc_[a-z0-9]{20}$"
+            "type": "string"
           }
         }
       },
@@ -20662,13 +21767,11 @@
         "$ref": "#/$defs/SsoConnection",
         "$defs": {
           "SsoConnectionId": {
-            "type": "string",
-            "pattern": "^ssoc_[a-z0-9]{20}$"
+            "type": "string"
           },
           "EmailDomain": {
             "type": "string",
             "maxLength": 253,
-            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
             "description": "A lowercase DNS name such as acme.com."
           },
           "SsoConnection": {
@@ -20702,8 +21805,7 @@
                 "properties": {
                   "issuer": {
                     "type": "string",
-                    "maxLength": 500,
-                    "pattern": "^https:\\/\\/[^\\s]+$"
+                    "maxLength": 500
                   },
                   "client_id": {
                     "type": "string",
@@ -20721,8 +21823,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -20733,8 +21834,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -20745,8 +21845,7 @@
                     "anyOf": [
                       {
                         "type": "string",
-                        "maxLength": 500,
-                        "pattern": "^https:\\/\\/[^\\s]+$"
+                        "maxLength": 500
                       },
                       {
                         "type": "null"
@@ -20991,17 +22090,14 @@
         "$defs": {
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
           "EnrollmentTokenId": {
-            "type": "string",
-            "pattern": "^enr_[a-z0-9]{20}$"
+            "type": "string"
           },
           "ManagedDevice": {
             "type": "object",
@@ -21175,7 +22271,6 @@
         "$defs": {
           "EnrollmentTokenHash": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{43}$",
             "description": "base64url(SHA-256(token)) without padding."
           }
         }
@@ -21185,12 +22280,10 @@
         "$defs": {
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
           "EnrollmentTokenId": {
-            "type": "string",
-            "pattern": "^enr_[a-z0-9]{20}$"
+            "type": "string"
           },
           "ManagedDevice": {
             "type": "object",
@@ -21383,7 +22476,6 @@
         "$defs": {
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           }
         }
@@ -21482,7 +22574,6 @@
         "$defs": {
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           }
         }
@@ -21501,7 +22592,6 @@
         "$defs": {
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           }
         }
@@ -21652,7 +22742,6 @@
         "$defs": {
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
           "DeviceStatus": {
@@ -21806,7 +22895,6 @@
         "$defs": {
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           }
         }
@@ -21843,12 +22931,10 @@
         "$defs": {
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "TeamMember": {
@@ -21878,7 +22964,6 @@
           },
           "HostId": {
             "type": "string",
-            "pattern": "^host_[a-z0-9]{20}$",
             "description": "A machine's session host, enrolled by its link."
           },
           "Platform": {
@@ -21893,7 +22978,6 @@
           },
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
           "Host": {
@@ -21965,8 +23049,7 @@
               "kind": "array",
               "items": {
                 "kind": "primitive",
-                "name": "string",
-                "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+                "name": "string"
               }
             }
           },
@@ -22044,8 +23127,7 @@
           "allowed_domains": {
             "type": "array",
             "items": {
-              "type": "string",
-              "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+              "type": "string"
             },
             "minItems": 1,
             "maxItems": 50
@@ -22062,7 +23144,6 @@
         "$defs": {
           "EnrollmentTokenHash": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{43}$",
             "description": "base64url(SHA-256(token)) without padding."
           }
         }
@@ -22071,8 +23152,7 @@
         "$ref": "#/$defs/EnrollmentToken",
         "$defs": {
           "EnrollmentTokenId": {
-            "type": "string",
-            "pattern": "^enr_[a-z0-9]{20}$"
+            "type": "string"
           },
           "EnrollmentToken": {
             "type": "object",
@@ -22090,8 +23170,7 @@
                   {
                     "type": "array",
                     "items": {
-                      "type": "string",
-                      "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+                      "type": "string"
                     }
                   },
                   {
@@ -22261,12 +23340,10 @@
         "$defs": {
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "EnrollmentTokenId": {
-            "type": "string",
-            "pattern": "^enr_[a-z0-9]{20}$"
+            "type": "string"
           },
           "EnrollmentToken": {
             "type": "object",
@@ -22284,8 +23361,7 @@
                   {
                     "type": "array",
                     "items": {
-                      "type": "string",
-                      "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+                      "type": "string"
                     }
                   },
                   {
@@ -22337,7 +23413,6 @@
           },
           "InstallId": {
             "type": "string",
-            "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
           },
           "ManagedDevice": {
@@ -22465,8 +23540,7 @@
         "additionalProperties": true,
         "$defs": {
           "EnrollmentTokenId": {
-            "type": "string",
-            "pattern": "^enr_[a-z0-9]{20}$"
+            "type": "string"
           }
         }
       },
@@ -22474,8 +23548,7 @@
         "$ref": "#/$defs/EnrollmentToken",
         "$defs": {
           "EnrollmentTokenId": {
-            "type": "string",
-            "pattern": "^enr_[a-z0-9]{20}$"
+            "type": "string"
           },
           "EnrollmentToken": {
             "type": "object",
@@ -22493,8 +23566,7 @@
                   {
                     "type": "array",
                     "items": {
-                      "type": "string",
-                      "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+                      "type": "string"
                     }
                   },
                   {
@@ -22795,7 +23867,6 @@
         "$defs": {
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "PolicyMode": {
@@ -22806,8 +23877,7 @@
             ]
           },
           "RepoPattern": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+            "type": "string"
           },
           "IntegrationProvider": {
             "type": "string",
@@ -23134,8 +24204,7 @@
                 "type": "object",
                 "properties": {
                   "value": {
-                    "type": "string",
-                    "pattern": "^[0-9]+(\\.[0-9]+){0,3}$"
+                    "type": "string"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -23505,7 +24574,6 @@
         "$defs": {
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "PolicyMode": {
@@ -23516,8 +24584,7 @@
             ]
           },
           "RepoPattern": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+            "type": "string"
           },
           "IntegrationProvider": {
             "type": "string",
@@ -23844,8 +24911,7 @@
                 "type": "object",
                 "properties": {
                   "value": {
-                    "type": "string",
-                    "pattern": "^[0-9]+(\\.[0-9]+){0,3}$"
+                    "type": "string"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -24276,8 +25342,7 @@
             ]
           },
           "RepoPattern": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+            "type": "string"
           },
           "IntegrationProvider": {
             "type": "string",
@@ -24604,8 +25669,7 @@
                 "type": "object",
                 "properties": {
                   "value": {
-                    "type": "string",
-                    "pattern": "^[0-9]+(\\.[0-9]+){0,3}$"
+                    "type": "string"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -25062,8 +26126,7 @@
             ]
           },
           "RepoPattern": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+            "type": "string"
           },
           "IntegrationProvider": {
             "type": "string",
@@ -25390,8 +26453,7 @@
                 "type": "object",
                 "properties": {
                   "value": {
-                    "type": "string",
-                    "pattern": "^[0-9]+(\\.[0-9]+){0,3}$"
+                    "type": "string"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -25646,6 +26708,388 @@
         }
       }
     },
+    "tunnel.attach": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "device",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "device_fingerprint": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "network_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "tunnel_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "network_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "tunnel attach",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Attach an owned WireGuard tunnel to an owned private network.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "device_fingerprint": {
+            "type": "string"
+          },
+          "network_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_fingerprint",
+          "network_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "tunnel_id": {
+            "type": "string"
+          },
+          "network_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tunnel_id",
+          "network_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "tunnel.detach": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "device",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "device_fingerprint": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "network_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "tunnel_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "network_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "tunnel detach",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Detach an owned WireGuard tunnel from an owned private network.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "device_fingerprint": {
+            "type": "string"
+          },
+          "network_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_fingerprint",
+          "network_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "tunnel_id": {
+            "type": "string"
+          },
+          "network_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tunnel_id",
+          "network_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "tunnel.rotate-key": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "device",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "device_fingerprint": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "client_public_key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "tunnel_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "client_public_key": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "tunnel rotate-key",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Rotate an owned tunnel's WireGuard public key without changing its address.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "device_fingerprint": {
+            "type": "string"
+          },
+          "client_public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_fingerprint",
+          "client_public_key"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "tunnel_id": {
+            "type": "string"
+          },
+          "client_public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tunnel_id",
+          "client_public_key"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
     "user.ensure": {
       "class": "mutation",
       "idempotency": "required",
@@ -25719,12 +27163,10 @@
         "$defs": {
           "UserId": {
             "type": "string",
-            "pattern": "^user_[a-z0-9]{20}$",
             "description": "A cmux user (Stack user id kept as an external id)."
           },
           "TeamId": {
             "type": "string",
-            "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
           "UserProfile": {

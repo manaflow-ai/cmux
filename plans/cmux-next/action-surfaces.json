@@ -6019,6 +6019,72 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud tunnel-attach",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "cloudTunnelAttach",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud tunnel-detach",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "cloudTunnelDetach",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud tunnel-rotate-key",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "cloudTunnelRotateKey",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud firewall-list",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "cloudFirewallList",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud firewall-create",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "cloudFirewallCreate",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud firewall-delete",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "cloudFirewallDelete",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud new-terminal-on-machine",
       "context_menu" : "offered",
       "context_menus" : [
