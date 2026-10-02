@@ -52,6 +52,5 @@ final class SettingsSpyOffsets {
     var heldByJump = false
     /// The scroll offset the jump settled at (nil until it has).
     var heldAt: CGFloat?
-    var contentOffset: CGFloat = 0
     static let releaseDistance: CGFloat = 4
 }

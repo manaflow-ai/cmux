@@ -54,8 +54,10 @@ struct SettingsDetailView: View {
             .onScrollGeometryChange(for: CGFloat.self) { geometry in
                 geometry.contentOffset.y
             } action: { _, offset in
-                spy.contentOffset = offset
-                if let settled = spy.heldAt, abs(offset - settled) > SettingsSpyOffsets.releaseDistance {
+                guard spy.heldByJump else { return }
+                // The first offset after a jump is the jump's own scroll.
+                guard let settled = spy.heldAt else { return spy.heldAt = offset }
+                if abs(offset - settled) > SettingsSpyOffsets.releaseDistance {
                     spy.heldByJump = false
                     spy.heldAt = nil
                 }
@@ -79,8 +81,6 @@ struct SettingsDetailView: View {
         spy.heldAt = nil
         let point: UnitPoint = jump.anchor.isHeader ? .top : .center
         proxy.scrollTo(jump.anchor.id, anchor: point)
-        await Task.yield()
-        if model.jump?.serial == jump.serial { spy.heldAt = spy.contentOffset }
         guard jump.highlights else { return }
         let plan = model.highlightPlan
         guard plan.hold > 0 else { return Self.endHighlight(jump, plan: plan, model: model) }
