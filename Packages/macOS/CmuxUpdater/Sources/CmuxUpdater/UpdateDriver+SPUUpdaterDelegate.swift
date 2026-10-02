@@ -17,9 +17,9 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
 #endif
         // The feed URL is baked into Info.plist at build time:
         // - Stable releases use the stable appcast URL
-        // - cmux NIGHTLY has the nightly appcast URL injected by CI
+        // - cmux NIGHTLY and cmux RC have their channel appcast URL injected by CI
         let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider())
-        log.append("update channel: \(resolved.isNightly ? "nightly" : "stable")")
+        log.append("update channel: \(resolved.channel.rawValue)")
         recordFeedURLString(resolved.url, usedFallback: resolved.usedFallback)
         return resolved.url
     }
@@ -120,11 +120,19 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func handleDidFinishUpdateCycle(_ updateCheck: SPUUpdateCheck, error: (any Error)?) {
         let errorText = error.map(formatErrorForLog) ?? "none"
         log.append("update cycle finished (check=\(updateCheck.rawValue), error=\(errorText))")
+        allowNextRelaunch = false
+        relaunchGate.cancel()
         eventDelegate?.updateDriverDidFinishCycle(updateCheck, error: error.map { $0 as NSError })
     }
 
     func updater(_ updater: SPUUpdater, userDidMake _: SPUUserUpdateChoice, forUpdate _: SUAppcastItem, state _: SPUUserUpdateState) {
         model.clearDetectedUpdate()
+    }
+
+    func updater(_ updater: SPUUpdater,
+                 shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
+        handleShouldPostponeRelaunch(installHandler: installHandler)
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {

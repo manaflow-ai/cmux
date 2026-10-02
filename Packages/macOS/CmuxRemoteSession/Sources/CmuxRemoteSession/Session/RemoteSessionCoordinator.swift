@@ -62,8 +62,11 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     let reachabilityProbe: any RemoteHostReachabilityProbing
     let relayCommandRewriter: any RemoteRelayCommandRewriting
     let buildInfo: any RemoteSessionBuildInfoProviding
+    let codexWrapperScript: String?
     let daemonStrings: RemoteDaemonStrings
     let strings: RemoteSessionStrings
+    /// Private per-session directory policy for files uploaded from the clipboard or Finder.
+    let remotePastePolicy: RemotePasteFileTransferPolicy
     /// Sleep seam for every legacy `asyncAfter` delay (reconnect backoff,
     /// relay restart, bootstrap-TTY retry, port-scan coalesce and burst).
     let clock: any RemoteProxyRetryClock
@@ -133,7 +136,16 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var connectionAttemptTask: Task<Void, Never>?
     var connectionAttemptToken: UUID?
     var consecutiveUnreachableProbeCount = 0
-    var reconnectSuspended = false
+    /// Non-nil while the session is parked: recovery stopped and readiness
+    /// waiters were released with this reason. `reconnectSuspended` reads it.
+    var parkedState: RemoteSessionParkedState?
+    /// Deadline between a daemon hello and a published proxy endpoint, armed
+    /// once per readiness seek (see `armReadinessDeadlineLocked`).
+    var readinessDeadlineTask: Task<Void, Never>?
+    var readinessDeadlineToken: UUID?
+    /// Whether this coordinator ever wrote relay metadata to the remote host;
+    /// until it has, its transport cleanup has nothing to remove.
+    var didInstallRelayMetadata = false
     var isSystemSleeping = false
     var reachabilityProbeGeneration: UInt64 = 0
     var heartbeatCount: Int = 0
@@ -164,6 +176,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     ///   - buildInfo: App-build inputs (`Bundle.main` stays app-side).
     ///   - daemonStrings: App-localized daemon error strings.
     ///   - strings: App-localized connection-state strings.
+    ///   - remotePastePolicy: Private directory and cleanup policy for uploaded files.
     ///   - clock: Sleep seam driving every retry/backoff delay (production
     ///     default: the continuous clock).
     public init(
@@ -177,9 +190,11 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         reachabilityProbe: any RemoteHostReachabilityProbing,
         relayCommandRewriter: any RemoteRelayCommandRewriting,
         buildInfo: any RemoteSessionBuildInfoProviding,
+        codexWrapperScript: String? = nil,
         daemonStrings: RemoteDaemonStrings,
         strings: RemoteSessionStrings,
-        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
+        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
+        remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy()
     ) {
         self.host = host
         self.configuration = configuration
@@ -191,8 +206,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.reachabilityProbe = reachabilityProbe
         self.relayCommandRewriter = relayCommandRewriter
         self.buildInfo = buildInfo
+        self.codexWrapperScript = codexWrapperScript
         self.daemonStrings = daemonStrings
         self.strings = strings
+        self.remotePastePolicy = remotePastePolicy
         self.clock = clock
         queue.setSpecific(key: queueKey, value: ())
     }
@@ -331,6 +348,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 remotePath: hello.remotePath
             )
             recordHeartbeatActivityLocked()
+            armReadinessDeadlineLocked()
             if configuration.skipDaemonBootstrap {
                 debugLog("remote.relay.skipped reason=vm-baked transport=\(configuration.transport.rawValue)")
                 if configuration.daemonWebSocketEndpoint != nil {
@@ -378,8 +396,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 publishDaemonStatus(.bootstrapping, detail: nil)
                 publishState(.reconnecting, detail: nil)
             case .suspend:
-                cancelReconnectRetryLocked()
-                reconnectSuspended = true
                 let pausedSuffix = String(
                     localized: "remoteDaemon.bootstrap.reconnectPaused",
                     defaultValue: "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again."
@@ -390,8 +406,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                     "remote.session.bootstrap.suspended consecutive=\(evaluation.consecutiveFailures) " +
                     "total=\(evaluation.totalFailures) fingerprint=\(evaluation.fingerprint) \(debugConfigSummary())"
                 )
-                publishDaemonStatus(.error, detail: detail)
-                publishState(.suspended, detail: detail)
+                parkSessionLocked(cause: .bootstrapFailed, daemonState: .error, detail: detail)
             }
         }
     }
@@ -453,7 +468,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             resetBootstrapFailureTrackingLocked()
             // A live connection ends any suspension; without this a future
             // failure would hit the suspended guard and never reschedule.
-            reconnectSuspended = false
+            endReadinessSeekLocked()
             reachabilityProbeGeneration &+= 1
             guard proxyEndpoint != endpoint else {
                 publishState(
@@ -602,65 +617,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
     static func missingRequiredCapabilities(_ required: [String], in capabilities: [String]) -> [String] {
         RemoteDaemonRPCClient.missingRequiredCapabilities(required, in: capabilities)
-    }
-
-    /// Maps a bootstrap failure to the user-facing message: capability
-    /// failures collapse to the app-localized missing-capability string,
-    /// anything else surfaces its own description. Static because tests pin
-    /// it directly against raw errors; the strings ride in explicitly
-    /// (legacy read the app-localized strings in place).
-    public static func userFacingRemoteDaemonBootstrapErrorMessage(
-        _ error: any Error,
-        strings: RemoteDaemonStrings
-    ) -> String {
-        let nsError = error as NSError
-        let message = nsError.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowered = message.lowercased()
-        if lowered.contains("missing required capability") ||
-            lowered.contains(RemoteDaemonRPCClient.requiredPTYSessionCapability) ||
-            lowered.contains(RemoteDaemonRPCClient.requiredPTYSessionTokenCapability) ||
-            lowered.contains(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability) || lowered.contains(RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability) {
-            return strings.missingRequiredCapabilitiesMessage([
-                RemoteDaemonRPCClient.requiredPTYSessionCapability,
-            ])
-        }
-        switch nsError.code {
-        case 24:
-            return String(
-                localized: "remoteDaemon.bootstrap.buildOutputEmpty",
-                defaultValue: "The remote daemon files are missing or empty"
-            )
-        case 31:
-            return String(
-                localized: "remoteDaemon.upload.transferFailed",
-                defaultValue: "Failed to upload remote daemon"
-            )
-        case 33:
-            return String(
-                localized: "remoteDaemon.upload.verifyFailed",
-                defaultValue: "Remote daemon integrity verification failed"
-            )
-        case 32, 34:
-            return String(
-                localized: "remoteDaemon.upload.installFailed",
-                defaultValue: "Failed to install remote daemon"
-            )
-        case 41:
-            return String(
-                localized: "remoteDaemon.bootstrap.helloFailed",
-                defaultValue: "Could not confirm that the remote daemon is ready"
-            )
-        case 13:
-            return String(
-                localized: "remoteDaemon.bootstrap.probeFailed",
-                defaultValue: "Could not inspect the remote daemon installation"
-            )
-        default:
-            return String(
-                localized: "remoteDaemon.bootstrap.failed",
-                defaultValue: "Could not prepare the remote daemon"
-            )
-        }
     }
 
     // MARK: - Debug logging

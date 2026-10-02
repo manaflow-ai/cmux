@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Sends a scene UI event (tap, move) back to the JS runtime.
@@ -155,6 +156,10 @@ private struct SceneNodeContent: View {
             }
         case "contextMenu":
             children
+        case "menu":
+            // Inside a context menu this becomes a submenu; elsewhere, a
+            // menu button.
+            Menu(node.string("text") ?? "") { children }
         case "textfield":
             SceneTextFieldView(node: node, sink: sink)
         case "reorderable":
@@ -195,8 +200,8 @@ private struct SceneNodeContent: View {
     }
 
     /// Applies the node's style props in one fixed, documented order:
-    /// font → color → lineLimit/truncation → padding → background →
-    /// cornerRadius → border → frame → opacity → tap.
+    /// font → color → lineLimit/truncation → fixedSize → padding →
+    /// background → cornerRadius → border → frame → opacity → cursor → tap.
     @ViewBuilder
     private func styled(_ view: some View) -> some View {
         // Hover-revealed children (a row's close button): present only while
@@ -208,8 +213,10 @@ private struct SceneNodeContent: View {
             .modifier(SceneTextStyle(node: node))
             .modifier(OptionalForeground(color: resolvedColor))
             .modifier(SceneTextLimits(node: node))
+            .modifier(SceneFixedSize(node: node))
             .modifier(SceneTrailingFade(node: node))
             .modifier(SceneBoxStyle(node: node))
+            .modifier(SceneCursor(node: node))
             // A truncating Text and a Spacer are both "flexible" to HStack
             // layout, which would split the width between them and truncate
             // the text at half the row. Truncating text therefore outranks
@@ -277,6 +284,33 @@ private struct SceneNodeContent: View {
             return dslFontSpec(named: "body", size: nil, weight: weight)
         }
         return nil
+    }
+}
+
+/// Applies the pointer cursor without routing hover through JavaScript. The
+/// modifier owns its push/pop pair so a disappearing row cannot leave the
+/// global cursor stack in the wrong state.
+private struct SceneCursor: ViewModifier {
+    let node: SceneNode
+    @State private var pointerIsPushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                guard node.string("cursor")?.lowercased() == "pointer",
+                      hovering != pointerIsPushed else { return }
+                pointerIsPushed = hovering
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .onDisappear {
+                guard pointerIsPushed else { return }
+                NSCursor.pop()
+                pointerIsPushed = false
+            }
     }
 }
 
@@ -399,6 +433,21 @@ private struct SceneTextLimits: ViewModifier {
         content
             .lineLimit(node.double("lineLimit").map { Int($0) })
             .truncationMode(dslTruncationMode(node.string("truncation")))
+    }
+}
+
+/// `.fixedSize()`: keeps a view at its ideal size on the chosen axes, so a
+/// button or badge beside stretching text isn't squeezed.
+private struct SceneFixedSize: ViewModifier {
+    let node: SceneNode
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let axes = dslFixedSizeAxes(node.props["fixedSize"]) {
+            content.fixedSize(horizontal: axes.horizontal, vertical: axes.vertical)
+        } else {
+            content
+        }
     }
 }
 

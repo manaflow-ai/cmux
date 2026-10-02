@@ -235,6 +235,10 @@ import Testing
             router: RoutingHostRouter(),
             pairedMacStore: pairedStore
         )
+        // A device-only switch promotes a live secondary only when the loaded
+        // paired-Mac cache shows exactly one untagged row for that device
+        // (#10179), so load the cache the way the app does before composing.
+        #expect(await unsupportedStore.loadPairedMacs())
         try installSecondaryClient(
             on: unsupportedStore,
             macDeviceID: "secondary-old",
@@ -261,6 +265,7 @@ import Testing
             router: RoutingHostRouter(),
             pairedMacStore: pairedStore
         )
+        #expect(await currentStore.loadPairedMacs())
         try installSecondaryClient(
             on: currentStore,
             macDeviceID: "secondary-current",
@@ -288,6 +293,7 @@ import Testing
             router: RoutingHostRouter(),
             pairedMacStore: pairedStore
         )
+        #expect(await store.loadPairedMacs())
         let targetRouter = RoutingHostRouter()
         await targetRouter.setHostCapabilities([])
         try installSecondaryClient(
@@ -323,6 +329,7 @@ import Testing
             router: RoutingHostRouter(),
             pairedMacStore: pairedStore
         )
+        #expect(await store.loadPairedMacs())
         let targetRouter = RoutingHostRouter()
         try installSecondaryClient(
             on: store,

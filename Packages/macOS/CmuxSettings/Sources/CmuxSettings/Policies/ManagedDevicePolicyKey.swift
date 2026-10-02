@@ -20,6 +20,15 @@ public enum ManagedDevicePolicyKey: String, CaseIterable, Sendable {
     /// listener, connection admission, and device pairing.
     case disableRemoteControl = "DisableRemoteControl"
 
+    /// Disables discovery of other account Macs in the My Devices surfaces.
+    /// Incoming access to this Mac is controlled independently by
+    /// ``disableIncomingDeviceAccess``.
+    case disableDeviceDiscovery = "DisableDeviceDiscovery"
+
+    /// Disables this Mac accepting incoming account-device or iOS sessions.
+    /// Outbound discovery and control remain available unless separately denied.
+    case disableIncomingDeviceAccess = "DisableIncomingDeviceAccess"
+
     /// Disables cmux Cloud Machines and the cmux-managed private network. This
     /// is a tier-0 administrator gate: the sidebar, Settings, palette, session
     /// restore, the surface registry, Cloud VM service calls, the tunnel, and
@@ -78,6 +87,11 @@ public enum ManagedDevicePolicyKey: String, CaseIterable, Sendable {
     /// the coderouter upstream-account writes. Independent of ``disableCloud``,
     /// which already covers both families.
     case disableAICredentialUpload = "DisableAICredentialUpload"
+
+    /// Forces the local automation socket to a restrictive access mode. The
+    /// only valid profile values are the strings `cmuxOnly` and `off`;
+    /// malformed or broader values fail closed to `off`.
+    case socketControlMode = "SocketControlMode"
 
     /// Restricts embedded-browser top-level navigations to the administrator's
     /// URL patterns. An empty forced array denies every external web origin

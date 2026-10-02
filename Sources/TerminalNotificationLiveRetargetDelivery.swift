@@ -21,7 +21,8 @@ extension TerminalController {
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
         correlationKey: String? = nil,
-        retargetsToLiveSurfaceOwner: Bool = true
+        retargetsToLiveSurfaceOwner: Bool = true,
+        origin: TerminalNotificationOrigin = .local
     ) -> UUID? {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
@@ -66,7 +67,8 @@ extension TerminalController {
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             correlationKey: correlationKey,
             agent: agent,
-            soundContext: soundContext
+            soundContext: soundContext,
+            origin: origin
         )
     }
 }
@@ -144,7 +146,8 @@ extension TerminalNotificationStore {
             isAppFocused: request.isAppFocused,
             isFocusedPanel: request.isFocusedPanel,
             agent: request.agent,
-            soundContext: request.soundContext
+            soundContext: request.soundContext,
+            origin: request.origin
         )
     }
 }

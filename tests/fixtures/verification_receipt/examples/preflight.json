@@ -1,0 +1,292 @@
+{
+  "artifacts": {
+    "launched": null,
+    "produced": null
+  },
+  "assessment": {
+    "exact_verification": false,
+    "launched_matches_produced": false,
+    "qualifications": [
+      "exact_snapshot_not_established",
+      "dirty_or_unknown_source"
+    ],
+    "review_current": false
+  },
+  "authority": "evidence_only",
+  "checks": [
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "preparation",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "parsing",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "typechecking",
+      "status": "skipped"
+    },
+    {
+      "evidence": "evidence.executions",
+      "executed": true,
+      "phase": "tests",
+      "status": "passed"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "packaging",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "live",
+      "status": "skipped"
+    },
+    {
+      "evidence": "evidence.executions",
+      "executed": true,
+      "phase": "static_analysis",
+      "status": "passed"
+    }
+  ],
+  "environment": {
+    "architecture": "arm64",
+    "build_input_identity": null,
+    "configuration": "static preflight",
+    "platform": "Darwin",
+    "toolchain": null
+  },
+  "evidence": {
+    "executions": [
+      {
+        "argv": [
+          "python3",
+          "scripts/lint-xcstrings.py"
+        ],
+        "cancelled": false,
+        "elapsed_seconds": 0.179,
+        "executed": true,
+        "exit_code": 0,
+        "id": "xcstrings",
+        "label": "XCStrings structure",
+        "output_sha256": "96371f0dd750a97b18b954e987aec3d88aac178d97b46b6e313aa44eeba421c5",
+        "phase": "static_analysis",
+        "script_sha256": "87f0e406aa33fad9bcdae5a32fe0918257b2181ef8fb44a0a038624e4e7fd089",
+        "status": "passed",
+        "tests": null
+      },
+      {
+        "argv": [
+          "python3",
+          "scripts/localization_catalog.py",
+          "check"
+        ],
+        "cancelled": false,
+        "elapsed_seconds": 0.764,
+        "executed": true,
+        "exit_code": 0,
+        "id": "localization",
+        "label": "Localization parity",
+        "output_sha256": "6edb4670d72e7b761b91dd9e657c57d811e9cae0d98a1b94d97748ef38aa1239",
+        "phase": "static_analysis",
+        "script_sha256": "b44487c7888a9b0cd29bba117977a8602d8c7bfac8b505edc7a9803629666ef3",
+        "status": "passed",
+        "tests": null
+      },
+      {
+        "argv": [
+          "python3",
+          "tests/test_normalize_pbxproj.py"
+        ],
+        "cancelled": false,
+        "elapsed_seconds": 0.288,
+        "executed": true,
+        "exit_code": 0,
+        "id": "project-tests",
+        "label": "Project normalizer tests",
+        "output_sha256": "bbd5c713e078df75137ff0a2536827ee2169fbc110fff3f9d4a43c2529daed2d",
+        "phase": "tests",
+        "script_sha256": "c6ade1b21ce340f0a0a4e0ec5a5285f1f6ed094665404e821b60d6d521e25de5",
+        "status": "passed",
+        "tests": {
+          "executed": 5,
+          "runner_reported": 5,
+          "skipped": 0
+        }
+      },
+      {
+        "argv": [
+          "bash",
+          "scripts/check-pbxproj.sh"
+        ],
+        "cancelled": false,
+        "elapsed_seconds": 0.132,
+        "executed": true,
+        "exit_code": 0,
+        "id": "project",
+        "label": "Xcode project normalization and version",
+        "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "phase": "static_analysis",
+        "script_sha256": "8d96b0b902fd5397f1c7eaf727595d9cfb58a56e81017cc6180464be79a3b742",
+        "status": "passed",
+        "tests": null
+      },
+      {
+        "argv": [
+          "python3",
+          "scripts/generate-claude-launch-environment-policy.py",
+          "--check"
+        ],
+        "cancelled": false,
+        "elapsed_seconds": 0.04,
+        "executed": true,
+        "exit_code": 0,
+        "id": "launch-policy",
+        "label": "Generated Claude launch policy",
+        "output_sha256": "1e09b2dc4867fd5928ef12a21d356fb7a79ee9bc07faf78bf320b9e7c3dda983",
+        "phase": "static_analysis",
+        "script_sha256": "3c446e1d7df6278cb4b90cadf1f068954adaac828a0cb1968622fa509fad61d4",
+        "status": "passed",
+        "tests": null
+      },
+      {
+        "argv": [
+          "bash",
+          "scripts/lint-pbxproj-test-wiring.sh"
+        ],
+        "cancelled": false,
+        "elapsed_seconds": 5.569,
+        "executed": true,
+        "exit_code": 0,
+        "id": "test-wiring",
+        "label": "Swift tests included in the Xcode target",
+        "output_sha256": "5405f4bfcf8b49b3e72c0b75ed3ba917b6e6938bee18602aca585afe48e30c32",
+        "phase": "static_analysis",
+        "script_sha256": "76eb22b6590bcfd151585c307a4968510b962734fd4086b170a74d57cf81184c",
+        "status": "passed",
+        "tests": null
+      },
+      {
+        "argv": [
+          "python3",
+          "scripts/check-workspace-package-groups.py",
+          "--check"
+        ],
+        "cancelled": false,
+        "elapsed_seconds": 0.039,
+        "executed": true,
+        "exit_code": 0,
+        "id": "package-groups",
+        "label": "Workspace Swift package groups",
+        "output_sha256": "6ea9ed7f14537fa63cc87a06cdcdb3c91bc930e3bf64792091ed0cb2c4e487a0",
+        "phase": "static_analysis",
+        "script_sha256": "d0e7951836b025932696e4f79b71f7e3baf69d67b56875cd1fa1399e7d1bd2ed",
+        "status": "passed",
+        "tests": null
+      },
+      {
+        "argv": [
+          "python3",
+          "scripts/lint-feature-flags.py"
+        ],
+        "cancelled": false,
+        "elapsed_seconds": 6.023,
+        "executed": true,
+        "exit_code": 0,
+        "id": "feature-flags",
+        "label": "Feature flag policy",
+        "output_sha256": "9770ab85339d28aaa3c3c52554b16660b82523863b835f6962eeefd0ada5e895",
+        "phase": "static_analysis",
+        "script_sha256": "d0ea5d291fdb451f70cbe85e50f30c93173df2462b4bbb00b6c6d5370cf96e07",
+        "status": "passed",
+        "tests": null
+      }
+    ],
+    "kind": "local_static_preflight"
+  },
+  "integrations": {
+    "glaeda_request_id": null,
+    "glaeda_run_id": null,
+    "stensibly_run_id": null,
+    "stensibly_settlement_id": null
+  },
+  "outcome": {
+    "scope": "selected static preflight checks",
+    "status": "passed"
+  },
+  "recipe": {
+    "argv": [
+      "python3",
+      "scripts/verify-local.py",
+      "--only",
+      "xcstrings",
+      "--only",
+      "localization",
+      "--only",
+      "project-tests",
+      "--only",
+      "project",
+      "--only",
+      "launch-policy",
+      "--only",
+      "test-wiring",
+      "--only",
+      "package-groups",
+      "--only",
+      "feature-flags"
+    ],
+    "claim_class": "pre_build_static_sanity",
+    "id": "cmux-fast-static-checks/v1",
+    "revision": "5a3a23cdd5a6a1b30fb29a72e8a9d52199691ff249e79db91c85bcc414200274"
+  },
+  "review": {
+    "current_head": null,
+    "evidence": null,
+    "reviewed_head": null,
+    "status": "unsupported"
+  },
+  "schema_version": "cmux-verification/v1",
+  "source": {
+    "after": {
+      "clean": false,
+      "commit": "543a7b4529929d8b04d885ad0f058da24874cc89",
+      "status_sha256": "d8946e80d5b0748c76eb48b63ab4b9dd227fc29046db3104fa886efb6928b1eb",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tree": "4995acd624adf1b6dce39ccfd4f51eca81fc6c30"
+    },
+    "base_sha": null,
+    "before": {
+      "clean": false,
+      "commit": "543a7b4529929d8b04d885ad0f058da24874cc89",
+      "status_sha256": "d8946e80d5b0748c76eb48b63ab4b9dd227fc29046db3104fa886efb6928b1eb",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tree": "4995acd624adf1b6dce39ccfd4f51eca81fc6c30"
+    },
+    "checkout_sha": "543a7b4529929d8b04d885ad0f058da24874cc89",
+    "exact_snapshot": null,
+    "head_sha": "543a7b4529929d8b04d885ad0f058da24874cc89",
+    "merge_sha": null,
+    "repository": "cmux (caller-supplied checkout)",
+    "semantics": "latest_checkout_at_execution",
+    "tree": "4995acd624adf1b6dce39ccfd4f51eca81fc6c30"
+  },
+  "tests": {
+    "accepted_baselines": [],
+    "discovered": null,
+    "executed": 5,
+    "runner_reported": 5,
+    "selected": null,
+    "selection": [
+      "tests/test_normalize_pbxproj.py"
+    ],
+    "skipped": 0
+  }
+}

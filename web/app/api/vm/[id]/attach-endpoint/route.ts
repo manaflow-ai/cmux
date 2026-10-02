@@ -1,3 +1,4 @@
+import { preconnectCloudDb } from "../../../../../db/client";
 import { preconnectFreestyle } from "../../../../../services/vms/drivers/freestyle";
 import {
   jsonResponse,
@@ -7,6 +8,7 @@ import {
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { openAttachEndpoint, openVmCmuxRemote } from "../../../../../services/vms/workflows";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 import {
   capabilityList,
   optionalClientIdentifier,
@@ -18,8 +20,9 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  // Warm the Freestyle connection while the caller is being verified.
+  // Warm the Freestyle and database connections while the caller is being verified.
   preconnectFreestyle();
+  preconnectCloudDb();
   return withAuthedVmApiRoute(
     request,
     "/api/vm/[id]/attach-endpoint",
@@ -70,6 +73,7 @@ export async function POST(
           deviceFingerprint,
           clientCapabilities,
           callerPlanId: account.entitlements.planId,
+          modelPlane: vmModelPlaneRevoker(),
         }), { request });
         if (!run.ok) return run.response;
         return jsonResponse(run.value);
@@ -91,6 +95,7 @@ export async function POST(
         providerVmId: id,
         sessionTitle,
         options: { requireDaemon, sessionId, attachmentId },
+        modelPlane: vmModelPlaneRevoker(),
       }), { request });
       if (!run.ok) return run.response;
       const endpoint = run.value;

@@ -121,8 +121,8 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
             discoveryStatus: discoveryStatus,
             sessionStatus: sessionStatus,
             failureKind: diagnostics.lastFailureKind,
-            hasRelayConfigurationProblem: !snapshot.staleRelayIDs.isEmpty
-                || snapshot.failureDescription != nil
+            hasRelayConfigurationProblem: !snapshot.staleRelayIDs.isEmpty,
+            hasRuntimeFailure: snapshot.failureDescription != nil
         )
     }
 
@@ -134,7 +134,8 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         discoveryStatus: StageStatus,
         sessionStatus: StageStatus,
         failureKind: DiagnosticFailureKind?,
-        hasRelayConfigurationProblem: Bool
+        hasRelayConfigurationProblem: Bool,
+        hasRuntimeFailure: Bool
     ) -> Recommendation {
         if transportStatus == .failed, failureKind == .offline { return .checkInternet }
         if policyStatus == .failed || hasRelayConfigurationProblem {
@@ -144,7 +145,9 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         // and blocked. An unavailable probe is indeterminate (inactive runtime,
         // unreadable path hints), so it must never send users to IT.
         if relayReachability == .unreachable { return .allowRelayTraffic }
-        if transportStatus == .failed { return .refreshAccount }
+        if transportStatus == .failed {
+            return hasRuntimeFailure ? .retry : .refreshAccount
+        }
         if role == .mobileClient, discoveryStatus == .failed { return .openMacApp }
         if role == .mobileClient, sessionStatus == .failed {
             switch failureKind {

@@ -1,3 +1,4 @@
+import { canonicalizeEmailForMatching } from "../billing/emailMatching";
 import { eq, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
@@ -147,19 +148,61 @@ export async function writeIdentitySnapshot(
 }
 
 /**
- * Forget the stored identity for a user. Called when a session is revoked or
- * the account is deleted, so no instance can keep answering from a snapshot
- * the user just invalidated.
+ * Forget the stored identity for a user. Called when a session is revoked, the
+ * account is deleted, or the user leaves a team, so no instance can keep
+ * answering from a snapshot the user just invalidated.
+ *
+ * Best effort by default. `throwOnError` is for revocation callers that must
+ * report failure so the event is retried (the Stack membership webhook).
  */
 export async function deleteIdentitySnapshot(
   userId: string,
   db?: SnapshotDb,
+  options: { readonly throwOnError?: boolean } = {},
 ): Promise<void> {
   try {
     await (db ?? cloudDb())
       .delete(stackIdentitySnapshots)
       .where(eq(stackIdentitySnapshots.userId, userId));
-  } catch {
+  } catch (error) {
+    if (options.throwOnError) throw error;
     // Best effort: the snapshot expires on its own within the TTL.
   }
+}
+
+/**
+ * Snapshot user ids whose primary email is the same mailbox as `email` under
+ * Gmail's dot-insensitive rules. The SQL filter is over-inclusive on purpose
+ * (dots stripped everywhere, case folded); the exact canonical comparison runs
+ * here. A read failure is an empty result, never an error, for the same reason
+ * `readIdentitySnapshot` returns null: the snapshot is an index, not authority.
+ */
+export async function findIdentitySnapshotUserIdsByEmail(
+  email: string,
+  db?: SnapshotDb,
+): Promise<readonly string[]> {
+  const canonical = canonicalizeEmailForMatching(email);
+  const at = canonical.lastIndexOf("@");
+  if (at <= 0) return [];
+  const undottedLocal = canonical.slice(0, at).replaceAll(".", "");
+  const domain = canonical.slice(at + 1);
+  let rows: Array<Pick<typeof stackIdentitySnapshots.$inferSelect, "userId" | "primaryEmail">>;
+  try {
+    rows = await (db ?? cloudDb())
+      .select({
+        userId: stackIdentitySnapshots.userId,
+        primaryEmail: stackIdentitySnapshots.primaryEmail,
+      })
+      .from(stackIdentitySnapshots)
+      .where(
+        sql`replace(split_part(lower(${stackIdentitySnapshots.primaryEmail}), '@', 1), '.', '') = ${undottedLocal}
+          and split_part(lower(${stackIdentitySnapshots.primaryEmail}), '@', 2) in (${domain}, 'googlemail.com')`,
+      )
+      .limit(50);
+  } catch {
+    return [];
+  }
+  return rows
+    .filter((row) => row.primaryEmail && canonicalizeEmailForMatching(row.primaryEmail) === canonical)
+    .map((row) => row.userId);
 }

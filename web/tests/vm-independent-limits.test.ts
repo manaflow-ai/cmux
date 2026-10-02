@@ -32,29 +32,32 @@ describe("independent Cloud VM limits", () => {
   dbTest("admits the third machine, all 50 sizes, and exactly one concurrent final slot", async () => {
     const team = "team-independent-limits";
     await sql`delete from cloud_vms where billing_team_id = ${team}`;
-    const input = {
-      userId: "user-independent-limits", billingTeamId: team, billingPlanId: "pro",
-      provider: "freestyle" as const, image: "snapshot-test", maxActiveVms: 50,
-      resourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 },
-    };
-    for (let i = 0; i < 49; i++) {
-      const result = await runRepo(repo => repo.beginCreate({
-        ...input, idempotencyKey: `independent-${i}`,
-        // Include the largest machine: dimensions are per machine, not a pool.
-        ...(i === 3 ? { resourceReservation: { vcpus: 16, memoryMb: 65536, diskMb: 262144 } } : {}),
-      }));
-      expect(result.inserted).toBe(true);
+    try {
+      const input = {
+        userId: "user-independent-limits", billingTeamId: team, billingPlanId: "pro",
+        provider: "freestyle" as const, image: "snapshot-test", maxActiveVms: 50,
+        resourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 },
+      };
+      for (let i = 0; i < 49; i++) {
+        const result = await runRepo(repo => repo.beginCreate({
+          ...input, idempotencyKey: `independent-${i}`,
+          // Include the largest machine: dimensions are per machine, not a pool.
+          ...(i === 3 ? { resourceReservation: { vcpus: 16, memoryMb: 65536, diskMb: 262144 } } : {}),
+        }));
+        expect(result.inserted).toBe(true);
+      }
+      const results = await Promise.allSettled([49, 50].map(i =>
+        runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: `independent-${i}` })),
+      ));
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+      const failure = await runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: "over-limit" }).pipe(Effect.flip));
+      expect(failure).toMatchObject({ _tag: "VmLimitExceededError", limit: 50 });
+      const retry = await runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: "independent-0" }));
+      expect(retry.inserted).toBe(false);
+    } finally {
+      await sql`delete from cloud_vms where billing_team_id = ${team}`;
     }
-    const results = await Promise.allSettled([49, 50].map(i =>
-      runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: `independent-${i}` })),
-    ));
-    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
-    expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
-    const failure = await runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: "over-limit" }).pipe(Effect.flip));
-    expect(failure).toMatchObject({ _tag: "VmLimitExceededError", limit: 50 });
-    const retry = await runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: "independent-0" }));
-    expect(retry.inserted).toBe(false);
-    await sql`delete from cloud_vms where billing_team_id = ${team}`;
   });
 
   dbTest("Base open and reset work beside machines exceeding every former pool", async () => {
@@ -67,18 +70,21 @@ describe("independent Cloud VM limits", () => {
     };
     await sql`delete from cloud_vm_bases where scope_id = ${team}`;
     await sql`delete from cloud_vms where billing_team_id = ${team}`;
-    await runRepo(repo => repo.beginCreate(input));
-    const opened = await runRepo(repo => repo.beginBaseOpen(input));
-    expect(opened.kind).toBe("create");
-    await runRepo(repo => repo.markBaseCreateRunning({
-      baseId: opened.base.id, generation: opened.generation.generation,
-      vmId: opened.vm.id, providerVmId: "independent-base-provider",
-      image: input.image, userId: input.userId,
-    }));
-    const reset = await runRepo(repo => repo.beginBaseReset(input));
-    expect(reset.kind).toBe("create");
-    expect(reset.vm.id).not.toBe(opened.vm.id);
-    await sql`delete from cloud_vm_bases where scope_id = ${team}`;
-    await sql`delete from cloud_vms where billing_team_id = ${team}`;
+    try {
+      await runRepo(repo => repo.beginCreate(input));
+      const opened = await runRepo(repo => repo.beginBaseOpen(input));
+      expect(opened.kind).toBe("create");
+      await runRepo(repo => repo.markBaseCreateRunning({
+        baseId: opened.base.id, generation: opened.generation.generation,
+        vmId: opened.vm.id, providerVmId: "independent-base-provider",
+        image: input.image, userId: input.userId,
+      }));
+      const reset = await runRepo(repo => repo.beginBaseReset(input));
+      expect(reset.kind).toBe("create");
+      expect(reset.vm.id).not.toBe(opened.vm.id);
+    } finally {
+      await sql`delete from cloud_vm_bases where scope_id = ${team}`;
+      await sql`delete from cloud_vms where billing_team_id = ${team}`;
+    }
   });
 });

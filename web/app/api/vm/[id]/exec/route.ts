@@ -7,6 +7,7 @@ import {
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { execVm } from "../../../../../services/vms/workflows";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 
 
 // Exec accepts client timeouts up to 15 minutes (MAX_EXEC_TIMEOUT_MS below).
@@ -55,6 +56,19 @@ export async function POST(
           details: { field: "command" },
         });
       }
+      const commandBytes = Buffer.byteLength(command, "utf8");
+      const MAX_PROVIDER_COMMAND_BYTES = 64 * 1024;
+      if (commandBytes > MAX_PROVIDER_COMMAND_BYTES) {
+        return vmErrorResponse({
+          error: "vm_command_too_large",
+          status: 413,
+          message: `Cloud VM commands must be 64 KiB or smaller. This command is ${commandBytes} bytes.`,
+          action: "Split the command into smaller requests or upload a script and execute the script path.",
+          phase: "exec",
+          retryable: false,
+          details: { commandBytes, maxCommandBytes: MAX_PROVIDER_COMMAND_BYTES },
+        });
+      }
       // Clamp the timeout so a client can't tie up provider quota on a runaway exec. Upper
       // bound matches the provider defaults (15 min on Freestyle); negative / non-number
       // values fall back to 30s.
@@ -69,7 +83,7 @@ export async function POST(
       if (!account.ok) return account.response;
       setSpanAttributes(span, {
         "cmux.vm.id": id,
-        "cmux.command_length": command.length,
+        "cmux.command_length": commandBytes,
         "cmux.timeout_ms": timeoutMs,
       });
       const run = await runVmRoute(execVm({
@@ -81,6 +95,7 @@ export async function POST(
         providerVmId: id,
         command,
         timeoutMs,
+        modelPlane: vmModelPlaneRevoker(),
       }), { request });
       if (!run.ok) return run.response;
       const result = run.value;

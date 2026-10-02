@@ -129,6 +129,46 @@ describe("coderouter analytics", () => {
     expect(captured.bodies[0]).not.toContain("free-form error");
   });
 
+  test("keeps handoff analytics enum-only even when callers provide token-shaped fields", async () => {
+    const captured = collector();
+    captureCoderouterEvent(
+      {
+        event: "coderouter_handoff_lease_issued",
+        userId: "raw-user",
+        teamId: "raw-team",
+        properties: {
+          authorization_mode: "native_stack",
+          lease: "crh_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+          token: "crt_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN",
+        },
+      },
+      captured.dependencies,
+    );
+    captureCoderouterEvent(
+      {
+        event: "coderouter_handoff_lease_exchanged",
+        userId: "raw-user",
+        teamId: "raw-team",
+        properties: {
+          authorization_mode: "lease",
+          lease: "crh_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+          route_token: "crt_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN",
+        },
+      },
+      captured.dependencies,
+    );
+
+    await Promise.all(captured.deferred);
+    expect(captured.bodies).toHaveLength(2);
+    for (const body of captured.bodies) {
+      expect(body).not.toContain("crh_");
+      expect(body).not.toContain("crt_");
+      const event = JSON.parse(body).batch[0];
+      expect(event.distinct_id).toBe("raw-user");
+      expect(event.properties.team_id).toBe("raw-team");
+    }
+  });
+
   test("fails closed for usage and ops when the project key is missing", () => {
     const defer = mock(() => {});
     const dependencies = {
@@ -198,6 +238,62 @@ describe("coderouter analytics", () => {
     const captured = collector();
     captureCoderouterEvent({ event: "coderouter_model_request_completed", userId: "u", teamId: "t", properties: { total_tokens: 10, vm_id: "vm-1" } }, captured.dependencies);
     expect(captured.bodies).toHaveLength(0);
+  });
+
+  test("captures API-key lifecycle properties without forwarding raw input", async () => {
+    const cases = [
+      {
+        event: "coderouter_api_key_created" as const,
+        properties: { label: "private label" },
+        expected: {},
+      },
+      {
+        event: "coderouter_api_key_revoked" as const,
+        properties: { self: true },
+        expected: { self: true },
+      },
+      {
+        event: "coderouter_api_key_listed" as const,
+        properties: { key_count: 4 },
+        expected: { key_count_bucket: "4-10" },
+      },
+      {
+        event: "coderouter_api_key_revoked" as const,
+        properties: { self: "invalid" },
+        expected: { self: false },
+      },
+      {
+        event: "coderouter_api_key_listed" as const,
+        properties: { key_count: -1 },
+        expected: { key_count_bucket: "0" },
+      },
+    ];
+
+    for (const input of cases) {
+      const { expected, ...captureInput } = input;
+      const captured = collector();
+      captureCoderouterEvent(
+        { ...captureInput, userId: "stack-user-id", teamId: "team-id" },
+        captured.dependencies,
+      );
+      await Promise.all(captured.deferred);
+      const event = JSON.parse(captured.bodies[0]!).batch[0];
+      expect(event.properties).toMatchObject({
+        ...input.expected,
+        user_id: "stack-user-id",
+        team_id: "team-id",
+      });
+      expect(event.properties).not.toHaveProperty("label");
+    }
+  });
+
+  test("drops API-key lifecycle events without a user identity", () => {
+    const captured = collector();
+    captureCoderouterEvent(
+      { event: "coderouter_api_key_created", properties: {} },
+      captured.dependencies,
+    );
+    expect(captured.deferred).toHaveLength(0);
   });
 
   test("rejects invalid enum values and bounds numeric dimensions", () => {

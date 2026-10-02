@@ -8,6 +8,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 printf '<rss>ok</rss>' >"$TMP_DIR/appcast.xml"
 
 python3 -m py_compile "$ROOT_DIR/scripts/ci/upload-r2-object.py"
+python3 "$ROOT_DIR/tests/test_r2_upload_requests.py"
 
 AWS_ACCESS_KEY_ID=AKIDEXAMPLE \
 AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY \
@@ -34,9 +35,10 @@ authorization = headers.get("authorization", "")
 assert request["method"] == "PUT", request
 assert request["url"] == "https://example-account.r2.cloudflarestorage.com/cmux-binaries/nightly/appcast.xml", request
 assert headers["cache-control"] == "no-cache, no-store, must-revalidate", headers
+assert headers["content-type"] in {"application/xml", "text/xml"}, headers
 assert headers["x-amz-date"] == "20260102T030405Z", headers
 assert "Credential=AKIDEXAMPLE/20260102/auto/s3/aws4_request" in authorization, authorization
-assert "SignedHeaders=cache-control;host;x-amz-content-sha256;x-amz-date" in authorization, authorization
+assert "SignedHeaders=cache-control;content-type;host;x-amz-content-sha256;x-amz-date" in authorization, authorization
 assert len(headers["x-amz-content-sha256"]) == 64, headers
 PY
 

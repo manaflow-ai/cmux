@@ -36,6 +36,9 @@ const MAX_MACHINE_ROWS = 200;
 const VM_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
 const VM_COLUMNS = ["day", ...USAGE_COLUMNS] as const;
+const BREAKDOWN_COLUMNS = ["workspace_id", "surface_id", "agent", "model", ...USAGE_COLUMNS] as const;
+const MAX_BREAKDOWN_ROWS = 2000;
+const ORIGIN_ID_PATTERN = /^[A-Za-z0-9_.:-]{0,128}$/;
 const MACHINE_COLUMNS = ["vm_id", ...USAGE_COLUMNS] as const;
 
 const VM_USAGE_SQL = `SELECT
@@ -47,6 +50,20 @@ WHERE team_id = {team_id:String}
 GROUP BY day
 ORDER BY day ASC
 LIMIT 31`;
+
+// One row per (workspace, terminal, agent, model) the machine used in the
+// period; the contract folds these into the per-workspace, per-terminal,
+// per-agent, and per-model views. Empty ids mean "outside a cmux-tui
+// terminal" or "before the guest carried the origin headers".
+const VM_BREAKDOWN_SQL = `SELECT
+  workspace_id, surface_id, agent, model,${USAGE_SUMS_SQL}
+FROM {db}.usage_events
+WHERE team_id = {team_id:String}
+  AND vm_id = {vm_id:String}
+  AND ${DAY_WINDOW_SQL}
+GROUP BY workspace_id, surface_id, agent, model
+ORDER BY total_tokens DESC, workspace_id ASC, surface_id ASC, agent ASC, model ASC
+LIMIT ${MAX_BREAKDOWN_ROWS}`;
 
 const TEAM_MACHINES_SQL = `SELECT
   vm_id,${USAGE_SUMS_SQL}
@@ -62,7 +79,7 @@ export type VmMetricsDependencies = {
   readonly clickhouse: ClickHouseDependencies;
   readonly now: () => Date;
   readonly reportFailure?: (
-    query: "vm" | "machines",
+    query: "vm" | "vm_breakdown" | "machines",
     reason: string,
     status?: number,
   ) => void;
@@ -84,6 +101,15 @@ export type CoderouterVmMetricsDay = {
   readonly apiEquivalentUsd: number;
 };
 
+/** Usage of one (workspace, terminal, agent, model) tuple; empty ids mean unknown. */
+export type CoderouterVmBreakdownRow = {
+  readonly workspaceId: string;
+  readonly surfaceId: string;
+  readonly agent: string;
+  readonly model: string;
+  readonly totals: CoderouterVmMetricsTotals;
+};
+
 export type CoderouterVmMetrics =
   | { readonly kind: "unavailable" }
   | {
@@ -94,6 +120,8 @@ export type CoderouterVmMetrics =
       readonly rateCardVersion: string;
       readonly totals: CoderouterVmMetricsTotals;
       readonly daily: readonly CoderouterVmMetricsDay[];
+      /** Ordered by total tokens descending. */
+      readonly breakdown: readonly CoderouterVmBreakdownRow[];
     };
 
 export type CoderouterTeamMachineUsage = {
@@ -137,7 +165,7 @@ const defaultDependencies: VmMetricsDependencies = {
 const cachedVmMetrics = unstable_cache(
   async (teamId: string, vmId: string) =>
     await queryCoderouterVmMetrics(teamId, vmId, defaultDependencies),
-  ["coderouter-vm-metrics-v2"],
+  ["coderouter-vm-metrics-v3"],
   { revalidate: 300 },
 );
 
@@ -203,7 +231,18 @@ async function queryCoderouterVmMetrics(
     dependencies.reportFailure?.("vm", "invalid_metrics");
     return { kind: "unavailable" };
   }
-  return metrics;
+  const breakdownRows = await runQuery("vm_breakdown", dependencies, VM_BREAKDOWN_SQL, {
+    team_id: authorizedTeamId,
+    vm_id: vmId,
+    ...dayWindowParams(now),
+  }, MAX_BREAKDOWN_ROWS);
+  if (!breakdownRows) return { kind: "unavailable" };
+  const breakdown = breakdownFromRows(breakdownRows);
+  if (!breakdown) {
+    dependencies.reportFailure?.("vm_breakdown", "invalid_metrics");
+    return { kind: "unavailable" };
+  }
+  return { ...metrics, breakdown };
 }
 
 async function queryCoderouterTeamMachineMetrics(
@@ -225,7 +264,7 @@ async function queryCoderouterTeamMachineMetrics(
 }
 
 async function runQuery(
-  name: "vm" | "machines",
+  name: "vm" | "vm_breakdown" | "machines",
   dependencies: VmMetricsDependencies,
   sql: string,
   params: Readonly<Record<string, ClickHouseParamValue>>,
@@ -248,6 +287,7 @@ function vmMetricsFromRows(
   vmId: string,
   rows: readonly unknown[],
   now: Date,
+  breakdown: readonly CoderouterVmBreakdownRow[] = [],
 ): Extract<CoderouterVmMetrics, { kind: "ready" }> | null {
   const daily = new Map<string, MutableTotals>();
   for (const row of rows) {
@@ -278,7 +318,32 @@ function vmMetricsFromRows(
     rateCardVersion: CODEROUTER_API_RATE_CARD_VERSION,
     totals: { ...totals },
     daily: serializedDays,
+    breakdown,
   };
+}
+
+function breakdownFromRows(rows: readonly unknown[]): readonly CoderouterVmBreakdownRow[] | null {
+  const breakdown: CoderouterVmBreakdownRow[] = [];
+  for (const row of rows) {
+    const record = rowRecord(row, BREAKDOWN_COLUMNS);
+    if (!record) return null;
+    const workspaceId = originId(record.workspace_id);
+    const surfaceId = originId(record.surface_id);
+    const agent = labelText(record.agent);
+    const model = labelText(record.model);
+    const totals = parseTotals(record);
+    if (workspaceId === null || surfaceId === null || agent === null || model === null || !totals) return null;
+    breakdown.push({ workspaceId, surfaceId, agent, model, totals });
+  }
+  return breakdown.sort((left, right) => right.totals.totalTokens - left.totals.totalTokens);
+}
+
+function originId(value: unknown): string | null {
+  return typeof value === "string" && ORIGIN_ID_PATTERN.test(value) ? value : null;
+}
+
+function labelText(value: unknown): string | null {
+  return typeof value === "string" && value.length <= 128 ? value : null;
 }
 
 function machineMetricsFromRows(
@@ -321,7 +386,9 @@ export const __test = {
   queryCoderouterVmMetrics,
   queryCoderouterTeamMachineMetrics,
   vmMetricsFromRows,
+  breakdownFromRows,
   machineMetricsFromRows,
   VM_USAGE_SQL,
+  VM_BREAKDOWN_SQL,
   TEAM_MACHINES_SQL,
 };

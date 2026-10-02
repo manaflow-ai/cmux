@@ -139,127 +139,40 @@ struct SSHRemoteCommandCLIIntegrationTests {
     }
 
     @Test
-    func testSSHLeadingTTYSequencePersistsEffectiveRequestTTY() throws {
+    func testSSHLeadingTTYSequenceEndingInTTYOpensThroughCmuxTui() throws {
+        // OpenSSH applies -T then -tt in order, so the effective request is a
+        // forced TTY and the session belongs to cmux-tui.
         let run = try Self.runRemoteCommandMockedSSH(arguments: [
             "--ssh-option", "RequestTTY=yes",
             "-T", "-tt",
             "printf", "ready",
         ])
-        let configureParams = try #require(
-            Self.params(for: "workspace.remote.configure", in: run.requests)
+        let openParams = try #require(
+            Self.params(for: "workspace.ssh.open", in: run.requests)
         )
-        let sshOptions = try #require(configureParams["ssh_options"] as? [String])
 
-        #expect(
-            sshOptions.filter { $0.lowercased().hasPrefix("requesttty=") }
-                == ["RequestTTY=force"]
-        )
+        #expect(Self.params(for: "workspace.remote.configure", in: run.requests) == nil)
+        #expect(openParams["initial_command"] as? String == "printf ready")
     }
 
     @Test
-    func testSSHRawRemoteCommandKeepsLeadingTTYFlagOnSSHInvocation() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent(
-                "cmux-ssh-raw-command-tty-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        let remoteHome = root.appendingPathComponent("remote-home", isDirectory: true)
-        let fakeCLI = root.appendingPathComponent("cmux")
-        let fakeSSH = root.appendingPathComponent("ssh")
-        let fakeDocker = root.appendingPathComponent("docker")
-        let sshArgumentsLog = root.appendingPathComponent("ssh-arguments.log")
-        let dockerArgumentsLog = root.appendingPathComponent("docker-arguments.log")
-
-        try fileManager.createDirectory(at: remoteHome, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        try Harness.writeShellFile(at: fakeCLI, lines: [
-            "#!/bin/sh",
-            "exit 0",
-        ])
-        try Harness.writeShellFile(at: fakeSSH, lines: [
-            "#!/bin/sh",
-            "cmux_test_remote_command=",
-            "for cmux_test_arg in \"$@\"; do",
-            "  if [ \"$cmux_test_arg\" = '-G' ]; then",
-            "    printf '%s\\n' 'controlpath none'",
-            "    exit 0",
-            "  fi",
-            "  printf '%s\\n' \"$cmux_test_arg\" >> \"${CMUX_TEST_SSH_ARGUMENTS_LOG}\"",
-            "  cmux_test_remote_command=\"$cmux_test_arg\"",
-            "done",
-            "HOME=\"${CMUX_TEST_REMOTE_HOME}\" PATH=\"${CMUX_TEST_REMOTE_PATH}\" /bin/sh -c \"$cmux_test_remote_command\"",
-        ])
-        try Harness.writeShellFile(at: fakeDocker, lines: [
-            "#!/bin/sh",
-            "printf '%s\\n' \"$@\" > \"${CMUX_TEST_DOCKER_ARGUMENTS_LOG}\"",
-        ])
-        for executable in [fakeCLI, fakeSSH, fakeDocker] {
-            try fileManager.setAttributes(
-                [.posixPermissions: 0o700],
-                ofItemAtPath: executable.path
-            )
-        }
-
+    func testSSHRawRemoteCommandWithLeadingTTYFlagOpensThroughCmuxTui() throws {
+        // A TTY remote command runs inside the cmux-tui terminal, which is
+        // always a PTY, so the leading OpenSSH -t is not forwarded.
         let run = try Self.runRemoteCommandMockedSSH(arguments: [
             "-t",
             "docker", "exec", "-it",
             "-w", "/workspaces/demo",
             "vsc-demo", "/bin/bash",
         ])
-        let createParams = try #require(
-            Self.params(for: "workspace.create", in: run.requests)
-        )
-        let initialStartupCommand = try #require(createParams["initial_command"] as? String)
-        let startupURL = URL(
-            fileURLWithPath: initialStartupCommand.trimmingCharacters(
-                in: CharacterSet(charactersIn: "'")
-            )
-        )
-        defer { try? fileManager.removeItem(at: startupURL) }
-        let startupScript = try String(contentsOf: startupURL, encoding: .utf8)
-            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
-        try startupScript.write(to: startupURL, atomically: true, encoding: .utf8)
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
-        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
-        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
-        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TERMINAL_LIFECYCLE_ID"] =
-            "33333333-3333-3333-3333-333333333333"
-        environment["CMUX_TEST_REMOTE_HOME"] = remoteHome.path
-        environment["CMUX_TEST_REMOTE_PATH"] = "\(root.path):/usr/bin:/bin"
-        environment["CMUX_TEST_SSH_ARGUMENTS_LOG"] = sshArgumentsLog.path
-        environment["CMUX_TEST_DOCKER_ARGUMENTS_LOG"] = dockerArgumentsLog.path
-        environment["CMUX_SSH_RECONNECT_LIMIT"] = "0"
-        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
-
-        let result = Harness.runProcess(
-            executablePath: "/bin/sh",
-            arguments: [startupURL.path],
-            environment: environment,
-            timeout: 5
+        let openParams = try #require(
+            Self.params(for: "workspace.ssh.open", in: run.requests)
         )
 
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
-        let sshArguments = try String(contentsOf: sshArgumentsLog, encoding: .utf8)
-            .split(separator: "\n")
-            .map(String.init)
-        let ttyIndex = try #require(sshArguments.firstIndex(of: "-t"))
-        let destinationIndex = try #require(sshArguments.firstIndex(of: "example.test"))
+        #expect(Self.params(for: "workspace.create", in: run.requests) == nil)
         #expect(
-            ttyIndex < destinationIndex,
-            "The OpenSSH PTY flag must precede the SSH destination: \(sshArguments)"
-        )
-        let dockerArguments = try String(contentsOf: dockerArgumentsLog, encoding: .utf8)
-            .split(separator: "\n")
-            .map(String.init)
-        #expect(
-            dockerArguments
-                == ["exec", "-it", "-w", "/workspaces/demo", "vsc-demo", "/bin/bash"]
+            openParams["initial_command"] as? String
+                == "docker exec -it -w /workspaces/demo vsc-demo /bin/bash"
         )
     }
 
@@ -329,6 +242,16 @@ struct SSHRemoteCommandCLIIntegrationTests {
                             ok: true,
                             result: ["remote": ["state": "connected"]]
                         )
+                    case "workspace.ssh.open":
+                        return Harness.v2Response(
+                            id: id,
+                            ok: true,
+                            result: [
+                                "workspace_id": workspaceID,
+                                "window_id": windowID,
+                                "surface_id": surfaceID,
+                            ]
+                        )
                     default:
                         return Harness.v2Response(
                             id: id,
@@ -362,12 +285,15 @@ struct SSHRemoteCommandCLIIntegrationTests {
             environment: environment,
             timeout: 5
         )
-        let sawConfigureRequest = waitForRemoteCommandMockSocketCommand(in: state) { line in
+        // TTY sessions open through cmux-tui; non-TTY sessions keep the
+        // legacy workspace.remote.configure flow.
+        let sawTerminalRequest = waitForRemoteCommandMockSocketCommand(in: state) { line in
             line.contains(#""method":"workspace.remote.configure""#)
+                || line.contains(#""method":"workspace.ssh.open""#)
         }
         #expect(
-            sawConfigureRequest,
-            "Expected workspace.remote.configure, saw \(state.snapshot())"
+            sawTerminalRequest,
+            "Expected workspace.remote.configure or workspace.ssh.open, saw \(state.snapshot())"
         )
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
@@ -394,17 +320,7 @@ struct SSHRemoteCommandCLIIntegrationTests {
     }
 
     private static func decodedReusableStartupScript(from command: String) -> String? {
-        guard let markerRange = command.range(of: "printf %s ") else {
-            return nil
-        }
-        let remainder = command[markerRange.upperBound...]
-        guard let encoded = remainder
-            .split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
-            .first,
-            let data = Data(base64Encoded: String(encoded)) else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
+        SSHStartupCommandTestSupport.decodedScript(in: command)
     }
 
     private static func params(

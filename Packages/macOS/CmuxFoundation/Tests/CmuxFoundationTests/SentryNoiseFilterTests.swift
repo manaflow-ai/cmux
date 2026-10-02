@@ -38,6 +38,9 @@ import Testing
         #expect(filter.isExpectedCLIProtocolOutcomeCode("invalid_params"))
         #expect(filter.isExpectedCLIProtocolOutcomeCode(" not_found "))
         #expect(filter.isExpectedCLIProtocolOutcomeCode("protected"))
+        // A terminal that is hibernated or still starting has no readable
+        // text; that is routine surface state (Sentry CMUXTERM-MACOS-3JFD).
+        #expect(filter.isExpectedCLIProtocolOutcomeCode("surface_unavailable"))
         #expect(!filter.isExpectedCLIProtocolOutcomeCode("invalid_state"))
         #expect(!filter.isExpectedCLIProtocolOutcomeCode("internal_error"))
         #expect(!filter.isExpectedCLIProtocolOutcomeCode("server_failure"))
@@ -74,6 +77,24 @@ import Testing
             message: "Failed to connect to socket at /tmp/cmux.sock (Connection refused, errno 61)",
             cliErrorCode: "not_found"
         ))
+    }
+
+    /// Admission backpressure (Sentry CMUXTERM-MACOS-3JFC) and unauthenticated
+    /// password-mode callers (CMUXTERM-MACOS-3JNR) are routine caller state.
+    @Test(arguments: ["rate_limited", " RATE_LIMITED ", "auth_required", "auth_failed"])
+    func dropsCallerStateProtocolOutcomes(code: String) {
+        #expect(filter.isExpectedCLIProtocolOutcomeCode(code))
+    }
+
+    /// A missing socket password in Settings can be a keychain regression, so
+    /// it stays reportable alongside the other password-mode outcomes.
+    @Test func keepsUnconfiguredSocketPasswordReportable() {
+        #expect(!filter.isExpectedCLIProtocolOutcomeCode("auth_unconfigured"))
+    }
+
+    @Test(arguments: ["tab_manager_unavailable", " TAB_MANAGER_UNAVAILABLE "])
+    func dropsMissingTabManagerProtocolOutcome(code: String) {
+        #expect(filter.isExpectedCLIProtocolOutcomeCode(code))
     }
 
     @Test func scopesLegacyLifecycleTextToSocketOrAgentHookContext() {

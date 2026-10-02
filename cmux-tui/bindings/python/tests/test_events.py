@@ -35,6 +35,21 @@ class EventTests(unittest.TestCase):
         self.assertIsNone(event.surface)
         self.assertEqual(event.title, "build")
 
+    def test_agent_changed_keeps_optional_adapter_identity(self) -> None:
+        event = decode_event(
+            {
+                "event": "agent-changed",
+                "surface": 7,
+                "state": "working",
+                "source": "plugin",
+                "session": None,
+                "agent": "codex",
+                "updated_at_ms": 41,
+            }
+        )
+
+        self.assertEqual(event.agent, "codex")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -125,7 +125,7 @@ extension UpdateController {
             guard source == .user else { return }
             self?.cancelQueuedCheckByUser()
         }))
-        model.replaceActiveState(with: state)
+        driver.replaceActiveState(with: state)
     }
 
     private func waitForReadinessThenCheck() {

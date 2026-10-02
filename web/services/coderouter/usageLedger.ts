@@ -5,7 +5,7 @@
 // or credential is ever accepted here.
 import { randomUUID } from "node:crypto";
 
-import { deferCoderouterTask } from "./analytics";
+import { deferCoderouterTask } from "./deferredTask";
 import {
   CODEROUTER_API_RATE_CARD_VERSION,
   estimateApiEquivalent,
@@ -16,6 +16,9 @@ import {
   type ClickHouseInsertResult,
 } from "./clickhouse";
 import { reportCoderouterFailure } from "./observability";
+// Call-time use only: requestTelemetry also imports this module to write the
+// route_crash row, so neither side touches the other during module init.
+import { markCoderouterRouteEventRecorded } from "./requestTelemetry";
 
 export const USAGE_EVENTS_TABLE = "usage_events";
 export const ROUTE_EVENTS_TABLE = "route_events";
@@ -25,6 +28,8 @@ export type UsageEventInput = {
   readonly requestId: string;
   readonly teamId: string;
   readonly stackUserId: string;
+  /** Opaque API-key UUID; null for route-token and VM requests. */
+  readonly apiKeyId?: string | null;
   readonly vmId: string | null;
   readonly provider: string;
   /** Claude only; empty for every other provider. */
@@ -33,6 +38,9 @@ export type UsageEventInput = {
   readonly upstreamAccountId?: string;
   readonly agent: string;
   readonly model: string | undefined;
+  /** cmux-tui workspace and terminal that launched the agent; null when unknown. */
+  readonly workspaceId?: string | null;
+  readonly surfaceId?: string | null;
   readonly inputTokens: number;
   readonly cachedInputTokens: number;
   readonly outputTokens: number;
@@ -46,6 +54,7 @@ export type RouteEventInput = {
   readonly teamId?: string;
   /** Absent before route-token authentication succeeds. */
   readonly stackUserId?: string;
+  readonly apiKeyId?: string | null;
   readonly vmId?: string | null;
   readonly provider: string;
   readonly agent: string;
@@ -55,6 +64,10 @@ export type RouteEventInput = {
   readonly attemptCount: number;
   readonly refreshRetryCount: number;
   readonly durationMs: number;
+  /** Time the request waited for upstream capacity before its answer. */
+  readonly heldMs?: number;
+  /** How many times the request waited for capacity. */
+  readonly holdCount?: number;
   readonly responseStreamed: boolean;
   readonly upstreamAccountId?: string;
 };
@@ -64,6 +77,7 @@ export type UsageEventRow = {
   readonly event_time: string;
   readonly team_id: string;
   readonly stack_user_id: string;
+  readonly api_key_id?: string | null;
   readonly vm_id: string | null;
   readonly provider: string;
   readonly upstream_kind: string;
@@ -79,6 +93,8 @@ export type UsageEventRow = {
   readonly request_id: string;
   readonly status: number;
   readonly upstream_account_id: string;
+  readonly workspace_id: string;
+  readonly surface_id: string;
 };
 
 /** Column-for-column shape of `route_events`. */
@@ -86,6 +102,7 @@ export type RouteEventRow = {
   readonly event_time: string;
   readonly team_id: string;
   readonly stack_user_id: string | null;
+  readonly api_key_id?: string | null;
   readonly vm_id: string | null;
   readonly provider: string;
   readonly agent: string;
@@ -95,6 +112,8 @@ export type RouteEventRow = {
   readonly attempt_count: number;
   readonly refresh_retry_count: number;
   readonly duration_ms: number;
+  readonly held_ms: number;
+  readonly hold_count: number;
   readonly response_streamed: 0 | 1;
   readonly request_id: string;
   readonly upstream_account_id: string;
@@ -139,6 +158,8 @@ export function recordRouteEvent(
   input: RouteEventInput,
   dependencies: UsageLedgerDependencies = defaultDependencies,
 ): void {
+  // One row per request: a crash after this point must not add a second.
+  markCoderouterRouteEventRecorded();
   dependencies.defer(
     write(ROUTE_EVENTS_TABLE, routeEventRow(input, dependencies.now()), dependencies),
   );
@@ -166,6 +187,7 @@ export function usageEventRow(
     event_time: clickHouseDateTime(now),
     team_id: boundedText(input.teamId, 128),
     stack_user_id: boundedText(input.stackUserId, 128),
+    ...(input.apiKeyId ? { api_key_id: ledgerApiKeyId(input.apiKeyId) } : {}),
     vm_id: ledgerVmId(input.vmId),
     provider: boundedText(input.provider, 64) || "unknown",
     upstream_kind: boundedText(input.upstreamKind, 64),
@@ -181,7 +203,16 @@ export function usageEventRow(
     request_id: boundedText(input.requestId, 64),
     status: boundedInteger(input.status, MAX_UINT16),
     upstream_account_id: ledgerAccountId(input.upstreamAccountId),
+    workspace_id: ledgerOriginId(input.workspaceId),
+    surface_id: ledgerOriginId(input.surfaceId),
   };
+}
+
+const ORIGIN_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+function ledgerOriginId(value: string | null | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  return ORIGIN_ID_PATTERN.test(trimmed) ? trimmed : "";
 }
 
 export function routeEventRow(input: RouteEventInput, now: Date): RouteEventRow {
@@ -189,6 +220,7 @@ export function routeEventRow(input: RouteEventInput, now: Date): RouteEventRow 
     event_time: clickHouseDateTime(now),
     team_id: boundedText(input.teamId, 128),
     stack_user_id: ledgerUserId(input.stackUserId),
+    ...(input.apiKeyId ? { api_key_id: ledgerApiKeyId(input.apiKeyId) } : {}),
     vm_id: ledgerVmId(input.vmId ?? null),
     provider: boundedText(input.provider, 64) || "unknown",
     agent: boundedText(input.agent, 64) || "unknown",
@@ -198,6 +230,8 @@ export function routeEventRow(input: RouteEventInput, now: Date): RouteEventRow 
     attempt_count: boundedInteger(input.attemptCount, MAX_UINT8),
     refresh_retry_count: boundedInteger(input.refreshRetryCount, MAX_UINT8),
     duration_ms: boundedInteger(Math.round(input.durationMs), MAX_UINT32),
+    held_ms: boundedInteger(Math.round(input.heldMs ?? 0), MAX_UINT32),
+    hold_count: boundedInteger(input.holdCount ?? 0, MAX_UINT16),
     response_streamed: input.responseStreamed ? 1 : 0,
     request_id: boundedText(input.requestId, 64),
     upstream_account_id: ledgerAccountId(input.upstreamAccountId),
@@ -244,6 +278,12 @@ function ledgerAccountId(value: string | undefined): string {
 
 function ledgerUserId(value: string | undefined): string | null {
   return typeof value === "string" && ID_PATTERN.test(value) ? value : null;
+}
+
+function ledgerApiKeyId(value: string | null | undefined): string | null {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null;
 }
 
 function boundedText(value: string | undefined, max: number): string {

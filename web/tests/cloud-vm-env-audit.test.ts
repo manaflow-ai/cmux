@@ -43,17 +43,18 @@ type Manifest = {
   }>;
 };
 
-type Readiness = {
+// One leg of the coherence audit: the provider it checked, the env var and
+// image it resolved (with where the image came from), and anything missing.
+interface ProviderAuditLeg {
   provider: string;
   envVar: string | null;
   image: string | null;
   imageSource?: string;
   problems: string[];
-};
+}
 
-type Coherence = {
-  selected: Readiness | null;
-  codeDefault: Readiness | null;
+// The configured default and, when it differs, the code default each get a leg.
+type Coherence = Record<"selected" | "codeDefault", ProviderAuditLeg | null> & {
   problems: string[];
 };
 
@@ -461,5 +462,14 @@ describe("free-provisioning override audit", () => {
         expect(isFreeProvisioningAllowed(env)).toBe(isVmFreeProvisioningAllowed(env));
       }
     }
+  });
+});
+
+
+describe("PlanetScale database env audit", () => {
+  test("accepts deployed and direct URLs without demanding AWS database metadata", () => {
+    expect(requiredRuntimeEnvKeySatisfied("DATABASE_URL", new Set(["DATABASE_URL"]))).toBe(true);
+    expect(requiredRuntimeEnvKeySatisfied("DATABASE_URL", new Set(["DIRECT_DATABASE_URL"]))).toBe(true);
+    expect(requiredRuntimeEnvKeySatisfied("DATABASE_URL", new Set(["AWS_REGION", "PGHOST"]))).toBe(false);
   });
 });

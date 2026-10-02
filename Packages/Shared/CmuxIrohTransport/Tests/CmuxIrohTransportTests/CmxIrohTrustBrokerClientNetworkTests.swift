@@ -4,6 +4,25 @@ import Testing
 
 extension CmxIrohTrustBrokerClientTests {
     @Test
+    func unavailableResponsePreservesServerRetryFloor() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 503,
+                body: #"{"error":"relay_policy_unavailable"}"#,
+                headers: ["Retry-After": "600"]
+            ),
+        ])
+        let client = try makeNetworkClient(transport: transport)
+        await #expect(throws: CmxIrohTrustBrokerClientError.rejectedWithRetryAfter(
+            statusCode: 503,
+            code: "relay_policy_unavailable",
+            retryAfterSeconds: 600
+        )) {
+            _ = try await client.discover()
+        }
+    }
+
+    @Test
     func rateLimitRetainsEveryValidRetryAfterFloor() async throws {
         for (header, expected) in [
             ("600", CmxIrohTrustBrokerClientError.rateLimited(

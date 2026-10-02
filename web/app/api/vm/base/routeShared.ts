@@ -1,7 +1,8 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
+import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, vmCapabilitiesFor, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmCreateDisabledError,
   isVmImageConfigError,
@@ -9,6 +10,7 @@ import {
 import {
   inferVmProviderForImage,
   resolveVmImage,
+  vmImageKindFor,
 } from "../../../../services/vms/images/resolver";
 import {
   reportVmImageConfigError,
@@ -22,10 +24,12 @@ import {
   vmActiveLimitExceededResponse,
   vmErrorResponse,
   resolveVmProvisioningAccountScope,
+  reverifyVmRequestForTeam,
   type VmWorkflowErrorOverrides,
 } from "../../../../services/vms/routeHelpers";
 import { runVmRoute } from "../../../../services/vms/routeWorkflow";
-import type { VmTimingRecorder } from "../../../../services/vms/timings";
+import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
+import { measureVmAsync, type VmTimingRecorder } from "../../../../services/vms/timings";
 import {
   openBaseVm,
   resetBaseVm,
@@ -43,7 +47,19 @@ export async function runBaseRoute(input: {
   if (!parsed.ok) return parsed.response;
 
   const requestedBillingTeamId = parsed.body.billingTeamId || requestedVmTeamIdFromRequest(input.request);
-  const account = await resolveVmProvisioningAccountScope(input.user, input.request, { requestedBillingTeamId });
+  const reverified = await reverifyVmRequestForTeam({
+    request: input.request,
+    user: input.user,
+    requestedBillingTeamId,
+    authErrorLabel: `/api/vm.base-${input.operation}.team-auth`,
+    // Keep the second Stack round trip inside the "auth" stage the way POST
+    // /api/vm does, so a cross-team Base open does not show up as unattributed
+    // time in the span.
+    measure: (run) => measureVmAsync(input.timing, "auth", run),
+  });
+  if (!reverified.ok) return reverified.response;
+  const user = reverified.user;
+  const account = await resolveVmProvisioningAccountScope(user, input.request, { requestedBillingTeamId });
   if (!account.ok) return account.response;
   const entitlements = account.entitlements;
 
@@ -92,7 +108,7 @@ export async function runBaseRoute(input: {
   }
 
   const programInput = {
-    userId: input.user.id,
+    userId: user.id,
     billingCustomerType: entitlements.billingCustomerType,
     billingTeamId: entitlements.billingTeamId,
     billingPlanId: entitlements.planId,
@@ -100,7 +116,13 @@ export async function runBaseRoute(input: {
     provider,
     image: imageSelection.image,
     imageVersion: imageSelection.imageVersion,
+    imageSize: imageSelection.size,
     baseName: parsed.body.name,
+    teamDirectory: vmClientRoutesTeamNetworks(input.request) ? vmTeamDirectory() : undefined,
+    modelPlane: vmModelPlaneGatewayFor({
+      teamId: entitlements.billingTeamId,
+      stackUserId: user.id,
+    }),
     timing: input.timing,
   };
   const run = await runVmRoute(
@@ -120,9 +142,10 @@ export async function runBaseRoute(input: {
     provider: entry.provider,
     image: entry.image,
     imageVersion: entry.imageVersion,
-    kind: imageSelection.kind,
+    kind: vmImageKindFor(entry.provider, entry.image),
     status: entry.status,
     createdAt: entry.createdAt,
+    capabilities: vmCapabilitiesFor(entry.provider),
     base: {
       id: entry.baseId,
       name: entry.baseName,
@@ -155,8 +178,9 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
         phase: "create",
         retryable: true,
       }),
-    VmLimitExceededError: (error) =>
+    VmLimitExceededError: (error, context) =>
       vmActiveLimitExceededResponse({
+        locale: context.locale,
         limit: error.limit,
         planId,
         retryAction: operation === "reset"

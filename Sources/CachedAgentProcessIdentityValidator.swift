@@ -10,7 +10,20 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         case cachedSnapshot
 
         /// The current hook-store record was loaded alongside the process observation.
+        /// The hook ran inside this very process and recorded its PID generation next
+        /// to the session id, so a process whose argv and environment carry no session
+        /// identity (Pi overwrites its argv with a bare title) is still this session's
+        /// process as long as nothing it does carry contradicts the record.
         case currentHookRecord
+
+        /// Whether a process that shows no session identity of its own may still be
+        /// accepted on the caller's evidence.
+        var vouchesForMissingSessionIdentity: Bool {
+            switch self {
+            case .cachedSnapshot: false
+            case .currentHookRecord: true
+            }
+        }
     }
 
     func currentProcess(
@@ -153,7 +166,10 @@ struct CachedAgentProcessIdentityValidator: Sendable {
                     // this registration; argv is intentionally irrelevant.
                     return true
                 }
-                return false
+                // Pi overwrites its argv with a bare title and nothing exports
+                // CMUX_AGENT_SESSION_ID for it, so a fresh Pi never shows its
+                // session. Its own current hook record vouches instead (#12084).
+                return hermesSessionValidation.vouchesForMissingSessionIdentity
             }
             return ManagedAgentSessionIdentity.sessionIDsMatch(
                 kind: snapshot.kind.rawValue,
@@ -164,8 +180,13 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         let observedSessionID: String?
         switch snapshot.kind {
         case .claude:
+            // In a fork, --resume names the parent. Only an explicit child
+            // identity can contradict the current hook record; a cached
+            // snapshot still cannot vouch for a missing child identity.
+            let identityOptions = Self.hasEnabledForkSessionFlag(in: arguments)
+                ? ["--session-id"] : ["--session-id", "--resume", "-r"]
             observedSessionID = firstValue(
-                after: ["--session-id", "--resume", "-r"],
+                after: identityOptions,
                 in: arguments
             ) ?? authoritativeEnvironmentSessionID
         case .codex:
@@ -174,15 +195,33 @@ struct CachedAgentProcessIdentityValidator: Sendable {
                 orSubcommand: "resume",
                 in: arguments
             ) ?? authoritativeEnvironmentSessionID
+        case .pi:
+            // Pi's `--resume`/`-r` are boolean pickers; only `--session`
+            // names a session. A resumed Pi shows it, a fresh one shows nothing.
+            observedSessionID = firstValue(
+                after: ["--session"],
+                in: arguments
+            ) ?? authoritativeEnvironmentSessionID
         default:
             observedSessionID = authoritativeEnvironmentSessionID
         }
-        guard let observedSessionID else { return false }
+        guard let observedSessionID else {
+            return hermesSessionValidation.vouchesForMissingSessionIdentity
+        }
         return ManagedAgentSessionIdentity.sessionIDsMatch(
             kind: snapshot.kind.rawValue,
             lhs: observedSessionID,
             rhs: snapshot.sessionId
         )
+    }
+
+    private static func hasEnabledForkSessionFlag(in arguments: [String]) -> Bool {
+        arguments.contains { value in
+            if value == "--fork-session" { return true }
+            guard let suffix = value.split(separator: "=", maxSplits: 1).dropFirst().first,
+                  value.hasPrefix("--fork-session=") else { return false }
+            return !["0", "false", "no", "off"].contains(suffix.lowercased())
+        }
     }
 
     /// Built-in kinds carry no registration on hook-store snapshots, but Amp's

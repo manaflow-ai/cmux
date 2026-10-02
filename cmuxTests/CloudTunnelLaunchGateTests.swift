@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import Testing
 
@@ -343,7 +344,7 @@ struct CloudTunnelLaunchGateTests {
         #expect(await coordinator.state == .off)
     }
 
-    @Test("the production opt-out (bring the tunnel down, then refuse) while the install waits for approval removes the late-saved configuration")
+    @Test("the production opt-out (bring the tunnel down, then refuse) while the install waits for approval removes the late-saved configuration", .timeLimit(.minutes(1)))
     @MainActor
     func optOutDuringInstallRemovesLateSavedConfiguration() async throws {
         let controller = FakeTunnelController()
@@ -361,12 +362,12 @@ struct CloudTunnelLaunchGateTests {
         await coordinator.requestDown()
         #expect(await coordinator.state == .off)
 
-        // The user's approval arrives late; the install has saved the
-        // configuration by the time the cancelled start notices.
+        // The user's approval arrives late: the retired start saves the
+        // configuration, then removes it and discards the enrollment after
+        // `start` has already thrown, so wait for that last step.
         controller.approve()
-        await #expect(throws: CloudTunnelError.self) {
-            try await start.value
-        }
+        await #expect(throws: CloudTunnelError.self) { try await start.value }
+        #expect(await enroller.discarded.result == true)
         #expect(controller.calls == ["install", "stop", "remove"])
         #expect(controller.installedConfigurations.isEmpty)
         #expect(enroller.discardCount == 1)
@@ -566,7 +567,7 @@ struct CloudTunnelLaunchGateTests {
         #expect(controller.calls == ["stop", "install"])
     }
 
-    @Test("a saved VPN configuration with Cloud Machines off still composes the eager controller: the inherited tunnel is stopped, no new start is admitted")
+    @Test("a saved VPN configuration with Cloud Machines off defers the controller and admits no start")
     @MainActor
     func savedConfigurationWithToggleOffStopsInheritedTunnelOnly() async throws {
         let factory = ControllerFactory()
@@ -584,14 +585,15 @@ struct CloudTunnelLaunchGateTests {
         let controller = CloudTunnelCoordinator.liveController(for: Self.networkExtension, activation: policy) { identifier in
             factory.make(identifier)
         }
-        #expect(controller is FakeTunnelController)
-        #expect(factory.builds == [Self.extensionID])
+        // Cloud-off is a hard launch gate. A saved configuration does not
+        // authorize reading or stopping NetworkExtension state.
+        #expect(controller is CloudTunnelDeferredController)
+        #expect(factory.builds.isEmpty)
         let coordinator = makeCoordinator(controller: controller, enroller: enroller, admission: policy.tunnelAdmission)
 
-        // Quit, sign-out, or `cmux vpn down` stops the tunnel the previous
-        // instance left running, without enrolling anything.
+        // Teardown is inert while the real controller was never composed.
         await coordinator.requestDown()
-        #expect(factory.controller.calls == ["stop"])
+        #expect(factory.controller.calls.isEmpty)
         #expect(enroller.enrollCount == 0)
         #expect(await coordinator.state == .off)
 
@@ -600,7 +602,7 @@ struct CloudTunnelLaunchGateTests {
         await #expect(throws: CloudTunnelError.cloudMachinesOff) {
             try await coordinator.requestUp(pin: true)
         }
-        #expect(factory.controller.calls == ["stop"])
+        #expect(factory.controller.calls.isEmpty)
         #expect(enroller.enrollCount == 0)
     }
 

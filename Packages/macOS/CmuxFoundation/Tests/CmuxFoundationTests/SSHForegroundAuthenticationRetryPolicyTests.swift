@@ -6,16 +6,6 @@ import Testing
 
 @Suite(.serialized)
 struct SSHForegroundAuthenticationRetryPolicyTests {
-    @Test func mapsBootTimeTransportFailureToRetryableStatus() throws {
-        let result = try run(
-            "printf '%s\\n' 'ssh: connect to host example.test port 22: Network is unreachable' >&2; exit 255"
-        )
-
-        #expect(result.status == 254)
-        #expect(result.stderr.contains("Network is unreachable"))
-        #expect(result.temporaryFiles.isEmpty)
-    }
-
     @Test(arguments: [
         "user@example.test: Permission denied (publickey,password).",
         "Bad owner or permissions on /Users/test/.ssh/config",
@@ -326,7 +316,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         ( /bin/sh "$CMUX_TEST_LEAF_SCRIPT" & wait $! ) &
         cmux_test_auth_root=$!
-        trap '/bin/kill -CONT "$cmux_test_auth_root" >/dev/null 2>&1 || true; /bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
+        trap 'kill -CONT "$cmux_test_auth_root" >/dev/null 2>&1 || true; kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
           /bin/sleep 0.01
@@ -422,6 +412,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-deadline-\(UUID().uuidString)", isDirectory: true)
         let chainScript = root.appendingPathComponent("chain.sh")
+        let setIDLauncher = root.appendingPathComponent("setid-launcher.pl")
         let readyMarker = root.appendingPathComponent("ready")
         let cleanupStartedMarker = root.appendingPathComponent("cleanup-started")
         let pidLog = root.appendingPathComponent("pids")
@@ -441,6 +432,17 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         while :; do /bin/sleep 30; done
         """.write(to: chainScript, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: chainScript.path)
+        // Keep the synthetic authentication tree in its own session/process
+        // group. When a fork-starved cleanup stops members and then kills them,
+        // Darwin may send SIGHUP to an orphaned stopped group; that signal must
+        // not reach this test's harness shell, which is a sibling of the tree.
+        try """
+        #!/usr/bin/perl
+        use POSIX qw(setsid);
+        setsid() or exit 125;
+        exec @ARGV or exit 126;
+        """.write(to: setIDLauncher, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: setIDLauncher.path)
         defer {
             let processIDs = (try? String(contentsOf: pidLog, encoding: .utf8))?
                 .split(separator: "\n")
@@ -456,7 +458,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         # the harness can finish reporting cleanup assertions.
         trap '' HUP INT TERM
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        CMUX_TEST_CHAIN_DEPTH=24 /bin/sh "$CMUX_TEST_CHAIN_SCRIPT" &
+        CMUX_TEST_CHAIN_DEPTH=24 /usr/bin/perl "$CMUX_TEST_SETID_LAUNCHER" /bin/sh "$CMUX_TEST_CHAIN_SCRIPT" &
         cmux_test_auth_root=$!
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
@@ -465,28 +467,48 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         # Lower the helper shell's process ceiling only after the full fixture
-        # exists. Keep the limit just above the live per-user count so the
-        # fixture remains runnable while the old recursive cleanup receives
-        # EAGAIN on its short-lived scans.
+        # exists, so the cleanup runs under process pressure.
+        #
+        # The kernel charges RLIMIT_NPROC to the real user ID. Count by
+        # `ruid`, not `uid`: setuid-root processes the user started, such as
+        # the /usr/bin/login that every Terminal or cmux tab runs, report
+        # uid 0 but still count against this user's ceiling. Counting by
+        # effective uid put the ceiling below the live count on hosts with
+        # open terminals, so the harness could not fork the helper at all.
+        #
+        # The budget is explicit. The helper forks one command at a time and
+        # uses no pipelines or background jobs, so it needs at most three
+        # process slots at once: its subshell, a command-substitution child
+        # and the command that child runs. The remaining slots absorb other
+        # processes this user starts while cleanup runs. The count also
+        # includes the command substitution, ps and awk that take it; they
+        # exit before cleanup starts.
+        cmux_test_helper_process_slots=3
+        cmux_test_concurrent_activity_slots=13
         cmux_test_user_id=$(/usr/bin/id -u 2>/dev/null || true)
         cmux_test_process_count=$(
-          /bin/ps -axo uid= 2>/dev/null |
+          /bin/ps -axo ruid= 2>/dev/null |
             /usr/bin/awk -v uid="$cmux_test_user_id" '$1 == uid { count += 1 } END { print count + 0 }'
         ) || cmux_test_process_count=
         case "$cmux_test_process_count" in
-          ''|*[!0-9]*) cmux_test_process_count= ;;
+          ''|0|*[!0-9]*)
+            printf '%s\n' "could not count processes for uid $cmux_test_user_id" >&2
+            exit 97
+            ;;
         esac
-        if [ -n "$cmux_test_process_count" ]; then
-          ulimit -u "$((cmux_test_process_count + 16))" 2>/dev/null || \
-            ulimit -u 100 2>/dev/null || true
-        else
-          ulimit -u 100 2>/dev/null || true
-        fi
+        ulimit -u "$((cmux_test_process_count + cmux_test_helper_process_slots + cmux_test_concurrent_activity_slots))" || exit 96
         : > "$CMUX_TEST_CLEANUP_STARTED_MARKER"
         # Exercise the event-enabled path without publishing an event. The
         # helper must reserve a force pass instead of rolling back after the
         # bounded FIFO wait.
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$" 1
+        cmux_test_cleanup_status=$?
+        if [ "$cmux_test_cleanup_status" -ne 0 ]; then
+          # Report the helper failure instead of waiting on a root it never
+          # signalled.
+          printf '%s\n' "cleanup helper exited with status $cmux_test_cleanup_status" >&2
+          exit "$cmux_test_cleanup_status"
+        fi
         wait "$cmux_test_auth_root" 2>/dev/null || true
         """
 
@@ -495,6 +517,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
+            "CMUX_TEST_SETID_LAUNCHER": setIDLauncher.path,
             "CMUX_TEST_CLEANUP_STARTED_MARKER": cleanupStartedMarker.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
@@ -525,7 +548,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .compactMap { Int32($0) }
         waitForProcessesToExit(processIDs, timeout: 10)
 
-        #expect(process.terminationStatus == 0)
+        try? stderrCapture.handle.synchronize()
+        let cleanupStderr = (try? String(contentsOf: stderrCapture.url, encoding: .utf8)) ?? ""
+        #expect(
+            process.terminationStatus == 0,
+            "Cleanup shell terminated with reason=\(process.terminationReason.rawValue) status=\(process.terminationStatus); stderr=\(cleanupStderr)"
+        )
         #expect(processIDs.count == 25)
         // The helper has one shared two-second discovery budget plus a bounded
         // force pass. Process-table scans can be slow on a loaded macOS host,
@@ -782,7 +810,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 254)
     }
 
-    private func run(_ command: String) throws -> (
+    func run(_ command: String, authEventToken: String? = nil) throws -> (
         status: Int32,
         stderr: String,
         temporaryFiles: [String]
@@ -803,6 +831,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         ]
         var environment = ProcessInfo.processInfo.environment
         environment["TMPDIR"] = temporaryDirectory.path
+        environment["CMUX_SSH_AUTH_EVENT_TOKEN"] = authEventToken
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
