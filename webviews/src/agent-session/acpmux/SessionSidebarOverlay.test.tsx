@@ -48,11 +48,13 @@ test("in a narrow pane the session overlay takes focus and closes on Escape, the
     expect(dom.window.document.activeElement?.textContent).toBe("Second");
     await act(async () => { dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" })); });
     expect(shell().getAttribute("data-sidebar")).toBe("auto");
+    expect(dom.window.document.activeElement).toBe(toggle());
 
     await act(async () => toggle().click());
     await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-scrim")!.click());
     expect(shell().getAttribute("data-sidebar")).toBe("auto");
     expect(container.querySelector(".acpmux-sidebar-scrim")).toBeNull();
+    expect(dom.window.document.activeElement).toBe(toggle());
 
     await act(async () => toggle().click());
     await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".acpmux-session-row")].find((row) => row.textContent === "First")!.click());

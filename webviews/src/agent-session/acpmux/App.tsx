@@ -272,11 +272,16 @@ export function AcpmuxApp() {
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// The session list shows beside the transcript in a wide pane and on demand in a narrow one.
   const [sidebar, setSidebar] = useState<"auto" | "open" | "closed">("auto");
+  const sidebarToggle = useRef<HTMLButtonElement>(null);
+  // Escape and the scrim close the narrow-pane overlay and give focus back to its toggle.
+  const closeOverlay = useCallback(() => { setSidebar("auto"); sidebarToggle.current?.focus(); }, []);
   // Crossing the width threshold resets the list to the default for the new width, so a list opened beside the transcript never turns into an overlay.
   const [wide, setWide] = useState(wideSidebar);
   useEffect(() => {
     const query = window.matchMedia?.(WIDE_PANE);
     if (!query?.addEventListener) return;
+    // The width may have crossed the threshold between the first render and this subscription.
+    setWide(query.matches);
     const onChange = () => { setWide(query.matches); setSidebar("auto"); };
     query.addEventListener("change", onChange);
     return () => query.removeEventListener("change", onChange);
@@ -288,10 +293,10 @@ export function AcpmuxApp() {
     if (sidebar !== "open" || wide) return;
     const list = document.getElementById("acpmux-sidebar");
     (list?.querySelector<HTMLElement>(".is-selected") ?? list?.querySelector<HTMLElement>("button"))?.focus();
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setSidebar("auto"); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") closeOverlay(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [sidebar, wide]);
+  }, [sidebar, wide, closeOverlay]);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   useEffect(() => {
@@ -370,5 +375,5 @@ export function AcpmuxApp() {
   const sidebarShown = sidebar === "open" || (sidebar === "auto" && wide);
   const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   const selectedTitle = snapshot.sessions.find((session) => session.sessionId === snapshot.sessionId)?.displayTitle;
-  return <section className="acpmux-shell" data-sidebar={sidebar}><SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />{sidebar === "open" && <button type="button" className="acpmux-sidebar-scrim" aria-label="Close sessions" tabIndex={-1} onClick={() => setSidebar("auto")} />}<div className="acpmux-main"><header className="acpmux-header"><div><button type="button" className="acpmux-sidebar-toggle" aria-label="Sessions" title="Sessions" aria-controls="acpmux-sidebar" aria-expanded={sidebarShown} onClick={toggleSidebar} /><strong className="acpmux-title">{selectedTitle || snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={snapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button><button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button></form></div></section>;
+  return <section className="acpmux-shell" data-sidebar={sidebar}><SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />{sidebar === "open" && <button type="button" className="acpmux-sidebar-scrim" aria-label="Close sessions" tabIndex={-1} onClick={closeOverlay} />}<div className="acpmux-main"><header className="acpmux-header"><div><button type="button" className="acpmux-sidebar-toggle" ref={sidebarToggle} aria-label="Sessions" title="Sessions" aria-controls="acpmux-sidebar" aria-expanded={sidebarShown} onClick={toggleSidebar} /><strong className="acpmux-title">{selectedTitle || snapshot.summary?.title || snapshot.summary?.name || "Agent Chat"}</strong><span className="acpmux-status">{snapshot.isWorking ? "Working" : snapshot.connection}</span></div></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={snapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button><button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button></form></div></section>;
 }
