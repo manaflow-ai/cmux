@@ -37,14 +37,16 @@ export function age(updatedAt: number | undefined, now = Date.now()): string | u
   const minutes = Math.floor(Math.max(0, now - updatedAt) / 60_000);
   if (minutes < 1) return HOME_LABELS.now;
   const steps: [number, string][] = [
-    [60 * 24 * 365, "y"],
+    [60 * 24 * 360, "y"],
     [60 * 24 * 30, "mo"],
     [60 * 24, "d"],
     [60, "h"],
     [1, "m"],
   ];
   const [size, unit] = steps.find(([size]) => minutes >= size)!;
-  return HOME_LABELS.ago.replace("{time}", `${Math.floor(minutes / size)}${unit}`);
+  // A year starts at 12 months of 30 days, so no age reads "12mo".
+  const count = unit === "y" ? Math.max(1, Math.round(minutes / (60 * 24 * 365))) : Math.floor(minutes / size);
+  return HOME_LABELS.ago.replace("{time}", `${count}${unit}`);
 }
 
 /// The lists under a new chat's composer. Each row opens its session. Renders

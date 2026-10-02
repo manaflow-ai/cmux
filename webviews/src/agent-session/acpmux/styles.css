@@ -97,7 +97,8 @@
 .acpmux-home-list ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
 .acpmux-home-label{margin:0;padding:4px 10px 2px;font-size:13px;line-height:20px;font-weight:500;color:var(--agent-muted)}
 .acpmux-home-row{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;border:0;border-radius:10px;background:none;color:var(--agent-text);font:inherit;font-size:14px;text-align:left;cursor:pointer}
-.acpmux-home-row:hover,.acpmux-home-row:focus-visible{background:var(--acpmux-menu-hover);outline:none}
+.acpmux-home-row:hover{background:var(--acpmux-menu-hover)}
+.acpmux-home-row:focus-visible{background:var(--acpmux-menu-hover);outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-home-row>.acpmux-icon{flex:none;color:var(--agent-muted)}
 .acpmux-home-dot{flex:none;width:8px;height:8px;margin:0 4px;border-radius:50%;background:var(--acpmux-warning)}
 .acpmux-home-title{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -89,6 +89,8 @@ test("ages are compact", () => {
   expect(age(now - 3 * 60 * minute, now)).toBe("3h ago");
   expect(age(now - 6 * 24 * 60 * minute, now)).toBe("6d ago");
   expect(age(now - 70 * 24 * 60 * minute, now)).toBe("2mo ago");
+  expect(age(now - 362 * 24 * 60 * minute, now)).toBe("1y ago");
+  expect(age(now - 800 * 24 * 60 * minute, now)).toBe("2y ago");
   expect(age(now + minute, now)).toBe("now");
 });
 
