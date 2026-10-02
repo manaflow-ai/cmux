@@ -123,3 +123,9 @@ git config merge.pbxproj-v1.driver "$PBXPROJ_DRIVER"
 git config merge.pbxproj.name "Xcode project file (trusted compatibility driver)"
 git config merge.pbxproj.driver "$PBXPROJ_DRIVER"
 echo "==> project.pbxproj merge driver installed (merge.pbxproj-v1.driver)."
+# Generated web bundles keep the current branch's copy and are rebuilt by
+# scripts/cmux-next/regenerate-web-bundles.sh. `true` is a git no-op, not a
+# checkout path, so this driver needs no trusted copy.
+git config merge.cmux-generated-v1.name "Generated web bundle (keep ours, then regenerate)"
+git config merge.cmux-generated-v1.driver true
+echo "==> generated web bundle merge driver installed (merge.cmux-generated-v1.driver)."

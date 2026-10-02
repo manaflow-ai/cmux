@@ -207,6 +207,54 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(installed_driver.read_bytes(), reviewed)
         self.assertNotEqual(installed_driver.resolve(), (self.repo / "scripts" / "merge-pbxproj.py").resolve())
 
+    def commit_all(self, message):
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "-m", message)
+
+    def test_generated_web_bundles_keep_ours_and_sources_still_conflict(self):
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git("config", "--get", "merge.cmux-generated-v1.driver").stdout.strip(), "true")
+
+        pane = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"
+        chunk = self.repo / "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs"
+        source = self.repo / "webviews/src/App.tsx"
+        for path in (pane, chunk, source):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("base\n", encoding="utf-8")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        pane.write_text("lane build\n", encoding="utf-8")
+        chunk.write_text("lane chunk\n", encoding="utf-8")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        pane.write_text("main build\n", encoding="utf-8")
+        chunk.write_text("main chunk\n", encoding="utf-8")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+
+        # Both sides rebuilt the bundles: the merge finishes and keeps the lane's
+        # copies for scripts/cmux-next/regenerate-web-bundles.sh to replace.
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(pane.read_text(encoding="utf-8"), "lane build\n")
+        self.assertEqual(chunk.read_text(encoding="utf-8"), "lane chunk\n")
+
+        # The driver is scoped to the bundles: authored sources still conflict.
+        source.write_text("lane source\n", encoding="utf-8")
+        self.commit_all("lane source")
+        self.git("checkout", "--quiet", "main")
+        source.write_text("main source\n", encoding="utf-8")
+        self.commit_all("main source")
+        self.git("checkout", "--quiet", "lane")
+        conflicted = self.git("merge", "--no-edit", "main", check=False)
+        self.assertNotEqual(conflicted.returncode, 0)
+        unmerged = self.git("diff", "--name-only", "--diff-filter=U").stdout.split()
+        self.assertEqual(unmerged, ["webviews/src/App.tsx"])
+
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"
         tools.mkdir()
