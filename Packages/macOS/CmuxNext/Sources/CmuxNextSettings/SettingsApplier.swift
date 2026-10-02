@@ -39,6 +39,7 @@ public final class SettingsApplier {
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
+        if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         if design.splitSizing != snapshot.splitSizing { design.splitSizing = snapshot.splitSizing }
         if design.newColumnWidth != snapshot.newColumnWidth { design.newColumnWidth = snapshot.newColumnWidth }
         if design.stickyColumnEdge != snapshot.stickyColumnEdge { design.stickyColumnEdge = snapshot.stickyColumnEdge }

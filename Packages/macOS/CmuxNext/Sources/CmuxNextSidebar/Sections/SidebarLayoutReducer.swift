@@ -33,6 +33,9 @@ public nonisolated enum SidebarLayoutReducer {
             case let .itemRemove(id):
                 guard let (s, i) = locate(id, in: sections) else { throw SidebarLayoutReject.unknownItem }
                 sections[s].items.remove(at: i)
+            case let .itemUpdate(id, showsLabel):
+                guard let (s, i) = locate(id, in: sections) else { throw SidebarLayoutReject.unknownItem }
+                sections[s].items[i].showsLabel = showsLabel
             case .reset:
                 sections = SidebarLayoutDocument.defaults.sections
             }
@@ -59,6 +62,7 @@ public nonisolated enum SidebarLayoutReducer {
         }
         try validate(title: section.title)
         try validate(maxRows: section.maxRows)
+        guard section.arrangement.isValid else { throw SidebarLayoutReject.invalidArrangement }
         let existing = Set(sections.flatMap { $0.items.map(\.id) })
         let newIDs = section.items.map(\.id)
         guard Set(newIDs).count == newIDs.count, existing.isDisjoint(with: newIDs) else { throw SidebarLayoutReject.duplicateID }
@@ -75,6 +79,10 @@ public nonisolated enum SidebarLayoutReducer {
         }
         if let look = patch.look { sections[s].look = look }
         if let showsTitle = patch.showsTitle { sections[s].showsTitle = showsTitle }
+        if let arrangement = patch.arrangement {
+            guard arrangement.isValid else { throw SidebarLayoutReject.invalidArrangement }
+            sections[s].arrangement = arrangement
+        }
         if let room = patch.room {
             // L1: the workspace list shows in every room.
             if sections[s].content == .workspaces, room.value != nil { throw SidebarLayoutReject.workspacesRequired }

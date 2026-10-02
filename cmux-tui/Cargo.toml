@@ -23,7 +23,9 @@ members = [
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
+    "crates/cmux-browser-host",
     "crates/cmux-tui-core",
+    "crates/cmux-layout-reducer",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
@@ -34,6 +36,8 @@ members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-tasks-core",
+    "crates/cmux-tasks",
 ]
 default-members = [
     "crates/acpmux",
@@ -43,7 +47,9 @@ default-members = [
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
+    "crates/cmux-browser-host",
     "crates/cmux-tui-core",
+    "crates/cmux-layout-reducer",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
@@ -53,6 +59,8 @@ default-members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-tasks-core",
+    "crates/cmux-tasks",
 ]
 exclude = ["vendor/crossterm"]
 
@@ -65,6 +73,8 @@ publish = false
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
+# `cargo kani` sets cfg(kani) for the proof harnesses in cmux-layout-reducer.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
 
 [workspace.lints.clippy]
 uninlined_format_args = "warn"
@@ -76,6 +86,7 @@ redundant_clone = "warn"
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
+cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }

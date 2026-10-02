@@ -273,7 +273,7 @@ describe("acpmux transcript accessibility", () => {
       // Without a "Worked for" line above it, the footer says the turn's time and count.
       const summary = last.querySelector(".cv-turn-summary")!;
       expect(summary.childNodes.length).toBe(1);
-      expect(summary.textContent).toBe("Worked for 3s · 2 tool calls");
+      expect(summary.textContent).toBe("Worked for 3s");
       // Older history still in acpmux: the conversation's size is unknown.
       await act(async () =>
         root.render(
@@ -1608,7 +1608,7 @@ describe("acpmux turn counts", () => {
           }),
         ),
       );
-      expect(dom.window.document.querySelector(".cv-worked")?.textContent).toBe("Worked for 3s · 1 tool call");
+      expect(dom.window.document.querySelector(".cv-worked")?.textContent).toBe("Worked for 3s");
       expect(dom.window.document.querySelector(".cv-turn-summary")).toBeNull();
     } finally {
       await act(async () => root.unmount());
@@ -1745,7 +1745,7 @@ describe("acpmux live turn status", () => {
 
       await draw([user, work, { id: "s", version: 1, at: user.at + 50_000, kind: "turnSummary", toolCount: 1 }], false);
       expect(status()?.tagName).toBe("BUTTON");
-      expect(status()?.textContent).toBe("Worked for 50s · 1 tool call");
+      expect(status()?.textContent).toBe("Worked for 50s");
     } finally {
       await act(async () => root.unmount());
       restore();

@@ -138,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.themes.start()
         services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
+        services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
@@ -153,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerSettingsDebugMethods(services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
+                    services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {

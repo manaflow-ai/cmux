@@ -160,6 +160,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
     struct Context: Hashable, Sendable, Codable {
         var terminal = false
         var browser = false
+        var agent = false
     }
 
     var windowKey = false
@@ -232,6 +233,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         switch underlying {
         case .terminal: return Context(terminal: true)
         case .browserPage, .addressBar, .findBar, .devTools: return Context(browser: true)
+        case .agentPage: return Context(agent: true)
         default: return Context()
         }
     }

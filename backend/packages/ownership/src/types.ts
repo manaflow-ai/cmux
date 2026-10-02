@@ -12,8 +12,12 @@ export interface Principal {
   readonly install?: string
   readonly agent?: string
   readonly grant?: string
-  /** How the connection authenticated: a human session or an install token. */
-  readonly kind?: "session" | "install" | "agent"
+  /**
+   * How the connection authenticated: a human session or an install token.
+   * `system` is built only inside a Durable Object for its own internal ops
+   * (alarms, Workflow reports); the Worker never builds one from a request.
+   */
+  readonly kind?: "session" | "install" | "agent" | "system"
   readonly stack_user_id?: string
   readonly email?: string | null
   readonly display_name?: string

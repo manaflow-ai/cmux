@@ -122,7 +122,7 @@ const catalog = {
   $schema: "./cloud-operations.schema.json",
   schema_version: 1,
   protocol: "cmux.wire/1",
-  resource_scopes: ["team", "user", "device", "install", "grant", "host"],
+  resource_scopes: ["team", "user", "device", "install", "grant", "host", "automation", "run", "connection"],
   types: Object.fromEntries(Object.entries(types).sort(([a], [b]) => a.localeCompare(b))),
   generics: {
     MutationResult: {

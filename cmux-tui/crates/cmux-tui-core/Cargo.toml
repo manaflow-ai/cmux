@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
+cmux-layout-reducer.workspace = true
 cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 serde.workspace = true
@@ -31,6 +32,9 @@ fs4.workspace = true
 sha2.workspace = true
 zeroize.workspace = true
 url.workspace = true
+
+[dev-dependencies]
+proptest = { version = "1", default-features = false, features = ["std"] }
 
 [target.'cfg(windows)'.dependencies]
 uds_windows.workspace = true

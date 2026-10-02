@@ -48,11 +48,25 @@ final class SidebarRegionView: NSView {
     /// Height the content needs at `width`.
     func update(_ content: Content, width: CGFloat) {
         let result = SidebarRegionLayout.make(sections: content.sections, width: width, look: content.look,
-                                              collapsed: content.collapsed, metrics: content.metrics)
+                                              collapsed: content.collapsed, metrics: content.metrics,
+                                              labelWidths: Self.labelWidths(content))
         guard content != self.content || result != layoutResult else { return }
         self.content = content
         layoutResult = result
         apply(content)
+    }
+
+    /// Icon + label width of every item of an inline section.
+    private static func labelWidths(_ content: Content) -> [LayoutItemID: CGFloat] {
+        var widths: [LayoutItemID: CGFloat] = [:]
+        let font = SidebarStyle.titleFont
+        for section in content.sections where section.arrangement.layout == .inline {
+            for item in section.items where item.showsLabel {
+                let title = (content.infos[item.id] ?? .fallback(for: item.ref)).title
+                widths[item.id] = SidebarItemRowView.chipWidth(title: title, font: font)
+            }
+        }
+        return widths
     }
 
     private func apply(_ content: Content) {
@@ -66,12 +80,13 @@ final class SidebarRegionView: NSView {
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
                 view.frame = row.frame
-            case let .item(id, sectionID), let .tile(id, sectionID):
+            case let .item(id, sectionID), let .tile(id, sectionID), let .chip(id, sectionID):
                 guard let section = sections[sectionID], let item = section.items.first(where: { $0.id == id }) else { continue }
                 liveItems.insert(id)
                 let view = itemViews[id] ?? makeItem(id)
                 let style: SidebarItemRowView.Style = switch row.kind {
-                case .tile: content.look == .tray ? .tile : .icon
+                case .tile: if case .grid = SectionFlow.mode(section, look: content.look) { .tile } else { .icon }
+                case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
                 }
                 view.configure(content.infos[id] ?? .fallback(for: item.ref), style: style)

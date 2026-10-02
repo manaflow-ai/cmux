@@ -53,7 +53,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/layout.rs	1638	82
 rust-file	cmux-tui/crates/cmux-tui-core/src/model.rs	1145	74
 rust-file	cmux-tui/crates/cmux-tui-core/src/mux.rs	34414	1030
 rust-file	cmux-tui/crates/cmux-tui-core/src/mux/resource_content.rs	1359	21
-rust-file	cmux-tui/crates/cmux-tui-core/src/mux/resource_topology.rs	7182	150
+rust-file	cmux-tui/crates/cmux-tui-core/src/mux/resource_topology.rs	6970	150
 rust-file	cmux-tui/crates/cmux-tui-core/src/mux/screen_groups.rs	1040	37
 rust-file	cmux-tui/crates/cmux-tui-core/src/mux/tab_groups.rs	1048	32
 rust-file	cmux-tui/crates/cmux-tui-core/src/platform.rs	1528	111

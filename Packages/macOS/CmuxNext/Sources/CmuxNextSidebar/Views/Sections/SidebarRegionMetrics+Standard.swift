@@ -11,10 +11,4 @@ extension SidebarRegionMetrics {
             tileHeight: Metrics.sidebarRowHeight + Metrics.space2, tileGap: Metrics.space2,
             iconButtonWidth: Metrics.sidebarRowHeight + Metrics.space2, lineWidth: Metrics.dividerThickness)
     }
-
-    /// Share of the sidebar height the band above the list may take
-    /// before it scrolls inside.
-    static let aboveShare: CGFloat = 1.0 / 3.0
-    /// Share for the band below the list.
-    static let belowShare: CGFloat = 1.0 / 4.0
 }

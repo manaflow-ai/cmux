@@ -1,7 +1,13 @@
 import { authenticate, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
+import { handleAutomationHook } from "./ingress/automation-hook.ts"
+import { handleProviderHook } from "./ingress/provider-hook.ts"
 
+export { AccountIndexDO } from "./account-index-do.ts"
+export { AutomationRunWorkflow } from "./automation-workflow.ts"
+export { ConnectionDO } from "./connection-do.ts"
+export { SchedulerDO } from "./scheduler-do.ts"
 export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
 
@@ -33,6 +39,11 @@ export default {
     const url = new URL(request.url)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team)$/)
     if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, m[1]!)
+    // Webhook ingress: no bearer; each route verifies its own signature before any DO call.
+    const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
+    if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)
+    const providerHook = url.pathname.match(/^\/v1\/hooks\/(github|slack|linear)$/)
+    if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)
   }
 } satisfies ExportedHandler<Env>

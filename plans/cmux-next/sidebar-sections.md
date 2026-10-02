@@ -13,7 +13,7 @@ The left sidebar is an ordered list of **sections** in three **regions**:
 | --- | --- | --- |
 | Top | sticky under the titlebar row; never scrolls with the list | section "Home" (hidden title): Home, built-in look |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
-| Bottom | sticky above the room bar | section (hidden title): Settings, Account, built-in look |
+| Bottom | sticky above the room bar | section (hidden title), one line: Settings (icon + label) at the leading edge, the account avatar (icon only) at the trailing edge |
 
 Every section has: an optional title (hidden titles draw no header), a region, an ordered item list, a
 **look** (`builtIn`: compact rows that read as app chrome, like Home; `list`: rows that look like
@@ -79,10 +79,17 @@ screenshots two rooms under A, and a B mock (every section room-scoped) for comp
 
 ```
 SidebarLayoutDocument { revision: u64, sections: [Section] }       // per user
-Section { id: "sec_<base32>", title: String?, region: top|middle|bottom, look: builtIn|list,
-          scope: allRooms|room(id), maxRows: Int?, content: items([Item]) | workspaces }
-Item { id: "itm_<base32>", ref: ItemRef }                          // id stable across moves
+Section { id: "sec_<base32>", title: String?, shows_title: Bool, region: top|middle|bottom,
+          look: built_in|list, arrangement: Arrangement, room: String?, max_rows: Int?,
+          content: items|workspaces, items: [Item] }
+Arrangement { layout: list|inline|grid, align: leading|center|trailing|fill, gap: 0...32?, columns: 1...12? }
+Item { id: "itm_<base32>", ref: {kind, value}, shows_label: Bool }  // id stable across moves
 ```
+
+Arrangement is a small flexbox (Lawrence, 2026-10-02): `list` puts one item per row; `inline` puts
+items on one line with icon and label while they fit (an item with `shows_label: false` shows its icon
+only), then icons only, then wraps; `grid` puts tiles in columns (Arc's pinned tiles). `align` places
+the leftover space on a line (`fill` spreads it between items, so two items sit at both edges).
 
 Order inside a region is the order of `sections` filtered by region. Invariants, checked by the pure
 reducer and its tests:
@@ -108,6 +115,7 @@ Ops (each carries a client-chosen idempotency key; replay returns the stored res
 | `item.add` | `section`, `index`, `item` | L3 dedupe |
 | `item.move` | `id`, `section`, `index` | across sections and regions |
 | `item.remove` | `id` | |
+| `item.update` | `id`, `shows_label` | |
 | `layout.reset` | — | back to the defaults |
 
 A remove-Home convenience is `item.remove` on the `builtIn(home)` item; re-adding inserts it at the
@@ -165,6 +173,9 @@ feat-cmux-next-99; until then `cmux action run <id>`); MCP follows the CLI.
 | `sidebar.section.setMaxRows` (`rows`, 0 = automatic) | Set Section Height… | `sidebar set-section-height` | section > Options |
 | `sidebar.section.toggleCollapsed` | Collapse or Expand Section | exempt `focusMove` (view state) | section |
 | `sidebar.section.remove` (destructive, confirms) | Remove Section | `sidebar remove-section` | section |
+| `sidebar.section.layoutList` / `layoutInline` / `layoutGrid` | Show as List / on One Line / as Grid | `sidebar section-layout-list` / `-inline` / `-grid` | section > Appearance |
+| `sidebar.section.setAlignment` (`align`) / `setGap` (`gap`) / `setColumns` (`columns`, 0 = fit) | Set Section Alignment… / Spacing… / Grid Columns… | `sidebar set-section-alignment` / `set-section-gap` / `set-section-columns` | section > Appearance |
+| `sidebar.item.toggleLabel` | Show or Hide Label | `sidebar toggle-item-label` | item |
 | `sidebar.layout.reset` (destructive, confirms) | Reset Sidebar Layout | `sidebar reset` | background > Options |
 
 Still to add: pin a workspace or tab to a section (`workspace.pinToSection`, `tab.pinToSection`), a
@@ -182,7 +193,11 @@ visual order; Return activates.
 
 ## 7. Prototypes (Debug Settings > Sidebar)
 
-`sidebar.sections.look` (Lawrence wants more than three; he is "generally not a big fan of labels"):
+Look: setting `sidebar.sectionLook` in cmux.json and Settings > Appearance > Sidebar, default
+`quiet` (Lawrence, 2026-10-02); Debug Settings `sidebar.sections.look` overrides it in DEV. The band
+caps are settings too: `sidebar.topBandMaxShare` (default 1/3), `sidebar.bottomBandMaxShare`
+(default 1/4), `sidebar.stickyBandsScroll` (default true; false = the bands never scroll and the list
+shrinks to three rows, then both bands shrink in proportion as a last resort). Looks:
 
 - quiet: icon + label rows, no fill at rest; a hairline separates the sticky bands from the list.
 - card: each section of a sticky band sits in a rounded inset card.
@@ -214,13 +229,24 @@ switch (descriptor titles are built once at launch).
 
 ## 9. Open decisions for Lawrence
 
-- Name: sections (recommended) or shelves. "Shelf" copy: New Shelf…, Rename Shelf…, Move Shelf to Top, Remove Shelf, Set Shelf Height….
-- Rooms: model A approved (2026-10-02).
-- Defaults: bottom = Settings + Account, or only Settings (account lives in the room bar today).
-- Scroll policy default: sticky regions grow until they reach their share of the sidebar height (top
-  1/3, bottom 1/4), then scroll inside; per-section `maxRows` overrides. Alternative: never scroll,
-  the middle shrinks to a minimum of 3 rows.
 - Collapse state per window (recommended) or synced per user.
+- Whether sections subsume the room bar (rooms as an item) and the footer accessories.
+
+## 9a. Decisions (Lawrence, 2026-10-02)
+
+- Default look quiet; name "sections"; rooms model A.
+- Bottom band: Settings and the account avatar on one line (above).
+- Per-section arrangement list | inline | grid with alignment, gap and columns (section 4).
+- Band caps 1/3 and 1/4, then scroll; customizable (section 7).
+- Custom icons (emoji, SF Symbol or image) for workspaces and Home: the existing workspace
+  `icon` string of workspace-metadata-v1 is extended (sidebar sections lead, in the store next to
+  `sidebar-layout-v1`); the Home lead reuses it.
+- Home is a workspace with `kind: home` (Home lead, plans/cmux-next/home.md section 7): created once
+  by the store, not closable, first in its top section; tab bar hidden, fixed and not closable are
+  derived from kind on the client. The sidebar item stays `built_in:home`; it runs `home.show`
+  (select the home workspace) and draws active when the shown workspace has kind home.
+- The store op `sidebar-layout-v1` is built by the sidebar sections lead, coordinated with the
+  state-module owner.
 
 ## 10. Customizations
 

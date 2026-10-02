@@ -14,11 +14,14 @@ public nonisolated enum SidebarLayoutOp: Hashable, Sendable, Codable {
     /// Move an item to `section` at `index` (excluding itself).
     case itemMove(LayoutItemID, section: LayoutSectionID, index: Int)
     case itemRemove(LayoutItemID)
+    /// Show or hide an item's label on an inline line.
+    case itemUpdate(LayoutItemID, showsLabel: Bool)
     /// Back to `SidebarLayoutDocument.defaults`.
     case reset
 
     enum CodingKeys: String, CodingKey {
         case kind, section, index, id, patch, region, item
+        case showsLabel = "shows_label"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -41,6 +44,8 @@ public nonisolated enum SidebarLayoutOp: Hashable, Sendable, Codable {
                              index: try c.decode(Int.self, forKey: .index))
         case "item.remove":
             self = .itemRemove(try c.decode(LayoutItemID.self, forKey: .id))
+        case "item.update":
+            self = .itemUpdate(try c.decode(LayoutItemID.self, forKey: .id), showsLabel: try c.decode(Bool.self, forKey: .showsLabel))
         case "layout.reset":
             self = .reset
         case let other:
@@ -74,6 +79,9 @@ public nonisolated enum SidebarLayoutOp: Hashable, Sendable, Codable {
             try c.encode(index, forKey: .index)
         case let .itemRemove(id):
             try c.encode(id, forKey: .id)
+        case let .itemUpdate(id, showsLabel):
+            try c.encode(id, forKey: .id)
+            try c.encode(showsLabel, forKey: .showsLabel)
         case .reset:
             break
         }
@@ -89,6 +97,7 @@ public nonisolated enum SidebarLayoutOp: Hashable, Sendable, Codable {
         case .itemAdd: "item.add"
         case .itemMove: "item.move"
         case .itemRemove: "item.remove"
+        case .itemUpdate: "item.update"
         case .reset: "layout.reset"
         }
     }
@@ -108,6 +117,8 @@ public nonisolated enum SidebarLayoutReject: String, Error, Hashable, Sendable, 
     case invalidTitle = "invalid_title"
     /// L4: outside 1...50.
     case invalidMaxRows = "invalid_max_rows"
+    /// L4: gap outside 0...32 or columns outside 1...12.
+    case invalidArrangement = "invalid_arrangement"
     /// L4: over 32 sections or 200 items.
     case tooMany = "too_many"
     /// The same idempotency key with a different op.

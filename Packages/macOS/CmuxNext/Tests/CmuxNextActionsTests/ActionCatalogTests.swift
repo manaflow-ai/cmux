@@ -76,9 +76,9 @@ import Testing
         .tab: 76, // + Show Tab (`tab.focus`, state-ownership.md 3), + New Tab of the pane kind
         .terminal: 35, // + Set / Reset Terminal Theme
         .browser: 110, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions
-        .sidebar: 47, // + 17 sidebar section actions (sidebar-sections.md 6)
+        .sidebar: 54, // + 24 sidebar section actions (sidebar-sections.md 6)
         .notifications: 18,
-        .agents: 19, // + Resume Agent Session, Toggle Dictation, Agent Activity
+        .agents: 20, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats
         .cloud: 28, // + accounts.show, refresh, reauthenticate, connect, remove
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
         .settings: 50, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only)

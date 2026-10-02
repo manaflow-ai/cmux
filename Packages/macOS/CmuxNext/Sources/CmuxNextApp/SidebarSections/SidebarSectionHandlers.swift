@@ -65,6 +65,39 @@ enum SidebarSectionHandlers {
                 .sectionUpdate(try SidebarSectionResolve.section(invocation.target, in: doc).id, SectionPatch(look: look))
             }
         }
+        let layouts: [(ActionID, SectionArrangement.Layout)] = [("sidebar.section.layoutList", .list),
+                                                                ("sidebar.section.layoutInline", .inline), ("sidebar.section.layoutGrid", .grid)]
+        for (id, kind) in layouts {
+            bind(id) { invocation, doc in
+                let section = try SidebarSectionResolve.section(invocation.target, in: doc)
+                var arrangement = section.arrangement
+                arrangement.layout = kind
+                return .sectionUpdate(section.id, SectionPatch(arrangement: arrangement))
+            }
+        }
+        bind("sidebar.section.setAlignment") { invocation, doc in
+            let section = try SidebarSectionResolve.section(invocation.target, in: doc)
+            var arrangement = section.arrangement
+            arrangement.align = invocation["align"]?.stringValue.flatMap(SectionArrangement.Alignment.init(rawValue:)) ?? .leading
+            return .sectionUpdate(section.id, SectionPatch(arrangement: arrangement))
+        }
+        bind("sidebar.section.setGap") { invocation, doc in
+            let section = try SidebarSectionResolve.section(invocation.target, in: doc)
+            var arrangement = section.arrangement
+            arrangement.gap = invocation["gap"]?.intValue
+            return .sectionUpdate(section.id, SectionPatch(arrangement: arrangement))
+        }
+        bind("sidebar.section.setColumns") { invocation, doc in
+            let section = try SidebarSectionResolve.section(invocation.target, in: doc)
+            var arrangement = section.arrangement
+            let columns = invocation["columns"]?.intValue ?? 0
+            arrangement.columns = columns == 0 ? nil : columns
+            return .sectionUpdate(section.id, SectionPatch(arrangement: arrangement))
+        }
+        bind("sidebar.item.toggleLabel") { invocation, doc in
+            let item = try SidebarSectionResolve.item(invocation.target, in: doc)
+            return .itemUpdate(item.id, showsLabel: !item.showsLabel)
+        }
         bind("sidebar.section.toggleTitle") { invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
             return .sectionUpdate(section.id, SectionPatch(showsTitle: !section.showsTitle))
