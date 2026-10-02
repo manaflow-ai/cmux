@@ -28,6 +28,12 @@ extension WebKitDriver {
             return .null
         }
         let button = MouseEventPlan.Button(rawValue: try params.optionalString("button") ?? "left") ?? .left
+        if button == .right, type != "move" {
+            // WebKit would pop a native context menu on the user's screen,
+            // taking their mouse and keyboard; it needs a suppression hook in
+            // WebKitTab first.
+            throw DriverError(.unsupported, "input.mouse: right-click is not supported by the WebKit driver yet")
+        }
         guard let eventType = session.mouse.eventType(for: type, button: button) else {
             throw DriverError(.invalid, "input.mouse: type: expected move, down, up or wheel, got \(type)")
         }
@@ -61,7 +67,8 @@ extension WebKitDriver {
         let window = webView.window
         let eventType: NSEvent.EventType = stroke.isModifier ? .flagsChanged : (type == "down" ? .keyDown : .keyUp)
         guard let event = NSEvent.keyEvent(
-            with: eventType, location: .zero, modifierFlags: type == "up" && stroke.isModifier ? [] : stroke.modifierFlags,
+            with: eventType, location: .zero,
+            modifierFlags: type == "up" && stroke.isModifier ? KeyStroke.flags(named: try params.strings("modifiers")) : stroke.modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window?.windowNumber ?? 0, context: nil,
             characters: stroke.characters, charactersIgnoringModifiers: stroke.charactersIgnoringModifiers,
             isARepeat: try params.bool("autoRepeat"), keyCode: stroke.keyCode
@@ -72,10 +79,11 @@ extension WebKitDriver {
         case .flagsChanged: webView.flagsChanged(with: event)
         case .keyDown:
             webView.keyDown(with: event)
-            if let command = stroke.editingCommand {
+            if let command = stroke.editingCommand, webView.responds(to: NSSelectorFromString(command)) {
                 // Command keys are menu equivalents in AppKit; the editing
-                // command reaches WebKit's editor explicitly.
-                _ = webView.tryToPerform(NSSelectorFromString(command), with: nil)
+                // command goes to the web view only, never up the responder
+                // chain to the user's window (its undo manager).
+                webView.perform(NSSelectorFromString(command), with: nil)
             }
         default: webView.keyUp(with: event)
         }
@@ -150,6 +158,10 @@ extension WebKitDriver {
         cg.location = CGPoint(x: screen.x, y: height - screen.y)
         cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
+        // Without a window the event's location stays in screen space and
+        // WebKit hit-tests the wheel at the wrong element.
+        cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
+        cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
         return NSEvent(cgEvent: cg)
     }
 }

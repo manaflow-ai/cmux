@@ -43,10 +43,12 @@ enum AgentWorld {
 
     /// Reports load states of every frame to the driver: `commit` when the
     /// document starts (this script runs at document start), then
-    /// `domcontentloaded` and `load`.
+    /// `domcontentloaded` and `load`, each with a token for the document. It
+    /// runs in the host world, so agent code cannot forge a state.
     static let loadStateSource = """
     (() => {
-      const post = (state) => { try { webkit.messageHandlers.\(loadStateHandler).postMessage({ state, url: location.href, title: document.title }); } catch (e) {} };
+      const doc = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const post = (state) => { try { webkit.messageHandlers.\(loadStateHandler).postMessage({ state, doc, url: location.href, title: document.title }); } catch (e) {} };
       post("commit");
       if (document.readyState !== "loading") post("domcontentloaded");
       else document.addEventListener("DOMContentLoaded", () => post("domcontentloaded"), { once: true });
@@ -55,17 +57,34 @@ enum AgentWorld {
     })();
     """
 
-    /// Installs the load-state reporter and, when the host sent it, the page
-    /// agent bundle into `controller` for every frame at document start.
+    /// Installs the load-state reporter (host world) and, when the host sent
+    /// it, the page agent bundle (agent world) for every frame at document
+    /// start. Idempotent: whatever an earlier driver installed is removed first.
     static func install(into controller: WKUserContentController, agentBundle: String?, handler: any WKScriptMessageHandler) {
+        uninstall(from: controller)
         controller.addUserScript(WKUserScript(source: loadStateSource, injectionTime: .atDocumentStart,
-                                              forMainFrameOnly: false, in: world))
-        controller.add(handler, contentWorld: world, name: loadStateHandler)
+                                              forMainFrameOnly: false, in: hostWorld))
+        controller.add(handler, contentWorld: hostWorld, name: loadStateHandler)
         if let agentBundle {
-            controller.addUserScript(WKUserScript(source: agentBundle, injectionTime: .atDocumentStart,
+            let source = agentMarker + agentBundle
+            controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
                                                   forMainFrameOnly: false, in: world))
         }
     }
+
+    /// Removes the driver's handler and scripts, keeping everyone else's
+    /// (there is no per-world removal API).
+    static func uninstall(from controller: WKUserContentController) {
+        controller.removeScriptMessageHandler(forName: loadStateHandler, contentWorld: hostWorld)
+        let keep = controller.userScripts.filter { $0.source != loadStateSource && !$0.source.hasPrefix(agentMarker) }
+        guard keep.count != controller.userScripts.count else { return }
+        controller.removeAllUserScripts()
+        keep.forEach(controller.addUserScript)
+    }
+
+    /// First line of the installed agent bundle, so uninstall finds it even
+    /// after the host sent a newer bundle.
+    private static let agentMarker = "/* cmux-browser-automation agent */\n"
 
     /// Code that installs the agent in a frame that loaded before `install`,
     /// and reports whether the agent is present.

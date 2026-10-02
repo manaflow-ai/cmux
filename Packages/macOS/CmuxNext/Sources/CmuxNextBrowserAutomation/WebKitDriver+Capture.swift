@@ -11,13 +11,22 @@ extension WebKitDriver {
         if try params.bool("fullPage") {
             throw DriverError(.unsupported, "tab.screenshot: fullPage is not supported by the WebKit driver yet")
         }
-        let configuration = WKSnapshotConfiguration()
-        if case .object(let clip) = params["clip"] ?? .null {
-            configuration.rect = CGRect(x: clip["x"]?.numberValue ?? 0, y: clip["y"]?.numberValue ?? 0,
-                                        width: clip["width"]?.numberValue ?? 0, height: clip["height"]?.numberValue ?? 0)
+        let format = try params.optionalString("format") ?? "png"
+        guard format == "png" || format == "jpeg" else {
+            throw DriverError(.unsupported, "tab.screenshot: format \(format) is not supported by the WebKit driver")
         }
-        let scale = tab.webView.pageZoom * tab.webView.magnification
-        configuration.snapshotWidth = NSNumber(value: Double(configuration.rect.isEmpty ? tab.webView.bounds.width : configuration.rect.width) / (scale > 0 ? scale : 1))
+        let configuration = WKSnapshotConfiguration()
+        let zoom = tab.webView.pageZoom * tab.webView.magnification
+        let scale = zoom > 0 ? zoom : 1
+        // The clip is CSS pixels; the snapshot rect is view points.
+        if case .object(let clip) = params["clip"] ?? .null {
+            let css = CGRect(x: clip["x"]?.numberValue ?? 0, y: clip["y"]?.numberValue ?? 0,
+                             width: clip["width"]?.numberValue ?? 0, height: clip["height"]?.numberValue ?? 0)
+            configuration.rect = CGRect(x: css.minX * scale, y: css.minY * scale, width: css.width * scale, height: css.height * scale)
+            configuration.snapshotWidth = NSNumber(value: Double(css.width))
+        } else {
+            configuration.snapshotWidth = NSNumber(value: Double(tab.webView.bounds.width / scale))
+        }
         let image: NSImage
         do {
             image = try await tab.webView.takeSnapshot(configuration: configuration)
@@ -28,7 +37,7 @@ extension WebKitDriver {
             throw DriverError(.unsupported, "tab.screenshot: WebKit returned no image")
         }
         let rep = NSBitmapImageRep(cgImage: cgImage)
-        let jpeg = try params.optionalString("format") == "jpeg"
+        let jpeg = format == "jpeg"
         let quality = (try params.optionalNumber("quality") ?? 80) / 100
         guard let data = jpeg ? rep.representation(using: .jpeg, properties: [.compressionFactor: quality])
             : rep.representation(using: .png, properties: [:]) else {

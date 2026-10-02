@@ -35,7 +35,8 @@ enum FrameTree {
     }
 
     private static func flatten(_ node: AnyObject, parent: String?, into out: inout [FrameRecord]) {
-        guard let info = node.value(forKey: "info") as? WKFrameInfo, let id = frameID(info) else { return }
+        guard node.responds(to: NSSelectorFromString("info")), node.responds(to: NSSelectorFromString("childFrames")),
+              let info = node.value(forKey: "info") as? WKFrameInfo, let id = frameID(info) else { return }
         out.append(FrameRecord(frameID: id, parentFrameID: parent, info: info))
         for child in (node.value(forKey: "childFrames") as? [AnyObject]) ?? [] {
             flatten(child, parent: id, into: &out)

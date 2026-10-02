@@ -71,9 +71,11 @@ public nonisolated struct DriverParams: Sendable {
         return items
     }
 
-    /// The call's timeout, or `fallback` seconds.
-    public func timeout(default fallback: Duration = .seconds(30)) throws(DriverError) -> Duration {
-        guard let ms = try optionalNumber("timeoutMs"), ms > 0 else { return fallback }
+    /// The call's deadline: `fallback` when absent, nil (none) for 0, as
+    /// Playwright's `timeout: 0`.
+    public func timeout(default fallback: Duration = .seconds(30)) throws(DriverError) -> Duration? {
+        guard let ms = try optionalNumber("timeoutMs") else { return fallback }
+        guard ms > 0 else { return nil }
         return .milliseconds(Int64(ms.rounded()))
     }
 

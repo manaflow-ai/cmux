@@ -9,14 +9,30 @@ final class FrameRegistry {
     private var frames: [String: FrameRecord] = [:]
     private var ordered: [FrameRecord] = []
     private var inFlight: Task<[FrameRecord], Never>?
+    /// The read that starts when `inFlight` ends, shared by every caller
+    /// that asked while `inFlight` ran (its result may predate their request).
+    private var next: Task<[FrameRecord], Never>?
 
-    /// A fresh read (shared with concurrent callers whose request came first).
+    /// A read that starts after this request, shared with concurrent callers.
     func refresh(_ webView: WKWebView) async -> [FrameRecord] {
-        if let inFlight { return await inFlight.value }
+        if let next { return await next.value }
+        if let running = inFlight {
+            let follow = Task { [weak self] () -> [FrameRecord] in
+                _ = await running.value
+                return await self?.read(webView) ?? []
+            }
+            next = follow
+            return await follow.value
+        }
+        return await read(webView)
+    }
+
+    private func read(_ webView: WKWebView) async -> [FrameRecord] {
         let task = Task { await FrameTree.read(webView) }
         inFlight = task
+        next = nil
         let result = await task.value
-        inFlight = nil
+        if inFlight == task { inFlight = nil }
         ordered = result
         frames = Dictionary(result.map { ($0.frameID, $0) }, uniquingKeysWith: { first, _ in first })
         return result

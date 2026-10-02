@@ -19,6 +19,7 @@ public final class WebKitDriver: DriverCallHandler {
     /// The page agent install source from the host (`hello.ack agent_bundle`).
     public var agentBundle: String?
     var sessions: [BrowserTabID: TabSession] = [:]
+    lazy var dialogs = DialogBroker { [weak self] name, payload in self?.emit(name, payload) }
 
     public init(provider: any AutomationTabProvider, agentBundle: String? = nil) {
         self.provider = provider
@@ -42,12 +43,15 @@ public final class WebKitDriver: DriverCallHandler {
         case "tab.history": return try await tabHistory(params)
         case "tab.reload": return try await tabReload(params)
         case "frames.list": return try await framesList(params)
-        case "frame.evaluate": return try await frameEvaluate(params)
+        case "frame.evaluate":
+            let timeout = try params.optionalNumber("timeoutMs").flatMap { $0 > 0 ? Duration.milliseconds(Int64($0)) : nil }
+            return try await CallDeadline.run(timeout, what: "frame.evaluate") { () throws(DriverError) in try await self.frameEvaluate(params) }
         case "input.mouse": return try await inputMouse(params)
         case "input.key": return try await inputKey(params)
         case "input.insertText": return try await inputInsertText(params)
         case "tab.screenshot": return try await tabScreenshot(params)
         case "tab.pdf": return try await tabPDF(params)
+        case "dialog.respond": return try dialogs.respond(params)
         case "cookies.get": return try await cookiesGet(params)
         case "cookies.clear": return try await cookiesClear(params)
         default: throw DriverError(.unsupported, "Unsupported driver method \(method)")
@@ -72,15 +76,26 @@ public final class WebKitDriver: DriverCallHandler {
         let session = TabSession(tabID: tab.id, driver: self)
         AgentWorld.install(into: tab.webView.configuration.userContentController, agentBundle: agentBundle,
                            handler: session.messages)
+        session.watcher = TabWatcher(tab: tab, session: session) { [weak self] name, payload in self?.emit(name, payload) }
         sessions[tab.id] = session
+        dialogs.watch(tab)
         return session
     }
 
+    /// The App reports a tab that closed by any path (user, page, store):
+    /// pending calls fail with `closed` and the host gets `tab.closed`.
+    public func tabClosed(_ id: BrowserTabID) {
+        guard let session = sessions.removeValue(forKey: id) else { return }
+        session.end()
+        dialogs.stopWatching(id)
+        emit("tab.closed", ["targetId": .string(id.rawValue)])
+    }
+
     /// A load-state message from a frame of a driven tab.
-    func received(_ state: LoadState, url: String, title: String?, isMainFrame: Bool, tabID: BrowserTabID) {
+    func received(_ state: LoadState, document: String, url: String, title: String?, isMainFrame: Bool, tabID: BrowserTabID) {
         guard isMainFrame, let session = sessions[tabID] else { return }
         session.lastTitle = title
-        session.waits.signal(state)
+        session.waits.signal(state, document: document)
         if state == .commit {
             session.agentReady = false
             emit("tab.navigated", ["targetId": .string(tabID.rawValue), "url": .string(url),
@@ -93,16 +108,12 @@ public final class WebKitDriver: DriverCallHandler {
 
     /// Stops driving every tab: removes the driver's scripts and fails waits.
     public func detach() {
+        let tabs = provider?.automationTabs(all: true) ?? []
         for (id, session) in sessions {
-            session.waits.failAll(DriverError(.closed, "the session ended"))
-            if let tab = provider?.automationTabs(all: true).first(where: { $0.tab.id == id })?.tab {
-                let controller = tab.webView.configuration.userContentController
-                controller.removeScriptMessageHandler(forName: AgentWorld.loadStateHandler, contentWorld: AgentWorld.world)
-                // No per-world removal API: keep every script that is not ours.
-                let ours: Set<String> = [AgentWorld.loadStateSource, agentBundle ?? ""]
-                let keep = controller.userScripts.filter { !ours.contains($0.source) }
-                controller.removeAllUserScripts()
-                keep.forEach(controller.addUserScript)
+            session.end()
+            dialogs.stopWatching(id)
+            if let tab = tabs.first(where: { $0.tab.id == id })?.tab {
+                AgentWorld.uninstall(from: tab.webView.configuration.userContentController)
             }
         }
         sessions.removeAll()
@@ -121,11 +132,18 @@ final class TabSession {
     /// The main frame's title at its last load state; WKWebView.title can
     /// lag the load event.
     var lastTitle: String?
+    var watcher: TabWatcher?
     let messages: LoadStateMessages
 
     init(tabID: BrowserTabID, driver: WebKitDriver) {
         self.tabID = tabID
         messages = LoadStateMessages(tabID: tabID, driver: driver)
+    }
+
+    /// Ends the session: watchers stop, pending waits fail with `closed`.
+    func end() {
+        watcher?.stop()
+        waits.failAll(DriverError(.closed, "Target page, context or browser has been closed"))
     }
 }
 
@@ -142,8 +160,8 @@ final class LoadStateMessages: NSObject, WKScriptMessageHandler {
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let name = body["state"] as? String,
-              let state = LoadState(name: name) else { return }
-        driver?.received(state, url: body["url"] as? String ?? "", title: body["title"] as? String,
+              let state = LoadState(name: name), let document = body["doc"] as? String else { return }
+        driver?.received(state, document: document, url: body["url"] as? String ?? "", title: body["title"] as? String,
                          isMainFrame: message.frameInfo.isMainFrame, tabID: tabID)
     }
 }

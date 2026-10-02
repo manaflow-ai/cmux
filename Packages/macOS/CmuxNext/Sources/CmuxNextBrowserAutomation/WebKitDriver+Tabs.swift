@@ -21,7 +21,8 @@ extension WebKitDriver {
 
     func tabsOpen(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
         guard let provider else { throw DriverError(.closed, "tabs.open: the browser is gone") }
-        let url = try params.optionalString("url").flatMap(URL.init(string:))
+        let raw = try params.optionalString("url")
+        let url = try raw.map { raw throws(DriverError) in try Self.navigableURL(raw, method: "tabs.open") }
         let tab: WebKitTab
         do {
             tab = try await provider.openAutomationTab(url: nil)
@@ -32,18 +33,35 @@ extension WebKitDriver {
         if let url {
             let generation = session.waits.beginNavigation()
             tab.load(url)
-            try await session.waits.reach(.commit, after: generation, timeout: try params.timeout(), what: "tabs.open")
+            do {
+                try await session.waits.reach(.commit, after: generation, timeout: try params.timeout(), what: "tabs.open")
+            } catch {
+                // The host never learns this tab's id, so it may not stay open.
+                tabClosedByDriver(tab)
+                throw error
+            }
         }
         return .object(["targetId": .string(tab.id.rawValue)])
     }
 
     func tabsClose(_ params: DriverParams) throws(DriverError) -> DriverJSON {
-        let (tab, session) = try target(params)
-        session.waits.failAll(DriverError(.closed, "Target page, context or browser has been closed"))
-        sessions[tab.id] = nil
-        provider?.closeAutomationTab(tab.id)
-        emit("tab.closed", ["targetId": .string(tab.id.rawValue)])
+        let (tab, _) = try target(params)
+        tabClosedByDriver(tab)
         return .null
+    }
+
+    private func tabClosedByDriver(_ tab: WebKitTab) {
+        AgentWorld.uninstall(from: tab.webView.configuration.userContentController)
+        tabClosed(tab.id)
+        provider?.closeAutomationTab(tab.id)
+    }
+
+    /// An absolute URL with a scheme; a bare host gets https, as the
+    /// runtime's checkNavigableURL allows.
+    static func navigableURL(_ raw: String, method: String) throws(DriverError) -> URL {
+        if let url = URL(string: raw), let scheme = url.scheme, !scheme.isEmpty { return url }
+        if let url = URL(string: "https://\(raw)"), url.host != nil { return url }
+        throw DriverError(.invalid, "\(method): Cannot navigate to invalid URL \(raw)")
     }
 
     /// Selecting a tab changes the user's view, so the host passes it only
@@ -75,9 +93,7 @@ extension WebKitDriver {
     func tabNavigate(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
         let (tab, session) = try target(params)
         let raw = try params.string("url")
-        guard let url = URL(string: raw) ?? URL(string: "https://\(raw)") else {
-            throw DriverError(.invalid, "tab.navigate: Cannot navigate to invalid URL \(raw)")
-        }
+        let url = try Self.navigableURL(raw, method: "tab.navigate")
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
         let generation = session.waits.beginNavigation()
         tab.load(url)
@@ -89,7 +105,9 @@ extension WebKitDriver {
         let (tab, session) = try target(params)
         let delta = try params.number("delta")
         let list = tab.webView.backForwardList
-        guard (delta < 0 ? list.backItem : list.forwardItem) != nil else { return .null }
+        guard let item = delta < 0 ? list.backItem : list.forwardItem else { return .null }
+        // The blank page a tab opened on is not an entry to go back to.
+        if delta < 0, list.backList.count == 1, item.url.absoluteString == "about:blank" { return .null }
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
         let generation = session.waits.beginNavigation()
         if delta < 0 { tab.goBack() } else { tab.goForward() }
@@ -131,7 +149,10 @@ extension WebKitDriver {
     private static func cookie(_ cookie: HTTPCookie, matches url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return false }
         let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        return (host == domain || host.hasSuffix("." + domain)) && url.path.hasPrefix(cookie.path)
+        guard host == domain || host.hasSuffix("." + domain) else { return false }
+        if cookie.isSecure, url.scheme != "https" { return false }
+        let path = url.path.isEmpty ? "/" : url.path
+        return path == cookie.path || (path.hasPrefix(cookie.path) && (cookie.path.hasSuffix("/") || path.dropFirst(cookie.path.count).hasPrefix("/")))
     }
 
     private static func json(_ cookie: HTTPCookie) -> DriverJSON {

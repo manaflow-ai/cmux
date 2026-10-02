@@ -35,7 +35,7 @@ final class LoadWaits {
     private struct Wait {
         let target: LoadState
         let afterGeneration: UInt64
-        let timer: DemandTimer
+        let timer: DemandTimer?
         let resume: (Result<Void, DriverError>) -> Void
     }
 
@@ -44,28 +44,52 @@ final class LoadWaits {
     /// navigation ignores the previous document's states.
     private(set) var generation: UInt64 = 0
     private(set) var state: LoadState?
+    /// The document token of the latest commit: states posted by an older
+    /// document (a process swap can deliver them late) are ignored.
+    private var document: String?
 
     /// Marks the start of a navigation the caller will wait for.
     func beginNavigation() -> UInt64 { generation }
 
-    func signal(_ next: LoadState) {
-        if next == .commit { generation &+= 1 }
+    func signal(_ next: LoadState, document token: String) {
+        if next == .commit {
+            generation &+= 1
+            document = token
+        } else if token != document {
+            return
+        }
         state = next
         for (id, wait) in waits where generation > wait.afterGeneration && next >= wait.target {
             finish(id, .success(()))
         }
     }
 
+    /// A same-document navigation (fragment, pushState): no new document,
+    /// every pending wait is met.
+    func sameDocument() {
+        generation &+= 1
+        state = .load
+        for id in Array(waits.keys) { finish(id, .success(())) }
+    }
+
+    /// Fails waits that no commit met since they began (the navigation
+    /// failed or was cancelled before a document committed).
+    func navigationFailed(_ error: DriverError) {
+        for (id, wait) in waits where wait.afterGeneration == generation { finish(id, .failure(error)) }
+    }
+
     /// Waits until the main frame reaches `target` in a document committed
-    /// after `generation`.
-    func reach(_ target: LoadState, after generation: UInt64, timeout: Duration, what: String) async throws(DriverError) {
+    /// after `generation`; `timeout` nil waits without a deadline.
+    func reach(_ target: LoadState, after generation: UInt64, timeout: Duration?, what: String) async throws(DriverError) {
         if self.generation > generation, let state, state >= target { return }
         let id = UUID()
         let result: Result<Void, DriverError> = await withCheckedContinuation { continuation in
-            let timer = DemandTimer(owner: "BrowserAutomation.loadWait")
+            let timer = timeout.map { _ in DemandTimer(owner: "BrowserAutomation.loadWait") }
             waits[id] = Wait(target: target, afterGeneration: generation, timer: timer) { continuation.resume(returning: $0) }
-            timer.schedule(after: timeout) { [weak self] in
-                await self?.finish(id, .failure(DriverError(.timeout, "\(what): Timeout \(timeout) exceeded waiting for \(target.name)")))
+            if let timer, let timeout {
+                timer.schedule(after: timeout) { [weak self] in
+                    await self?.finish(id, .failure(DriverError(.timeout, "\(what): Timeout \(timeout) exceeded waiting for \(target.name)")))
+                }
             }
         }
         try result.get()
@@ -78,7 +102,7 @@ final class LoadWaits {
 
     private func finish(_ id: UUID, _ result: Result<Void, DriverError>) {
         guard let wait = waits.removeValue(forKey: id) else { return }
-        wait.timer.cancel()
+        wait.timer?.cancel()
         wait.resume(result)
     }
 }

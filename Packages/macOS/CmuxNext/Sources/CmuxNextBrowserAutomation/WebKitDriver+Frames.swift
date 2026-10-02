@@ -69,10 +69,18 @@ extension WebKitDriver {
         for (const id of ids) {
           const el = globalThis.__cmuxPageAgent && globalThis.__cmuxPageAgent.resolveHandle(id);
           if (!el || !el.isConnected) return false;
+          // The page world cannot see into a closed shadow root: the event
+          // would reach it retargeted to the host element.
+          for (let root = el.getRootNode(); root instanceof ShadowRoot; root = root.host.getRootNode()) {
+            if (root.mode === "closed") return "closed-shadow";
+          }
           el.dispatchEvent(new Event(token, { bubbles: true, composed: true }));
         }
         return true;
         """, ["token": token, "ids": handles], frame, AgentWorld.world, tab)
+        if dispatched == .string("closed-shadow") {
+            throw DriverError(.unsupported, "frame.evaluate: an element inside a closed shadow root cannot be passed to page code")
+        }
         let result = try await run("""
         const entry = globalThis.__cmuxHandoff.get(token);
         globalThis.__cmuxHandoff.delete(token);
@@ -125,6 +133,8 @@ extension WebKitDriver {
             throw DriverError(.evaluation, message, errorName: message.split(separator: ":").first.map(String.init))
         } catch let error as WKError where error.code == .javaScriptInvalidFrameTarget {
             throw DriverError(.notFound, "the frame was detached")
+        } catch let error as WKError where error.code == .webContentProcessTerminated || error.code == .webViewInvalidated {
+            throw DriverError(.closed, "Target page, context or browser has been closed")
         } catch {
             throw DriverError(.evaluation, error.localizedDescription)
         }

@@ -41,7 +41,9 @@ public nonisolated struct KeyStroke: Hashable, Sendable {
         }
         let named = DOMKeyCodes.namedCharacters[key]
         let ignoring = named ?? Self.base(code: code, key: key)
-        var characters = named ?? text ?? ""
+        // Key-up carries no text from the runtime; the event still needs the
+        // key's characters so keyup reports the same key as keydown.
+        var characters = named ?? text ?? (key.count == 1 ? key : "")
         if DOMKeyCodes.needsShift(key) { flags.insert(.shift) }
         if flags.contains(.control), let scalar = ignoring.unicodeScalars.first, ignoring.unicodeScalars.count == 1,
            (97...122).contains(scalar.value), let control = UnicodeScalar(scalar.value - 96) {
