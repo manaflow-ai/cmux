@@ -193,12 +193,10 @@ struct CloudPortsVPNAffordanceTests {
         #expect(status.message == CloudPortsStatusPresentation.routeNote)
     }
 
-    @Test("Loading status explains the scan without exposing transport details")
-    func loadingStatusUsesUserFacingCopy() {
+    @Test("Loading status hides transport details")
+    func loadingStatusHidesTransportDetails() {
         let status = CloudPortsStatusPresentation(state: .loading)
-        #expect(status.message == "Checking for running services…")
-        #expect(!status.message.localizedCaseInsensitiveContains("vpn"))
-        #expect(!status.message.localizedCaseInsensitiveContains("authenticated"))
+        #expect(status.message.isEmpty)
     }
 
     @Test("Ports stay closed until the person opens the group")
