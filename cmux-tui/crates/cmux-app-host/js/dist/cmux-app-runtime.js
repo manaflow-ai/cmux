@@ -773,6 +773,12 @@
   }
   var mountExists = (mountId) => mounts.has(mountId);
   var nodeRecord = (nodeId) => nodes.get(nodeId);
+  function setChildren(m, id, children) {
+    const record = nodes.get(id);
+    if (record)
+      record.children = children;
+    m.pending.push({ op: "children", id, children });
+  }
   function newNode(m, type, props) {
     if (++m.nodeCount > LIMITS.nodesPerMount)
       throw new Error(`app.limit: more than ${LIMITS.nodesPerMount} scene nodes`);
@@ -801,7 +807,7 @@
     if (view.menu)
       staticProps.menu = null;
     const id = newNode(m, view.type, staticProps);
-    const record = { mount: m, handlers: { ...view.handlers }, menu: null };
+    const record = { mount: m, handlers: { ...view.handlers }, menu: null, children: [] };
     nodes.set(id, record);
     for (const [key, fn] of live) {
       let last = firstValues.get(key);
@@ -831,13 +837,13 @@
           childIds.push(buildDynamic(m, child, depth + 1));
       }
       if (childIds.length)
-        m.pending.push({ op: "children", id, children: childIds });
+        setChildren(m, id, childIds);
     }
     return id;
   }
   function buildDynamic(m, fn, depth) {
     const id = newNode(m, "Group", {});
-    nodes.set(id, { mount: m, handlers: {}, menu: null });
+    nodes.set(id, { mount: m, handlers: {}, menu: null, children: [] });
     let current = null;
     effect(() => {
       const result = fn();
@@ -851,15 +857,22 @@
         const views = (Array.isArray(result) ? result : [result]).filter((v) => v instanceof ViewNode);
         const ids = runWithOwner(owner, () => views.map((v) => build(m, v, depth + 1)));
         current = { owner, ids };
-        m.pending.push({ op: "children", id, children: ids });
+        setChildren(m, id, ids);
       });
     });
     return id;
   }
   function removeNode(m, id) {
     m.pending.push({ op: "remove", id });
-    nodes.delete(id);
-    m.nodeCount = Math.max(0, m.nodeCount - 1);
+    const stack = [id];
+    while (stack.length) {
+      const next = stack.pop();
+      const record = nodes.get(next);
+      if (record)
+        stack.push(...record.children);
+      if (nodes.delete(next))
+        m.nodeCount--;
+    }
   }
   function buildList(m, containerId, view, depth) {
     const { spec, template } = view.list;
@@ -896,7 +909,7 @@
         rows = next;
         order = nextOrder;
         if (changed)
-          m.pending.push({ op: "children", id: containerId, children: nextOrder.map((k) => next.get(k).nodeId) });
+          setChildren(m, containerId, nextOrder.map((k) => next.get(k).nodeId));
       });
     });
   }
