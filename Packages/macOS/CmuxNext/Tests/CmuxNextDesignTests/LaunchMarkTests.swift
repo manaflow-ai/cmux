@@ -12,9 +12,9 @@ import Testing
 struct LaunchMarkTests {
     @Test func pathIsTheChevronFittedAndCentered() {
         let rect = CGRect(x: 10, y: 20, width: 100, height: 36)
-        let box = LaunchMarkPath.path(in: rect).boundingBoxOfPath
+        let box = CGPath.launchMark(in: rect).boundingBoxOfPath
         #expect(abs(box.height - 36) < 0.001)
-        #expect(abs(box.width - 36 * LaunchMarkPath.aspect) < 0.001)
+        #expect(abs(box.width - 36 * CGPath.launchMarkAspect) < 0.001)
         #expect(abs(box.midX - rect.midX) < 0.001)
         #expect(abs(box.midY - rect.midY) < 0.001)
     }
