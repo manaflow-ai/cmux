@@ -97,6 +97,9 @@ final class InputInvariantMonitor {
         result.violations += Self.pageGeometry(services)
         result.violations += Self.tabConservation(services)
         result.violations += Self.mirrorWrites(services)
+        result.violations += services.hoverCards.singleCardViolations().map {
+            InputViolation(invariant: .hoverCardSingle, window: nil, detail: $0)
+        }
         lastResult = result
         return result
     }
