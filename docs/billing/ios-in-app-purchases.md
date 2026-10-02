@@ -75,7 +75,7 @@ Server env: `APPLE_IAP_KEY_ID`, `APPLE_IAP_ISSUER_ID`, `APPLE_IAP_PRIVATE_KEY` (
 
 Server env values: `APPLE_IAP_KEY_ID=976787J9XZ` (In-App Purchase key "cmux server IAP"), `APPLE_IAP_ISSUER_ID=94d76068-119d-45cd-8700-86eb7a1a6235`. The `.p8` is kept outside the repo; never commit it.
 
-App Store Connect, set on both apps (`com.cmux.app` 6783338052 and `dev.cmux.app.beta` 6757092429): Server Notifications V2 Production URL `https://cmux.com/api/billing/apple/notifications`, Sandbox URL `https://cmux-staging.vercel.app/api/billing/apple/notifications`.
+App Store Connect Server Notifications V2: both apps (`com.cmux.app` 6783338052 and `dev.cmux.app.beta` 6757092429) send Production notifications to `https://cmux.com/api/billing/apple/notifications`. Sandbox notifications for `com.cmux.app` also go to `https://cmux.com/api/billing/apple/notifications`, because production grants that bundle's Sandbox purchases (App Review and TestFlight) and must see their renewals, refunds, and expiry. Sandbox notifications for `dev.cmux.app.beta` go to `https://cmux-staging.vercel.app/api/billing/apple/notifications`, because production grants nothing for that bundle. Apple caches the URL for a few minutes after a change.
 
 Subscription group "cmux Plans" (localized name "cmux", en-US and ja) per app, all products monthly, available in all 175 territories with Apple-equalized prices from the US base, no introductory offers:
 
