@@ -17,7 +17,8 @@ export function FileMenu({
   name: string;
   collapsed: boolean;
   onToggleCollapsed: () => void;
-  onOpenInTab: () => void;
+  /// Absent for a file with nothing on disk to open, such as a deleted one.
+  onOpenInTab?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
@@ -41,7 +42,7 @@ export function FileMenu({
   const items = [
     // The copy can fall back to a selection copy, which takes focus; focus returns after it.
     { label: "Copy path", run: () => copyText(path) },
-    { label: "Open file in a tab", run: onOpenInTab },
+    ...(onOpenInTab ? [{ label: "Open file in a tab", run: onOpenInTab }] : []),
     { label: collapsed ? "Expand file" : "Collapse file", run: onToggleCollapsed },
   ];
   const onKeyDown = (event: React.KeyboardEvent) => {

@@ -59,30 +59,35 @@ export function FileHeader({
       >
         <Eye />
       </button>
-      <button
-        type="button"
-        className="acpmux-fh-btn"
-        aria-label={`Open ${file.displayPath} in a tab`}
-        title="Open file in a tab"
-        onClick={() => on.openFile(file.path, "tab")}
-      >
-        <OpenTab />
-      </button>
-      <button
-        type="button"
-        className="acpmux-fh-btn"
-        aria-label={`Open ${file.displayPath} in the editor`}
-        title="Open in editor"
-        onClick={() => on.openFile(file.path, "editor")}
-      >
-        <Code />
-      </button>
+      {/* A deleted file has nothing on disk to open. */}
+      {!file.deleted && (
+        <>
+          <button
+            type="button"
+            className="acpmux-fh-btn"
+            aria-label={`Open ${file.displayPath} in a tab`}
+            title="Open file in a tab"
+            onClick={() => on.openFile(file.path, "tab")}
+          >
+            <OpenTab />
+          </button>
+          <button
+            type="button"
+            className="acpmux-fh-btn"
+            aria-label={`Open ${file.displayPath} in the editor`}
+            title="Open in editor"
+            onClick={() => on.openFile(file.path, "editor")}
+          >
+            <Code />
+          </button>
+        </>
+      )}
       <FileMenu
         path={file.path}
         name={file.displayPath}
         collapsed={view.collapsed}
         onToggleCollapsed={() => on.toggleCollapsed(file.path)}
-        onOpenInTab={() => on.openFile(file.path, "tab")}
+        onOpenInTab={file.deleted ? undefined : () => on.openFile(file.path, "tab")}
       />
     </div>
   );

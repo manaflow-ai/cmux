@@ -138,14 +138,18 @@ export function DiffPanel({
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
-  // Why the last open failed, until the next one.
+  // Why the last open failed, until the next open or another scope. Only the latest open's
+  // failure shows: an earlier one that fails late was overtaken.
   const [openFailure, setOpenFailure] = useState<string>();
+  const latestOpen = useRef(0);
   const openFile = useStableCallback((path: string, where: OpenTarget) => {
+    const request = ++latestOpen.current;
     setOpenFailure(undefined);
     const opening = onOpenFile ? onOpenFile(path, where) : Promise.reject(new Error("The file could not be opened."));
-    opening.catch((error: unknown) =>
-      setOpenFailure(error instanceof Error && error.message ? error.message : "The file could not be opened."),
-    );
+    opening.catch((error: unknown) => {
+      if (request !== latestOpen.current) return;
+      setOpenFailure(error instanceof Error && error.message ? error.message : "The file could not be opened.");
+    });
   });
   const on = useMemo<FileActions>(
     () => ({
@@ -218,6 +222,8 @@ export function DiffPanel({
             setCollapsed(new Set());
             setViewed(new Set());
             setSelected(undefined);
+            latestOpen.current += 1;
+            setOpenFailure(undefined);
           }}
         >
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
