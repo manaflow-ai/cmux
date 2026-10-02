@@ -555,7 +555,16 @@ needs a customer-verified domain), so the daemon is reached directly at a VM add
 
 **Private networking is the default.** Every Freestyle machine joins the one VPC that
 belongs to its owner (provisioned on first create, slug `cmux-net-<hash>`); the owner's
-computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`). The app starts a
+computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`). Every machine and
+every tunnel holds one address in it. Freestyle derives a /24 (254 members) when a VPC is
+created without a CIDR, and the range is fixed for the VPC's life, so production creates each
+owner network with a /16 from 10.192.0.0/10 (`userNetworkCidr`), inside the tunnels' default
+10.0.0.0/8 route and above the band the platform derives team /24s from. Networks created
+before this keep their /24. `CMUX_VM_NETWORK_NAMESPACE` prefixes every derived network and
+tunnel slug (`cmux-<ns>-net-…`, `cmux-<ns>-wg-…`); unset keeps the production slugs.
+`web/scripts/load-dev-env.sh` sets `dev-<hash of the dev database>`, so a dev stack, which
+shares the production Freestyle account, never enrolls tunnels into a production network.
+Namespaced networks keep the platform's account-unique /24. The app starts a
 user-space WireGuard hub for terminal and metadata traffic. The Network Extension starts
 only when a browser or webview needs the private network. The
 route is then the VM's *private* address — `ws://[<vpc ipv6>]:1337/v1/link` — and creates

@@ -430,7 +430,7 @@ export interface VMPrivateNetworking {
    * under concurrent calls with the same slug: two machines created at once
    * must land on one network, not two.
    */
-  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean }): Promise<ProviderNetwork>;
+  ensureNetwork(options: EnsureProviderNetworkOptions): Promise<ProviderNetwork>;
   /** Read a network back by id or slug, or null when the provider has none. */
   getNetwork(networkIdOrSlug: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */
@@ -456,6 +456,19 @@ export interface VMPrivateNetworking {
   /** Ids of every tunnel attached to a network. */
   listNetworkTunnelIds?(networkId: string): Promise<string[]>;
 }
+
+export type EnsureProviderNetworkOptions = {
+  readonly slug: string;
+  readonly displayName?: string;
+  readonly heal?: boolean;
+  readonly membersRule?: boolean;
+  /**
+   * The IPv4 range for a network this call creates. Omitted means the
+   * provider's default. It never changes an existing network: a provider
+   * network's range is fixed for its life.
+   */
+  readonly cidr?: string;
+};
 
 export interface VMProvider {
   readonly id: ProviderId;
