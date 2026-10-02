@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSettings
 import CmuxNextTerminal
+import LocalAuthentication
 import SwiftUI
 
 /// `OnboardingServices` over the app: cmux.json for the theme, the importer
@@ -18,6 +19,12 @@ final class AppOnboardingServices: OnboardingServices {
 
     init(owner: OnboardingService) {
         self.owner = owner
+    }
+
+    var savedProfile: OnboardingProfile? { owner.profile }
+
+    func saveProfile(_ profile: OnboardingProfile) {
+        owner.saveProfile(profile)
     }
 
     var ghosttyTheme: ThemeInput { ThemeStore.shared.input }
@@ -93,6 +100,19 @@ final class AppOnboardingServices: OnboardingServices {
 
     func canImportPasswords() async -> Bool {
         await services.cache?.cef.canImportPasswords() ?? false
+    }
+
+    /// Touch ID, or the Mac's password where there is none. Only a Mac with
+    /// no login password at all goes on without it; any other failure stops
+    /// the import, since an "Always Allow" on the Keychain prompt means no
+    /// prompt follows.
+    func authorizePasswordRead(reason: String) async -> Bool {
+        let context = LAContext()
+        var unavailable: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else {
+            return unavailable?.domain == LAErrorDomain && unavailable?.code == LAError.Code.passcodeNotSet.rawValue
+        }
+        return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
     }
 
     var defaultApps: any DefaultAppRegistering { owner.defaultApps }

@@ -181,6 +181,17 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 symbol: "square.and.arrow.down.on.square", surfaces: [.menu, .contextMenu], targets: [.pane],
                 cliName: "browser import-data", mainMenu: .view
             ),
+            {
+                var importCSV = ActionDescriptor(
+                    id: "password.importCSV",
+                    title: String(localized: "action.password.importCSV", defaultValue: "Import Passwords from CSV…", bundle: .module),
+                    keywords: ["passwords", "import", "csv", "chrome", "edge", "safari", "firefox", "1password", "bitwarden"],
+                    category: .browser, symbol: "key", surfaces: [.palette, .keyboard, .menu], mainMenu: .file
+                )
+                // An agent must not be able to put the file picker in front of the person.
+                importCSV.isPersonOnly = true
+                return importCSV
+            }(),
             ActionDescriptor(
                 id: "palette.enableBrowser",
                 title: String(localized: "action.palette.enableBrowser", defaultValue: "Enable cmux Browser", bundle: .module),

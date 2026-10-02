@@ -20,10 +20,10 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openFilesPane",
         ],
         .noObject: [
-            "openSettings", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
+            "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",
             "palette.openTaskManager", "palette.sleepyMode", "keepMacAwake", "about", "manageLayouts",
-            "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser",
+            "palette.findWork", "reopenClosedBrowserPanel", "palette.browserClearHistory", "importFromBrowser", "password.importCSV",
             "palette.enableBrowser", "palette.disableBrowser", "toggleRightSidebar", "switchRightSidebarToFiles",
             "switchRightSidebarToFind", "switchRightSidebarToSessions", "switchRightSidebarToFeed",
             "switchRightSidebarToDock", "switchRightSidebarToMachines", "palette.toggleMatchTerminalBackground",
