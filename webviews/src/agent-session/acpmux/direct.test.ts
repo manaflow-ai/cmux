@@ -464,4 +464,32 @@ describe("direct client session state", () => {
     await settle();
     expect(latest().rows.filter((row) => row.kind === "assistant")).toEqual([]);
   });
+
+  test("a turn summary counts the turn's tool calls and its time", async () => {
+    const update = (seq: number, update: Record<string, unknown>): EventRecord => ({ sessionId: "a", seq, at: seq * 1000, dir: "in", kind: String(update.sessionUpdate), msg: { method: "session/update", params: { sessionId: "a", update } } });
+    const tool = (seq: number, toolCallId: string) => update(seq, { sessionUpdate: "tool_call", toolCallId, title: "Run", status: "completed" });
+    const result = (seq: number): EventRecord => ({ sessionId: "a", seq, at: seq * 1000, dir: "mux", kind: "turn_result", msg: { status: "completed" } });
+    const user = (seq: number, text: string): EventRecord => ({ ...userEvent("a", seq, text), at: seq * 1000 });
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/attach"
+      ? { session: { sessionId: "a", status: "idle" }, events: [user(1, "one"), tool(2, "t1"), result(3), user(4, "two"), tool(5, "t2"), tool(6, "t3"), tool(7, "t4"), result(10)] }
+      : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    await connect();
+    await settle();
+    expect(latest().rows.filter((row) => row.kind === "turnSummary").map((row) => [row.toolCount, row.durationMs])).toEqual([[1, 2000], [3, 6000]]);
+  });
+
+  test("a prompt queued during a turn does not restart that turn's count", async () => {
+    const tool = (seq: number, toolCallId: string): EventRecord => ({ sessionId: "a", seq, at: seq * 1000, dir: "in", kind: "tool_call", msg: { method: "session/update", params: { sessionId: "a", update: { sessionUpdate: "tool_call", toolCallId, title: "Run", status: "completed" } } } });
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/attach"
+      ? { session: { sessionId: "a", status: "idle" }, events: [{ ...userEvent("a", 1, "one"), at: 1000 }, tool(2, "t1"), tool(3, "t2")] }
+      : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    const client = await connect();
+    await settle();
+    ScriptedSocket.held.add("session/prompt");
+    void client.send("queued").catch(() => undefined);
+    await settle();
+    ScriptedSocket.current.notify("_acpmux/event", { sessionId: "a", seq: 4, at: 4000, dir: "mux", kind: "turn_result", msg: { status: "completed" } });
+    await settle();
+    expect(latest().rows.filter((row) => row.kind === "turnSummary").map((row) => [row.toolCount, row.durationMs])).toEqual([[2, 3000]]);
+  });
 });
