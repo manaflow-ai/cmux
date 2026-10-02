@@ -1944,3 +1944,75 @@ describe("acpmux timestamp lines", () => {
     }
   });
 });
+
+describe("acpmux edit diffs", () => {
+  /// An edit inside an opened "Worked for" was a dead row: Codex opens it to the change.
+  test("an edit in an opened fold opens to its diff", async () => {
+    const restore = fakeViewport({ width: 760, height: 900 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const diff = {
+      path: "/repo/Sources/Total.swift",
+      oldText: "let a = 1\nlet b = 2\n",
+      newText: "let a = 1\nlet b = 3\nlet c = 4\n",
+    };
+    const turn: AcpmuxRow[] = [
+      { id: "u", version: 1, at: 1, kind: "user", text: "fix it" },
+      // One call per row: two calls in a row fold into a run summary (ToolRun).
+      {
+        id: "e",
+        version: 1,
+        at: 2,
+        kind: "activity",
+        toolCount: 1,
+        items: [
+          {
+            kind: "tool",
+            text: "Edit Total.swift",
+            tool: { id: "t1", title: "Edit Total.swift", kind: "edit", status: "completed", diffs: [diff] },
+          },
+        ],
+      },
+      { id: "c", version: 1, at: 3, kind: "assistant", text: "Now the notes." },
+      {
+        id: "n",
+        version: 1,
+        at: 4,
+        kind: "activity",
+        toolCount: 1,
+        items: [
+          {
+            kind: "tool",
+            text: "Edit notes",
+            tool: { id: "t2", title: "Edit notes", kind: "edit", status: "completed" },
+          },
+        ],
+      },
+      { id: "a", version: 1, at: 5, kind: "assistant", text: "Done." },
+      { id: "s", version: 1, at: 6, kind: "turnSummary", durationMs: 3000, toolCount: 2 },
+    ];
+    const open = new Set(["worked-u"]);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows: turnView(turn, open), onToggleActivity: () => {}, expanded: open }),
+        ),
+      );
+      const document = dom.window.document;
+      const toggles = () => [...document.querySelectorAll<HTMLButtonElement>("button.cv-tool.is-toggle")];
+      // The edit with a diff opens; the one without a diff or output stays a plain row.
+      expect(toggles().map((button) => button.textContent)).toEqual(["Edit Total.swift"]);
+      expect(document.body.textContent).toContain("Edit notes");
+      expect(document.querySelector(".cv-edit-diff")).toBeNull();
+      await act(async () => toggles()[0]!.click());
+      const card = document.querySelector(".cv-edit-diff");
+      expect(card?.querySelector(".cv-edit-diff__name")?.textContent).toBe("Total.swift");
+      expect(card?.querySelector(".cv-edit-diff__add")?.textContent).toBe("+2");
+      expect(card?.querySelector(".cv-edit-diff__del")?.textContent).toBe("-1");
+      expect(card?.querySelector(".cv-edit-diff__body")?.children.length).toBe(1);
+      expect(toggles()[0]!.getAttribute("aria-expanded")).toBe("true");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+});
