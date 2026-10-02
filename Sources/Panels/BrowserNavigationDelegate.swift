@@ -761,6 +761,9 @@ import WebKit
         return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
             request: navigationAction.request,
             targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame,
+            // A history navigation restores its entry; a new request would
+            // replace it.
+            addsAutomationHeaders: navigationAction.navigationType != .backForward,
             decisionHandler: decisionHandler,
             willRestart: {
                 reportReplacementWillStart?(webView, replacedNavigation)

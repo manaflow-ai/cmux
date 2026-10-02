@@ -53,6 +53,51 @@
     return { raw, scheme, host, port };
   }
 
+  // WebKit content-blocker rules for a domain policy. Content-blocker regular
+  // expressions have no alternation, so each pattern becomes its own rule.
+  // Documents in the main frame are left to the navigation checks, which
+  // report the block; iframes and every subresource are blocked here.
+  const SUBRESOURCES = ["image", "style-sheet", "script", "font", "raw", "svg-document", "media", "ping", "fetch", "websocket", "other"];
+  const cbEscape = (s) => s.replace(/[.+?^${}()|[\]\\*]/g, "\\$&");
+  function patternFilters(p) {
+    // Without a scheme a pattern covers http(s) and its WebSockets.
+    const schemes = p.scheme ? [p.scheme.split("").map((c) => (c === "*" ? "[a-z0-9+.-]*" : cbEscape(c))).join("")] : ["https?", "wss?"];
+    return schemes.flatMap((scheme) => schemeFilters(p, scheme));
+  }
+  function schemeFilters(p, scheme) {
+    let host;
+    if (p.host === "*") host = "[^/@:]+";
+    else if (p.host.startsWith("*.")) host = "([^/@:]*\\.)?" + cbEscape(p.host.slice(2));
+    else host = cbEscape(p.host);
+    const head = "^" + scheme + "://([^/@]*@)?" + host;
+    if (p.port === null) return [head + "(:[0-9]+)?/"];
+    const out = [head + ":" + p.port + "/"];
+    // A default port is not written in the URL.
+    if ((p.port === "443" && (!p.scheme || /^https/.test(p.scheme) || p.scheme === "*")) || (p.port === "80" && (!p.scheme || /^http/.test(p.scheme) || p.scheme === "*"))) out.push(head + "/");
+    return out;
+  }
+  function policyContentRules(policy) {
+    const rules = [];
+    const triggers = (filter) => [
+      { "url-filter": filter, "resource-type": SUBRESOURCES },
+      { "url-filter": filter, "resource-type": ["document"], "load-context": ["child-frame"] },
+    ];
+    const add = (filter, type) => {
+      for (const trigger of triggers(filter)) rules.push({ trigger, action: { type } });
+    };
+    if (policy.allowed) {
+      add(".*", "block");
+      for (const p of policy.allowed) for (const f of patternFilters(p)) add(f, "ignore-previous-rules");
+      for (const scheme of ["data", "blob", "about"]) add("^" + scheme + ":", "ignore-previous-rules");
+    }
+    for (const p of policy.prohibited) for (const f of patternFilters(p)) add(f, "block");
+    if (policy.blockIPs) {
+      add("^[a-z][a-z0-9+.-]*://([^/@]*@)?[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+[:/]", "block");
+      add("^[a-z][a-z0-9+.-]*://([^/@]*@)?\\[", "block");
+    }
+    return rules;
+  }
+
   const globRe = (glob) => new RegExp("^" + glob.replace(/[.+^${}()|[\]\\?]/g, "\\$&").replace(/\*/g, ".*") + "$");
   const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;
 
@@ -899,7 +944,61 @@
       if (kind === "allowed") policy.allowed = parsed && parsed.length ? parsed : null;
       else policy.prohibited = parsed || [];
       if (options && options.lock) policy.locked = true;
+      syncPolicyRules();
       return setPatterns(kind, title, undefined);
+    }
+
+    // The policy also blocks subresources (images, scripts, styles, fonts,
+    // media, XHR and fetch, WebSockets, iframes) through the driver's content
+    // rules. The next driver call waits for the rules to apply.
+    let policySync = null;
+    function syncPolicyRules() {
+      const contentRules = policyContentRules(policy);
+      const p = session.driver.call("session.configure", { contentRules })
+        .catch((e) => {
+          if (e && e.code === "unsupported") return;
+          print("warn", `# subresource blocking is off: ${(e && e.message) || e}`);
+        })
+        .finally(() => {
+          if (policySync === p) policySync = null;
+        });
+      policySync = p;
+    }
+
+    // ---- browser-context options (session.configure) -------------------------------
+    const contextConfig = {};
+    async function configure(options) {
+      if (options === null || typeof options !== "object" || Array.isArray(options)) throw new Error(`session.configure: options: expected an object, got ${JSON.stringify(options)}`);
+      const known = ["userAgent", "extraHTTPHeaders", "permissions", "proxy"];
+      const unknown = Object.keys(options).filter((k) => !known.includes(k));
+      if (unknown.length) throw new Error(`session.configure: unknown option ${unknown.map((k) => JSON.stringify(k)).join(", ")}; expected ${known.join(", ")}`);
+      const params = {};
+      if ("userAgent" in options) {
+        if (options.userAgent !== null && typeof options.userAgent !== "string") throw new Error("session.configure: userAgent: expected a string or null");
+        params.userAgent = options.userAgent;
+      }
+      if ("extraHTTPHeaders" in options) {
+        const h = options.extraHTTPHeaders;
+        if (h !== null && (typeof h !== "object" || Array.isArray(h) || Object.values(h).some((v) => typeof v !== "string"))) throw new Error("session.configure: extraHTTPHeaders: expected { name: string value } or null");
+        params.extraHTTPHeaders = h || {};
+      }
+      if ("permissions" in options) {
+        const list = options.permissions;
+        if (list !== null && (!Array.isArray(list) || list.some((v) => typeof v !== "string"))) throw new Error("session.configure: permissions: expected an array of permission names or null");
+        params.permissions = list || [];
+      }
+      if ("proxy" in options) {
+        const px = options.proxy;
+        if (px !== null && (typeof px !== "object" || typeof px.server !== "string" || !px.server)) throw new Error("session.configure: proxy: expected { server, username?, password?, bypass? } or null");
+        params.proxy = px;
+      }
+      if (policySync) await policySync;
+      const result = await session.driver.call("session.configure", params);
+      for (const [k, v] of Object.entries(params)) {
+        if (v === null || (Array.isArray(v) && !v.length) || (k === "extraHTTPHeaders" && !Object.keys(v).length)) delete contextConfig[k];
+        else contextConfig[k] = k === "proxy" ? { server: v.server, username: v.username, bypass: v.bypass } : v;
+      }
+      return { ...contextConfig, proxyAppliesTo: result && result.proxy ? "tabs opened from now on" : undefined };
     }
 
     // ---- downloads -------------------------------------------------------------
@@ -953,6 +1052,7 @@
       redactText,
       checkURL,
       async beforeCall(method, params) {
+        if (policySync && method !== "session.configure") await policySync;
         if ((method === "tab.navigate" || method === "tabs.open") && params && params.url) {
           checkURL(TITLES[method], params.url);
           if (method === "tab.navigate" && params.targetId) policy.navigating.set(params.targetId, (policy.navigating.get(params.targetId) || 0) + 1);
@@ -1126,9 +1226,14 @@
         if (on === undefined) return policy.blockIPs;
         if (policy.locked) throw lockedError("session.blockIPAddresses");
         policy.blockIPs = !!on;
+        syncPolicyRules();
         return policy.blockIPs;
       },
       blockedNavigations: () => policy.log.map((e) => ({ ...e })),
+      // Playwright browser-context options for the tabs this session drives:
+      // { userAgent, extraHTTPHeaders, permissions, proxy }. null clears one.
+      configure,
+      configuration: () => JSON.parse(JSON.stringify(contextConfig)),
       storageState,
       setStorageState,
       downloads: () => downloads.map((d) => ({ ...d })),

@@ -57,8 +57,12 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   tab after a one-shot run; `id`; `guide()` returns this text.
   `allowedDomains(["example.com", "*.example.org"], { lock })`,
   `prohibitedDomains([...])` and `blockIPAddresses(true)` limit navigations,
-  new tabs, `fetch` and site tools (a tab that reaches a blocked URL goes to
-  `about:blank`; `blockedNavigations()` lists them). `storageState({ path })`
+  new tabs, `fetch`, site tools and a driven tab's subresources (a tab that
+  reaches a blocked URL goes to `about:blank`; `blockedNavigations()` lists
+  them). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })`
+  sets browser-context options for the tabs this session drives (`null`
+  clears one; a proxy applies to tabs opened afterwards, in a private
+  profile without your cookies). `storageState({ path })`
   and `setStorageState(stateOrPath)` save and restore cookies and
   localStorage (Playwright's format); a save covers the current tab's site
   only, `{ all: true }` the whole profile, `{ urls }` those URLs. `downloads()` lists downloads.

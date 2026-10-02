@@ -353,6 +353,31 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     if (type === "down" && text) await page.keyboard.insertText(text);
   }
 
+  // WebKit content-blocker rules applied with request routing: the last
+  // matching block or ignore-previous-rules rule decides. Main-frame
+  // documents are not routed, as in the app.
+  const RESOURCE_TYPES = { image: "image", stylesheet: "style-sheet", script: "script", font: "font", media: "media", fetch: "fetch", xhr: "fetch", websocket: "websocket", ping: "ping", other: "other" };
+  let contentRules = [];
+  let routed = false;
+  async function setContentRules(rules) {
+    contentRules = rules.map((r) => ({ re: new RegExp(r.trigger["url-filter"], "i"), types: r.trigger["resource-type"] || null, child: (r.trigger["load-context"] || []).includes("child-frame"), type: r.action.type }));
+    if (routed || !contentRules.length) return;
+    routed = true;
+    await context.route("**/*", (route, request) => {
+      const isDocument = request.resourceType() === "document";
+      if (isDocument && request.frame().parentFrame() === null) return route.fallback();
+      const type = isDocument ? "document" : RESOURCE_TYPES[request.resourceType()] || "other";
+      let blocked = false;
+      for (const r of contentRules) {
+        if (!r.re.test(request.url())) continue;
+        if (r.types && !r.types.includes(type)) continue;
+        if (isDocument && !r.child) continue;
+        blocked = r.type === "block";
+      }
+      return blocked ? route.abort("blockedbyclient") : route.fallback();
+    });
+  }
+
   const methods = {
     "history.search": async ({ queries = [], from, to, limit = 100 }) => {
       const qs = queries.map((q) => String(q).toLowerCase());
@@ -385,6 +410,21 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     },
     "session.name": async ({ name }, driver) => {
       driver.sessionName = String(name);
+    },
+    // Browser-context options. Playwright fixes the user agent and proxy at
+    // context creation, so those are unsupported here; headers apply to every
+    // request (the app adds them to main-frame navigations only).
+    "session.configure": async (params) => {
+      if ((params.userAgent !== undefined && params.userAgent !== null) || (params.proxy !== undefined && params.proxy !== null)) {
+        throw new DriverError("unsupported", "the dev driver cannot change the user agent or proxy of a running context");
+      }
+      if (params.extraHTTPHeaders !== undefined) await context.setExtraHTTPHeaders(params.extraHTTPHeaders || {});
+      if (params.permissions !== undefined) {
+        await context.clearPermissions();
+        if ((params.permissions || []).length) await context.grantPermissions(params.permissions);
+      }
+      if (params.contentRules !== undefined) await setContentRules(params.contentRules || []);
+      return { proxy: false };
     },
     "tabs.close": async ({ targetId, runBeforeUnload }) => {
       await tabFor(targetId).page.close({ runBeforeUnload: !!runBeforeUnload });

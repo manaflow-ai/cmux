@@ -389,10 +389,18 @@ test("browser-use-parity.md: verdicts and proofs resolve", () => {
     assert.ok(kind, `no verdict: ${row}`);
     if (kind[1] === "skipped" && !/^skipped( for [^:]+)?: .{20,}/.test(verdict)) assert.fail(`skipped without a reason: ${row}`);
     if (kind[1] === "same" || kind[1] === "better") assert.ok(proof.trim(), `no proof: ${row}`);
-    for (const part of proof.split(/, (?=\d\d-|unit:|sites\/)|; /).map((p) => p.trim()).filter(Boolean)) {
+    for (const part of proof.split(/, (?=\d\d-|unit:|sites\/|diff )|; /).map((p) => p.trim()).filter(Boolean)) {
       const scenario = /^(\d\d-[a-z0-9-]+)((?: `[^`]+`,?)*)$/.exec(part);
       const unit = /^unit: ([\w-]+) ((?:`[^`]+`(?:, )?)+)$/.exec(part);
-      if (scenario) {
+      const diffCase = /^diff ((?:`[^`]+`(?:, )?)+)$/.exec(part);
+      if (diffCase) {
+        const dir = path.join(root, "diff", "cases");
+        const ids = fs.readdirSync(dir).flatMap((f) => [...fs.readFileSync(path.join(dir, f), "utf8").matchAll(/\bid: [`"]([^`"$]+)/g)].map((m) => m[1]));
+        for (const [, id] of diffCase[1].matchAll(/`([^`]+)`/g)) {
+          const hit = id.endsWith("*") ? ids.some((x) => x.startsWith(id.slice(0, -1))) : ids.includes(id);
+          assert.ok(hit, `no diff case ${id}`);
+        }
+      } else if (scenario) {
         assert.ok(fs.existsSync(path.join(root, "scenarios", `${scenario[1]}.js`)), `no scenario ${scenario[1]}`);
         const keys = goldenKeys(scenario[1]);
         for (const [, key] of scenario[2].matchAll(/`([^`]+)`/g)) {

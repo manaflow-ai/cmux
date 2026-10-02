@@ -4263,6 +4263,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
+        // A browser REPL session's proxy store keeps the proxy it was given.
+        if BrowserReplProxyStores.owns(webView.configuration.websiteDataStore) { return }
 
         if cloudBrowserMachineID != nil {
             if let endpoint = cloudBrowserProxyEndpoint, let address = cloudAccess.model?.target.host {
@@ -8707,6 +8709,32 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
     var closeRequested: ((WKWebView) -> Void)?
 
+    /// Geolocation permission (`WKUIDelegatePrivate`). A tab a REPL session
+    /// drives answers from the session's granted permissions; every other tab
+    /// is denied, WebKit's behavior when the delegate does not implement this.
+    @objc(_webView:requestGeolocationPermissionForOrigin:initiatedByFrame:decisionHandler:)
+    func _webView(
+        _ webView: WKWebView,
+        requestGeolocationPermissionFor origin: WKSecurityOrigin,
+        initiatedBy frame: WKFrameInfo,
+        decisionHandler: @escaping (WKPermissionDecision) -> Void
+    ) {
+        let attachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
+        decisionHandler(attachment?.grants("geolocation") == true ? .grant : .deny)
+    }
+
+    /// Notification permission (`WKUIDelegatePrivate`), answered like
+    /// geolocation.
+    @objc(_webView:requestNotificationPermissionForSecurityOrigin:decisionHandler:)
+    func _webView(
+        _ webView: WKWebView,
+        requestNotificationPermissionFor securityOrigin: WKSecurityOrigin,
+        decisionHandler: @escaping (Bool) -> Void
+    ) {
+        let attachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
+        decisionHandler(attachment?.grants("notifications") == true)
+    }
+
     /// WebKit's beforeunload confirmation (`WKUIDelegatePrivate`). Without a
     /// REPL session the page may always leave, WebKit's behavior when the
     /// delegate does not implement this.
@@ -9000,10 +9028,18 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             decisionHandler(.prompt)
             return
         }
-        // A tab a REPL session drives denies at once, as its geolocation and
-        // notification requests do, instead of a sheet nobody can answer.
-        if BrowserReplTabAttachments.shared.attachment(for: owner.id) != nil {
-            decisionHandler(.deny)
+        // A tab a REPL session drives answers at once, from the permissions
+        // the session granted (`session.configure`), instead of a sheet
+        // nobody can answer.
+        if let attachment = BrowserReplTabAttachments.shared.attachment(for: owner.id) {
+            let needed: [String]
+            switch type {
+            case .camera: needed = ["camera"]
+            case .microphone: needed = ["microphone"]
+            case .cameraAndMicrophone: needed = ["camera", "microphone"]
+            @unknown default: needed = ["camera", "microphone"]
+            }
+            decisionHandler(needed.allSatisfy(attachment.grants) ? .grant : .deny)
             return
         }
         let allowLabel = String(localized: "common.allow", defaultValue: "Allow")

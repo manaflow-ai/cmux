@@ -54,6 +54,11 @@ final class BrowserReplTabAttachments {
         attachment.detachAll()
     }
 
+    /// Live attachments `sessionID` is attached to.
+    func attachments(forSession sessionID: String) -> [BrowserReplTabAttachment] {
+        attachments.values.filter { $0.sessionIDs.contains(sessionID) }
+    }
+
     /// Session ids attached to `panelID`.
     func sessions(attachedTo panelID: UUID) -> [String] {
         attachments[panelID]?.sessionIDs ?? []
@@ -350,7 +355,52 @@ final class BrowserReplTabAttachment {
     func removeSink(sessionID: String) {
         pointerReleased(sessionID: sessionID)
         sinks.removeValue(forKey: sessionID)
+        if contextSessionID == sessionID { applyContext(BrowserReplContextOptions(), sessionID: nil) }
         if sinks.isEmpty { detachAll() }
+    }
+
+    // MARK: - Browser-context options
+
+    /// `session.configure` options of the session that set them last. They
+    /// apply while that session stays attached.
+    private(set) var contextOptions = BrowserReplContextOptions()
+    private var contextSessionID: String?
+    /// The domain-policy rule list installed in the current web view.
+    private var installedRuleList: WKContentRuleList?
+    private weak var ruleListWebView: WKWebView?
+
+    func applyContext(_ options: BrowserReplContextOptions, sessionID: String?) {
+        contextOptions = options
+        contextSessionID = sessionID
+        applyContextToWebView()
+    }
+
+    /// Whether the driving session granted `permission` (`camera`,
+    /// `microphone`, `geolocation`, `notifications`).
+    func grants(_ permission: String) -> Bool {
+        contextOptions.permissions.contains(permission)
+    }
+
+    /// Puts the user agent, headers and domain rule list on the panel's
+    /// current web view (again after WebKit replaced it).
+    func applyContextToWebView() {
+        guard let webView = panel?.webView else { return }
+        if webView.automationUserAgentOverride != contextOptions.userAgent {
+            webView.automationUserAgentOverride = contextOptions.userAgent
+        }
+        webView.automationExtraHTTPHeaders = contextOptions.extraHTTPHeaders
+        let wanted = contextOptions.ruleList
+        if let installed = installedRuleList, let owner = ruleListWebView,
+           installed !== wanted || owner !== webView {
+            owner.configuration.userContentController.remove(installed)
+            installedRuleList = nil
+            ruleListWebView = nil
+        }
+        if let wanted, installedRuleList == nil {
+            webView.configuration.userContentController.add(wanted)
+            installedRuleList = wanted
+            ruleListWebView = webView
+        }
     }
 
     /// Releases held dialogs and choosers and removes page instrumentation.
@@ -363,6 +413,7 @@ final class BrowserReplTabAttachment {
         for respond in fileChoosers.values { respond(nil) }
         fileChoosers.removeAll()
         uninstrument()
+        applyContext(BrowserReplContextOptions(), sessionID: nil)
         releaseRenderHost()
         if let webView = occlusionDisabledWebView {
             Self.setOcclusionDetection(true, on: webView)
@@ -396,6 +447,7 @@ final class BrowserReplTabAttachment {
     /// Installs network and console reporting on the panel's current web
     /// view. Called on attach and again when the panel replaces its web view.
     func instrumentCurrentWebView() {
+        if isAttached { applyContextToWebView() }
         guard let webView = panel?.webView, webView !== instrumentedWebView, isAttached else { return }
         uninstrument()
         instrumentedWebView = webView
@@ -757,4 +809,33 @@ final class BrowserReplAgentPresenceHandler: NSObject, WKScriptMessageHandler {
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {}
+}
+
+/// Playwright browser-context options a REPL session applies to the tabs it
+/// drives (`session.configure`).
+struct BrowserReplContextOptions {
+    var userAgent: String?
+    /// Added to main-frame GET navigations. WebKit has no request
+    /// interception, so subresource requests do not carry them.
+    var extraHTTPHeaders: [String: String] = [:]
+    /// Granted permissions; every other request is denied at once.
+    var permissions: Set<String> = []
+    /// Compiled `session.allowedDomains` / `prohibitedDomains` rules that
+    /// block subresource loads.
+    var ruleList: WKContentRuleList?
+}
+
+/// Data stores created for `session.configure({ proxy })`. Their proxy is
+/// fixed; panel proxy mirroring leaves them alone.
+@MainActor
+enum BrowserReplProxyStores {
+    private static let stores = NSHashTable<WKWebsiteDataStore>.weakObjects()
+
+    static func register(_ store: WKWebsiteDataStore) {
+        stores.add(store)
+    }
+
+    static func owns(_ store: WKWebsiteDataStore) -> Bool {
+        stores.contains(store)
+    }
 }

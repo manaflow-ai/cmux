@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import Network
 import UniformTypeIdentifiers
 import WebKit
 
@@ -35,6 +36,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// Tabs that carry the label, including kept ones; cleared at session end.
     private var labeledTargetIDs: Set<UUID> = []
     private var fileChooserDirectories: [URL] = []
+    /// `session.configure` options, applied to every tab the session drives.
+    @MainActor private var contextOptions: BrowserReplContextOptions?
+    /// A private, non-persistent data store that routes through
+    /// `session.configure({ proxy })`; tabs the session opens use it.
+    @MainActor private var proxyDataStore: WKWebsiteDataStore?
 
     init(
         sessionID: String,
@@ -119,6 +125,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case "tabs.activate", "tab.bringToFront": return try activateTab(params)
         case "tab.keep": return try keepTab(params)
         case "session.name": return try nameSession(params)
+        case "session.configure": return try await configureSession(params)
         case "tab.navigate": return try await navigate(params)
         case "tab.history": return try await history(params)
         case "tab.reload": return try await reload(params)
@@ -220,9 +227,116 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     @discardableResult
     private func attach(_ panel: BrowserPanel) -> BrowserReplTabAttachment {
-        BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { [weak self] name, payload in
+        let attachment = BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { [weak self] name, payload in
             self?.forward(name, payload)
         }
+        if let contextOptions {
+            attachment.applyContext(contextOptions, sessionID: sessionID)
+        }
+        return attachment
+    }
+
+    /// `session.configure`: Playwright browser-context options for the tabs
+    /// this session drives. Each given key replaces the previous value; a
+    /// `null` clears it. `{ userAgent, extraHTTPHeaders, permissions,
+    /// contentRules, proxy }`; `contentRules` are WebKit content-blocker rules
+    /// (JSON array) that block subresource loads; `proxy` is
+    /// `{ server: "http://host:port" | "socks5://host:port", username?,
+    /// password?, bypass? }` and applies to tabs opened afterwards, which use
+    /// a private data store (no profile cookies).
+    @MainActor
+    private func configureSession(_ params: [String: Any]) async throws -> Any? {
+        var options = contextOptions ?? BrowserReplContextOptions()
+        if params.keys.contains("userAgent") {
+            let value = params["userAgent"] as? String
+            options.userAgent = (value?.isEmpty ?? true) ? nil : value
+        }
+        if params.keys.contains("extraHTTPHeaders") {
+            var headers: [String: String] = [:]
+            for (name, value) in params["extraHTTPHeaders"] as? [String: Any] ?? [:] {
+                guard let value = value as? String else {
+                    throw Self.error("invalid", "extraHTTPHeaders: the value of \(name) must be a string")
+                }
+                headers[name] = value
+            }
+            options.extraHTTPHeaders = headers
+        }
+        if params.keys.contains("permissions") {
+            let names = params["permissions"] as? [String] ?? []
+            let known: Set<String> = ["camera", "microphone", "geolocation", "notifications"]
+            if let unknown = names.first(where: { !known.contains($0) }) {
+                throw Self.error("unsupported", "permissions: \(unknown) cannot be granted in WebKit; supported: camera, microphone, geolocation, notifications")
+            }
+            options.permissions = Set(names)
+        }
+        if params.keys.contains("contentRules") {
+            options.ruleList = try await compileRuleList(params["contentRules"])
+        }
+        if params.keys.contains("proxy") {
+            proxyDataStore = try Self.proxyDataStore(params["proxy"] as? [String: Any])
+        }
+        contextOptions = options
+        for attachment in BrowserReplTabAttachments.shared.attachments(forSession: sessionID) {
+            attachment.applyContext(options, sessionID: sessionID)
+        }
+        return ["proxy": proxyDataStore != nil]
+    }
+
+    @MainActor
+    private func compileRuleList(_ rules: Any?) async throws -> WKContentRuleList? {
+        guard let rules = rules as? [Any], !rules.isEmpty else { return nil }
+        guard let data = try? JSONSerialization.data(withJSONObject: rules),
+              let encoded = String(data: data, encoding: .utf8) else {
+            throw Self.error("invalid", "contentRules: expected a JSON array of content-blocker rules")
+        }
+        guard let store = WKContentRuleListStore.default() else {
+            throw Self.error("unsupported", "WebKit content rule lists are unavailable")
+        }
+        let identifier = "cmux.browser-repl.\(sessionID.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : "_" }.joined())"
+        return try await withCheckedThrowingContinuation { continuation in
+            store.compileContentRuleList(forIdentifier: identifier, encodedContentRuleList: encoded) { list, error in
+                if let list {
+                    continuation.resume(returning: list)
+                } else {
+                    continuation.resume(throwing: Self.error("invalid", "contentRules: \(error?.localizedDescription ?? "could not compile")"))
+                }
+            }
+        }
+    }
+
+    /// A non-persistent data store whose connections go through `proxy`, or
+    /// `nil` to clear it.
+    @MainActor
+    private static func proxyDataStore(_ proxy: [String: Any]?) throws -> WKWebsiteDataStore? {
+        guard let proxy, let server = proxy["server"] as? String, !server.isEmpty else { return nil }
+        let raw = server.contains("://") ? server : "http://\(server)"
+        guard let url = URL(string: raw), let host = url.host, !host.isEmpty else {
+            throw Self.error("invalid", "proxy.server: expected http://host:port or socks5://host:port, got \(server)")
+        }
+        let scheme = url.scheme?.lowercased() ?? "http"
+        let defaultPort: UInt16 = scheme == "socks5" ? 1080 : (scheme == "https" ? 443 : 80)
+        guard let port = NWEndpoint.Port(rawValue: url.port.map { UInt16(clamping: $0) } ?? defaultPort) else {
+            throw Self.error("invalid", "proxy.server: bad port in \(server)")
+        }
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: port)
+        var configuration: ProxyConfiguration
+        switch scheme {
+        case "socks5": configuration = ProxyConfiguration(socksv5Proxy: endpoint)
+        case "http", "https": configuration = ProxyConfiguration(httpCONNECTProxy: endpoint, tlsOptions: scheme == "https" ? .init() : nil)
+        default: throw Self.error("unsupported", "proxy.server: \(scheme) proxies are not supported; use http, https or socks5")
+        }
+        if let username = proxy["username"] as? String, !username.isEmpty {
+            configuration.applyCredential(username: username, password: proxy["password"] as? String ?? "")
+        }
+        if let bypass = proxy["bypass"] as? String {
+            configuration.excludedDomains = bypass.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
+        let store = WKWebsiteDataStore.nonPersistent()
+        store.proxyConfigurations = [configuration]
+        BrowserReplProxyStores.register(store)
+        return store
     }
 
     @MainActor
@@ -299,7 +413,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                   inPane: paneID,
                   url: url,
                   focus: false,
-                  creationPolicy: .automationPreload
+                  creationPolicy: .automationPreload,
+                  websiteDataStore: proxyDataStore
               ) else {
             throw Self.error("invalid", "Could not open a browser tab")
         }

@@ -36,6 +36,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tab.bringToFront` | `{ targetId }` | |
 | `tab.keep` | `{ targetId }` | |
 | `session.name` | `{ name }` | |
+| `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, contentRules?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to every tab the session drives and is undone when the session leaves the tab. `contentRules` are WebKit content-blocker rules (the runtime builds them from the domain policy) |
 | `history.search` | `{ queries?, from?, to?, limit }` (times in ms since the epoch) | `[{ url, title, dateVisited }]` newest first, from the history of the profiles the workspace's tabs use |
 
 Tabs the session opened (`tabs.open`, popups) close when the session ends;
