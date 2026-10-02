@@ -1,14 +1,30 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { JSDOM } from "jsdom";
 import { applyAgentTheme } from "./theme";
 import type { AgentSessionTheme } from "./types";
 
-const dom = new JSDOM("<!doctype html><body></body>");
+// The root `agent-session-web:test` run has no DOM package installed, so the
+// test stands in the few document members `applyAgentTheme` touches.
+const properties = new Map<string, string>();
+const fakeDocument = {
+  documentElement: {
+    dataset: {} as Record<string, string>,
+    classList: { toggle: () => true },
+    style: {
+      colorScheme: "",
+      setProperty: (name: string, value: string) => void properties.set(name, value),
+      removeProperty: (name: string) => void properties.delete(name),
+      getPropertyValue: (name: string) => properties.get(name) ?? "",
+    },
+  },
+  body: { dataset: {} as Record<string, string> },
+};
 const globals = globalThis as Record<string, unknown>;
-const saved = { document: globals.document, navigator: globals.navigator };
-Object.assign(globals, { document: dom.window.document, navigator: dom.window.navigator });
-afterAll(() => Object.assign(globals, saved));
+const saved = globals.document;
+globals.document = fakeDocument;
+afterAll(() => {
+  globals.document = saved;
+});
 
 const theme: AgentSessionTheme = {
   isDark: true,
