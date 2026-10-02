@@ -84,12 +84,10 @@ describe("mock transport", () => {
       snapshot.sessions.filter((entry) => entry.pullRequest?.reviewReady).map((entry) => entry.pullRequest!.number),
     ).toEqual([18204, 212, 88]);
     expect(snapshot.sessions.every((entry) => entry.preview)).toBe(true);
-    // Pinned sessions list on their own; cmux on this Mac is still long enough to fold behind Show more.
+    // Pinned sessions list on their own; cmux, local and cloud together, is still long enough to fold behind Show more.
     const sections = sidebarSections(snapshot.sessions);
     expect(sections.pinned).toHaveLength(2);
-    expect(
-      sections.groups.find((group) => group.label === "cmux" && group.host === "This Mac")!.sessions.length,
-    ).toBeGreaterThan(GROUP_ROWS + 1);
+    expect(sections.groups.find((group) => group.label === "cmux")!.sessions.length).toBeGreaterThan(GROUP_ROWS + 1);
     // The worked session: its context, one finished turn with tools and three edited files.
     expect(snapshot.summary).toMatchObject({
       cwd: "~/code/cmux",

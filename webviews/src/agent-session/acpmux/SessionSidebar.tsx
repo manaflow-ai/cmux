@@ -2,6 +2,7 @@ import React, { memo, useMemo, useState } from "react";
 import {
   groupMark,
   sessionMark,
+  sessionPlace,
   shortAge,
   sidebarSections,
   visibleSessions,
@@ -9,8 +10,10 @@ import {
   type SessionMark,
 } from "./sessionList";
 import {
+  BranchIcon,
   ChatsIcon,
   ClockIcon,
+  CloudIcon,
   DisconnectedIcon,
   HomeIcon,
   MoreIcon,
@@ -18,6 +21,7 @@ import {
   NewChatIcon,
   PullIcon,
   WorkingIcon,
+  WorktreeIcon,
 } from "./sidebarIcons";
 
 const MARK_LABELS: Record<Exclude<SessionMark, undefined>, string> = {
@@ -32,6 +36,8 @@ const MARK_GLYPHS: Record<Exclude<SessionMark, undefined>, React.ReactNode> = {
   error: <DisconnectedIcon />,
   unread: null,
 };
+const PLACE_GLYPHS = { cloud: <CloudIcon />, worktree: <WorktreeIcon />, branch: <BranchIcon /> };
+const PLACE_LABELS = { cloud: "Runs on", worktree: "Worktree", branch: "Branch" };
 
 /** What the rail switches the list to. */
 export type SidebarView = "sessions" | "history" | "pulls" | "closed";
@@ -241,6 +247,7 @@ function SessionsView({
                       key={session.sessionId}
                       session={session}
                       selected={session.sessionId === selectedId}
+                      groupHost={group.host}
                       onSelect={onSelect}
                     />
                   ))}
@@ -333,18 +340,24 @@ function FlatView({
 const SessionRow = memo(function SessionRow({
   session,
   selected,
+  groupHost,
   onSelect,
   flat,
   trailing,
 }: {
   session: AcpmuxSessionEntry;
   selected: boolean;
+  groupHost?: string;
   onSelect: (sessionId: string) => void;
   flat?: boolean;
   trailing?: string;
 }) {
   const mark = sessionMark(session, selected);
   const title = session.displayTitle || session.sessionId.slice(0, 8);
+  const place = sessionPlace(session, groupHost);
+  const placeLabel =
+    place &&
+    `${PLACE_LABELS[place.kind]} ${place.label}${place.branch ? `, ${PLACE_LABELS.branch} ${place.branch}` : ""}`;
   return (
     <li>
       <button
@@ -352,9 +365,11 @@ const SessionRow = memo(function SessionRow({
         className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${session.status === "closed" ? " is-closed" : ""}`}
         aria-current={selected ? "true" : undefined}
         aria-label={
-          mark || trailing ? [title, trailing, mark && MARK_LABELS[mark]].filter(Boolean).join(", ") : undefined
+          mark || place || trailing
+            ? [title, trailing, placeLabel, mark && MARK_LABELS[mark]].filter(Boolean).join(", ")
+            : undefined
         }
-        title={title}
+        title={placeLabel ? `${title}\n${placeLabel}` : title}
         onClick={() => onSelect(session.sessionId)}
       >
         <span className="acpmux-session-row-title">{title}</span>
@@ -363,7 +378,12 @@ const SessionRow = memo(function SessionRow({
             {trailing}
           </span>
         )}
-        {mark && (
+        {place && (
+          <span className={`acpmux-session-place acpmux-session-place-${place.kind}`} aria-hidden="true">
+            {PLACE_GLYPHS[place.kind]}
+          </span>
+        )}
+        {mark ? (
           <span
             className={`acpmux-session-mark acpmux-session-mark-${mark}`}
             aria-hidden="true"
@@ -371,6 +391,9 @@ const SessionRow = memo(function SessionRow({
           >
             {MARK_GLYPHS[mark]}
           </span>
+        ) : (
+          // Keeps place glyphs in one column.
+          place && <span className="acpmux-session-mark" aria-hidden="true" />
         )}
       </button>
     </li>
