@@ -34,7 +34,7 @@ extension TabCell {
             dot.borderWidth = 0
         } else {
             dot.backgroundColor = nil
-            dot.borderWidth = 1
+            dot.borderWidth = Metrics.lineWidth(1)
             dot.borderColor = Palette.textTertiary.cgColor
         }
     }

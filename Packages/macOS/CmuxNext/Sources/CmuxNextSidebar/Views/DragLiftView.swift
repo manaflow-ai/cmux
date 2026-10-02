@@ -28,7 +28,7 @@ final class DragLiftView: NSView {
             back.wantsLayer = true
             back.layer?.cornerRadius = SidebarStyle.rowCornerRadius
             back.layer?.cornerCurve = .continuous
-            back.layer?.borderWidth = 0.5
+            back.layer?.borderWidth = Metrics.lineWidth(0.5)
             back.identifier = NSUserInterfaceItemIdentifier("\(depth)")
             addSubview(back)
             stack.append(back)

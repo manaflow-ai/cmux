@@ -26,19 +26,21 @@ public nonisolated struct BorderPolicy: Sendable, Equatable {
     }
 
     /// Whether lines draw at all.
-    public var drawsLines: Bool { true }
+    public var drawsLines: Bool { mode == .default }
 
-    /// The width a border of `width` points draws with.
-    public func width(_ width: CGFloat) -> CGFloat { width }
+    /// The width a border of `width` points draws with: 0 under `none`.
+    public func width(_ width: CGFloat) -> CGFloat { drawsLines ? width : 0 }
 
-    /// The color a separator or border of `color` draws with.
-    public func color(_ color: NSColor) -> NSColor { color }
+    /// The color a separator or border of `color` draws with: clear under
+    /// `none`, so a separator view keeps its space (spacing and alignment
+    /// do not move) and draws nothing.
+    public func color(_ color: NSColor) -> NSColor { drawsLines ? color : .clear }
 }
 
 /// The live border switch: a Debug Settings override, else cmux.json.
 @MainActor
 public enum Borders {
-    public static let tunable = Tunable<BorderMode>.choice(
+    public nonisolated static let tunable = Tunable<BorderMode>.choice(
         "appearance.borders", .shape, "Borders",
         help: "None removes every border, hairline and separator (overrides appearance.borders in cmux.json).",
         default: .default, code: "Borders.tunable")

@@ -153,7 +153,7 @@ public final class OverlaySurfaceView: NSView {
             layer.cornerRadius = cornerRadius
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
-            layer.borderWidth = 1 / max(window?.backingScaleFactor ?? 2, 1)
+            layer.borderWidth = Metrics.lineWidth(1 / max(window?.backingScaleFactor ?? 2, 1))
         }
     }
 

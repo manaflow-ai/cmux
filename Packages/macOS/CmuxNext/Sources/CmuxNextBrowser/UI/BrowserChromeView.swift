@@ -36,7 +36,7 @@ public final class BrowserChromeView: NSView {
     public var showsFocusModeIndicator = false {
         didSet {
             guard showsFocusModeIndicator != oldValue else { return }
-            contentContainer.layer?.borderWidth = showsFocusModeIndicator ? 2 : 0
+            contentContainer.layer?.borderWidth = Metrics.lineWidth(showsFocusModeIndicator ? 2 : 0)
             updateColors()
         }
     }
