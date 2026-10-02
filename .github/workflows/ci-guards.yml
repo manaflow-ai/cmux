@@ -138,6 +138,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_guard_attribution.py
 
+      - name: Validate main-fix merge evidence
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_gh_merge_green.py
+
       - name: Validate main compile attribution
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_main_compile_attribution.py
@@ -460,6 +464,10 @@ jobs:
       - name: Check that push and pull_request path filters agree
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_workflow_path_filter_parity.py
+
+      - name: Validate the backend migration flow (append-only plan, push-safe guards)
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_backend_migration_flow.py
 
       - name: Lint every workflow
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}

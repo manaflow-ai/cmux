@@ -56,7 +56,8 @@ extension PaletteModel {
                     id: "submit",
                     title: PaletteStrings.submit,
                     symbol: "return",
-                    effect: spec.next?(text) ?? .perform { spec.submit(text) }
+                    effect: spec.skipsUnchangedText && !spec.initialText.isEmpty && text == spec.initialText
+                        ? .perform({}) : spec.next?(text) ?? .perform { spec.submit(text) }
                 ),
                 frecencyKey: nil
             )

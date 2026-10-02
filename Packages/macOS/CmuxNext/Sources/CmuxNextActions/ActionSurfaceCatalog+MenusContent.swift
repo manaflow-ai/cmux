@@ -118,6 +118,7 @@ nonisolated extension ActionSurfaceCatalog {
         "notificationDismiss": [p(.notification, .close, 0)],
         "notifications.toggleWorkspaceMute": [p(.workspaceRow, .identity, 113, folder: .options)],
         "palette.newAgentChat": [p(.newTab, .create, 4)],
+        "newTab.page": [p(.newTab, .create, 5)],
         "palette.forkAgentConversationRight": [p(.terminalSelection, .create, 200, folder: .agent)],
         "palette.forkAgentConversationLeft": [p(.terminalSelection, .create, 202, folder: .agent)],
         "palette.forkAgentConversationTop": [p(.terminalSelection, .create, 203, folder: .agent)],

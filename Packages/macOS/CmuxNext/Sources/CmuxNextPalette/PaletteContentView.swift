@@ -85,7 +85,9 @@ final class PaletteContentView: NSView {
             editor.isAutomaticDataDetectionEnabled = false
             editor.isAutomaticLinkDetectionEnabled = false
         }
-        searchBar.field.currentEditor()?.selectedRange = NSRange(location: searchBar.field.stringValue.utf16.count, length: 0)
+        let length = searchBar.field.stringValue.utf16.count
+        searchBar.field.currentEditor()?.selectedRange = model.selectsQuery
+            ? NSRange(location: 0, length: length) : NSRange(location: length, length: 0)
     }
 
     private func wire() {

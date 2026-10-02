@@ -27,7 +27,7 @@ nonisolated enum TabGroupActionCatalog: ActionCatalogGroup {
                 id: "tabGroup.rename",
                 title: String(localized: "action.tabGroup.rename", defaultValue: "Rename Tab Group…", bundle: .module),
                 keywords: ["group", "title"], category: .tab, symbol: "pencil", surfaces: [.palette],
-                arguments: [CatalogArgument.nameString], targets: [.tabGroup], cliName: "tab-group rename"
+                arguments: [CatalogArgument.nameString.renamingTarget], targets: [.tabGroup], cliName: "tab-group rename"
             ),
             ActionDescriptor(
                 id: "tabGroup.setColor",

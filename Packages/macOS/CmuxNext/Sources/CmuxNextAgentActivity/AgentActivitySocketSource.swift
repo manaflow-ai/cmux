@@ -28,6 +28,15 @@ public final class AgentActivitySocketSource: AgentActivitySource {
             self.machineName = machineName
         }
 
+        /// The default socket with the auth tokens from the environment.
+        public static func standard(machineName: String) -> Configuration {
+            let environment = ProcessInfo.processInfo.environment
+            return Configuration(socketPath: defaultSocketPath(),
+                                 authToken: environment["CMUX_CUA_SOCKET_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
+                                 hostAuthToken: environment["CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"].flatMap { $0.isEmpty ? nil : $0 },
+                                 machineName: machineName)
+        }
+
         /// The standalone daemon's default socket (cmux-cua `default_socket_path`).
         public static func defaultSocketPath() -> String {
             if let path = ProcessInfo.processInfo.environment["CMUX_CUA_SOCKET"], !path.isEmpty { return path }
@@ -178,16 +187,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     }
 
     private func request(_ method: String, _ args: [String: Any]) async throws -> [String: Any] {
-        let line = AgentActivityWire.requestLine(method: method, args: args, authToken: config.authToken,
-                                                 hostAuthToken: config.hostAuthToken)
-        let data = try await AgentActivityLineConnection.oneShot(path: config.socketPath, send: line, deadline: .seconds(5))
-        guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw AgentActivitySourceError.malformed
-        }
-        guard reply["ok"] as? Bool == true else {
-            throw AgentActivitySourceError.refused(reply["error"] as? String ?? "error")
-        }
-        return reply["result"] as? [String: Any] ?? [:]
+        try await CuaSocketClient(configuration: config).send(method, args)
     }
 }
 
