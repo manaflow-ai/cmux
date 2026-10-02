@@ -231,7 +231,26 @@ export async function latestEndedStripeSubscription(
 
 function stripeEndedAt(raw: unknown): Date | null {
   const value = raw && typeof raw === "object" ? (raw as Record<string, unknown>).ended_at : null;
-  return typeof value === "number" ? new Date(value * 1000) : null;
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const date = new Date(value * 1000);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * The active subscription for display only (a cancellation's end date). A
+ * failed lookup reads as none, so the plan status beside it still renders.
+ */
+export async function optionalActiveStripeSubscription(
+  stackUserId: string,
+): Promise<PersonalSubscriptionJson | null> {
+  try {
+    return await latestActiveStripeSubscription(stackUserId);
+  } catch (error) {
+    console.error("Stripe subscription lookup failed", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    return null;
+  }
 }
 
 export function teamBillingViewJson(view: TeamBillingView): TeamBillingViewJson {

@@ -5,7 +5,7 @@ import {
   PlanChangeError,
   previewPersonalPlanChange,
 } from "@/services/billing/planChange";
-import { latestActiveStripeSubscription } from "@/services/billing/dashboardBilling";
+import { optionalActiveStripeSubscription } from "@/services/billing/dashboardBilling";
 import { resolveProPlanStatus } from "@/services/billing/pro";
 import { claimPendingProBilling, type ProBillingClaimUser } from "@/services/billing/purchase";
 import { isStripeBillingConfigured } from "@/services/billing/stripe";
@@ -31,7 +31,7 @@ const current = authed
   .handler(async ({ context }) => {
     const [status, subscription] = await Promise.all([
       resolveProPlanStatus(context.user),
-      latestActiveStripeSubscription(context.user.id),
+      optionalActiveStripeSubscription(context.user.id),
     ]);
     return {
       planId: status.planId,

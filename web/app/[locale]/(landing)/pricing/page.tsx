@@ -68,7 +68,7 @@ import {
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
 import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
-import { latestActiveStripeSubscription } from "../../../../services/billing/dashboardBilling";
+import { optionalActiveStripeSubscription } from "../../../../services/billing/dashboardBilling";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -683,7 +683,7 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
 
   const [status, subscription] = await Promise.all([
     resolveProPlanStatus(user),
-    latestActiveStripeSubscription(user.id),
+    optionalActiveStripeSubscription(user.id),
   ]);
   return {
     userId: user.id,
