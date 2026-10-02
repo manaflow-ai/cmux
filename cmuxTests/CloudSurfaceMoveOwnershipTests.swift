@@ -104,6 +104,7 @@ struct CloudSurfaceMoveOwnershipTests {
             defer { fixture.tearDown() }
             let source = fixture.workspace
             let destination = fixture.manager.addWorkspace(title: "Cloud", select: false)
+            defer { destination.teardownAllPanels() }
             destination.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "browser-destination", isBase: false)
             let pane = try #require(source.bonsplitController.allPaneIds.first)
             let browser = try #require(source.newBrowserSurface(inPane: pane, url: URL(string: "about:blank"), focus: false))

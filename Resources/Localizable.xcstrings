@@ -126456,6 +126456,72 @@
             "value": "Cloud 작업 공간에는 동일한 Cloud 머신의 터미널과 디스플레이만 포함할 수 있습니다. 브라우저 탭은 자유롭게 이동할 수 있습니다. 다른 스플릿을 이동하려면 로컬 작업 공간을 여세요."
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud radni prostori mogu sadržavati samo terminale i ekrane s vlastite Cloud mašine. Kartice preglednika mogu se slobodno premještati. Otvorite lokalni radni prostor da premjestite ostale podjele."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbejdsområder kan kun indeholde terminaler og skærme fra deres egen Cloud-maskine. Browserfaner kan flyttes frit. Åbn et lokalt arbejdsområde for at flytte andre opdelinger dertil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli spazi di lavoro Cloud possono contenere solo terminali e schermi della propria macchina Cloud. Le schede del browser possono essere spostate liberamente. Apri uno spazio di lavoro locale per spostare le altre divisioni."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការ Cloud អាចមានតែស្ថានីយ និងអេក្រង់ពីម៉ាស៊ីន Cloud របស់វាប៉ុណ្ណោះ។ ផ្ទាំងកម្មវិធីរុករកអាចផ្លាស់ទីដោយសេរី។ បើកកន្លែងធ្វើការមូលដ្ឋាន ដើម្បីផ្លាស់ទីការបែងចែកផ្សេងទៀតទៅទីនោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbeidsområder kan bare inneholde terminaler og skjermer fra sin egen Cloud-maskin. Nettleserfaner kan flyttes fritt. Åpne et lokalt arbeidsområde for å flytte andre oppdelinger dit."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszary robocze Cloud mogą zawierać tylko terminale i ekrany z własnej maszyny Cloud. Karty przeglądarki można swobodnie przenosić. Otwórz lokalny obszar roboczy, aby przenieść tam inne podziały."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os espaços de trabalho Cloud só podem conter terminais e telas da própria máquina Cloud. As abas do navegador podem ser movidas livremente. Abra um espaço de trabalho local para mover as outras divisões para lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочие пространства Cloud могут содержать только терминалы и экраны своей Cloud-машины. Вкладки браузера можно свободно перемещать. Откройте локальное рабочее пространство, чтобы переместить туда остальные разделы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงาน Cloud มีได้เฉพาะเทอร์มินัลและจอแสดงผลจากเครื่อง Cloud ของตนเอง แท็บเบราว์เซอร์ย้ายได้อย่างอิสระ เปิดพื้นที่ทำงานในเครื่องเพื่อย้ายส่วนแบ่งอื่นไปที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud çalışma alanları yalnızca kendi Cloud makinesindeki terminalleri ve ekranları içerebilir. Tarayıcı sekmeleri serbestçe taşınabilir. Diğer bölmeleri taşımak için yerel bir çalışma alanı açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочі простори Cloud можуть містити лише термінали й дисплеї власної Cloud-машини. Вкладки браузера можна вільно переміщувати. Відкрийте локальний робочий простір, щоб перемістити туди інші розділи."
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",

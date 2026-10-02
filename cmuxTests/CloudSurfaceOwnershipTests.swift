@@ -80,7 +80,7 @@ struct CloudSurfaceOwnershipTests {
         #expect(workspace.cloudVMID == "ownership-a")
     }
 
-    @Test("Cloud pane hover rejects local and foreign resources", arguments: SurfaceResourceKind.allCases)
+    @Test("Cloud pane hover rejects foreign terminal/display resources and accepts browsers", arguments: SurfaceResourceKind.allCases)
     func rejectsForeignResourceHover(kind: SurfaceResourceKind) throws {
         let workspace = cloudWorkspace()
         defer { workspace.teardownAllPanels() }

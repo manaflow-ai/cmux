@@ -75,17 +75,28 @@ struct CloudSurfaceDragFeedbackTests {
 
     @Test("Browser surface transfers are allowed into and out of Cloud workspaces")
     func browserTransfersRemainPortable() throws {
-        let workspace = Workspace()
-        defer { workspace.teardownAllPanels() }
-        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud", isBase: false)
+        let cloudWorkspace = Workspace()
+        let localWorkspace = Workspace()
+        defer {
+            cloudWorkspace.teardownAllPanels()
+            localWorkspace.teardownAllPanels()
+        }
+        cloudWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud", isBase: false)
         let transfer = PaneDragTransfer(tabId: UUID(), sourcePaneId: UUID(), sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier))
         let browserGroup = SurfaceResourceGroup(title: "Browser", resources: [SurfaceResourceID(machine: .local, kind: .browser, key: "browser")])
-        #expect(workspace.surfaceDropRejection(transfer, source: .surfaceResources(browserGroup)) == nil)
-        let mixedGroup = SurfaceResourceGroup(title: "mixed", resources: [
+        #expect(cloudWorkspace.surfaceDropRejection(transfer, source: .surfaceResources(browserGroup)) == nil)
+        let cloudBrowserGroup = SurfaceResourceGroup(title: "Browser", resources: [SurfaceResourceID(machine: .cloud("cloud"), kind: .browser, key: "browser")])
+        #expect(localWorkspace.surfaceDropRejection(transfer, source: .surfaceResources(cloudBrowserGroup)) == nil)
+        let mixedTerminalGroup = SurfaceResourceGroup(title: "mixed", resources: [
             SurfaceResourceID(machine: .local, kind: .browser, key: "browser"),
             SurfaceResourceID(machine: .local, kind: .terminal, key: "terminal")
         ])
-        #expect(workspace.surfaceDropRejection(transfer, source: .surfaceResources(mixedGroup)) == .cloudMachineMismatch)
+        #expect(cloudWorkspace.surfaceDropRejection(transfer, source: .surfaceResources(mixedTerminalGroup)) == .cloudMachineMismatch)
+        let mixedDisplayGroup = SurfaceResourceGroup(title: "mixed", resources: [
+            SurfaceResourceID(machine: .local, kind: .browser, key: "browser"),
+            SurfaceResourceID(machine: .local, kind: .display, key: "display")
+        ])
+        #expect(cloudWorkspace.surfaceDropRejection(transfer, source: .surfaceResources(mixedDisplayGroup)) == .cloudMachineMismatch)
     }
 
     @Test("Rebinding after hover is rejected before mutation", arguments: [SurfaceResourceKind.terminal, .display])

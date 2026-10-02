@@ -38,7 +38,7 @@ extension DockSplitStore {
         if transfer.origin == .dock(workspaceId) { return true }
         return surfaceOwnershipPolicy.rejection(for: transfer.surfaceMachine
             ?? SurfaceCatalog.shared.machineOwningPanel(transfer.panelId)
-            ?? transfer.panel.transferredSurfaceMachine, kind: SurfaceOwnershipKind.of(transfer.panel)) == nil
+            ?? transfer.panel.transferredSurfaceMachine, kind: AppDelegate.shared?.surfaceResourceKind(for: transfer.panel)) == nil
     }
 
     func acceptsRestoredDisplay(_ snapshot: SessionPanelSnapshot) -> Bool {

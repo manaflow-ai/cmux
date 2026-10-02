@@ -9,10 +9,10 @@ extension AppDelegate {
         switch source {
         case .workspace(_, let workspace, let panelID, _):
             return policy.rejection(for: workspace.machineOwningSurface(panelID),
-                                    kind: SurfaceOwnershipKind.of(workspace.panels[panelID]))
+                                    kind: surfaceResourceKind(for: workspace.panels[panelID]))
         case .dock(let dock, let panelID):
             return policy.rejection(for: dock.machineOwningSurface(panelID),
-                                    kind: SurfaceOwnershipKind.of(dock.panels[panelID]))
+                                    kind: surfaceResourceKind(for: dock.panels[panelID]))
         }
     }
 
@@ -27,23 +27,19 @@ extension AppDelegate {
     }
 }
 
-/// Resource identity takes precedence over the view used to render it: a remote
-/// display is carried by a browser panel, but is not a portable browser tab.
-@MainActor
-enum SurfaceOwnershipKind {
-    static func of(_ panel: (any Panel)?) -> SurfaceResourceKind? {
+extension AppDelegate {
+    /// Resource identity takes precedence over the view used to render it. A
+    /// remote display is carried by a browser panel, but is not a portable tab.
+    func surfaceResourceKind(for panel: (any Panel)?) -> SurfaceResourceKind? {
         guard let panel else { return nil }
-        if let resource = SurfaceCatalog.shared.projectionRecord(forPanel: panel.id)?.resource, !resource.machine.isLocal {
+        if let resource = SurfaceCatalog.shared.projectionRecord(forPanel: panel.id)?.resource {
             return resource.kind
         }
         if let deferred = panel as? DeferredBrowserPanel {
-            let saved = deferred.sessionPanelSnapshot.browser
-            return saved?.cloudResource?.kind
-                ?? (saved?.urlString.flatMap(URL.init(string:))?.path == "/vnc.html" ? .display : .browser)
+            return deferred.sessionPanelSnapshot.browser?.cloudResource?.kind ?? .browser
         }
-        if let browser = panel as? BrowserPanel {
-            return browser.cloudAccess.resourceID?.kind
-                ?? (browser.currentURL?.path == "/vnc.html" ? .display : .browser)
+        if let browser = panel as? BrowserPanel, let resource = browser.cloudAccess.resourceID {
+            return resource.kind
         }
         return panel.panelType == .terminal ? .terminal : nil
     }

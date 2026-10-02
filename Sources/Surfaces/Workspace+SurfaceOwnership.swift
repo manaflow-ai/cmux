@@ -56,7 +56,7 @@ extension Workspace {
     func acceptsSurface(from source: Workspace, panelID: UUID) -> Bool {
         !isRetiredFromOwningTabManager
             && surfaceOwnershipPolicy.rejection(for: source.machineOwningSurface(panelID),
-                                                kind: SurfaceOwnershipKind.of(source.panels[panelID])) == nil
+                                                kind: AppDelegate.shared?.surfaceResourceKind(for: source.panels[panelID])) == nil
     }
 
     func acceptsDetachedSurface(_ transfer: DetachedSurfaceTransfer) -> Bool {
@@ -68,6 +68,6 @@ extension Workspace {
             ?? transfer.remoteRelayNamespaceConfiguration?.managedCloudVMID.map(SurfaceMachineID.cloud)
             ?? transfer.remoteCleanupConfiguration?.managedCloudVMID.map(SurfaceMachineID.cloud)
             ?? .local
-        return surfaceOwnershipPolicy.rejection(for: machine, kind: SurfaceOwnershipKind.of(transfer.panel)) == nil
+        return surfaceOwnershipPolicy.rejection(for: machine, kind: AppDelegate.shared?.surfaceResourceKind(for: transfer.panel)) == nil
     }
 }
