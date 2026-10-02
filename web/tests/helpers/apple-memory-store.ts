@@ -1,12 +1,13 @@
 // In-memory AppleIapStore with the same contract as the Postgres store
 // (services/billing/apple/store.ts): forward-only subscription state,
-// ownership pinned to the first user, idempotent ledger rows. The DB behavior
+// ownership decided by the shared planAppleSubscriptionWrite, idempotent
+// ledger rows. The DB behavior
 // test proves the real store keeps the same contract.
 
 import { randomUUID } from "node:crypto";
 
 import {
-  AppleOwnershipError,
+  planAppleSubscriptionWrite,
   type AppleIapStore,
   type AppleNotificationRow,
   type AppleSubscriptionRow,
@@ -45,21 +46,19 @@ export function memoryAppleStore(): MemoryAppleStore {
     async subscription(id) {
       return subscriptions.get(id) ?? null;
     },
-    async writeSubscriptionState(state, userId) {
+    async writeSubscriptionState(state, claim) {
       const previous = subscriptions.get(state.originalTransactionId) ?? null;
-      if (previous && previous.userId !== userId) throw new AppleOwnershipError(state.originalTransactionId);
-      if (previous && previous.stateSignedAt.getTime() > state.stateSignedAt.getTime()) {
-        return { applied: false, previous, current: previous };
-      }
+      const plan = planAppleSubscriptionWrite(previous, state, claim);
+      if (plan.kind === "stale") return { applied: false, previous: previous!, current: previous!, transferredFrom: null };
       const now = new Date();
       const current: AppleSubscriptionRow = {
         ...state,
-        userId,
+        userId: plan.userId,
         createdAt: previous?.createdAt ?? now,
         updatedAt: now,
       };
       subscriptions.set(state.originalTransactionId, current);
-      return { applied: true, previous, current };
+      return { applied: true, previous, current, transferredFrom: plan.transferredFrom };
     },
     async recordTransaction(row) {
       if (!row.transactionId) return;

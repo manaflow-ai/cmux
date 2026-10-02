@@ -26,7 +26,7 @@ import {
   databaseAppleIapStore,
   type AppleIapStore,
   type AppleNotificationRow,
-  type AppleSubscriptionRow,
+  type AppleSubscriptionWrite,
 } from "./store";
 import { appleSignedDataVerifier, AppleVerificationError, type AppleSignedDataVerifier } from "./verifier";
 
@@ -55,6 +55,19 @@ export class AppleTransactionRejectedError extends Error {
     super(`Apple transaction rejected: ${reason}`);
     this.name = "AppleTransactionRejectedError";
   }
+}
+
+async function tokenOwner(token: string | null | undefined, store: AppleIapStore): Promise<string | null> {
+  return token ? await store.userIdForAccountToken(token) : null;
+}
+
+/**
+ * Re-derives the plan of the subscription's owner and, after an ownership
+ * move, of the previous owner, who falls back to Stripe or free.
+ */
+async function applyEntitlements(write: AppleSubscriptionWrite, deps: AppleIapDependencies): Promise<void> {
+  await deps.applyEntitlement(write.current.userId);
+  if (write.transferredFrom) await deps.applyEntitlement(write.transferredFrom);
 }
 
 let defaultDependencies: AppleIapDependencies | null = null;
@@ -124,10 +137,10 @@ async function freshAppleState(
 }
 
 /**
- * Proves `userId` may own this transaction. A token cmux minted must map to
- * the caller; a transaction without a token (an offer code redeemed outside
- * the app) may be claimed only while no other account owns it, which the
- * subscription write enforces.
+ * Replay guard: a token cmux minted must map to the caller, so one account
+ * cannot post another account's transaction. A transaction without a token
+ * (an offer code redeemed outside the app) may be claimed only while no other
+ * account owns it, which the subscription write enforces.
  */
 async function assertTransactionOwner(
   transaction: JWSTransactionDecodedPayload,
@@ -169,18 +182,24 @@ export async function recordClientAppleTransaction(
   await assertTransactionOwner(transaction, input.userId, deps.store);
   const fresh = await freshAppleState(transaction, deps);
   const state = stateOrReject(() => appleSubscriptionStateFrom({ ...fresh, now: deps.now() }));
-  let written: AppleSubscriptionRow;
+  let write: AppleSubscriptionWrite;
   try {
-    written = (await deps.store.writeSubscriptionState(state, input.userId)).current;
+    // Apple's newest transaction decides the owner; the caller must end up
+    // owning the subscription or the request is refused.
+    write = await deps.store.writeSubscriptionState(state, {
+      tokenOwner: await tokenOwner(state.appAccountToken, deps.store),
+      caller: input.userId,
+    });
   } catch (error) {
     if (error instanceof AppleOwnershipError) throw new AppleTransactionRejectedError("account_mismatch");
     throw error;
   }
+  const written = write.current;
   await deps.store.recordTransaction(appleTransactionRowFrom(transaction, input.userId));
   if (fresh.transaction !== transaction) {
     await deps.store.recordTransaction(appleTransactionRowFrom(fresh.transaction, input.userId));
   }
-  await deps.applyEntitlement(input.userId);
+  await applyEntitlements(write, deps);
   return {
     planId: written.planId,
     status: written.status,
@@ -279,15 +298,6 @@ type NotificationApplication =
   | { readonly kind: "skip"; readonly reason: string }
   | { readonly kind: "applied"; readonly userId: string; readonly state: AppleSubscriptionState };
 
-async function ownerForNotification(
-  transaction: JWSTransactionDecodedPayload,
-  store: AppleIapStore,
-): Promise<string | null> {
-  const existing = await store.subscription(transaction.originalTransactionId!);
-  if (existing) return existing.userId;
-  return transaction.appAccountToken ? await store.userIdForAccountToken(transaction.appAccountToken) : null;
-}
-
 async function applyNotification(
   row: AppleNotificationRow,
   deps: AppleIapDependencies,
@@ -301,8 +311,10 @@ async function applyNotification(
   if (transaction.type !== AUTO_RENEWABLE_TYPE || !transaction.originalTransactionId) {
     return { kind: "skip", reason: "not_subscription" };
   }
-  const userId = await ownerForNotification(transaction, deps.store);
-  if (!userId) return { kind: "skip", reason: "unlinked_account" };
+  const owner = await tokenOwner(transaction.appAccountToken, deps.store);
+  if (!owner && !(await deps.store.subscription(transaction.originalTransactionId))) {
+    return { kind: "skip", reason: "unlinked_account" };
+  }
   let state: AppleSubscriptionState;
   try {
     state = appleSubscriptionStateFrom({
@@ -319,10 +331,13 @@ async function applyNotification(
     throw error;
   }
   // An older notification still records its transaction; the state write
-  // ignores it when the stored state is newer.
-  await deps.store.writeSubscriptionState(state, userId);
-  await deps.store.recordTransaction(appleTransactionRowFrom(transaction, userId));
-  await deps.applyEntitlement(userId);
+  // ignores it when the stored state is newer. A newer purchase whose token
+  // maps to another user moves the subscription to that user.
+  const write = await deps.store.writeSubscriptionState(state, { tokenOwner: owner });
+  const userId = write.current.userId;
+  // The ledger row belongs to whoever bought that transaction.
+  await deps.store.recordTransaction(appleTransactionRowFrom(transaction, owner ?? userId));
+  await applyEntitlements(write, deps);
   return { kind: "applied", userId, state };
 }
 

@@ -1,7 +1,8 @@
 // Postgres persistence for iOS in-app purchases. Every write is idempotent:
 // account tokens are minted once per user, transactions and notifications
 // are keyed by Apple's ids, and subscription state only moves forward in
-// Apple `signedDate` order.
+// Apple `signedDate` order. Ownership follows the newest transaction's
+// `appAccountToken` (planAppleSubscriptionWrite).
 
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
@@ -32,7 +33,72 @@ export type AppleSubscriptionWrite = {
   readonly applied: boolean;
   readonly previous: AppleSubscriptionRow | null;
   readonly current: AppleSubscriptionRow;
+  /** The previous owner when this write moved the subscription to another user. */
+  readonly transferredFrom: string | null;
 };
+
+/** Who may own the subscription a state write describes. */
+export type AppleSubscriptionClaim = {
+  /**
+   * The cmux user the state's `appAccountToken` maps to, or null for a
+   * token-less transaction or a token cmux never minted.
+   */
+  readonly tokenOwner: string | null;
+  /**
+   * The signed-in user posting a client transaction. The write fails with
+   * AppleOwnershipError unless the subscription ends up owned by this user.
+   */
+  readonly caller?: string;
+};
+
+type OwnedSubscription = Pick<
+  AppleSubscriptionRow,
+  "originalTransactionId" | "userId" | "lastTransactionId" | "purchaseDate" | "stateSignedAt"
+>;
+
+export type AppleSubscriptionWritePlan =
+  | { readonly kind: "write"; readonly userId: string; readonly transferredFrom: string | null }
+  | { readonly kind: "stale" };
+
+/** A different transaction purchased after the stored one: an upgrade, resubscribe, or renewal. */
+function isNewerTransaction(state: AppleSubscriptionState, previous: OwnedSubscription): boolean {
+  if (state.lastTransactionId === previous.lastTransactionId || !state.purchaseDate) return false;
+  return !previous.purchaseDate || state.purchaseDate.getTime() > previous.purchaseDate.getTime();
+}
+
+/**
+ * Decides one subscription write under the per-subscription lock. Both stores
+ * share it so the in-memory test store keeps the database contract.
+ *
+ * The `appAccountToken` on the newest transaction is authoritative: when the
+ * same Apple ID buys again (upgrade or resubscribe) from another cmux
+ * account, the subscription moves to that account. A token-less transaction,
+ * an unknown token, or an older transaction never moves it.
+ */
+export function planAppleSubscriptionWrite(
+  previous: OwnedSubscription | null,
+  state: AppleSubscriptionState,
+  claim: AppleSubscriptionClaim,
+): AppleSubscriptionWritePlan {
+  if (!previous) {
+    const owner = claim.tokenOwner ?? claim.caller ?? null;
+    if (!owner || (claim.caller !== undefined && owner !== claim.caller)) {
+      throw new AppleOwnershipError(state.originalTransactionId);
+    }
+    return { kind: "write", userId: owner, transferredFrom: null };
+  }
+  const fresh = previous.stateSignedAt.getTime() <= state.stateSignedAt.getTime();
+  const moves = fresh &&
+    claim.tokenOwner !== null &&
+    claim.tokenOwner !== previous.userId &&
+    isNewerTransaction(state, previous);
+  const owner = moves ? claim.tokenOwner! : previous.userId;
+  if (claim.caller !== undefined && owner !== claim.caller) {
+    throw new AppleOwnershipError(state.originalTransactionId);
+  }
+  if (!fresh) return { kind: "stale" };
+  return { kind: "write", userId: owner, transferredFrom: moves ? previous.userId : null };
+}
 
 export type AppleNotificationInsert = {
   readonly notificationUuid: string;
@@ -48,7 +114,7 @@ export type AppleIapStore = {
   accountTokenForUser(userId: string): Promise<string>;
   userIdForAccountToken(token: string): Promise<string | null>;
   subscription(originalTransactionId: string): Promise<AppleSubscriptionRow | null>;
-  writeSubscriptionState(state: AppleSubscriptionState, userId: string): Promise<AppleSubscriptionWrite>;
+  writeSubscriptionState(state: AppleSubscriptionState, claim: AppleSubscriptionClaim): Promise<AppleSubscriptionWrite>;
   recordTransaction(row: AppleTransactionRow): Promise<void>;
   /** Inserts the ledger row; false when the notification UUID already exists. */
   insertNotification(row: AppleNotificationInsert): Promise<{ inserted: boolean; row: AppleNotificationRow }>;
@@ -125,7 +191,7 @@ function subscriptionValues(state: AppleSubscriptionState, userId: string, now: 
 async function writeSubscriptionState(
   db: Db,
   state: AppleSubscriptionState,
-  userId: string,
+  claim: AppleSubscriptionClaim,
 ): Promise<AppleSubscriptionWrite> {
   return await db.transaction(async (tx) => {
     // Serialize writers of one subscription, including the first insert.
@@ -137,11 +203,9 @@ async function writeSubscriptionState(
       .from(appleSubscriptions)
       .where(eq(appleSubscriptions.originalTransactionId, state.originalTransactionId))
       .limit(1);
-    if (previous && previous.userId !== userId) throw new AppleOwnershipError(state.originalTransactionId);
-    if (previous && previous.stateSignedAt.getTime() > state.stateSignedAt.getTime()) {
-      return { applied: false, previous, current: previous };
-    }
-    const values = subscriptionValues(state, userId, new Date());
+    const plan = planAppleSubscriptionWrite(previous ?? null, state, claim);
+    if (plan.kind === "stale") return { applied: false, previous: previous!, current: previous!, transferredFrom: null };
+    const values = subscriptionValues(state, plan.userId, new Date());
     const [current] = previous
       ? await tx.update(appleSubscriptions)
         .set(values)
@@ -149,7 +213,7 @@ async function writeSubscriptionState(
         .returning()
       : await tx.insert(appleSubscriptions).values(values).returning();
     if (!current) throw new Error("Apple subscription write returned no row");
-    return { applied: true, previous: previous ?? null, current };
+    return { applied: true, previous: previous ?? null, current, transferredFrom: plan.transferredFrom };
   });
 }
 
@@ -200,7 +264,7 @@ export function databaseAppleIapStore(db: () => Db = cloudDb): AppleIapStore {
         .limit(1);
       return row ?? null;
     },
-    writeSubscriptionState: (state, userId) => writeSubscriptionState(db(), state, userId),
+    writeSubscriptionState: (state, claim) => writeSubscriptionState(db(), state, claim),
     recordTransaction: (row) => recordTransaction(db(), row),
     insertNotification: (row) => insertNotification(db(), row),
     async markNotificationProcessed(notificationUuid, processedAt) {

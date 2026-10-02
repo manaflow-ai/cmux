@@ -71,17 +71,17 @@ describe("Apple IAP store", () => {
   });
 
   dbTest("subscription state only moves forward in signed-date order", async () => {
-    expect((await store.writeSubscriptionState(state(), "user-a")).applied).toBe(true);
+    expect((await store.writeSubscriptionState(state(), { tokenOwner: "user-a" })).applied).toBe(true);
     const expired = state({ status: "expired", stateSignedAt: new Date(NOW) });
-    expect((await store.writeSubscriptionState(expired, "user-a")).applied).toBe(true);
-    const stale = await store.writeSubscriptionState(state({ status: "active", stateSignedAt: new Date(NOW - 1000) }), "user-a");
+    expect((await store.writeSubscriptionState(expired, { tokenOwner: "user-a" })).applied).toBe(true);
+    const stale = await store.writeSubscriptionState(state({ status: "active", stateSignedAt: new Date(NOW - 1000) }), { tokenOwner: "user-a" });
     expect(stale.applied).toBe(false);
     expect((await store.subscription("otx-1"))?.status).toBe("expired");
   });
 
   dbTest("concurrent writers for one subscription serialize", async () => {
     const writes = await Promise.all(Array.from({ length: 8 }, (_, index) =>
-      store.writeSubscriptionState(state({ stateSignedAt: new Date(NOW + index), lastTransactionId: `tx-${index}` }), "user-a")
+      store.writeSubscriptionState(state({ stateSignedAt: new Date(NOW + index), lastTransactionId: `tx-${index}` }), { tokenOwner: "user-a" })
     ));
     expect(writes.filter((write) => write.applied).length).toBeGreaterThan(0);
     expect((await store.subscription("otx-1"))?.lastTransactionId).toBe("tx-7");
@@ -102,17 +102,11 @@ describe("Apple IAP store", () => {
     expect(await store.subscription("otx-1")).toMatchObject({ userId: "user-b", planId: "max" });
   });
 
-  dbTest("a subscription never changes owner", async () => {
-    await store.writeSubscriptionState(state(), "user-a");
-    await expect(store.writeSubscriptionState(state({ stateSignedAt: new Date(NOW) }), "user-b"))
-      .rejects.toBeInstanceOf(AppleOwnershipError);
-  });
-
   dbTest("the entitlement query grants only unexpired active rows, highest plan first", async () => {
-    await store.writeSubscriptionState(state(), "user-a");
-    await store.writeSubscriptionState(state({ originalTransactionId: "otx-2", planId: "max", status: "expired" }), "user-a");
+    await store.writeSubscriptionState(state(), { tokenOwner: "user-a" });
+    await store.writeSubscriptionState(state({ originalTransactionId: "otx-2", planId: "max", status: "expired" }), { tokenOwner: "user-a" });
     expect(await activeApplePlanForUser("user-a")).toBe("pro");
-    await store.writeSubscriptionState(state({ status: "revoked", stateSignedAt: new Date(NOW) }), "user-a");
+    await store.writeSubscriptionState(state({ status: "revoked", stateSignedAt: new Date(NOW) }), { tokenOwner: "user-a" });
     expect(await activeApplePlanForUser("user-a")).toBeNull();
   });
 
@@ -148,9 +142,9 @@ describe("Apple IAP store", () => {
   });
 
   dbTest("lists users whose granting row expired inside the sweep window", async () => {
-    await store.writeSubscriptionState(state({ expiresAt: new Date(NOW - 60_000) }), "user-a");
-    await store.writeSubscriptionState(state({ originalTransactionId: "otx-2", expiresAt: new Date(NOW + DAY) }), "user-b");
-    await store.writeSubscriptionState(state({ originalTransactionId: "otx-3", status: "expired", expiresAt: new Date(NOW - 60_000) }), "user-c");
+    await store.writeSubscriptionState(state({ expiresAt: new Date(NOW - 60_000) }), { tokenOwner: "user-a" });
+    await store.writeSubscriptionState(state({ originalTransactionId: "otx-2", expiresAt: new Date(NOW + DAY) }), { tokenOwner: "user-b" });
+    await store.writeSubscriptionState(state({ originalTransactionId: "otx-3", status: "expired", expiresAt: new Date(NOW - 60_000) }), { tokenOwner: "user-c" });
     expect(await store.usersWithLapsedGrants(new Date(NOW), new Date(NOW - 7 * DAY), 10)).toEqual(["user-a"]);
   });
 });
