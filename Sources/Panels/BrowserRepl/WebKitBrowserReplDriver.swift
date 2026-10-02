@@ -1192,7 +1192,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let modifiers = BrowserReplKeyStroke.modifierFlags(named: params["modifiers"] as? [String] ?? [])
         let x = (params["x"] as? NSNumber)?.doubleValue
         let y = (params["y"] as? NSNumber)?.doubleValue
-        await attachment.waitForPointer(sessionID: sessionID)
+        try await attachment.waitForPointer(sessionID: sessionID)
         if type == "down" { attachment.pointerPressed(sessionID: sessionID) }
         defer { if type == "up" { attachment.pointerReleased(sessionID: sessionID) } }
         if let x, let y { attachment.mousePosition = CGPoint(x: x, y: y) }

@@ -100,25 +100,24 @@ final class BrowserReplTabAttachment {
     var mouseState = BrowserReplMouseState()
     /// The session whose press is in progress: from its button down to its
     /// button up no other session's mouse event reaches the page, so two
-    /// sessions clicking one tab at once make two clicks, not one.
-    private var pointerOwner: String?
-    private var pointerWaiters: [CheckedContinuation<Void, Never>] = []
+    /// sessions clicking one tab at once make two clicks, not one. Another
+    /// session waits at most 10 s for the press to end.
+    private let pointer = BrowserReplPointerOwner()
 
-    func waitForPointer(sessionID: String) async {
-        while let owner = pointerOwner, owner != sessionID {
-            await withCheckedContinuation { pointerWaiters.append($0) }
+    func waitForPointer(sessionID: String) async throws {
+        do {
+            try await pointer.waitForPointer(sessionID: sessionID)
+        } catch let held as BrowserReplPointerOwner.Held {
+            throw WebKitBrowserReplDriver.error(
+                "timeout",
+                "Session \(held.owner) holds the mouse on this tab: it pressed a button and has not released it within \(held.timeout); call page.mouse.up() in that session or reset it"
+            )
         }
     }
 
-    func pointerPressed(sessionID: String) { pointerOwner = sessionID }
+    func pointerPressed(sessionID: String) { pointer.pressed(sessionID: sessionID) }
 
-    func pointerReleased(sessionID: String) {
-        guard pointerOwner == sessionID else { return }
-        pointerOwner = nil
-        let waiters = pointerWaiters
-        pointerWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
-    }
+    func pointerReleased(sessionID: String) { pointer.released(sessionID: sessionID) }
     /// The drag in progress, between a left press and its release.
     var drag: DragState?
     /// Last automated mouse position in CSS pixels.

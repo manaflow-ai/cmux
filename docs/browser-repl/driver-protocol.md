@@ -81,6 +81,11 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
 Playwright (`KeyboardEvent.key` values plus `Meta+a` style parsed by the runtime).
 
+When sessions share a tab, a session's `input.mouse` `down` owns the pointer
+until its `up` (or until the session leaves the tab); another session's
+`input.mouse` waits meanwhile, at most 10 s, then fails with `timeout`
+naming the session that holds the mouse.
+
 ## Capture
 
 | Method | Params | Result |
