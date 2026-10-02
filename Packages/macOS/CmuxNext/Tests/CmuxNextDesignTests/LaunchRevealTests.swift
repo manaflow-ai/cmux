@@ -21,6 +21,8 @@ struct LaunchRevealTests {
         #expect([sidebar, tabs, pane].allSatisfy { $0.alphaValue == 0 })
         reveal.markReady(.sidebar)
         #expect(sidebar.alphaValue == 1)
+        let fade = sidebar.layer?.animation(forKey: "opacity")
+        #expect((fade != nil) == (Motion.duration(.fadeIn) > 0), "fades in, capped under Reduce Motion")
         #expect(tabs.alphaValue == 0 && pane.alphaValue == 0, "never all-or-nothing")
         reveal.markReady(.pane)
         #expect(pane.alphaValue == 1)
