@@ -193,6 +193,18 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
         self.assertNotEqual(refused.returncode, 0)
         self.assertEqual((self.root / "src/sub/keep.txt").read_text(), "keep")
 
+    def test_runtime_source_alias_can_use_a_stable_root_without_taking_the_build_root(self):
+        runtime_root = self.base / "stable-source"
+        result = subprocess.run(
+            [str(ROOT / "scripts/ci/canonical-build-root.sh"), "--runtime-source", str(self.workspace)],
+            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root),
+                 "CMUX_CI_RUNTIME_SOURCE_ROOT": str(runtime_root)},
+            text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((runtime_root / "src/sub/keep.txt").read_text(), "keep")
+        self.assertFalse((self.root / "src").exists())
+
     def test_the_canonical_source_is_a_real_directory_not_a_symlink(self):
         # A symlink resolves back to the pool-specific path, which would make
         # the shared key claim a match the compiler does not honour.
@@ -215,14 +227,16 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
         self.assertFalse((self.root / "src" / "sub" / "keep.txt").exists())
 
     def test_a_volume_without_clones_falls_back_to_an_exact_rsync(self):
-        # `cp -c` needs APFS clones; anything else must still get an exact copy.
+        # clonefile(2) and `cp -c` need APFS clones; anything else must still
+        # get an exact copy.
         self.assertEqual(self.run_script().returncode, 0)
         (self.root / "src" / "stale.txt").write_text("from an earlier job")
         packages = self.restored_packages()
         bin_dir = self.base / "bin"
         bin_dir.mkdir()
-        (bin_dir / "cp").write_text("#!/bin/sh\nexit 1\n")
-        (bin_dir / "cp").chmod(0o755)
+        for tool in ("cp", "python3"):
+            (bin_dir / tool).write_text("#!/bin/sh\nexit 1\n")
+            (bin_dir / tool).chmod(0o755)
         result = self.run_script(extra_env={"PATH": f"{bin_dir}:/usr/bin:/bin", "CMUX_CI_MOVE_SOURCE_PACKAGES": "1"})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("copying with rsync", result.stderr)
@@ -231,6 +245,25 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
         moved = self.root / "src" / ".ci-source-packages" / "checkouts" / "pkg" / "Package.swift"
         self.assertEqual(moved.read_text(), "restored")
         self.assertFalse(packages.exists())
+
+    def test_the_tree_is_one_clonefile_when_the_volume_allows_it(self):
+        # cp's per-file clone is the fallback: with it broken the copy still
+        # happens, exact, with file times kept.
+        if sys.platform != "darwin":
+            self.skipTest("clonefile(2) is macOS only")
+        (self.workspace / "sub" / "keep.txt").touch()
+        os.utime(self.workspace / "sub" / "keep.txt", (1_600_000_000, 1_600_000_000))
+        bin_dir = self.base / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "cp").write_text("#!/bin/sh\nexit 1\n")
+        (bin_dir / "cp").chmod(0o755)
+        (bin_dir / "python3").symlink_to(sys.executable)
+        result = self.run_script(extra_env={"PATH": f"{bin_dir}:/usr/bin:/bin"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("copying with rsync", result.stderr)
+        copied = self.root / "src" / "sub" / "keep.txt"
+        self.assertEqual(copied.read_text(), "keep")
+        self.assertEqual(copied.stat().st_mtime, 1_600_000_000)
 
     def test_it_refuses_inputs_that_would_produce_a_wrong_build(self):
         cases = {

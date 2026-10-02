@@ -62,6 +62,12 @@ TEST_FAILED = textwrap.dedent("""\
     2026-09-27T09:31:30.4083830Z ##[error]Process completed with exit code 65.
     """)
 
+NO_CONSOLE_WARNING = (
+    "No logged-in console user (or no passwordless sudo) on this runner; running in the current bootstrap. "
+    "XCTest will fail here if this runner has no GUI session."
+)
+GUI_TOKEN_UNAVAILABLE = "Could not take this Mac's gui token for the app-host tests (take-gui exited 1)."
+
 PARAMETERIZED_TEST_FAILED = (
     "2026-09-27T10:40:00.0000000Z ✘ Test mapsConnectionClosedStartupFailureToRetryableStatus(_:) recorded an issue "
     "with 1 argument diagnostic → \"Connection closed by 192.0.2.1 port 22\" at "
@@ -79,6 +85,25 @@ STATIC_CHECK_FAILED = "2026-09-27T10:40:00.0000000Z FAILED config-schema (0.03s)
 ADMISSION_DECLINED = (
     "2026-09-27T10:40:00.0000000Z macOS admission gate declined: a fast Linux job failed. The product compiled "
     "and was uploaded; re-run failed jobs to collect macOS results anyway.\n"
+)
+# Run 36553044270's swift-package-tests on cmux14 (glaeda-std-xcode-26.6), as
+# the job printed it then (a head branched before the marker), and as
+# scripts/select-ci-xcode.sh prints it now.
+XCODE_PIN_MISSING_LEGACY = textwrap.dedent("""\
+    2026-09-29T12:23:37.0000000Z ##[group]Run set -euo pipefail
+    2026-09-29T12:23:37.0000000Z \x1b[36;1mset -euo pipefail\x1b[0m
+    2026-09-29T12:23:37.0000000Z ##[endgroup]
+    2026-09-29T12:23:37.1000000Z Pinned Xcode developer dir does not exist: /Applications/Xcode_26.3.app/Contents/Developer
+    2026-09-29T12:23:37.1000000Z ##[error]Process completed with exit code 1.
+    """)
+XCODE_PIN_MISSING = (
+    "2026-09-29T12:23:37.1000000Z ##[error]Pinned Xcode developer dir does not exist: "
+    "/Applications/Xcode_26.3.app/Contents/Developer on runner cmux14-glaeda-1. "
+    "[cmux-ci machine: xcode-pin-missing] Installed: Xcode.app=26.3 Xcode_26.6.app=26.6\n"
+)
+POOL_XCODE_MISSING = (
+    "2026-09-29T12:23:37.1000000Z ##[error]This macOS 26 runner has no Xcode 26.6, the version "
+    "scripts/ci/xcode-pins.txt pins for its pool. Installed: Xcode_26.3.app=26.3\n"
 )
 NOISE = textwrap.dedent("""\
     2026-09-27T09:24:56.6949430Z ##[group]Run if [ "$REQUESTED_RUNNER" = ubuntu-24.04 ]; then
@@ -112,12 +137,52 @@ class SignatureTests(unittest.TestCase):
         self.assertEqual((verdict, signature), (cf.MACHINE, "mixed-products"))
         self.assertIn("Symbol not found", cf.classify_text(MIXED_PRODUCTS)["evidence"])
 
+    def test_a_gui_token_failure_is_the_machine(self) -> None:
+        log = f"##[error]{GUI_TOKEN_UNAVAILABLE}\n"
+        self.assertEqual(self.verdict(log), (cf.MACHINE, "gui-token-unavailable"))
+        self.assertIn(GUI_TOKEN_UNAVAILABLE, cf.classify_text(log)["evidence"])
+
+    def test_a_gui_token_failure_is_read_from_its_failure_annotation(self) -> None:
+        result = cf.classify_text("", [GUI_TOKEN_UNAVAILABLE])
+        self.assertEqual((result["verdict"], result["signature"]), (cf.MACHINE, "gui-token-unavailable"))
+
+    def test_an_ambiguous_console_warning_does_not_outweigh_test_failures(self) -> None:
+        log = f"##[warning]{NO_CONSOLE_WARNING}\n{TEST_FAILED}"
+        self.assertEqual(self.verdict(log), (cf.CODE, "swift-testing-issue"))
+
+    def test_a_gui_token_diagnostic_in_assertion_output_is_the_code(self) -> None:
+        log = ("✘ Test reportsGUITokenFailure() recorded an issue at GUITokenTests.swift:12:5: "
+               f'Expectation failed: diagnostic → "{GUI_TOKEN_UNAVAILABLE}"\n'
+               "##[error]Process completed with exit code 1.\n")
+        self.assertEqual(self.verdict(log), (cf.CODE, "swift-testing-issue"))
+
+    def test_an_echoed_gui_token_error_does_not_outweigh_test_failures(self) -> None:
+        log = ('##[group]Run "$helper" take-gui --wait 1800\n'
+               f'{ESC}[36;1mecho "::error::{GUI_TOKEN_UNAVAILABLE}"{ESC}[0m\n'
+               f"##[endgroup]\n{TEST_FAILED}")
+        self.assertEqual(self.verdict(log), (cf.CODE, "swift-testing-issue"))
+
     def test_a_test_failure_on_a_healthy_runner_is_the_code(self) -> None:
         self.assertEqual(self.verdict(TEST_FAILED), (cf.CODE, "swift-testing-issue"))
         self.assertEqual(self.verdict(PARAMETERIZED_TEST_FAILED), (cf.CODE, "swift-testing-issue"))
         self.assertEqual(self.verdict(DISPLAY_NAME_TEST_FAILED), (cf.CODE, "swift-testing-issue"))
         self.assertEqual(self.verdict(COMPILE_FAILED), (cf.CODE, "compile-error"))
         self.assertEqual(self.verdict(STATIC_CHECK_FAILED), (cf.CODE, "static-check-failed"))
+
+    def test_a_missing_pinned_xcode_is_the_machine(self) -> None:
+        for log in (XCODE_PIN_MISSING, XCODE_PIN_MISSING_LEGACY, POOL_XCODE_MISSING):
+            with self.subTest(log=log[:80]):
+                self.assertEqual(self.verdict(log), (cf.MACHINE, "xcode-pin-missing"))
+        # Only every failed job being machine re-runs the run; this one does.
+        jobs = cf.classify_jobs([job(7, "macos / swift-package-tests", step="Select Xcode")],
+                                {7: (XCODE_PIN_MISSING_LEGACY, [])})
+        self.assertTrue(cf.all_machine(jobs))
+
+    def test_a_forks_missing_pool_xcode_warning_is_not_the_machine(self) -> None:
+        # A fork's own CI warns and falls back; that warning is not where it failed.
+        warned = POOL_XCODE_MISSING.replace("##[error]", "##[warning]") + COMPILE_FAILED + \
+            "2026-09-29T12:30:00.0000000Z ##[error]Process completed with exit code 65.\n"
+        self.assertEqual(self.verdict(warned), (cf.CODE, "compile-error"))
 
     def test_a_signature_in_an_echoed_script_or_cleanup_noise_does_not_count(self) -> None:
         self.assertEqual(self.verdict(NOISE), (cf.UNKNOWN, None))
@@ -144,6 +209,8 @@ class SignatureTests(unittest.TestCase):
             2026-09-27T10:00:03.0Z Warning: Failed to save: No space left on device
             """)
         self.assertEqual(self.verdict(log), (cf.CODE, "swift-testing-issue"))
+        gui_token_noise = log.replace("Warning: Failed to save: No space left on device", GUI_TOKEN_UNAVAILABLE)
+        self.assertEqual(self.verdict(gui_token_noise), (cf.CODE, "swift-testing-issue"))
 
     def test_a_group_a_step_titles_run_keeps_its_output(self) -> None:
         log = textwrap.dedent("""\
@@ -203,19 +270,37 @@ class RerunDecisionTests(unittest.TestCase):
         self.assertTrue(rerun)
         self.assertIn("attempt 2", line)
 
+    def test_a_gui_token_failure_does_not_block_other_machine_retries(self) -> None:
+        report = self.report([])
+        report["jobs"] = cf.classify_jobs(
+            [job(1, "macos / app-host unit tests (2/7)"), job(2, "macos / swift-package-tests")],
+            {1: (f"##[error]{GUI_TOKEN_UNAVAILABLE}\n", []), 2: (HOOK_REFUSED, [])},
+        )
+        self.assertTrue(cf.rerun_decision(report, self.LATEST)[0])
+
     def test_one_code_or_unknown_failure_keeps_the_run_red(self) -> None:
         for other in (cf.CODE, cf.UNKNOWN):
             rerun, line = cf.rerun_decision(self.report([cf.MACHINE, other]), self.LATEST)
             self.assertFalse(rerun)
             self.assertIn("`job 1`", line)
 
-    def test_an_automatic_re_run_is_not_re_run_again(self) -> None:
-        # The bot's own re-run went to Blacksmith; nothing a comment says can restart it.
+    def test_an_automatic_re_run_on_blacksmith_is_not_re_run_again(self) -> None:
+        # The bot's attempt 3 went to Blacksmith; nothing a comment says can restart it.
+        rerun, line = cf.rerun_decision(self.report([cf.MACHINE], attempt=3),
+                                        {"run_attempt": 3, "status": "completed",
+                                         "triggering_actor": {"login": cf.BOT}})
+        self.assertFalse(rerun)
+        self.assertIn("attempt 3", line)
+
+    def test_an_automatic_attempt_2_a_mini_failed_goes_to_blacksmith_once(self) -> None:
+        # The bot's attempt 2 goes back to the minis; an online but broken one (a full
+        # disk, a failed product restore) may fail it again. Its re-run, attempt 3,
+        # takes Blacksmith, which ends the chain.
         rerun, line = cf.rerun_decision(self.report([cf.MACHINE], attempt=2),
                                         {"run_attempt": 2, "status": "completed",
                                          "triggering_actor": {"login": cf.BOT}})
-        self.assertFalse(rerun)
-        self.assertIn("attempt 2", line)
+        self.assertTrue(rerun)
+        self.assertIn("attempt 3", line)
 
     def test_a_persons_re_run_that_a_mini_failed_goes_to_blacksmith_once(self) -> None:
         # A person's re-run follows a code failure back to the minis; a machine
@@ -283,7 +368,10 @@ class ActTests(unittest.TestCase):
         gh = FakeGitHub()
         result = self.act(gh, self.report([cf.MACHINE]))
         self.assertTrue(result["rerun"])
+        # The bot's re-run may emit no workflow_run event, so it starts the
+        # UI test dispatch for attempt 2 itself (ci-ui-tests.yml).
         self.assertEqual(gh.calls, [("POST", "repos/manaflow-ai/cmux/actions/runs/42/rerun-failed-jobs"),
+                                    ("POST", "repos/manaflow-ai/cmux/actions/workflows/ci-ui-tests.yml/dispatches"),
                                     ("POST", "repos/manaflow-ai/cmux/issues/7/comments")])
 
     def test_the_bots_comment_is_edited_and_a_lookalike_is_ignored(self) -> None:

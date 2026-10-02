@@ -23,7 +23,7 @@ func TestClaudeHookRelayEnqueuesSurfaceScopedEvent(t *testing.T) {
 	t.Setenv("CMUX_SURFACE_ID", "22222222-2222-4222-8222-222222222222")
 	t.Setenv("CMUX_CLAUDE_HOOKS_DISABLED", "")
 
-	input := strings.NewReader(`{"session_id":"sess-1","hook_event_name":"SessionStart","cwd":"/home/leo/repo","transcript_path":"/home/leo/.claude/projects/x.jsonl","source":"startup"}`)
+	input := strings.NewReader(`{"session_id":"sess-1","hook_event_name":"SessionStart","cwd":"/home/dev/repo","transcript_path":"/home/dev/.claude/projects/x.jsonl","source":"startup"}`)
 	var stdout bytes.Buffer
 	if code := runClaudeHookRelay(sockPath, []string{"session-start"}, nil, input, &stdout); code != 0 {
 		t.Fatalf("claude-hook exit %d", code)
@@ -105,7 +105,7 @@ func TestCompactClaudeHookPayloadBoundsLargeEvents(t *testing.T) {
 		"hook_event_name":        "Stop",
 		"last_assistant_message": strings.Repeat("x", 10_000),
 		"prompt":                 strings.Repeat("z", 5_000),
-		"transcript_path":        "/home/leo/t.jsonl",
+		"transcript_path":        "/home/dev/t.jsonl",
 		"tool_response":          map[string]any{"stdout": strings.Repeat("y", 10_000)},
 	}
 	data, _ := json.Marshal(large)
@@ -140,7 +140,7 @@ func TestClaudeArgsWithRelayHooksMergesLauncherSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := []string{"--settings", launcherSettings, "--model", "opus", "--settings={\"theme\":\"dark\"}", "--", "--settings", "literal"}
-	out, err := claudeArgsWithRelayHooks(args, "/home/leo/.cmux/bin/cmux", filepath.Join(dir, "cache"))
+	out, err := claudeArgsWithRelayHooks(args, "/home/dev/.cmux/bin/cmux", filepath.Join(dir, "cache"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,10 +170,10 @@ func TestClaudeArgsWithRelayHooksMergesLauncherSettings(t *testing.T) {
 	if len(stopGroups) != 2 || !strings.Contains(string(data), "user-stop") {
 		t.Fatalf("Stop hooks = %v", stopGroups)
 	}
-	if !strings.Contains(string(data), `'/home/leo/.cmux/bin/cmux' claude-hook session-start`) {
+	if !strings.Contains(string(data), `'/home/dev/.cmux/bin/cmux' claude-hook session-start`) {
 		t.Fatalf("cmux session-start hook missing: %s", data)
 	}
-	for _, event := range []string{"SessionStart", "UserPromptSubmit", "Notification", "SessionEnd", "PreToolUse"} {
+	for _, event := range []string{"SessionStart", "UserPromptSubmit", "StopFailure", "Notification", "SessionEnd", "PreToolUse"} {
 		if _, ok := hooks[event]; !ok {
 			t.Fatalf("hook event %s missing", event)
 		}
@@ -182,7 +182,7 @@ func TestClaudeArgsWithRelayHooksMergesLauncherSettings(t *testing.T) {
 		t.Fatal("decision hooks must not be injected on relay hosts")
 	}
 
-	again, err := claudeArgsWithRelayHooks(args, "/home/leo/.cmux/bin/cmux", filepath.Join(dir, "cache"))
+	again, err := claudeArgsWithRelayHooks(args, "/home/dev/.cmux/bin/cmux", filepath.Join(dir, "cache"))
 	if err != nil || again[1] != out[1] {
 		t.Fatalf("identical launches should reuse one settings file: %v %v", again, err)
 	}
@@ -328,6 +328,36 @@ func TestWriteClaudeSettingsFileRestoresPrivateModes(t *testing.T) {
 		if err != nil || info.Mode().Perm() != want {
 			t.Fatalf("%s mode = %v, want %v (%v)", target, info.Mode().Perm(), want, err)
 		}
+	}
+}
+
+// TestWriteClaudeSettingsFileRefusesSymlinkedDirectory checks a symlink at the cache path is not followed.
+func TestWriteClaudeSettingsFileRefusesSymlinkedDirectory(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(target, "stale.json")
+	if err := os.WriteFile(stale, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-claudeSettingsRetention - time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "settings")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeClaudeSettingsFile(link, []byte(`{"hooks":{}}`)); err == nil {
+		t.Fatal("settings were written through a symlinked cache directory")
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("a file behind the symlink was pruned: %v", err)
+	}
+	if info, err := os.Stat(target); err != nil || info.Mode().Perm() != 0o755 {
+		t.Fatalf("the symlink target's mode changed: %v", err)
 	}
 }
 

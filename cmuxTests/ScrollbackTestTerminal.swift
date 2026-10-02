@@ -18,7 +18,7 @@ final class ScrollbackTestTerminal {
     private let inputs: AsyncStream<TerminalManualInput>
     private let continuation: AsyncStream<TerminalManualInput>.Continuation
 
-    init() throws {
+    init(initialInput: String? = nil) throws {
         _ = NSApplication.shared
         let pair = AsyncStream<TerminalManualInput>.makeStream()
         inputs = pair.stream
@@ -28,6 +28,7 @@ final class ScrollbackTestTerminal {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
+            initialInput: initialInput,
             focusPlacement: .rightSidebarDock,
             ioMode: .manualMirror,
             manualInputHandler: { sink.yield($0) }
@@ -50,6 +51,14 @@ final class ScrollbackTestTerminal {
     }
 
     func start() async throws {
+        try await launch()
+        try output("\u{1b}c" + (1...240).map { "history-\($0)\r\n" }.joined())
+        let geometry = try scrollbar()
+        #expect(geometry.total > geometry.len)
+    }
+
+    /// Starts the runtime surface without writing any terminal output.
+    func launch() async throws {
         if !surface.hasLiveSurface {
             let ready = AsyncStream<Void> { sink in
                 surface.onRuntimeReady = {
@@ -64,9 +73,6 @@ final class ScrollbackTestTerminal {
         let runtime = try #require(surface.surface, "This regression requires a real Ghostty surface")
         #expect(window.makeFirstResponder(view))
         ghostty_surface_mouse_pos(runtime, 50, 50, GHOSTTY_MODS_NONE)
-        try output("\u{1b}c" + (1...240).map { "history-\($0)\r\n" }.joined())
-        let geometry = try scrollbar()
-        #expect(geometry.total > geometry.len)
     }
 
     func close() {
@@ -81,6 +87,15 @@ final class ScrollbackTestTerminal {
     func output(_ text: String) throws {
         let runtime = try #require(surface.surface)
         text.withCString { ghostty_surface_process_output(runtime, $0, UInt(text.utf8.count)) }
+    }
+
+    /// Writes raw bytes, which need not be valid UTF-8, as program output.
+    func output(_ bytes: Data) throws {
+        let runtime = try #require(surface.surface)
+        let characters = bytes.map { CChar(bitPattern: $0) }
+        characters.withUnsafeBufferPointer {
+            ghostty_surface_process_output(runtime, $0.baseAddress, UInt($0.count))
+        }
     }
 
     func scrollbar() throws -> ghostty_surface_scrollbar_s {
@@ -135,6 +150,12 @@ final class ScrollbackTestTerminal {
     /// The I/O mailbox orders this marker after earlier wheel/key writes.
     /// Awaiting its callback proves absence of leaked input without a settling sleep.
     func inputBeforeBarrier() async throws -> String {
+        String(decoding: try await inputBytesBeforeBarrier(), as: UTF8.self)
+    }
+
+    /// The exact bytes written to the PTY peer before the barrier, including
+    /// startup input, which Ghostty writes before any later input.
+    func inputBytesBeforeBarrier() async throws -> Data {
         let runtime = try #require(surface.surface)
         let marker = "CMUX_SCROLL_BARRIER_\(UUID().uuidString)"
         marker.withCString { ghostty_surface_text(runtime, $0, UInt(marker.utf8.count)) }
@@ -146,10 +167,10 @@ final class ScrollbackTestTerminal {
             }
             bytes.append(chunk)
             if let range = bytes.range(of: Data(marker.utf8)) {
-                return String(decoding: bytes[..<range.lowerBound], as: UTF8.self)
+                return Data(bytes[..<range.lowerBound])
             }
         }
         Issue.record("The terminal I/O peer ended before the barrier")
-        return String(decoding: bytes, as: UTF8.self)
+        return bytes
     }
 }

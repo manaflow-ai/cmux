@@ -94,6 +94,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.simulatorToggleAppearance`
 - `shortcuts.bindings.simulatorToggleSoftwareKeyboard`
 - `shortcuts.bindings.splitDown`
+- `shortcuts.bindings.newPaneAutoLayout`
 - `shortcuts.bindings.splitRight`
 - `shortcuts.bindings.toggleSplitZoom`
 - `shortcuts.bindings.toggleTerminalCopyMode`
@@ -118,6 +119,7 @@ Values for `shortcuts.bindings.<action>`:
 
 ## Command palette
 
+- `shortcuts.bindings.agentInbox`
 - `shortcuts.bindings.commandPalette`
 - `shortcuts.bindings.commandPaletteNext`
 - `shortcuts.bindings.commandPalettePrevious`
@@ -174,6 +176,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.hideFind`
 - `shortcuts.bindings.pasteLastScreenshot`
 - `shortcuts.bindings.sendCtrlFToTerminal`
+- `shortcuts.bindings.sizeTerminalToMyWindow`
 - `shortcuts.bindings.useSelectionForFind`
 
 ## Files and React Grab
@@ -188,8 +191,10 @@ Values for `shortcuts.bindings.<action>`:
 ## Markdown and diff viewer
 
 - `shortcuts.bindings.diffViewerNextFile`
+- `shortcuts.bindings.diffViewerNextHunk`
 - `shortcuts.bindings.diffViewerOpenFileSearch`
 - `shortcuts.bindings.diffViewerPreviousFile`
+- `shortcuts.bindings.diffViewerPreviousHunk`
 - `shortcuts.bindings.diffViewerScrollDown`
 - `shortcuts.bindings.diffViewerScrollDownEmacs`
 - `shortcuts.bindings.diffViewerScrollHalfPageDown`
@@ -198,6 +203,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.diffViewerScrollToTop`
 - `shortcuts.bindings.diffViewerScrollUp`
 - `shortcuts.bindings.diffViewerScrollUpEmacs`
+- `shortcuts.bindings.diffViewerToggleViewed`
 - `shortcuts.bindings.markdownZoomIn`
 - `shortcuts.bindings.markdownZoomOut`
 - `shortcuts.bindings.markdownZoomReset`

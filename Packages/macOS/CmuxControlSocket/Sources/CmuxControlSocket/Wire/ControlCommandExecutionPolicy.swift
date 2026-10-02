@@ -76,6 +76,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
+        // Agent session recovery reads the journal (SQLite), the hook stores
+        // and transcripts; only the open-session scan and workspace creation
+        // hop to the main actor.
+        "session.agent_recovery.list",
+        "session.agent_recovery.restore",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",
@@ -83,6 +88,15 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.team.list",
         "auth.team.use",
         "auth.team.create",
+        "auth.team.members",
+        "auth.team.invite",
+        "auth.team.invite_link",
+        "auth.team.revoke_invite",
+        "auth.team.remove_member",
+        "auth.team.open_members",
+        "auth.team.invitations",
+        "auth.team.accept_invite",
+        "auth.team.decline_invite",
         "feedback.submit",
         // `feed.jump` awaits its actor-owned hook-session lookup while the
         // socket worker waits for the response.
@@ -99,6 +113,18 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "agent.restore.admit",
         // Releases only the tokenized claim owned by a failed restore exec.
         "agent.restore.release",
+        // Manual hibernation awaits a transcript snapshot and a fresh process
+        // census before teardown; wake shares the lane so both verbs route alike.
+        "agent.hibernate",
+        "agent.wake",
+        // Agent messages: store reads and appends with at most one
+        // main-actor hop for target resolution or the delivery hold.
+        "agent.message.send",
+        "agent.message.list",
+        "agent.message.claim",
+        "agent.message.ack",
+        "agent.message.mark_read",
+        "agent.message.poll", "agent.message.settings",
         "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
@@ -110,12 +136,21 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // Provider discovery reads config or runs `opencode models`; chat
         // send/interrupt await terminal input. Neither may hold the main actor.
         "mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt",
+        // Prompt submission suspends between paste and Enter while agent
+        // editors commit the paste. The socket worker awaits the final result.
+        "mobile.terminal.paste",
+        "terminal.paste",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
+        // Shared terminal sizing verbs are dispatched by the worker switch and
+        // hop to MainActor for the one store mutation (TerminalSharingStore).
+        "terminal.size_state", "terminal.size_policy.set", "terminal.size_to_me",
+        "terminal.size_counts.set", "terminal.participant.disconnect",
+        "terminal.participants.disconnect_others",
         // Same profile as set_font: UserDefaults reads/writes plus a push
         // event through thread-safe MobileHostService statics.
         "mobile.compatible_tags.get",
@@ -157,6 +192,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // `surface.input_state` reads the screen through the render-grid
+        // export in one short `v2MainSync` hop (`cmux send` asks it before
+        // typing). App-side for the same reason as `surface.read_text`.
+        "surface.input_state",
         // Selection providers own AppKit/WebKit state on the main actor, then
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.
@@ -201,6 +240,18 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // compositor before falling back to AppKit. Keep that wait on the
         // socket worker so WebKit-backed panels can render on the main actor.
         "debug.window.screenshot",
+        // Window recording samples ScreenCaptureKit on a schedule for as long
+        // as the clip lasts. The sampling loop must never own the main actor:
+        // the window it is filming has to keep drawing.
+        "window.record.start",
+        "window.record.stop",
+        "window.record.status",
+        "window.record.note",
+        "window.record.list",
+        // A still runs the same ScreenCaptureKit capture once. The window being
+        // shot has to draw while the capture waits, so it stays off the main
+        // actor too.
+        "window.screenshot",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via
@@ -235,6 +286,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.focus",
         "browser.type",
         "browser.fill",
+        "browser.set_input_files",
         "browser.press",
         "browser.keydown",
         "browser.keyup",

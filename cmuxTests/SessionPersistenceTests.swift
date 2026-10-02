@@ -590,6 +590,29 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.hasSuffix(reset))
     }
 
+    func testScrollbackReplayEndsOnFreshLine() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        func replayed(_ scrollback: String) -> String? {
+            let environment = SessionScrollbackReplayStore.replayEnvironment(for: scrollback, tempDirectory: tempDir)
+            guard let path = environment[SessionScrollbackReplayStore.environmentKey] else { return nil }
+            return try? String(contentsOfFile: path, encoding: .utf8)
+        }
+        let red = "\u{001B}[31m"
+        let reset = "\u{001B}[0m"
+
+        // A capture that stops at the old prompt gets a line break so the new
+        // shell's first prompt does not start mid-line.
+        XCTAssertEqual(replayed("Last login: Mon\nleo@mac ~ % "), "Last login: Mon\nleo@mac ~ % \r\n")
+        XCTAssertEqual(replayed("\(red)% \(reset)"), "\(reset)\(red)% \(reset)\r\n\(reset)")
+        // Already on a fresh line, including behind trailing SGR sequences: unchanged.
+        XCTAssertEqual(replayed("done\r\n"), "done\r\n")
+        XCTAssertEqual(replayed("\(red)done\n\(reset)"), "\(reset)\(red)done\n\(reset)")
+    }
+
     // Regression for https://github.com/manaflow-ai/cmux/issues/5165.
     //
     // Ghostty's `write_screen_file:copy,vt` export (used to capture session
@@ -2876,20 +2899,20 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
-            workingDirectory: "/Users/lawrence/fun",
+            workingDirectory: "/Users/dev/fun",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "claude",
-                executablePath: "/Users/lawrence/.local/bin/claude",
+                executablePath: "/Users/dev/.local/bin/claude",
                 arguments: [
-                    "/Users/lawrence/.local/bin/claude",
+                    "/Users/dev/.local/bin/claude",
                     "--dangerously-load-development-channels",
                     "server:custom-dev-channel",
                     "--dangerously-skip-permissions"
                 ],
-                workingDirectory: "/Users/lawrence/fun",
+                workingDirectory: "/Users/dev/fun",
                 environment: [
-                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397",
-                    "PATH": "/Users/lawrence/.local/bin:/usr/bin",
+                    "CLAUDE_CONFIG_DIR": "/Users/dev/.codex-accounts/claude/_p1775010019397",
+                    "PATH": "/Users/dev/.local/bin:/usr/bin",
                     "SHELL": "/bin/zsh"
                 ],
                 capturedAt: 123,
@@ -2899,8 +2922,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ] && /bin/sh -c "
-                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_CUSTOM_CLAUDE_PATH=/Users/lawrence/.local/bin/claude' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
+            "cd -- '/Users/dev/fun' 2>/dev/null || [ ! -d '/Users/dev/fun' ] && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/dev/.codex-accounts/claude/_p1775010019397' 'CMUX_CUSTOM_CLAUDE_PATH=/Users/dev/.local/bin/claude' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
         )
     }
 
@@ -2942,12 +2965,12 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "019e2bb9-5544-7201-a517-d77bb00d724f",
-            workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+            workingDirectory: "/Users/dev/fun/cmuxterm-hq",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "codex",
-                executablePath: "/Users/lawrence/.bun/bin/codex",
+                executablePath: "/Users/dev/.bun/bin/codex",
                 arguments: [
-                    "/Users/lawrence/.bun/bin/codex",
+                    "/Users/dev/.bun/bin/codex",
                     "resume",
                     "--yolo",
                     "--image",
@@ -2956,7 +2979,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "--model",
                     "gpt-5.4",
                 ],
-                workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+                workingDirectory: "/Users/dev/fun/cmuxterm-hq",
                 environment: nil,
                 capturedAt: 123,
                 source: "process"
@@ -2965,7 +2988,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd -- '/Users/lawrence/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/lawrence/fun/cmuxterm-hq' ] && '/Users/lawrence/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '-c' 'check_for_update_on_startup=false' '--yolo' '--model' 'gpt-5.4'"
+            "cd -- '/Users/dev/fun/cmuxterm-hq' 2>/dev/null || [ ! -d '/Users/dev/fun/cmuxterm-hq' ] && '/Users/dev/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '-c' 'check_for_update_on_startup=false' '--yolo' '--model' 'gpt-5.4'"
         )
     }
 
@@ -3037,20 +3060,20 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let claude = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
-            workingDirectory: "/Users/lawrence/fun",
+            workingDirectory: "/Users/dev/fun",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "claude",
-                executablePath: "/Users/lawrence/.local/bin/claude",
+                executablePath: "/Users/dev/.local/bin/claude",
                 arguments: [
-                    "/Users/lawrence/.local/bin/claude",
+                    "/Users/dev/.local/bin/claude",
                     "--dangerously-load-development-channels",
                     "server:custom-dev-channel",
                     "--dangerously-skip-permissions"
                 ],
-                workingDirectory: "/Users/lawrence/fun",
+                workingDirectory: "/Users/dev/fun",
                 environment: [
-                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397",
-                    "PATH": "/Users/lawrence/.local/bin:/usr/bin",
+                    "CLAUDE_CONFIG_DIR": "/Users/dev/.codex-accounts/claude/_p1775010019397",
+                    "PATH": "/Users/dev/.local/bin:/usr/bin",
                     "SHELL": "/bin/zsh"
                 ],
                 capturedAt: 123,
@@ -3060,12 +3083,12 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let claudeFork = SessionRestorableAgentSnapshot(
             kind: .claude,
             sessionId: "claude-fork-child",
-            workingDirectory: "/Users/lawrence/fun",
+            workingDirectory: "/Users/dev/fun",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "claude",
-                executablePath: "/Users/lawrence/.local/bin/claude",
+                executablePath: "/Users/dev/.local/bin/claude",
                 arguments: [
-                    "/Users/lawrence/.local/bin/claude",
+                    "/Users/dev/.local/bin/claude",
                     "--resume",
                     "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
                     "--fork-session",
@@ -3073,9 +3096,9 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                     "sonnet",
                     "--dangerously-skip-permissions"
                 ],
-                workingDirectory: "/Users/lawrence/fun",
+                workingDirectory: "/Users/dev/fun",
                 environment: [
-                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397"
+                    "CLAUDE_CONFIG_DIR": "/Users/dev/.codex-accounts/claude/_p1775010019397"
                 ],
                 capturedAt: 123,
                 source: "environment"
@@ -3287,13 +3310,13 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             claude.forkCommand,
-            "cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ] && /bin/sh -c "
-                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_CUSTOM_CLAUDE_PATH=/Users/lawrence/.local/bin/claude' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--fork-session' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
+            "cd -- '/Users/dev/fun' 2>/dev/null || [ ! -d '/Users/dev/fun' ] && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/dev/.codex-accounts/claude/_p1775010019397' 'CMUX_CUSTOM_CLAUDE_PATH=/Users/dev/.local/bin/claude' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--fork-session' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'")
         )
         XCTAssertEqual(
             claudeFork.forkCommand,
-            "cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ] && /bin/sh -c "
-                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_CUSTOM_CLAUDE_PATH=/Users/lawrence/.local/bin/claude' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-fork-child' '--fork-session' '--model' 'sonnet' '--dangerously-skip-permissions'")
+            "cd -- '/Users/dev/fun' 2>/dev/null || [ ! -d '/Users/dev/fun' ] && /bin/sh -c "
+                + shellQuotedForTest("'env' 'CLAUDE_CONFIG_DIR=/Users/dev/.codex-accounts/claude/_p1775010019397' 'CMUX_CUSTOM_CLAUDE_PATH=/Users/dev/.local/bin/claude' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-fork-child' '--fork-session' '--model' 'sonnet' '--dangerously-skip-permissions'")
         )
         XCTAssertEqual(
             codex.forkCommand,
@@ -3598,14 +3621,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
-                arguments: ["node", "/Users/lawrence/.bun/bin/opencode"]
+                arguments: ["node", "/Users/dev/.bun/bin/opencode"]
             )
         )
         XCTAssertTrue(
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: ".opencode",
-                processPath: "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode",
-                arguments: ["/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode"]
+                processPath: "/Users/dev/.bun/install/global/node_modules/opencode-ai/bin/.opencode",
+                arguments: ["/Users/dev/.bun/install/global/node_modules/opencode-ai/bin/.opencode"]
             )
         )
         XCTAssertTrue(
@@ -3635,7 +3658,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 processPath: "/opt/homebrew/bin/node",
                 arguments: [
                     "node",
-                    "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/src/cli/cmd/tui/worker.js"
+                    "/Users/dev/.bun/install/global/node_modules/opencode-ai/src/cli/cmd/tui/worker.js"
                 ]
             )
         )
@@ -3643,7 +3666,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
-                arguments: ["node", "/Users/lawrence/.bun/bin/codex"]
+                arguments: ["node", "/Users/dev/.bun/bin/codex"]
             )
         )
         XCTAssertFalse(
@@ -3657,22 +3680,22 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
-                arguments: ["node", "/tmp/script.js", "/Users/lawrence/.bun/bin/opencode"]
+                arguments: ["node", "/tmp/script.js", "/Users/dev/.bun/bin/opencode"]
             )
         )
         XCTAssertTrue(
             RestorableAgentSessionIndex.processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
-                arguments: ["node", "--require", "/tmp/hook.js", "/Users/lawrence/.bun/bin/opencode"]
+                arguments: ["node", "--require", "/tmp/hook.js", "/Users/dev/.bun/bin/opencode"]
             )
         )
         XCTAssertEqual(
             RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
-                arguments: ["node", "/Users/lawrence/.bun/bin/opencode"],
+                arguments: ["node", "/Users/dev/.bun/bin/opencode"],
                 environment: [:]
             ),
-            "/Users/lawrence/.bun/bin/opencode"
+            "/Users/dev/.bun/bin/opencode"
         )
         XCTAssertNil(
             RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
@@ -4072,6 +4095,54 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testClaudeResumeCommandStripsQuotedCmuxNodeOptionsRestoreModuleAndKeepsModelArguments() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-quoted-node-options",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--model", "sonnet"],
+                workingDirectory: nil,
+                environment: [
+                    "NODE_OPTIONS": "--require=\"/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs\" --max-old-space-size=4096 --trace-warnings"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--trace-warnings' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-quoted-node-options' '--model' 'sonnet'")
+        )
+    }
+
+    func testClaudeResumeCommandStripsSpaceSeparatedQuotedCmuxNodeOptionsRestoreModuleInHomeWithSpace() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-quoted-separate-node-options",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--model", "sonnet"],
+                workingDirectory: nil,
+                environment: [
+                    "NODE_OPTIONS": "--require \"/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs\" --max-old-space-size 4096 --require=\"/Users/a b/lib/user \\\"preload\\\".cjs\""
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--require=\"/Users/a b/lib/user \\\"preload\\\".cjs\"' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-quoted-separate-node-options' '--model' 'sonnet'")
+        )
+    }
+
     func testOpenCodeWrapperResumeCommandAndUnsupportedOhMyLaunchers() {
         let direct = SessionRestorableAgentSnapshot(
             kind: .opencode,
@@ -4123,17 +4194,17 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let staleBunWorker = SessionRestorableAgentSnapshot(
             kind: .opencode,
             sessionId: "ses_24b0be92affeVRRBplLmUzbXQl",
-            workingDirectory: "/Users/lawrence/fun",
+            workingDirectory: "/Users/dev/fun",
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "opencode",
-                executablePath: "/Users/lawrence/.bun/bin/opencode",
+                executablePath: "/Users/dev/.bun/bin/opencode",
                 arguments: [
-                    "/Users/lawrence/.bun/bin/opencode",
+                    "/Users/dev/.bun/bin/opencode",
                     "/$bunfs/root/src/cli/cmd/tui/worker.js"
                 ],
-                workingDirectory: "/Users/lawrence/fun",
+                workingDirectory: "/Users/dev/fun",
                 environment: [
-                    "PATH": "/Users/lawrence/.bun/bin:/usr/bin",
+                    "PATH": "/Users/dev/.bun/bin:/usr/bin",
                     "SHELL": "/bin/zsh"
                 ],
                 capturedAt: 123,
@@ -4179,7 +4250,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             staleBunWorker.resumeCommand,
-            "cd -- '/Users/lawrence/fun' 2>/dev/null || [ ! -d '/Users/lawrence/fun' ] && '/Users/lawrence/.bun/bin/opencode' '--session' 'ses_24b0be92affeVRRBplLmUzbXQl'"
+            "cd -- '/Users/dev/fun' 2>/dev/null || [ ! -d '/Users/dev/fun' ] && '/Users/dev/.bun/bin/opencode' '--session' 'ses_24b0be92affeVRRBplLmUzbXQl'"
         )
         XCTAssertNil(omx.resumeCommand)
         XCTAssertNil(omc.resumeCommand)

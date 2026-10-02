@@ -11,12 +11,16 @@ public struct AutomationSection: View {
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
     @State private var codexModel: DefaultsValueModel<Bool>
+    @State private var piModel: DefaultsValueModel<Bool>
     @State private var claudePathModel: DefaultsValueModel<String>
     @State private var autoNamingModel: DefaultsValueModel<Bool>
     @State private var autoNamingAgentModel: DefaultsValueModel<String>
     @State private var autoNamingStatusModel: DefaultsValueModel<String>
     @State private var ripgrepPathModel: DefaultsValueModel<String>
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
+    @State private var agentAutoResumeModel: DefaultsValueModel<Bool>
+    @State private var canonicalAgentScratchModel: DefaultsValueModel<Bool>
+    @State private var agentMessagesModel: DefaultsValueModel<Bool>
     @State private var ampModel: DefaultsValueModel<Bool>
     @State private var cursorModel: DefaultsValueModel<Bool>
     @State private var geminiModel: DefaultsValueModel<Bool>
@@ -34,11 +38,7 @@ public struct AutomationSection: View {
     @State private var automationRulesActionMessage: String?
     @State private var automationRulesActionIsError = false
     @State private var automationRulesRefreshID = 0
-
-    private struct SocketPasswordStatus: Equatable {
-        let message: String
-        let isError: Bool
-    }
+    private struct SocketPasswordStatus: Equatable { let message: String; let isError: Bool }
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
@@ -60,6 +60,7 @@ public struct AutomationSection: View {
         _modeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.socketControlMode))
         _claudeCodeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeHooksEnabled))
         _codexModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.codexHooksEnabled))
+        _piModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.piHooksEnabled))
         _claudePathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath))
         _autoNamingModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.workspaceAutoNaming))
         _autoNamingAgentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.autoNamingAgent))
@@ -73,6 +74,9 @@ public struct AutomationSection: View {
         ))
         _ripgrepPathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath))
         _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
+        _agentAutoResumeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.agentAutoResume))
+        _canonicalAgentScratchModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.canonicalAgentScratch))
+        _agentMessagesModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentMessages.enabled))
         _ampModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ampHooksEnabled))
         _cursorModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled))
         _geminiModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.geminiHooksEnabled))
@@ -89,10 +93,14 @@ public struct AutomationSection: View {
             automationRulesCard
             claudeCodeCard
             codexCard
+            PiIntegrationCard(isEnabled: piModel.current, setEnabled: { piModel.set($0) })
             claudePathCard
             autoNamingCard
             ripgrepPathCard
             suppressSubagentCard
+            agentAutoResumeCard
+            canonicalAgentScratchCard
+            AgentMessagesSettingsCard(isEnabled: agentMessagesModel.current, setEnabled: { agentMessagesModel.set($0) })
             ampCard
             cursorCard
             geminiCard
@@ -130,7 +138,7 @@ public struct AutomationSection: View {
             ))
         }
         .task {
-            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, canonicalAgentScratchModel, agentMessagesModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
         }
         .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()
@@ -141,7 +149,6 @@ public struct AutomationSection: View {
             }
         }
     }
-
     /// Thin native exposure of the existing JSON-backed automation engine.
     @ViewBuilder
     private var automationRulesCard: some View {
@@ -160,7 +167,6 @@ public struct AutomationSection: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsAutomationRulesEditButton")
-
                     Button(String(localized: "settings.automation.rules.reload", defaultValue: "Reload", bundle: .module)) {
                         let didRequestReload = hostActions.reloadAutomationRules()
                         automationRulesActionIsError = !didRequestReload
@@ -483,6 +489,42 @@ public struct AutomationSection: View {
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.suppressSubagentNotifications.note", defaultValue: "Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."))
+        }
+    }
+
+    @ViewBuilder
+    private var canonicalAgentScratchCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("automation.canonicalAgentScratch"),
+                String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"),
+                subtitle: canonicalAgentScratchModel.current
+                    ? String(localized: "settings.automation.canonicalAgentScratch.subtitleOn", defaultValue: "Native agent panels use a cmux-owned scratch directory per session.")
+                    : String(localized: "settings.automation.canonicalAgentScratch.subtitleOff", defaultValue: "Native agent panels use the system temporary directory."),
+                controlWidth: Self.columnWidth
+            ) {
+                Toggle("", isOn: Binding(get: { canonicalAgentScratchModel.current }, set: { canonicalAgentScratchModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsCanonicalAgentScratchToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardNote(String(localized: "settings.automation.canonicalAgentScratch.note", defaultValue: "Opt in to organize new Claude, Codex, and OpenCode panel scratch files under ~/.local/state/cmux/agent-artifacts. Provider transcripts and existing files are not moved."))
+        }
+    }
+    @ViewBuilder
+    private var agentAutoResumeCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .json("automation.agentAutoResume"),
+                String(localized: "settings.automation.agentAutoResume", defaultValue: "Auto-Resume Agents After Errors"),
+                subtitle: String(localized: "settings.automation.agentAutoResume.subtitle", defaultValue: "Send “continue” when an agent's turn ends on a retryable error such as model capacity or a dropped connection.")
+            ) {
+                Toggle("", isOn: Binding(get: { agentAutoResumeModel.current }, set: { agentAutoResumeModel.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAgentAutoResumeToggle")
+            }
         }
     }
     @ViewBuilder

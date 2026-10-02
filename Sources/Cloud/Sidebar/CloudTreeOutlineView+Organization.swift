@@ -41,26 +41,34 @@ extension CloudTreeOutlineView.Coordinator {
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: any NSDraggingInfo,
                      proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
-        let rejection = ownershipRejection(info: info, item: item)
-        (outlineView as? CloudTreeNSOutlineView)?.ownershipFeedback.update(rejection, over: outlineView)
-        guard rejection == nil else {
-            (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+        // The tree is a navigation/source surface. Pane destinations own the
+        // ownership warning and announcement; the tree draws no drag hints.
+        guard ownershipRejection(info: info, item: item) == nil else {
+            if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+                cloudOutline.clearDragDestination(sequence: info.draggingSequenceNumber)
+                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            }
             return []
         }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else {
-            (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+                cloudOutline.clearDragDestination(sequence: info.draggingSequenceNumber)
+                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            }
             return []
         }
         outlineView.setDropItem(drop.parent, dropChildIndex: drop.childIndex)
-        (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
+        if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+            cloudOutline.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
+            cloudOutline.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
+        }
         return .move
     }
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
-        defer { (outlineView as? CloudTreeNSOutlineView)?.ownershipFeedback.clear() }
+        defer { (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber) }
         guard ownershipRejection(info: info, item: item) == nil else { return false }
-        defer { (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber) }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
         switch drop.operation {
         case .organization(let action):
@@ -71,8 +79,7 @@ extension CloudTreeOutlineView.Coordinator {
         }
     }
 
-    /// Tree reordering stays sibling-only, but hovering a foreign workspace
-    /// still explains its ownership boundary rather than silently rejecting it.
+    /// Keeps the shared ownership boundary ahead of sidebar organization mutations.
     private func ownershipRejection(info: any NSDraggingInfo, item: Any?) -> SurfaceTransferRejection? {
         guard let node = item as? CloudTreeNode, !node.machine.isLocal,
               DragOverlayRoutingPolicy.hasBonsplitTabTransfer(info.draggingPasteboard.types) else { return nil }
@@ -84,7 +91,8 @@ extension CloudTreeOutlineView.Coordinator {
         case .surfaceResources(let group):
             return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: policy)
         case .surface:
-            return policy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
+            guard let app = AppDelegate.shared else { return policy.rejection(for: nil) }
+            return app.ownershipRejection(forBonsplitTab: transfer.tabId, policy: policy)
         case .vaultSession, .filePreview, .rightSidebarTool:
             return policy.rejection(for: .local)
         }

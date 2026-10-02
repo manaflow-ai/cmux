@@ -19,7 +19,27 @@ on:
           - relay-expiry
           - direct-only
           - private-path
-
+      environment:
+        description: Backend environment to verify
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      v2_base_url:
+        description: canonical v2 Worker origin used by the app and gate
+        required: false
+        default: https://cmux-v2-staging.debussy.workers.dev
+        type: string
+      soak_profile:
+        description: workload duration for automatic and relay-only verification
+        required: false
+        default: stress
+        type: choice
+        options:
+          - basic
+          - stress
 permissions:
   contents: read
 
@@ -29,13 +49,144 @@ jobs:
     with:
       ref: ${{ inputs.ref }}
 
-  tailscale-version-skew:
+  runner:
+    # Offers the Tailscale version-skew job to the owned Macs. It runs
+    # e2e_runner_pool.py, test-e2e.yml's picker: an owned pool on the lane's
+    # Xcode pin while CI_PR_POOL_OWNED is 1 and a machine is free now (no
+    # queue rounds), else nothing. `label` is set only for an owned pick, so
+    # any other answer, a skipped pick or a failure of this job leaves the
+    # job on its Blacksmith macOS 15 expression, as before.
+    #
+    # simulator-e2e stays on Blacksmith: it writes the staging account (or the
+    # production Stack server key) to $HOME, builds into the shared
+    # ~/Library/Developer/Xcode/DerivedData, writes the tagged app's defaults
+    # and keychain items, and drives the console session and a simulator for
+    # up to two hours. docs/ci-runners.md keeps jobs with secrets off the
+    # owned Macs, and glaeda keeps ios-streamed-validate's `validate`, the
+    # same shape, on Blacksmith.
     needs: resolve-ref
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
+    # and the owned runners through the routing App's own budget.
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      # An owned label (glaeda-...) or empty.
+      label: ${{ steps.pool.outputs.label }}
+    steps:
+      # Only this repository's own code may run on an owned Mac: a `ref` that
+      # is not the head of one of its branches (resolve-dispatch-ref.yml's
+      # trusted_ref) keeps Blacksmith, as for the side lanes.
+      - name: Checkout pool helper
+        if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && needs.resolve-ref.outputs.trusted_ref == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        # As in test-e2e.yml: idle owned runners read live. Any failure leaves
+        # the token empty and the janitor snapshot decides.
+        if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && needs.resolve-ref.outputs.trusted_ref == 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      - name: Pick the macOS pool
+        id: pool
+        if: github.repository_owner == 'manaflow-ai' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && needs.resolve-ref.outputs.trusted_ref == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+        run: |
+          set -uo pipefail
+          label="$(python3 scripts/ci/e2e_runner_pool.py \
+            --requested auto \
+            --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP")" || label=""
+          case "$label" in
+            glaeda-*) ;;
+            *) echo "No owned Mac free now (picker said '${label:-nothing}'); Blacksmith macOS 15 takes the job."; label="" ;;
+          esac
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          [ -z "$label" ] || echo "Runner: $label (a re-run takes Blacksmith macOS 15)"
+
+      # ci-owned-pool-rescue.yml's sweeper watches a run with these markers and
+      # re-runs a job an owned Mac leaves queued or refuses (attempt 2 takes
+      # Blacksmith); the queue janitor counts the first one against the pool.
+      # Fail-safe: without them the run is only not watched.
+      - name: Mark a run on a persistent macOS pool
+        id: marker
+        if: ${{ steps.pool.outputs.label != '' && github.run_attempt == 1 }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the persistent pool marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+      - name: Upload the owned-pool watch marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+  tailscale-version-skew:
+    needs: [resolve-ref, runner]
+    # The runner job is only a placement: its failure keeps Blacksmith.
+    if: ${{ !cancelled() && needs.resolve-ref.result == 'success' }}
     name: Tailscale version-skew compatibility
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    # Attempt 1 takes the runner job's owned label when it named one; every
+    # re-run (the owned-pool rescue's included) takes Blacksmith macOS 15.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.label || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15')) }}
     timeout-minutes: 75
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      # An owned Mac carries only the lane's Xcode pin, which its label names.
+      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.runner.outputs.label != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
@@ -57,10 +208,41 @@ jobs:
       - name: Install Rust
         run: ./scripts/install-rust-ci.sh
 
+      # On an owned Mac the app-host tests share the console session and the
+      # user's testmanagerd with every other GUI job, so they hold glaeda's gui
+      # token, as app-host-unit-tests and test-e2e.yml's tests do. glaeda's
+      # hook does not know this job id, so it admits it as a compile (the
+      # persistent-DerivedData and root-1 tokens) and gives no gui token at job
+      # start. take-gui exits 3 when the console is locked (no GUI job runs
+      # there then) or when the token's holder waits for the root this job
+      # holds (it cannot start its tests until this job ends), so the tests
+      # run alone either way. Blacksmith has no helper.
+      - name: Take this Mac's gui token
+        run: |
+          set -uo pipefail
+          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+          [ -x "$helper" ] || exit 0
+          status=0
+          "$helper" take-gui --wait 1800 || status=$?
+          case "$status" in
+            0|2) ;;
+            3) echo "::notice::take-gui gave way (exit 3); no other GUI job can run tests on this Mac meanwhile." ;;
+            *)
+              echo "::error::Could not take this Mac's gui token for the app-host tests (take-gui exited $status)."
+              exit 1
+              ;;
+          esac
+
       - name: Run deterministic version-skew gate
         run: ./scripts/ci/run-iroh-tailscale-compatibility-gate.sh
 
   simulator-e2e:
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: main, tags v*).
+    environment: release
+    # Production Stack credentials: only this run's own revision, never a
+    # requested ref (the ref input may name any commit).
+    if: ${{ needs.resolve-ref.outputs.sha == github.sha }}
     needs: resolve-ref
     env:
       # The app gates compile optimized Swift for both endpoints. Xcode 26's
@@ -69,16 +251,28 @@ jobs:
       # validation instead of allowing a compiler failure to masquerade as a
       # transport verdict.
       CMUX_SWIFT_FRONTEND_WORKAROUND: "1"
+      # Keep Xcode's normal module emission for optimized app verification.
+      # reload's standalone-driver shortcut fails while merging opaque SwiftUI
+      # return types on Xcode 26.3 before either endpoint can launch.
+      CMUX_RELOAD_APP_EMIT_MODULE: "1"
+      # The release gate exercises IROH and does not need the optional Ghostty
+      # CLI helper. Avoid an unrelated network fetch from Ghostty's Zig build
+      # turning a transport verdict into a runner TLS failure.
+      CMUX_SKIP_ZIG_BUILD: "1"
     strategy:
       fail-fast: false
-      # The three app-backed modes share one staging account. Serial execution
-      # prevents one mode's zero-touch registration from replacing another
-      # mode's active Mac route while its authenticated RPC probe is running.
+      # The app-backed modes share one temporary account per environment.
+      # Serial execution prevents one mode's zero-touch registration from
+      # replacing another mode's active Mac route during its RPC probe.
       max-parallel: 1
       matrix:
         mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
-    timeout-minutes: 120
+    # The real relay rollover probe waits through the 30-minute credential
+    # lifetime after the one-hour workload.  Keep enough room for the hosted
+    # build, simulator setup, artifact upload, and runner cleanup so a passing
+    # report is not converted into a cancelled job at the hard deadline.
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -101,8 +295,30 @@ jobs:
           ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
-      - name: Materialize isolated staging account
+      - name: Install Bun
         if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install AXe simulator driver
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
+        run: |
+          set -euo pipefail
+          # ios-e2e-run.sh uses AXe for accessibility and HID input. Hosted
+          # runners do not guarantee it in PATH, so install the maintained
+          # Homebrew formula explicitly before any simulator interaction.
+          brew install cameroncooke/axe/axe
+          command -v axe
+          axe --version
+
+      - name: Install web runtime dependencies
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
+        working-directory: web
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Materialize isolated staging account
+        if: ${{ inputs.environment == 'staging' && (matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry') }}
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -117,25 +333,85 @@ jobs:
           mkdir -p "$HOME/.secrets"
           (
             umask 077
-            printf 'CMUX_DOGFOOD_STACK_EMAIL=%s\n' "$CMUX_DOGFOOD_STACK_EMAIL"
-            printf 'CMUX_DOGFOOD_STACK_PASSWORD=%s\n' "$CMUX_DOGFOOD_STACK_PASSWORD"
+            # The release gate explicitly selects the isolated agent profile.
+            # Keep this account under the agent keys so the resolver cannot
+            # silently choose a different personal profile.
+            printf 'CMUX_UITEST_STACK_EMAIL=%s\n' "$CMUX_DOGFOOD_STACK_EMAIL"
+            printf 'CMUX_UITEST_STACK_PASSWORD=%s\n' "$CMUX_DOGFOOD_STACK_PASSWORD"
           ) > "$HOME/.secrets/cmuxterm-dev.env"
           chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
 
-      - name: Run staging Iroh gate
+      - name: Materialize production Stack environment
+        if: ${{ inputs.environment == 'production' && (matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry') }}
+        env:
+          STACK_PROJECT_ID: ${{ secrets.STACK_PROJECT_ID }}
+          STACK_PUBLISHABLE_CLIENT_KEY: ${{ secrets.STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "${STACK_PROJECT_ID:-}" ]] || { echo "::error::missing production Stack project id"; exit 1; }
+          [[ -n "${STACK_PUBLISHABLE_CLIENT_KEY:-}" ]] || { echo "::error::missing production Stack publishable key"; exit 1; }
+          [[ -n "${STACK_SECRET_SERVER_KEY:-}" ]] || { echo "::error::missing production Stack server key"; exit 1; }
+          umask 077
+          production_dir="$RUNNER_TEMP/cmux-production-stack"
+          mkdir -p "$production_dir"
+          chmod 700 "$production_dir"
+          production_env="$production_dir/stack.env"
+          cat > "$production_env" <<EOF
+          NEXT_PUBLIC_STACK_PROJECT_ID=$STACK_PROJECT_ID
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=$STACK_PUBLISHABLE_CLIENT_KEY
+          STACK_SECRET_SERVER_KEY=$STACK_SECRET_SERVER_KEY
+          EOF
+          chmod 600 "$production_env"
+
+      - name: Run Iroh gate
+        # Every non-soak phase is capped at 25 minutes. Stress soaks retain
+        # their one-hour workload window while the gate script bounds each
+        # setup, build, and launch phase separately.
+        timeout-minutes: ${{ inputs.soak_profile == 'stress' && 75 || 25 }}
+        env:
+          # The hosted runner does not have cmuxterm-hq's tagged-backend
+          # helper. The explicit Worker origin remains the app's API and v2
+          # broker; local mode only prevents reload.sh from looking for that
+          # helper while constructing the tagged artifacts.
+          CMUX_DEV_BACKEND_MODE: local
+          # The gate changes only the mobile transport. If the exact checkout
+          # has no cmux-tui artifact yet, use the newest older artifact with
+          # identical client inputs instead of failing before the app starts.
+          CMUX_TUI_CLIENT_MAX_FALLBACK: 5
         run: |
           set -euo pipefail
           case "${{ matrix.mode }}" in
-            automatic) TAG=irgaut ;;
-            relay-only) TAG=irgrel ;;
-            relay-expiry) TAG=irgexp ;;
-            direct-only) TAG=irgdir ;;
-            private-path) TAG=irgprv ;;
+            automatic) TAG="irgaut-${GITHUB_RUN_ID}" ;;
+            relay-only) TAG="irgrel-${GITHUB_RUN_ID}" ;;
+            relay-expiry) TAG="irgexp-${GITHUB_RUN_ID}" ;;
+            direct-only) TAG="irgdir-${GITHUB_RUN_ID}" ;;
+            private-path) TAG="irgprv-${GITHUB_RUN_ID}" ;;
           esac
-          ./scripts/run-iroh-release-gate.sh \
-            --mode "${{ matrix.mode }}" \
-            --tag "$TAG" \
+          GATE_ARGS=(
+            --mode "${{ matrix.mode }}"
+            --tag "$TAG"
             --report-output "$RUNNER_TEMP/iroh-release-gate-${{ matrix.mode }}.json"
+          )
+          if [[ "${{ inputs.environment }}" == production ]]; then
+            case "${{ matrix.mode }}" in
+              automatic|relay-only|relay-expiry) ;;
+              *) echo "::error::production verification supports automatic, relay-only, and relay-expiry modes"; exit 2 ;;
+            esac
+            GATE_ARGS+=(
+              --production
+              --stack-env-file "$RUNNER_TEMP/cmux-production-stack/stack.env"
+            )
+          else
+            GATE_ARGS+=(--v2-base-url "${{ inputs.v2_base_url }}")
+          fi
+          if [[ "${{ matrix.mode }}" == automatic || "${{ matrix.mode }}" == relay-only ]]; then
+            GATE_ARGS+=(--soak-profile "${{ inputs.soak_profile }}")
+          fi
+          if [[ "${{ inputs.environment }}" == production && "${{ matrix.mode }}" == relay-only && "${{ inputs.soak_profile }}" == stress ]]; then
+            GATE_ARGS+=(--real-usage)
+          fi
+          ./scripts/run-iroh-release-gate.sh "${GATE_ARGS[@]}"
 
       - name: Upload redacted verdict
         if: ${{ always() }}
@@ -145,13 +421,25 @@ jobs:
           path: |
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}.json
             ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-mac.cmuxdiag
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-failure.log
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-failure.png
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-*.jsonl
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-ios-*.log
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-mac-failure.cmuxdiag
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-real-usage/**
           if-no-files-found: warn
           retention-days: 7
 
       - name: Remove staging account
         # The runner user's home outlives the job on a reused machine; never
         # leave the staging credentials behind.
-        if: ${{ always() }}
+        if: ${{ always() && inputs.environment == 'staging' }}
         run: |
           rm -f "$HOME/.secrets/cmuxterm-dev.env"
           rmdir "$HOME/.secrets" 2>/dev/null || true
+
+      - name: Remove production Stack environment
+        if: ${{ always() && inputs.environment == 'production' }}
+        run: |
+          rm -f "$RUNNER_TEMP/cmux-production-stack/stack.env"
+          rmdir "$RUNNER_TEMP/cmux-production-stack" 2>/dev/null || true

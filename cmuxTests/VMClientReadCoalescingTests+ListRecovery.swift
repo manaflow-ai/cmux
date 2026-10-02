@@ -41,7 +41,7 @@ extension VMClientReadCoalescingTests {
         #expect(model.machines.count == 1)
     }
 
-    @Test("A transient failure shows reconnecting during the recovery read, then clears")
+    @Test("An initial transient failure waits quietly, then clears after the first successful load")
     func transientFailureThenSuccess() async throws {
         let fixture = try await CloudRefreshFixture.make()
         defer { fixture.session.invalidateAndCancel() }
@@ -50,18 +50,73 @@ extension VMClientReadCoalescingTests {
         let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
         defer { model.stopPolling() }
         model.refresh()
-        try await listEventually { model.hasLoadedOnce && !model.isLoading }
-        #expect(model.listStatus == .failed(.unreachable))
+        try await listEventually { !model.hasLoadedOnce && !model.isLoading }
+        #expect(model.listStatus == nil)
         await CloudRefreshURLProtocol.configure(.normal)
         await CloudRefreshURLProtocol.holdResponses()
         model.recoverList()
         try await listEventually { await Self.listRequests() == 2 }
-        #expect(model.listStatus == .reconnecting)
+        #expect(model.listStatus == nil)
         await CloudRefreshURLProtocol.releaseResponses()
         try await listEventually { !model.isLoading }
         #expect(model.listStatus == nil)
         #expect(model.lastErrorDescription == nil)
         #expect(model.machines.count == 1)
+    }
+
+    @Test("A persistent initial failure becomes actionable after bounded quiet retries")
+    func persistentInitialFailureBecomesVisible() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.configure(.listUnavailable)
+        let clock = CloudReadManualClock()
+        let model = MachinesPanelViewModel(
+            client: fixture.client,
+            pollingClock: clock,
+            isCloudEnabled: { true }
+        )
+        defer { model.stopPolling() }
+        model.startPolling()
+        try await listEventually {
+            model.initialTransientFailureCount == 1 && !model.isLoading
+        }
+        #expect(model.listStatus == nil)
+
+        for expectedCount in 2...MachinesPanelViewModel.initialTransientFailureLimit {
+            clock.advance(by: MachinesPanelViewModel.pollInterval)
+            try await listEventually {
+                model.initialTransientFailureCount == expectedCount && !model.isLoading
+            }
+            if expectedCount < MachinesPanelViewModel.initialTransientFailureLimit {
+                #expect(model.listStatus == nil)
+            }
+        }
+        #expect(model.listStatus == .failed(.unreachable))
+    }
+
+    @Test("An automatic refresh replaces a transient failure with reconnecting while it is in flight")
+    func automaticRefreshAfterTransientFailure() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.configure(.listUnavailable)
+        let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
+        defer { model.stopPolling() }
+        model.refresh()
+        try await listEventually { !model.hasLoadedOnce && !model.isLoading }
+        #expect(model.listStatus == nil)
+
+        await CloudRefreshURLProtocol.configure(.normal)
+        await CloudRefreshURLProtocol.holdResponses()
+        model.refresh()
+        try await listEventually { await Self.listRequests() == 2 }
+        #expect(model.listStatus == nil)
+
+        await CloudRefreshURLProtocol.releaseResponses()
+        try await listEventually { !model.isLoading }
+        #expect(model.listStatus == nil)
+        #expect(model.lastErrorDescription == nil)
     }
 
     @Test("A persistent failure stays visible through polls and keeps the cached fleet")
@@ -124,7 +179,7 @@ extension VMClientReadCoalescingTests {
         #expect(!model.hasLoadedOnce)
         model.applyRefreshResult(.failure(VMClientError.httpStatus(503, "down")), generation: model.refreshGeneration, scope: nil)
         model.applyRefreshResult(.failure(CancellationError()), generation: model.refreshGeneration, scope: nil)
-        #expect(model.listStatus == .failed(.unreachable))
+        #expect(model.listStatus == nil)
     }
 
     @Test("Showing a hidden panel reconnects instead of repeating the old failure")
@@ -136,14 +191,14 @@ extension VMClientReadCoalescingTests {
         let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
         defer { model.stopPolling() }
         model.startPolling()
-        try await listEventually { model.hasLoadedOnce && !model.isLoading }
-        #expect(model.listStatus == .failed(.unreachable))
+        try await listEventually { !model.hasLoadedOnce && !model.isLoading }
+        #expect(model.listStatus == nil)
         model.stopPolling()
         await CloudRefreshURLProtocol.configure(.normal)
         await CloudRefreshURLProtocol.holdResponses()
         model.startPolling()
         try await listEventually { await Self.listRequests() == 2 }
-        #expect(model.listStatus == .reconnecting)
+        #expect(model.listStatus == nil)
         await CloudRefreshURLProtocol.releaseResponses()
         try await listEventually { !model.isLoading }
         #expect(model.listStatus == nil)
@@ -183,8 +238,8 @@ extension VMClientReadCoalescingTests {
         let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
         defer { model.stopPolling() }
         model.startPolling()
-        try await listEventually { model.hasLoadedOnce && !model.isLoading }
-        #expect(model.listStatus == .failed(.unreachable))
+        try await listEventually { !model.hasLoadedOnce && !model.isLoading }
+        #expect(model.listStatus == nil)
         let oldGeneration = model.refreshGeneration
         await CloudRefreshURLProtocol.configure(.normal)
         await CloudRefreshURLProtocol.holdResponses()
@@ -221,6 +276,7 @@ extension VMClientReadCoalescingTests {
         try await listEventually { clock.pendingSleeperCount == 1 }
         clock.advance(by: MachinesPanelViewModel.pollInterval)
         try await listEventually { model.listStatus == .failed(.unreachable) && !model.isLoading }
+        #expect(model.listStatus == .failed(.unreachable))
         await CloudRefreshURLProtocol.configure(.normal)
         await CloudRefreshURLProtocol.holdResponses()
         wakes.post(name: NSWorkspace.didWakeNotification, object: nil)
@@ -279,6 +335,34 @@ extension VMClientReadCoalescingTests {
         #expect(!model.isLoading)
         #expect(!model.isRecoveringList)
         #expect(await Self.listRequests() == 1)
+    }
+
+    @Test("Foreground activation starts one recovery read for a visible panel")
+    func foregroundActivationRecoversVisiblePanel() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.configure(.listUnavailable)
+        let lifecycle = NotificationCenter()
+        let model = MachinesPanelViewModel(
+            client: fixture.client,
+            lifecycleNotificationCenter: lifecycle,
+            isCloudEnabled: { true }
+        )
+        defer { model.stopPolling() }
+        model.startPolling()
+        try await listEventually { !model.hasLoadedOnce && !model.isLoading }
+        #expect(model.listStatus == nil)
+
+        await CloudRefreshURLProtocol.configure(.normal)
+        await CloudRefreshURLProtocol.holdResponses()
+        lifecycle.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        try await listEventually { await Self.listRequests() == 2 }
+        #expect(model.listStatus == nil)
+
+        await CloudRefreshURLProtocol.releaseResponses()
+        try await listEventually { !model.isLoading }
+        #expect(model.listStatus == nil)
     }
 
     private static func listRequests() async -> Int {

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileBillingUI
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -91,6 +92,12 @@ struct MobileSettingsView: View {
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
+
+                // Plan and App Store subscription, for a signed-in account.
+                // Renders nothing when the host injected no billing model.
+                if authManager.isAuthenticated {
+                    MobileSettingsPlanSection()
+                }
 
                 // Directly under the account card so release notices stay
                 // discoverable after their one-time launch sheet is
@@ -230,6 +237,24 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
+                }
+
+                if let store {
+                    Section {
+                        NavigationLink {
+                            SSHKeysView(computers: store.sshComputers)
+                        } label: {
+                            Label(SSHCopy().keysTitle, systemImage: "key")
+                        }
+                        .accessibilityIdentifier("ssh.settings.keys")
+                    } header: {
+                        Text(SSHCopy().sectionTitle)
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.ssh.settings.keys.footer",
+                            defaultValue: "Keys this iPhone uses to log in to SSH computers."
+                        ))
+                    }
                 }
 
                 if let irohSettingsController {
@@ -408,6 +433,23 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTaskComposerFullLiquidGlass")
 
+                    Toggle(isOn: $displaySettings.feedBubbleQuotes) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.feedBubbleQuotes",
+                                defaultValue: "Feed Bubble Quotes"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.feedBubbleQuotesCaption",
+                                defaultValue:
+                                    "Show quoted messages and replies in Feed as iMessage-style bubbles instead of a side bar."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsFeedBubbleQuotes")
+
                     NavigationLink {
                         TaskComposerShellIconLabView()
                     } label: {
@@ -457,6 +499,41 @@ struct MobileSettingsView: View {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }
                     .accessibilityIdentifier("MobileSettingsWrapTitles")
+
+                    Toggle(isOn: Binding(
+                        get: { !displaySettings.feedReplacesNotifications },
+                        set: { displaySettings.feedReplacesNotifications = !$0 }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.legacyNotificationsTab",
+                                defaultValue: "Legacy Notifications Tab"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.legacyNotificationsTabCaption",
+                                defaultValue: "The Feed replaced Notifications. Turn this on to bring the legacy tab back."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsLegacyNotificationsTab")
+
+                    Toggle(isOn: $displaySettings.feedShowsTab) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.feedShowsTab",
+                                defaultValue: "Show Tab in Feed"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.feedShowsTabCaption",
+                                defaultValue: "Show the tab each Feed event came from next to its workspace."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsFeedShowsTab")
 
                     Picker(selection: $displaySettings.workspacePreviewLineCount) {
                         Text(L10n.string("mobile.settings.previewLines.one", defaultValue: "1 Line"))

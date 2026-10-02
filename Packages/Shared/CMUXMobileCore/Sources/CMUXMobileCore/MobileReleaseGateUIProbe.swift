@@ -6,9 +6,11 @@ import Foundation
 @MainActor
 public final class MobileReleaseGateUIProbe {
     /// Lifecycle events accepted by the release-gate recorder.
-    public enum EventKind: Sendable {
+    public enum EventKind: Equatable, Sendable {
         /// The app root became visible.
         case appRootVisible, workspaceListVisible, workspaceSelectionTapped
+        /// The live authenticated session supplied a usable workspace and terminal.
+        case authenticatedWorkspacesReady
         /// The workspace row was selected.
         case workspaceDetailVisible, terminalFramePresented
     }
@@ -64,6 +66,9 @@ public final class MobileReleaseGateUIProbe {
             guard origin > 0, origin <= now else { return }
             started = origin
             phase = .awaitingSelection
+            if launchUptimeNanoseconds != nil {
+                measured["app_launch_request_to_probe_created"] = seconds(now - origin)
+            }
         }
     }
 
@@ -87,9 +92,11 @@ public final class MobileReleaseGateUIProbe {
         if row.select() {
             rows.removeAll()
         } else {
-            measured.removeAll()
+            // Cached rows can render before their Mac transport is connected.
+            // Keep the observed appearance time and retry selection when the
+            // live row is updated, instead of discarding the evidence and
+            // measuring only the slower authenticated snapshot.
             phase = .awaitingSelection
-            rows.removeValue(forKey: id)
         }
     }
 
@@ -97,6 +104,12 @@ public final class MobileReleaseGateUIProbe {
     public func record(_ kind: EventKind) {
         let now = DispatchTime.now().uptimeNanoseconds
         switch kind {
+        case .appRootVisible, .authenticatedWorkspacesReady:
+            guard phase == .awaitingSelection, let started else { return }
+            let key = kind == .appRootVisible
+                ? "app_launch_request_to_root_visible"
+                : "app_launch_request_to_authenticated_workspaces_ready"
+            if measured[key] == nil { measured[key] = seconds(now - started) }
         case .workspaceSelectionTapped where phase == .opening:
             if tap == nil { tap = now }
         case .workspaceDetailVisible where phase == .opening:

@@ -13,6 +13,7 @@ import Bonsplit
 import UserNotifications
 import Sparkle
 import CmuxUpdater
+import Testing
 // Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.
@@ -599,6 +600,14 @@ final class FullScreenShortcutTests: XCTestCase {
                 usesInlineTextHandling: false
             )
         )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: -1,
+                isInteractive: true,
+                usesInlineTextHandling: false,
+                isAgentInboxReplyFieldFocused: true
+            )
+        )
     }
 }
 
@@ -869,9 +878,33 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
     }
 }
 
-final class CommandPaletteCloudCommandTests: XCTestCase {
+@Suite("Cloud command palette", .serialized)
+struct CommandPaletteCloudAvailabilityTests {
+    /// Cloud availability guidance is visible only for Cloud workspaces.
+    @Test("availability guidance is visible only for Cloud workspaces")
+    func availabilityInfoAppearsOnlyForCloudWorkspace() {
+        let contribution = ContentView.commandPaletteCloudAvailabilityInfoContribution(
+            locale: Locale(identifier: "en")
+        )
+        let localContext = CommandPaletteContextSnapshot()
+        var cloudContext = CommandPaletteContextSnapshot()
+        cloudContext.setBool(CommandPaletteContextKeys.workspaceIsCloud, true)
+
+        #expect(!contribution.when(localContext))
+        #expect(contribution.when(cloudContext))
+        #expect(contribution.title(cloudContext) == "Show Cloud command availability")
+        #expect(contribution.subtitle(cloudContext) == "Cloud workspace")
+        #expect(
+            contribution.keywords == [
+                "cloud", "workspace", "availability", "local", "unavailable", "actions",
+            ]
+        )
+    }
+
+    /// Server-advertised VM capabilities hide only the operations the selected machine cannot honor.
     @MainActor
-    func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
+    @Test("server capabilities gate Cloud VM operations")
+    func cloudVMCapabilitiesGateOperations() {
         let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
         let defaults = UserDefaults.standard
         let original = defaults.object(forKey: key)
@@ -884,25 +917,105 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
             else { defaults.removeObject(forKey: key) }
             CmuxFeatureFlags.shared.setOverride(originalOverride, for: flag)
         }
-        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).map(\.commandId))
+        let contributions = ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true)
+        var context = CommandPaletteContextSnapshot()
+        context.setBool(CommandPaletteContextKeys.workspaceIsCloud, true)
+        context.setBool(CommandPaletteContextKeys.cloudVMCapabilitiesKnown, true)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsFork, false)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsSnapshot, false)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsRestore, false)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsPorts, false)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsExec, false)
 
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudSnapshotCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudRestoreCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudPromoteTemplateCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudStatusCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudPortsCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudToolsCommandId))
-        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudHandoffCommandId))
+        let hidden = Set(
+            contributions.filter { !$0.when(context) }.map(\.commandId)
+        )
+        #expect(hidden.contains(ContentView.commandPaletteCloudForkCommandId))
+        #expect(hidden.contains(ContentView.commandPaletteCloudSnapshotCommandId))
+        #expect(hidden.contains(ContentView.commandPaletteCloudRestoreCommandId))
+        #expect(hidden.contains(ContentView.commandPaletteCloudPromoteTemplateCommandId))
+        #expect(hidden.contains(ContentView.commandPaletteCloudPortsCommandId))
+        #expect(hidden.contains(ContentView.commandPaletteCloudToolsCommandId))
+        #expect(!hidden.contains(ContentView.commandPaletteCloudHandoffCommandId))
+        #expect(
+            contributions.first { $0.commandId == ContentView.commandPaletteCloudStatusCommandId }?.when(context) == true
+        )
 
-        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: false).isEmpty)
-        CmuxFeatureFlags.shared.setOverride(false, for: flag)
-        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
-        CmuxFeatureFlags.shared.setOverride(true, for: flag)
-        defaults.set(false, forKey: key)
-        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsExec, true)
+        context.setBool(CommandPaletteContextKeys.cloudVMSupportsPorts, true)
+        let executionSupportedHidden = Set(
+            contributions.filter { !$0.when(context) }.map(\.commandId)
+        )
+        #expect(!executionSupportedHidden.contains(ContentView.commandPaletteCloudPortsCommandId))
+        #expect(!executionSupportedHidden.contains(ContentView.commandPaletteCloudToolsCommandId))
     }
 
+    /// The Cloud contribution catalog remains complete when capabilities are
+    /// unknown, and feature and authentication gates still remove it.
+    @MainActor
+    @Test("Cloud contribution catalog honors feature and account gates")
+    func cloudContributionCatalogHonorsFeatureAndAccountGates() {
+        let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
+        let defaults = UserDefaults.standard
+        let original = defaults.object(forKey: key)
+        let flag = CmuxFeatureFlags.cloudMachinesFlag
+        let originalOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
+        defaults.set(true, forKey: key)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
+        defer {
+            if let original { defaults.set(original, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+            CmuxFeatureFlags.shared.setOverride(originalOverride, for: flag)
+        }
+
+        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).map(\.commandId))
+        #expect(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
+        #expect(commandIds.contains(ContentView.commandPaletteCloudRestoreCommandId))
+        #expect(commandIds.contains(ContentView.commandPaletteCloudPortsCommandId))
+        #expect(commandIds.contains(ContentView.commandPaletteCloudToolsCommandId))
+        #expect(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: false).isEmpty)
+
+        CmuxFeatureFlags.shared.setOverride(false, for: flag)
+        #expect(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
+    }
+
+    /// Cloud commands keep the tab manager that owns the invoking palette.
+    @MainActor
+    @Test("Cloud command routing prefers the invoking window context")
+    func cloudCommandRoutingPrefersInvokingTabManager() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let mainManager = TabManager()
+        let paletteManager = TabManager()
+        let mainWindowID = appDelegate.registerMainWindowContextForTesting(
+            windowId: UUID(),
+            tabManager: mainManager
+        )
+        let paletteWindowID = appDelegate.registerMainWindowContextForTesting(
+            windowId: UUID(),
+            tabManager: paletteManager
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: paletteWindowID)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: mainWindowID)
+        }
+
+        let context = appDelegate.contextForCloudVMCommand(
+            preferredTabManager: paletteManager,
+            preferredWindow: nil,
+            debugSource: "test.palette.cloud.routing"
+        )
+        #expect(context?.tabManager === paletteManager)
+        #expect(context?.tabManager !== mainManager)
+    }
+}
+
+final class CommandPaletteCloudCommandTests: XCTestCase {
+
+    /// Managed Cloud identity is distinct from a generic SSH configuration.
     func testCloudVMIdentityIsExplicitMetadata() {
         let cloudConfig = WorkspaceRemoteConfiguration(
             destination: "nncop8f8h6w9blhns6sy+cmux@vm-ssh.freestyle.sh",
@@ -1205,12 +1318,11 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToMachines,
     ]
     /// The digit defaults are positional over the visible tabs, so the
-    /// expectations below pin every mode gate on and clear any tab
+    /// expectations below pin every remaining mode gate on and clear any tab
     /// customization; otherwise the test host's own settings would shift the
     /// digits.
     private let touchedTabEnvironmentKeys: [String] = [
         RightSidebarBetaFeatureSettings.feedEnabledKey,
-        RightSidebarBetaFeatureSettings.dockEnabledKey,
         RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey,
         RightSidebarTabPreferences.orderKey,
         RightSidebarTabPreferences.hiddenKey,
@@ -1234,7 +1346,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             }
         )
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.orderKey)
         UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.hiddenKey)
@@ -1314,13 +1425,12 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         )
     }
 
-    /// The reported bug: Feed and Dock hidden leaves Cloud as the 4th visible
-    /// tab, so ctrl+4 must select it (the old static table pinned Cloud to
-    /// ctrl+6 while ctrl+4 fell on the invisible Feed and did nothing).
+    /// Hiding Feed and the standard Dock tab leaves Cloud as the 4th visible
+    /// tab, so ctrl+4 must select it.
     func testModeShortcutDigitsFollowVisibleTabPositions() {
         CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .dock))
 
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),

@@ -37,6 +37,33 @@ struct SSHTuiMigrationTests {
                 ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -l"])
     }
 
+    @MainActor
+    @Test("SSH agent sidebar status reconciles the graph present at projector startup")
+    func agentSidebarStatusReconcilesExistingCatalogGraph() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.ssh("ssh-existing-status")
+        let catalog = SurfaceCatalog()
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal-1")
+        catalog.upsert(SurfaceResource(
+            id: resourceID,
+            title: "terminal",
+            lifecycle: .running,
+            agent: SurfaceAgentBadge(state: "working", source: "hook", agent: "codex")
+        ))
+        catalog.record(SurfaceProjection(resource: resourceID, workspaceID: workspace.id, panelID: panelID))
+
+        _ = SSHTuiAgentStatusProjector(catalog: catalog, workspaceLookup: { id in
+            id == workspace.id ? workspace : nil
+        })
+
+        #expect(workspace.statusEntries["cmux.remote.agent:codex"]?.value == "Running")
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["cmux.remote.agent:codex"] == .running)
+    }
+
     @Test("OpenSSH resolves the cmux-tui carrier as a non-PTY exec channel")
     func carrierOverridesInteractiveHostDefaults() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -116,6 +143,49 @@ struct SSHTuiMigrationTests {
         #expect(restored.relayPort == nil)
         #expect(restored.foregroundAuthToken == nil)
         #expect(SSHTuiConnection(configuration: original).id == SSHTuiConnection(configuration: restored).id)
+    }
+
+    @Test("A restored carrier logs in through the ControlMaster its open shared")
+    func restoredCarrierSharesTheOpensControlMaster() throws {
+        // `cmux ssh` opens with cmux's sharing defaults. The restored carrier
+        // runs in batch mode, so on a password-only host the live master is
+        // its only way in.
+        let opened = configuration(options: ["ProxyJump=bastion"])
+        let snapshot = try #require(opened.sessionSnapshot())
+        let persisted = try JSONEncoder().encode(snapshot)
+        let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted).workspaceConfiguration())
+        let openedCarrier = try resolvedControlSettings(SSHTuiConnection(configuration: opened))
+        #expect(openedCarrier["controlmaster"] == "auto")
+        let socketDirectory = try #require(SSHConnectionSharingOptions().controlSocketDirectoryPath)
+        #expect(openedCarrier["controlpath"]?.hasPrefix(socketDirectory + "/") == true)
+        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored)) == openedCarrier)
+    }
+
+    /// The control settings OpenSSH resolves for the carrier's own ssh arguments.
+    private func resolvedControlSettings(_ connection: SSHTuiConnection) throws -> [String: String] {
+        let arguments = connection.arguments(stateDirectory: "/tmp/cmux-tui-client", deviceName: "test")
+        let sshArguments = arguments.indices.compactMap { index -> String? in
+            guard index > 0, arguments[index - 1] == "--ssh-arg" else { return nil }
+            return arguments[index]
+        }
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = ["-G", "-F", "/dev/null"] + sshArguments + [connection.configuration.destination]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        try #require(process.terminationStatus == 0)
+        var settings: [String: String] = [:]
+        for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1)
+            guard parts.count == 2, ["controlmaster", "controlpath", "controlpersist"].contains(parts[0]) else { continue }
+            settings[String(parts[0])] = String(parts[1])
+        }
+        return settings
     }
 
     @Test("Legacy persistent SSH snapshots are not claimed by the TUI owner")
@@ -317,6 +387,33 @@ struct SSHTuiMigrationTests {
         catalog.endProjections(panelID: panelID, reason: .replaced)
         #expect(!workspace.isRemoteTerminalContext(panelID))
         #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+    }
+
+    @MainActor
+    @Test("Only terminals known to run on this Mac resolve paths locally")
+    func unplacedAndCloudSurfacesNeverResolvePathsLocally() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog.shared
+        defer {
+            catalog.endProjections(panelID: panelID, reason: .replaced)
+            workspace.teardownAllPanels()
+        }
+        #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+        #expect(!workspace.terminalLinkIsRemoteTerminal(panelID))
+        let unplaced = UUID()
+        #expect(!workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: unplaced))
+        #expect(workspace.terminalLinkIsRemoteTerminal(unplaced))
+
+        let resource = SurfaceResourceID(
+            machine: .cloud("vm-path-fixture-" + UUID().uuidString),
+            kind: .terminal, key: "term_" + UUID().uuidString
+        )
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: resource)],
+                        workspaceID: workspace.id, restoringWorkspace: workspace)
+        try #require(catalog.projectionIncludingPendingRestore(forPanel: panelID)?.resource == resource)
+        #expect(!workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+        #expect(workspace.terminalLinkIsRemoteTerminal(panelID))
     }
 
     @Test("Loopback links in SSH terminals retain remote routing")

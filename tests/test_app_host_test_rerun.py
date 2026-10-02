@@ -235,6 +235,19 @@ class PullRequestProductTests(unittest.TestCase):
         self.assertEqual(planned["source_sha"], self.merge)
         self.assertEqual(planned["changed_tests"], "cmuxTests/BTests.swift")
 
+    def test_a_source_run_that_adopted_its_product_names_where_to_look(self) -> None:
+        # test-e2e.yml builds that adopted a product upload none of their own.
+        def api(path: str) -> dict:
+            if path.endswith("/artifacts?per_page=100"):
+                return {"artifacts": []}
+            return {**self.pull_request_run(), "path": ".github/workflows/test-e2e.yml",
+                    "event": "workflow_dispatch", "head_sha": self.head,
+                    "display_title": f"cmuxUITests/A on glaeda-std-xcode-26.6 @ {self.head} [x]"}
+
+        with self.assertRaises(SystemExit) as raised:
+            self.plan(self.head, "5", api)
+        self.assertIn("uploads none of its own", str(raised.exception))
+
     def test_automatic_plan_passes_over_a_merge_with_base_app_changes(self) -> None:
         # The newer pull_request run for this head built a merge that also
         # carries the base's app change; the older push run built the head.
@@ -445,7 +458,7 @@ class DetachTests(unittest.TestCase):
 
     def test_detach_imports_only_matching_resolved_binary_framework_slices(self) -> None:
         with tempfile.TemporaryDirectory(prefix="rerun products ") as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             debug = root / "Build" / "Products" / "Debug"
             (debug / "PackageFrameworks" / "Pkg_1_PackageProduct.framework").mkdir(parents=True)
             host = debug / "Host App.app" / "Contents"
@@ -679,6 +692,8 @@ class WorkflowTests(unittest.TestCase):
 
 
 TAKE_ROOT = ROOT / "scripts" / "ci" / "take-product-canonical-root.sh"
+COMPILE_PRODUCT = ROOT / "scripts" / "ci" / "compile-app-host-test-product.sh"
+RESTORE_PRODUCT = ROOT / "scripts" / "ci" / "restore-app-host-test-product.sh"
 
 
 class CanonicalRootTests(unittest.TestCase):
@@ -760,6 +775,35 @@ class CanonicalRootTests(unittest.TestCase):
         code, out, taken = self.take("/private/tmp/cmux-ci/derived-data-compile-admission", helper_exit=1)
         self.assertEqual((code, out), (1, ""))
         self.assertEqual(taken, ["take /private/tmp/cmux-ci --wait 1800"])
+
+    def test_compiled_file_paths_are_independent_of_the_producer_root(self) -> None:
+        compile_script = COMPILE_PRODUCT.read_text()
+        restore_script = RESTORE_PRODUCT.read_text()
+        run_script = (ROOT / "scripts" / "ci" / "run-app-host-xcodebuild.sh").read_text()
+        self.assertIn("FILE_PATH_ROOT=/private/tmp/cmux-test-source", compile_script)
+        self.assertIn("-file-prefix-map", compile_script)
+        self.assertIn("-debug-prefix-map", compile_script)
+        helper_text = (ROOT / "cmuxTests" / "SwiftTestingAssertions.swift").read_text()
+        source_helpers = [
+            path for path in (ROOT / "cmuxTests").glob("*.swift")
+            if path.name != "SwiftTestingAssertions.swift"
+        ]
+        source_text = "\n".join(path.read_text() for path in source_helpers)
+        self.assertIn("static func sourceURL", helper_text)
+        self.assertIn("appendingPathComponent(fileID)", helper_text)
+        self.assertIn("TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT", run_script)
+        self.assertIn("TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT", helper_text)
+        self.assertNotIn("URL(fileURLWithPath: #filePath)", source_text)
+        self.assertIn("CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source", restore_script)
+        self.assertNotIn("glaeda-canonical-root", restore_script)
+        self.assertNotIn("producer_derived", restore_script)
+
+    def test_rerun_baseline_aliases_the_stable_file_path_root(self) -> None:
+        step = self.step("Unpack products at the path CI compiled them")
+        self.assertIn("CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source", step)
+        self.assertIn("canonical-build-root.sh", step)
+        self.assertIn("--runtime-source \"$PWD\"", step)
+        self.assertLess(step.index("--runtime-source \"$PWD\""), step.index('cat "$receipt"'))
 
 
 if __name__ == "__main__":

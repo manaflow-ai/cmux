@@ -103,6 +103,18 @@ describe("Stripe catalog provisioning", () => {
     ).toBe(true);
   });
 
+  test("sets the checkout description of each plan to the Cloud VM limits", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const description = (productId: string) => result.calls
+      .find((call) => call.args.includes(`https://api.stripe.com/v1/products/${productId}`) && call.args.includes("POST"))
+      ?.args.find((argument) => argument.startsWith("description="));
+    expect(description("prod_pro")).toBe("description=Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM, plus the cmux iOS app.");
+    expect(description("prod_max")).toBe("description=Everything in Pro, with up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM.");
+    expect(description("prod_team")).toBe("description=Per seat: up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM, the cmux iOS app, and priority support.");
+  });
+
   test("provisions the monthly-only Max price and the Pro/Max plan switch portal", async () => {
     const result = await runProvision("test", "valid");
 
@@ -512,6 +524,8 @@ if (url.endsWith("/prices") && !isPost) {
           ? "prod_new_go"
           : "prod_new_team",
   });
+} else if (url.includes("/products/prod_") && isPost) {
+  respond({ id: url.split("/").at(-1) });
 } else if (url.endsWith("/billing_portal/configurations") && !isPost) {
   if (args.includes("is_default=true")) {
     respond({

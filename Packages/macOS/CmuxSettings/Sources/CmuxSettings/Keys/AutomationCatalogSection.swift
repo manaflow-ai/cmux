@@ -25,6 +25,12 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "claudeCodeCustomClaudePath"
     )
 
+    public let piIntegration = DefaultsKey<Bool>(
+        id: "automation.piIntegration",
+        defaultValue: true,
+        userDefaultsKey: "piHooksEnabled"
+    )
+
     /// Opt-in AI auto-naming of workspaces and tabs from agent conversation
     /// content. Default off: enabling it lets cmux run the user's own agent
     /// binary (`claude -p` / `codex exec`) to summarize sessions into titles.
@@ -58,12 +64,31 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "suppressSubagentNotifications"
     )
 
+    /// Sends `continue` to a cmux-launched agent whose turn ended on a
+    /// retryable upstream error (model at capacity, overloaded, connection
+    /// lost), with backoff. Turns waiting on a human are never resumed.
+    public let agentAutoResume = DefaultsKey<Bool>(
+        id: "automation.agentAutoResume",
+        defaultValue: true,
+        userDefaultsKey: "agentAutoResumeEnabled"
+    )
+
+    /// When enabled, native agent-session panels receive a cmux-owned,
+    /// per-session `TMPDIR` under `~/.local/state/cmux/agent-artifacts`.
+    /// This gives cmux a bounded ownership boundary for future retention and
+    /// cleanup without rewriting provider-owned transcript directories.
+    public let canonicalAgentScratch = DefaultsKey<Bool>(
+        id: "automation.canonicalAgentScratch",
+        defaultValue: false,
+        userDefaultsKey: "canonicalAgentScratchEnabled"
+    )
+
     // Several agent-integration toggles are intentionally exposed under both
     // `automation.*` (this catalog) and `integrations.*` (IntegrationsCatalogSection)
     // with the same `userDefaultsKey`, so writes through either namespace land
     // on the same persisted value. The shared keys are claudeCode*, codex*,
     // cursor*, gemini*, kiro* (including kiroNotificationLevel), amp*,
-    // ripgrepCustomBinaryPath, and suppressSubagentNotifications. There is no
+    // piHooksEnabled, ripgrepCustomBinaryPath, and suppressSubagentNotifications. There is no
     // precedence ambiguity because both DefaultsKey wrappers read/write the
     // same `UserDefaults` slot — the dual namespace exists to keep the JSON
     // config UX (`automation.*`) and the Settings-catalog UX

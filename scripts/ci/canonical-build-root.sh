@@ -31,6 +31,8 @@ if [ "${1:-}" = --runtime-source ]; then
   shift
 fi
 workspace="${1:-${GITHUB_WORKSPACE:-$PWD}}"
+runtime_root="${CMUX_CI_RUNTIME_SOURCE_ROOT:-$root}"
+runtime_src="$runtime_root/src"
 
 if [ ! -d "$workspace" ]; then
   echo "canonical-build-root: workspace $workspace does not exist" >&2
@@ -61,13 +63,14 @@ mkdir -p "$root"
 # A later producer removes this alias below before building a real source tree.
 if [ "$runtime_source" = true ]; then
   case "$workspace/" in
-    "$src/"*)
-      echo "canonical-build-root: runtime workspace must live outside $src" >&2
+    "$runtime_src/"*)
+      echo "canonical-build-root: runtime workspace must live outside $runtime_src" >&2
       exit 1
       ;;
   esac
-  rm -rf "$src"
-  ln -s "$workspace" "$src"
+  mkdir -p "$runtime_root"
+  rm -rf "$runtime_src"
+  ln -s "$workspace" "$runtime_src"
   exit 0
 fi
 
@@ -105,7 +108,13 @@ if [ "$move_packages" = true ] && { [ -e "$workspace/.ci-source-packages" ] || [
   mv "$workspace/.ci-source-packages" "$incoming"
 fi
 rm -rf "$src"
-if ! clone_error="$(cp -cpR "$workspace"/. "$src" 2>&1)"; then
+# One clonefile(2) of the whole tree first: about a tenth of cp's per-file
+# clone time (scripts/ci/apfs_clone.py). Directories then carry the copy's
+# time instead of the checkout's, which the seed replay restores where it
+# matters.
+if python3 "$(dirname "${BASH_SOURCE[0]}")/apfs_clone.py" "$workspace" "$src"; then
+  :
+elif ! clone_error="$(cp -cpR "$workspace"/. "$src" 2>&1)"; then
   echo "canonical-build-root: clone failed (${clone_error%%$'\n'*}); copying with rsync" >&2
   rm -rf "$src"
   mkdir -p "$src"

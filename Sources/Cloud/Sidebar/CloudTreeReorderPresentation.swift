@@ -9,11 +9,13 @@ final class CloudTreeReorderPresentation {
     private let indicator = SidebarReorderIndicatorView()
     private var destination: (sequence: Int, drop: CloudSidebarOrganizationDrop)?
 
+    /// Creates presentation feedback attached to the outline view.
     init(outline: CloudTreeNSOutlineView) {
         self.outline = outline
         outline.addSubview(indicator)
     }
 
+    /// Displays the insertion line for the current drag sequence.
     func show(_ drop: CloudSidebarOrganizationDrop, sequence: Int) {
         destination = (sequence, drop)
         outline?.addSubview(indicator, positioned: .above, relativeTo: nil)
@@ -22,17 +24,15 @@ final class CloudTreeReorderPresentation {
         layout()
     }
 
-    func isCurrent(_ info: (any NSDraggingInfo)?) -> Bool {
-        guard let info, let destination else { return true }
-        return destination.sequence == info.draggingSequenceNumber
-    }
-
+    /// Hides the insertion line, optionally only for a matching drag sequence.
     func clear(sequence: Int? = nil) {
         if let sequence, let destination, destination.sequence != sequence { return }
         destination = nil
         indicator.isHidden = true
+        indicator.removeFromSuperview()
     }
 
+    /// Recomputes the indicator position after outline rows change.
     func layout() {
         guard let outline, let destination else { return }
         let drop = destination.drop
@@ -55,16 +55,4 @@ final class CloudTreeReorderPresentation {
         indicator.isHidden = false
     }
 
-    func ended(_ info: any NSDraggingInfo) {
-        if let destination, destination.sequence != info.draggingSequenceNumber { return }
-        clear(sequence: info.draggingSequenceNumber)
-        guard let outline,
-              let source = info.draggingSource as? CloudTreeNSOutlineView, source === outline,
-              let session = source.activeNativeDragSession,
-              session.draggingSequenceNumber == info.draggingSequenceNumber,
-              let coordinator = source.activeNativeDragCoordinator as? CloudTreeOutlineView.Coordinator else { return }
-        // draggingEnded is a terminal destination callback, including Escape.
-        // It remains available if a reconstructed data source lost endedAt.
-        coordinator.outlineView(source, draggingSession: session, endedAt: .zero, operation: [])
-    }
 }

@@ -432,10 +432,14 @@ class WarmKeys(Fixture):
         (self.store / "stamp.json").write_text("{}")
         slot = self.store / "pr-builds" / "pr-7"
         os.utime(slot, (1, 1))
-        run(state.check, self.store, "fp", self.workspace, None, "7")
+        log = Path(self.tmp.name) / "jobs.jsonl"
+        log.write_text("".join(json.dumps({"event": "started", "at": 2}) + "\n" for _ in range(80)))
+        with unittest.mock.patch.dict(os.environ, {"CMUX_JOB_LOG": str(log)}):
+            run(state.check, self.store, "fp", self.workspace, None, "7")
         self.assertEqual(self.kept_marker(), "nine")
         os.utime(slot)
-        result = run(state.check, self.store, "fp", self.workspace, None, "7")
+        with unittest.mock.patch.dict(os.environ, {"CMUX_JOB_LOG": str(log)}):
+            result = run(state.check, self.store, "fp", self.workspace, None, "7")
         self.assertEqual((result["reason"], self.kept_marker()), ("this pull request's parked build", "seven"))
 
     def test_keep_drops_a_stale_parked_build_of_its_own_pull_request(self):
@@ -494,6 +498,47 @@ class WarmKeys(Fixture):
             with self.assertRaises(OSError):
                 self.kept(pr="11")
 
+    def test_out_of_space_also_evicts_swiftpm_builds_no_job_holds(self):
+        # A root-2 store's keep frees the mini's SwiftPM scratch beside root 1's store.
+        scratch = self.store / "spm-scratch" / "old-xcode"
+        (scratch / "pkg").mkdir(parents=True)
+        second = self.store / "cmux-ci-2"
+        real, calls = state.clone, []
+
+        def full_once(source, destination):
+            calls.append(destination)
+            if len(calls) == 1:
+                raise OSError(28, "No space left on device")
+            real(source, destination)
+        self.build("one")
+        with unittest.mock.patch("owned_build_state.clone", full_once):
+            self.assertEqual(self.kept(store=second)["kept"], "true")
+        self.assertFalse(scratch.exists())
+        self.assertEqual(len(calls), 2)
+
+    def test_a_full_volume_evicts_at_once_instead_of_copying(self):
+        # clonefile's ENOSPC reaches keep's handler directly: no cp or copytree
+        # of the whole DerivedData onto a full disk first.
+        if sys.platform != "darwin":
+            self.skipTest("clonefile(2) is macOS only")
+        for number in ("7", "8"):
+            self.build(number)
+            self.kept(pr=number)
+        real, clones = state.apfs_clone.clone_directory, []
+
+        def full_once(source, destination):
+            clones.append(destination)
+            if len(clones) == 1:
+                raise OSError(28, "No space left on device")
+            return real(source, destination)
+        self.build("nine")
+        with unittest.mock.patch.object(state.apfs_clone, "clone_directory", full_once), \
+                unittest.mock.patch.object(state.shutil, "copytree", side_effect=AssertionError("copied")), \
+                unittest.mock.patch.object(state.subprocess, "run", side_effect=AssertionError("cp ran")):
+            self.assertEqual(self.kept(pr="9")["kept"], "true")
+        self.assertEqual(len(clones), 2)
+        self.assertEqual(self.kept_marker(), "nine")
+
     def test_evict_parked_takes_the_oldest_first(self):
         for number in ("7", "8", "9"):
             self.build(number)
@@ -505,15 +550,18 @@ class WarmKeys(Fixture):
         self.assertIn("pr-8", output.getvalue())
         self.assertEqual([path.name for path in state.parked_slots(self.store)], ["pr-7"])
 
-    def test_parked_builds_are_capped_by_count_and_age(self):
+    def test_parked_builds_are_capped_by_count_and_reuse_distance(self):
         for number in ("1", "2", "3", "4"):
             self.build(number)
             self.kept(pr=number)
         self.assertEqual(sorted(path.name for path in (self.store / "pr-builds").iterdir()), ["pr-2", "pr-3"])
         stale = self.store / "pr-builds" / "pr-2"
         os.utime(stale, (1, 1))
+        log = Path(self.tmp.name) / "jobs.jsonl"
+        log.write_text("".join(json.dumps({"event": "started", "at": 2}) + "\n" for _ in range(80)))
         (self.store / "pr-builds" / ".pr-5.incoming-999999999").mkdir()
-        state.prune_pr_slots(self.store)
+        with unittest.mock.patch.dict(os.environ, {"CMUX_JOB_LOG": str(log)}):
+            state.prune_pr_slots(self.store)
         self.assertEqual(sorted(path.name for path in (self.store / "pr-builds").iterdir()), ["pr-3"])
 
     def test_at_most_eight_keys_without_repeats(self):
@@ -821,6 +869,20 @@ class Prefer(Fixture):
         self.assertEqual((result["prefer"], result["seed_rebuilds_app"], result["kept_rebuilds_app"]),
                          ("false", "true", "false"))
 
+    def test_a_kept_build_that_recompiles_the_app_stays_when_the_seed_would_too(self):
+        """Both starts recompile the app, so the seed's fewer changed inputs save nothing: from 2026-09-27 17:45Z
+        to 2026-09-28, 269 such local-seed starts compiled in 515 s at the median against 408 to 429 s from a kept build."""
+        self.kept(changed=6)
+        (self.store / "derived-data" / state.RECORD).write_text(
+            json.dumps(self.recorded_with_package_change(changed=6)))
+        (self.cache / "p-j14-base").mkdir(parents=True)
+        (self.cache / "p-j14-base" / state.seed.MANIFEST).write_text(
+            json.dumps(self.recorded_with_package_change(changed=1)))
+        result = self.prefer()
+        self.assertEqual((result["prefer"], result["seed_rebuilds_app"], result["kept_rebuilds_app"]),
+                         ("false", "true", "true"))
+        self.assertIn("both recompile the app", result["reason"])
+
     def test_a_nearer_bucket_seed_replaces_a_kept_seed_that_recompiles_the_app(self):
         self.kept(changed=6)
         (self.store / "derived-data" / state.RECORD).write_text(
@@ -832,17 +894,17 @@ class Prefer(Fixture):
             result = self.prefer(("p-j14-base", 0), max_distance=2)
         compare.assert_called_once_with("p-j14-base", self.workspace)
         self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-base", "false"))
-        # When the bucket seed recompiles the app too, or GitHub cannot say,
-        # the clone stays: it is the cheaper start.
+        # When the bucket seed recompiles the app too, or GitHub cannot say, the kept build stays: the kept
+        # seed recompiles the app as well, and a kept build does that faster.
         for answer in (True, None):
             with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app", return_value=answer):
                 result = self.prefer(("p-j14-base", 0), max_distance=2)
-            self.assertEqual((result["prefer"], result["seed_key"], result["local"]), ("true", "p-j14-oldest", "true"))
-        # Without downloads, the kept seed is all there is.
+            self.assertEqual(result["prefer"], "false")
+        # Without downloads, the kept build stays for the same reason.
         with unittest.mock.patch.object(state, "bucket_seed_rebuilds_app") as compare:
             result = self.prefer(("p-j14-base", 0))
         compare.assert_not_called()
-        self.assertEqual((result["prefer"], result["seed_key"]), ("true", "p-j14-oldest"))
+        self.assertEqual(result["prefer"], "false")
 
     def test_a_far_bucket_seed_replaces_a_kept_build_that_recompiles_the_app(self):
         (self.store / "derived-data").mkdir(parents=True)
@@ -1056,8 +1118,8 @@ class Wiring(unittest.TestCase):
     def test_state_steps_run_only_on_an_owned_runner(self):
         self.assertIn(OWNED, self.by_id["owned-state"]["if"])
         self.assertIn("github.event_name == 'pull_request'", self.by_id["owned-state"]["if"])
-        # Main's full-suite dispatch may be placed on an owned Mac too (pr_runner_pool.py).
-        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+        # Trusted manual dispatches may be placed on an owned Mac too (pr_runner_pool.py).
+        self.assertIn("github.event_name == 'workflow_dispatch'",
                       self.by_id["owned-state"]["if"])
         # Every other state step follows owned-state.
         self.assertIn("steps.owned-state.outcome != 'skipped'", self.step("Keep this owned Mac's build state")["if"])
@@ -1158,38 +1220,13 @@ class Wiring(unittest.TestCase):
         import product_input_identity as identity
         self.assertIn("Choose this job's canonical build root", identity.NON_PRODUCT_RECIPE_STEPS)
 
-    def test_consumers_alias_their_checkout_at_the_producers_root(self):
-        # Stamp as ci-macos.yml and test-e2e.yml do: once from <root>/src, then
-        # again from the job workspace when packaging. `derived` names the
-        # root at both; `checkout` ends up as the workspace. The restore
-        # snippet then exports the producer's root, whatever this runner's.
-        import os
-        import subprocess
-        import app_host_test_products as products
+    def test_consumers_alias_their_checkout_at_a_stable_source_root(self):
+        # The compiled product maps #filePath to a stable runtime location, so
+        # restore does not inspect or lock the producer's canonical root.
         script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text()
-        start = script.index('producer_derived="$(')
-        end = script.index("esac", start) + len("esac")
-        self.assertLess(end, script.index('scripts/ci/canonical-build-root.sh --runtime-source "$PWD"'))
-        for slot, expected in (("cmux-ci-2", "cmux-ci-2"), ("cmux-ci", "cmux-ci"), ("elsewhere", None)):
-            with tempfile.TemporaryDirectory() as tmp:
-                base = Path(tmp).resolve()
-                derived = base / "private/tmp" / slot / "derived-data-compile-admission"
-                (derived / "Build" / "Products").mkdir(parents=True)
-                # No test manifests here: stamp only validates them.
-                with unittest.mock.patch.object(products, "manifests", return_value={}):
-                    for checkout in (derived.parent / "src", base / "workspace"):
-                        products.stamp(derived, {"revision": "r", "xcode": "x", "architecture": "arm64",
-                                                 "developer": "d", "checkout": str(checkout)})
-                receipt = json.loads((derived / "Build/Products" / products.RECEIPT).read_text())
-                self.assertEqual(receipt["checkout"], str(base / "workspace"))
-                snippet = script[start:end].replace("/private/tmp/cmux-ci", f"{base}/private/tmp/cmux-ci")
-                result = subprocess.run(
-                    ["bash", "-c", "set -euo pipefail\n" + snippet + '\necho "$CMUX_CI_CANONICAL_ROOT"'],
-                    env={"PATH": os.environ["PATH"], "CMUX_DERIVED_DATA_PATH": str(derived),
-                         "CMUX_CI_CANONICAL_ROOT": "mine"},
-                    capture_output=True, text=True, check=True)
-                want = f"{base}/private/tmp/{expected}" if expected else "mine"
-                self.assertEqual(result.stdout.strip(), want, slot)
+        self.assertIn("CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source", script)
+        self.assertNotIn("producer_derived", script)
+        self.assertNotIn("glaeda-canonical-root", script)
 
     def test_only_a_successful_compile_is_kept_as_xcode_left_it(self):
         index = self.names.index

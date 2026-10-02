@@ -4955,6 +4955,596 @@
           }
         }
       }
+    },
+    "jumpToBottom.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump to Bottom"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الانتقال إلى الأسفل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Ende springen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ir al final"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aller en bas"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一番下へ移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "맨 아래로 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳到底部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳至底部"
+          }
+        }
+      }
+    },
+    "config.settingChange.unknownPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' isn't a cmux setting. Run `cmux docs settings` to list them."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ist keine cmux-Einstellung. Führe `cmux docs settings` aus, um alle aufzulisten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' n'est pas un réglage cmux. Exécutez `cmux docs settings` pour les lister."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ليس إعدادًا في cmux. شغّل `cmux docs settings` لعرض الإعدادات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' no es un ajuste de cmux. Ejecuta `cmux docs settings` para ver la lista."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是 cmux 設定。執行 `cmux docs settings` 可列出所有設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是 cmux 设置。运行 `cmux docs settings` 可列出所有设置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'은(는) cmux 설정이 아닙니다. `cmux docs settings`를 실행해 목록을 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' は cmux の設定ではありません。`cmux docs settings` を実行すると一覧を表示できます。"
+          }
+        }
+      }
+    },
+    "config.settingChange.notASetting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' isn't a setting. Edit that section of cmux.json directly."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ist keine Einstellung. Bearbeite diesen Abschnitt von cmux.json direkt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' n'est pas un réglage. Modifiez directement cette section de cmux.json."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ليس إعدادًا. عدّل هذا القسم من cmux.json مباشرةً."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' no es un ajuste. Edita esa sección de cmux.json directamente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是設定。請直接編輯 cmux.json 的該區段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是设置。请直接编辑 cmux.json 的该部分。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'은(는) 설정이 아닙니다. cmux.json의 해당 섹션을 직접 편집하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' は設定ではありません。cmux.json の該当セクションを直接編集してください。"
+          }
+        }
+      }
+    },
+    "config.settingChange.notBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' isn't true or false, so it can't be toggled."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ist nicht true oder false und kann daher nicht umgeschaltet werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' n'est ni true ni false et ne peut donc pas être basculé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' ليس true أو false، لذا لا يمكن تبديله."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' no es true ni false, así que no se puede alternar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是 true 或 false,因此無法切換。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 不是 true 或 false,因此无法切换。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'은(는) true나 false가 아니므로 전환할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' は true でも false でもないため、切り替えられません。"
+          }
+        }
+      }
+    },
+    "config.settingChange.emptyCycle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cycling '%@' needs at least one value."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Durchschalten von '%@' ist mindestens ein Wert nötig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faire défiler '%@' nécessite au moins une valeur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب التنقّل بين قيم '%@' قيمة واحدة على الأقل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para alternar entre valores de '%@' se necesita al menos un valor."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "循環切換 '%@' 至少需要一個值。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "循环切换 '%@' 至少需要一个值。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 값을 순환하려면 값이 하나 이상 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' を順に切り替えるには、少なくとも 1 つの値が必要です。"
+          }
+        }
+      }
+    },
+    "config.settingChange.unknownPreset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No setting preset named '%@'. Add it under settingPresets in ~/.config/cmux/cmux.json."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es gibt keine Einstellungsvorlage namens '%@'. Füge sie unter settingPresets in ~/.config/cmux/cmux.json hinzu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun préréglage nommé '%@'. Ajoutez-le sous settingPresets dans ~/.config/cmux/cmux.json."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد إعداد مسبق باسم '%@'. أضفه ضمن settingPresets في ~/.config/cmux/cmux.json."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún preajuste llamado '%@'. Añádelo en settingPresets en ~/.config/cmux/cmux.json."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有名為 '%@' 的設定預設組。請在 ~/.config/cmux/cmux.json 的 settingPresets 下新增。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有名为 '%@' 的设置预设。请在 ~/.config/cmux/cmux.json 的 settingPresets 下添加。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'(이)라는 설정 프리셋이 없습니다. ~/.config/cmux/cmux.json의 settingPresets 아래에 추가하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' という名前の設定プリセットはありません。~/.config/cmux/cmux.json の settingPresets に追加してください。"
+          }
+        }
+      }
+    },
+    "config.settingChange.invalidPreset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting preset '%@' must be an object of settings, for example {\"sidebar\": {\"showPorts\": false}}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Einstellungsvorlage '%@' muss ein Objekt mit Einstellungen sein, zum Beispiel {\"sidebar\": {\"showPorts\": false}}."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le préréglage '%@' doit être un objet de réglages, par exemple {\"sidebar\": {\"showPorts\": false}}."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون الإعداد المسبق '%@' كائنًا من الإعدادات، مثل {\"sidebar\": {\"showPorts\": false}}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El preajuste '%@' debe ser un objeto de ajustes, por ejemplo {\"sidebar\": {\"showPorts\": false}}."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定預設組 '%@' 必須是設定物件,例如 {\"sidebar\": {\"showPorts\": false}}。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置预设 '%@' 必须是设置对象,例如 {\"sidebar\": {\"showPorts\": false}}。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 프리셋 '%@'은(는) 설정 객체여야 합니다. 예: {\"sidebar\": {\"showPorts\": false}}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定プリセット '%@' は設定のオブジェクトである必要があります。例: {\"sidebar\": {\"showPorts\": false}}。"
+          }
+        }
+      }
+    },
+    "config.settingChange.keyContainsDot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' names a key that contains \".\", such as a workspaceGroups.byCwd path. Setting paths split on every \".\", so that key can't be changed this way. Edit it in cmux.json directly."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' verweist auf einen Schlüssel mit \".\", etwa einen workspaceGroups.byCwd-Pfad. Einstellungspfade werden an jedem \".\" geteilt, daher lässt sich dieser Schlüssel so nicht ändern. Bearbeite ihn direkt in cmux.json."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' désigne une clé qui contient \".\", par exemple un chemin workspaceGroups.byCwd. Les chemins de réglage sont découpés à chaque \".\", donc cette clé ne peut pas être modifiée ainsi. Modifiez-la directement dans cmux.json."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' يشير إلى مفتاح يحتوي على \".\"، مثل مسار workspaceGroups.byCwd. تُقسَّم مسارات الإعدادات عند كل \".\"، لذا لا يمكن تغيير هذا المفتاح بهذه الطريقة. عدّله في cmux.json مباشرةً."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' se refiere a una clave que contiene \".\", como una ruta de workspaceGroups.byCwd. Las rutas de ajustes se dividen en cada \".\", así que esa clave no se puede cambiar de esta forma. Edítala directamente en cmux.json."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 指向含有 \".\" 的鍵，例如 workspaceGroups.byCwd 路徑。設定路徑會在每個 \".\" 處分割，因此無法用這種方式變更該鍵。請直接在 cmux.json 中編輯。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 指向包含 \".\" 的键，例如 workspaceGroups.byCwd 路径。设置路径会在每个 \".\" 处拆分，因此无法用这种方式更改该键。请直接在 cmux.json 中编辑。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@'은(는) \".\"이 포함된 키를 가리킵니다(예: workspaceGroups.byCwd 경로). 설정 경로는 모든 \".\"에서 나뉘므로 이 방법으로는 해당 키를 변경할 수 없습니다. cmux.json에서 직접 편집하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' は \".\" を含むキー（workspaceGroups.byCwd のパスなど）を指しています。設定パスはすべての \".\" で分割されるため、この方法ではそのキーを変更できません。cmux.json で直接編集してください。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.launchAcknowledgementTimeoutLimitReached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH pane could not contact cmux to start the remote session after %s attempts; reconnect to try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Das SSH-Fenster konnte cmux nach %s Versuchen nicht erreichen, um die Remotesitzung zu starten; verbinden Sie sich erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Le panneau SSH n’a pas pu joindre cmux pour démarrer la session distante après %s tentatives ; reconnectez-vous pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] تعذر على لوحة SSH الاتصال بـ cmux لبدء الجلسة البعيدة بعد %s محاولات؛ أعد الاتصال للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] El panel SSH no pudo contactar con cmux para iniciar la sesión remota después de %s intentos; vuelve a conectarte para intentarlo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH 窗格嘗試 %s 次後仍無法聯絡 cmux 以啟動遠端工作階段；請重新連線再試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH 窗格尝试 %s 次后仍无法联系 cmux 以启动远程会话；请重新连接再试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH 패널이 %s번 시도 후에도 원격 세션을 시작하기 위해 cmux에 연결하지 못했습니다. 다시 연결해 보세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] SSH ペインは %s 回試行しても cmux に接続してリモートセッションを開始できませんでした。再接続してください。"
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.retryReason.launchAcknowledgementTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux did not acknowledge the SSH launch"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat den SSH-Start nicht bestätigt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas confirmé le démarrage SSH"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يؤكد cmux بدء SSH"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no confirmó el inicio de SSH"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未確認 SSH 啟動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未确认 SSH 启动"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 SSH 시작을 확인하지 않음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が SSH の起動を確認できませんでした"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -13,6 +13,28 @@ if zmodload zsh/parameter 2>/dev/null && (( ${+jobstates} )); then
     _CMUX_HAS_ZSH_JOBSTATES=1
 fi
 
+# Prefer zsh/zselect for the poll-loop sleeps in the git-HEAD and PR-status
+# watchers (no fork, vs ~1 fork+exec of /bin/sleep per second per pane).
+# Falls back to /bin/sleep if the module is unavailable.
+typeset -g _CMUX_HAS_ZSELECT=0
+if zmodload zsh/zselect 2>/dev/null; then
+    _CMUX_HAS_ZSELECT=1
+fi
+
+# Fork-free sleep.  Argument is in centiseconds (zselect's -t unit), so a
+# whole-second wait is `_cmux_sleep_cs 100`.  zselect with only -t and no fds
+# returns status 1 on timeout, so call it then return 0 explicitly rather than
+# falling through to the /bin/sleep fallback (which would double the wait).
+_cmux_sleep_cs() {
+    if (( _CMUX_HAS_ZSELECT )); then
+        # Timeout is zselect's normal status 1. Consume it before returning so
+        # callers with ERR_RETURN/ERR_EXIT enabled do not abort the watcher.
+        zselect -t "$1" || :
+        return 0
+    fi
+    sleep "$(( $1 / 100.0 ))"
+}
+
 _cmux_zsh_job_table_saturated() {
     (( _CMUX_HAS_ZSH_JOBSTATES )) || return 1
 
@@ -345,14 +367,122 @@ _cmux_path_prepend_unique_directory() {
     _cmux_path_prepend_unique_directory_into_reply "$@"
     printf '%s' "$REPLY"
 }
+# Succeeds when every directory, checked in order, is an absolute path to a
+# real directory (not a symlink) owned by this user that no one else can write
+# to, with a safe ancestry. Sticky shared ancestors (such as /tmp) are safe;
+# a non-sticky writable ancestor can rename a checked child after this check.
+_cmux_private_dirs() {
+    builtin emulate -L zsh
+    local create="$1"
+    shift
+    local dir
+    local -a private_dir
+    (( $# )) || return 1
+    for dir in "$@"; do
+        [[ "$dir" == /* ]] || return 1
+        if [[ "$create" == 1 && ! -e "$dir" && ! -L "$dir" ]]; then
+            /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1 || return 1
+        fi
+        # Glob qualifiers use lstat: / rejects symlinks, U requires our euid
+        # and f:go-w: requires no group or other write bit.
+        private_dir=( "$dir"(N/Uf:go-w:) )
+        (( ${#private_dir} )) || return 1
+        _cmux_private_path_chain "$dir" || return 1
+    done
+}
+
+_cmux_private_path_chain() {
+    builtin emulate -L zsh
+    local start="$1"
+    local current="$start"
+    local canonical=""
+    while true; do
+        _cmux_private_path_node "$current" || return 1
+        [[ "$current" == "/" ]] && break
+        current="${current%/*}"
+        [[ -n "$current" ]] || current="/"
+    done
+    canonical="$(_cmux_resolve_path "$start")" || return 1
+    [[ "$canonical" == "$start" ]] || _cmux_private_path_chain_resolved "$canonical"
+}
+
+_cmux_private_path_chain_resolved() {
+    builtin emulate -L zsh
+    local current="$1"
+    while true; do
+        _cmux_private_path_node "$current" || return 1
+        [[ "$current" == "/" ]] && return 0
+        current="${current%/*}"
+        [[ -n "$current" ]] || current="/"
+    done
+}
+
+_cmux_private_path_node() {
+    builtin emulate -L zsh
+    local current="$1"
+    local owner=""
+    if [[ -d "$current" && ! -L "$current" ]]; then
+        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
+        [[ "$owner" == "$current" ]] || return 1
+        if [[ "$(/usr/bin/find -P "$current" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)" == "$current" ]]; then
+            return 0
+        fi
+        [[ "$(/usr/bin/find -P "$current" -prune -type d -perm -1000 -print 2>/dev/null)" == "$current" ]] || return 1
+        return 0
+    fi
+    if [[ -L "$current" ]]; then
+        owner="$(/usr/bin/find -P "$current" -prune \( -uid "$EUID" -o -uid 0 \) -print 2>/dev/null)"
+        [[ "$owner" == "$current" ]]
+        return $?
+    fi
+    return 1
+}
+
+_cmux_resolve_path() {
+    if [[ -x /usr/bin/realpath ]]; then
+        /usr/bin/realpath -- "$1"
+    elif [[ -x /bin/realpath ]]; then
+        /bin/realpath -- "$1"
+    elif [[ -x /usr/bin/readlink ]]; then
+        /usr/bin/readlink -f -- "$1"
+    else
+        return 1
+    fi
+}
+typeset -g _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
 _cmux_install_cli_command_shim() {
     local command_name="$1"
     local wrapper_path="$2"
     local surface_component="${CMUX_SURFACE_ID:-$$}"
     local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+    shim_root="${shim_root%/}"
     local shim_parent="${shim_root%/*}"
-    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" ]]; then
-        shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/$surface_component"
+    local tmp_root="${TMPDIR:-/tmp}"
+    local legacy_shim_root="${tmp_root%/}/cmux-cli-shims/$surface_component"
+    local shim_state="${HOME:-}/.cmuxterm"
+    local rejected_root=""
+    local REPLY
+    # An inherited root is reused only while it is still private. Otherwise
+    # the shell makes its own, and skips the shim if it can't.
+    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" || "$shim_root" == "$legacy_shim_root" ]] \
+        || ! _cmux_private_dirs 0 "$shim_parent" "$shim_root"; then
+        # Keep a shim root this shell did not accept off PATH.
+        [[ "${shim_parent##*/}" == "cmux-cli-shims" ]] && rejected_root="$shim_root"
+        shim_parent="$shim_state/cmux-cli-shims"
+        shim_root="$shim_parent/$surface_component"
+        if [[ "${HOME:-}" != /* ]] || ! _cmux_private_dirs 1 "$shim_state" "$shim_parent" "$shim_root"; then
+            if [[ "$command_name" == "claude" ]]; then
+                unset CMUX_CLAUDE_WRAPPER_SHIM CMUX_CLAUDE_WRAPPER_SHIM_ROOT
+                _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED=""
+            fi
+            if [[ -n "$rejected_root" ]]; then
+                _cmux_path_prepend_unique_directory_into_reply "$rejected_root" "${PATH-}"
+                REPLY="${REPLY#"$rejected_root"}"
+                PATH="${REPLY#:}"
+                hash -r >/dev/null 2>&1 || rehash >/dev/null 2>&1 || true
+            fi
+            return 0
+        fi
     fi
     local shim_path="$shim_root/$command_name"
     local escaped_wrapper="$wrapper_path"
@@ -382,8 +512,8 @@ _cmux_install_cli_command_shim() {
             printf '%s\n' '        fi'
             printf '%s\n' '    fi'
             printf '%s\n' 'fi'
-            printf 'export CMUX_CLAUDE_WRAPPER_SHIM="%s"\n' "$shim_path"
-            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="%s"\n' "$shim_root"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM=%q\n' "$shim_path"
+            printf 'export CMUX_CLAUDE_WRAPPER_SHIM_ROOT=%q\n' "$shim_root"
             printf '%s\n' 'if [[ -x "$cmux_wrapper" ]]; then'
             printf '%s\n' '    exec "$cmux_wrapper" "$@"'
             printf '%s\n' 'fi'
@@ -417,15 +547,16 @@ _cmux_install_cli_command_shim() {
     if [[ "$command_name" == "claude" ]]; then
         export CMUX_CLAUDE_WRAPPER_SHIM="$shim_path"
         export CMUX_CLAUDE_WRAPPER_SHIM_ROOT="$shim_root"
+        _CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED="$shim_path"
     fi
 
-    local REPLY
-    _cmux_path_prepend_unique_directory_into_reply "$shim_root" "${PATH-}"
+    _cmux_path_prepend_unique_directory_into_reply "$shim_root" "${PATH-}" "$rejected_root"
     PATH="$REPLY"
     hash -r >/dev/null 2>&1 || rehash >/dev/null 2>&1 || true
 }
 _cmux_claude_wrapper_command() {
-    if [[ -x "${CMUX_CLAUDE_WRAPPER_SHIM:-}" ]]; then
+    # Only run a shim this shell wrote into a directory it checked.
+    if [[ -n "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" && "${CMUX_CLAUDE_WRAPPER_SHIM:-}" == "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" && -x "$_CMUX_CLAUDE_WRAPPER_SHIM_VERIFIED" ]]; then
         "$CMUX_CLAUDE_WRAPPER_SHIM" "$@"
     elif [[ -x "${_CMUX_CLAUDE_WRAPPER:-}" ]]; then
         "$_CMUX_CLAUDE_WRAPPER" "$@"
@@ -1381,14 +1512,37 @@ _cmux_github_repo_slug_for_path() {
     print -r -- "$path_part"
 }
 
+# Sets REPLY to the PR watcher's state directory. Pass 1 to create it when
+# missing. Fails unless the path is a real directory that this user owns and
+# nobody else can write, so no state file lands in a place another local
+# account prepared, as the shared /tmp allows.
+_cmux_pr_state_dir() {
+    builtin emulate -L zsh
+    local dir="${${TMPDIR:-/tmp}%/}/cmux-pr-${EUID}"
+    if [[ "${1:-0}" == 1 && ! -e "$dir" && ! -L "$dir" ]]; then
+        /bin/mkdir -m 700 -- "$dir" >/dev/null 2>&1 || true
+    fi
+    # Glob qualifiers inspect the link itself: a directory, owned by this
+    # user, without group or other write permission.
+    local -a private_dir
+    private_dir=( "$dir"(N/Uf:go-w:) )
+    (( ${#private_dir} )) || return 1
+    _cmux_private_path_chain "$dir" || return 1
+    REPLY="$dir"
+}
+
 _cmux_pr_cache_prefix() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 1
-    print -r -- "/tmp/cmux-pr-cache-${CMUX_PANEL_ID}"
+    local REPLY
+    _cmux_pr_state_dir 1 || return 1
+    print -r -- "$REPLY/cache-${CMUX_PANEL_ID}"
 }
 
 _cmux_pr_force_signal_path() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 1
-    print -r -- "/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
+    local REPLY
+    _cmux_pr_state_dir 1 || return 1
+    print -r -- "$REPLY/force-${CMUX_PANEL_ID}"
 }
 
 _cmux_pr_debug_log() {
@@ -1397,14 +1551,17 @@ _cmux_pr_debug_log() {
     local branch="$1"
     local event="$2"
     local now="${EPOCHSECONDS:-$SECONDS}"
-    printf '%s\tbranch=%s\tevent=%s\n' "$now" "$branch" "$event" >> /tmp/cmux-pr-debug.log
+    local REPLY
+    _cmux_pr_state_dir 1 || return 0
+    printf '%s\tbranch=%s\tevent=%s\n' "$now" "$branch" "$event" >> "$REPLY/debug.log"
 }
 
 _cmux_pr_cache_clear() {
     # Runs on every prompt while git watching is off, so only spawn rm when a
     # cache file is actually there (it only exists while PR watching is on).
-    if [[ -n "$CMUX_PANEL_ID" ]]; then
-        local prefix="/tmp/cmux-pr-cache-${CMUX_PANEL_ID}"
+    local REPLY
+    if [[ -n "$CMUX_PANEL_ID" ]] && _cmux_pr_state_dir; then
+        local prefix="$REPLY/cache-${CMUX_PANEL_ID}"
         local cache_file
         local -a cache_files
         for cache_file in \
@@ -1495,7 +1652,7 @@ _cmux_report_pr_for_path() {
     err_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-gh-pr-view.XXXXXX" 2>/dev/null || true)"
     [[ -n "$err_file" ]] || return 1
     gh_output="$(
-        builtin cd "$repo_path" 2>/dev/null \
+        builtin cd -q "$repo_path" 2>/dev/null \
             && gh pr view "$branch" \
                 "${gh_repo_args[@]}" \
                 --json number,state,url \
@@ -1605,14 +1762,14 @@ _cmux_run_pr_probe_with_timeout() {
     probe_pid=$!
 
     while kill -0 "$probe_pid" >/dev/null 2>&1; do
-        sleep 1
+        _cmux_sleep_cs 100
         now="${EPOCHSECONDS:-$SECONDS}"
         if (( _CMUX_ASYNC_JOB_TIMEOUT > 0 )) && (( now - started_at >= _CMUX_ASYNC_JOB_TIMEOUT )); then
             _cmux_kill_process_tree "$probe_pid" TERM
-            sleep 0.2
+            _cmux_sleep_cs 20
             if kill -0 "$probe_pid" >/dev/null 2>&1; then
                 _cmux_kill_process_tree "$probe_pid" KILL
-                sleep 0.2
+                _cmux_sleep_cs 20
             fi
             if ! kill -0 "$probe_pid" >/dev/null 2>&1; then
                 wait "$probe_pid" >/dev/null 2>&1 || true
@@ -1775,8 +1932,8 @@ _cmux_halt_pr_poll_loop() {
     # negative PID kills the loop + all descendants (gh, sleep) without
     # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
     [[ -z "$_CMUX_PR_POLL_PID" ]] || kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
-    local signal_path=""
-    [[ -n "$CMUX_PANEL_ID" ]] && signal_path="/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
+    local signal_path="" REPLY
+    [[ -n "$CMUX_PANEL_ID" ]] && _cmux_pr_state_dir && signal_path="$REPLY/force-${CMUX_PANEL_ID}"
     # preexec runs this before every command; only spawn rm when there is a file.
     [[ -n "$signal_path" && -e "$signal_path" ]] && { /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true; }
     _CMUX_PR_POLL_PID=""
@@ -1837,7 +1994,7 @@ _cmux_start_pr_poll_loop() {
                 if [[ -n "$signal_path" && -f "$signal_path" ]]; then
                     break
                 fi
-                sleep 1
+                _cmux_sleep_cs 100
                 slept=$(( slept + 1 ))
             done
         done
@@ -1879,7 +2036,7 @@ _cmux_start_git_head_watch() {
         _CMUX_WATCHER_GUARD_COUNTDOWN=0
         while true; do
             _cmux_watcher_guard_tick "$watch_shell_pid" "$watch_shell_start" || break
-            sleep 1
+            _cmux_sleep_cs 100
 
             local signature
             signature="$(_cmux_git_head_signature "$watch_head_path" 2>/dev/null || true)"
