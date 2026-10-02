@@ -609,4 +609,17 @@ describe("acpmux turn counts", () => {
       restore();
     }
   });
+
+  /// History loaded from mid-turn has no user message to time the turn from.
+  test("a summary without a start time shows only the count", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "s", version: 1, at: 3, kind: "turnSummary", toolCount: 2 }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("2 tool calls");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
 });

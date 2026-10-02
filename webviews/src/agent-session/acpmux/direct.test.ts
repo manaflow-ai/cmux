@@ -437,4 +437,19 @@ describe("direct client session state", () => {
     await settle();
     expect(latest().rows.filter((row) => row.kind === "turnSummary").map((row) => [row.toolCount, row.durationMs])).toEqual([[1, 2000], [3, 6000]]);
   });
+
+  test("a prompt queued during a turn does not restart that turn's count", async () => {
+    const tool = (seq: number, toolCallId: string): EventRecord => ({ sessionId: "a", seq, at: seq * 1000, dir: "in", kind: "tool_call", msg: { method: "session/update", params: { sessionId: "a", update: { sessionUpdate: "tool_call", toolCallId, title: "Run", status: "completed" } } } });
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/attach"
+      ? { session: { sessionId: "a", status: "idle" }, events: [{ ...userEvent("a", 1, "one"), at: 1000 }, tool(2, "t1"), tool(3, "t2")] }
+      : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    const client = await connect();
+    await settle();
+    ScriptedSocket.held.add("session/prompt");
+    void client.send("queued").catch(() => undefined);
+    await settle();
+    ScriptedSocket.current.notify("_acpmux/event", { sessionId: "a", seq: 4, at: 4000, dir: "mux", kind: "turn_result", msg: { status: "completed" } });
+    await settle();
+    expect(latest().rows.filter((row) => row.kind === "turnSummary").map((row) => [row.toolCount, row.durationMs])).toEqual([[2, 3000]]);
+  });
 });
