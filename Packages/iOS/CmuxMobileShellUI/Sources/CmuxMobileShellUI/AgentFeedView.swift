@@ -3,57 +3,9 @@ import CmuxMobileShellModel
 import SwiftUI
 
 /// The Feed tab's visible filter: everything, or only rows awaiting input.
-enum AgentFeedFilter: Hashable {
+enum AgentFeedFilter: Hashable, Sendable {
     case all
     case needsInput
-}
-
-private struct AgentFeedVisibleProjection: Equatable {
-    let rows: [AgentFeedRowModel]
-    let needsInputCount: Int
-
-    static func build(
-        preparedRows: [AgentFeedRowModel],
-        filter: AgentFeedFilter,
-        searchText: String
-    ) -> Self {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let notable = preparedRows.compactMap { model -> AgentFeedRowModel? in
-            let item = model.item
-            // Notification history belongs to the Notifications tab. Keep
-            // this client-side guard for snapshots produced by older Macs.
-            guard item.source.trimmingCharacters(in: .whitespacesAndNewlines)
-                .caseInsensitiveCompare("notification") != .orderedSame else {
-                return nil
-            }
-            guard query.isEmpty || item.matchesFeedSearch(query) else { return nil }
-            switch item.kind {
-            case .toolUse, .userPrompt:
-                return nil
-            case .toolResult:
-                guard item.toolResultIsError else { return nil }
-            case .permissionRequest, .exitPlan, .question,
-                 .assistantMessage, .stop, .todos, .unsupported:
-                break
-            }
-            return model.hasVisibleContent ? model : nil
-        }
-        let visibleRows: [AgentFeedRowModel]
-        switch filter {
-        case .all:
-            visibleRows = notable
-        case .needsInput:
-            visibleRows = notable.filter { $0.item.effectiveNeedsInput }
-        }
-        let needsInputCount = preparedRows.lazy
-            .filter { model in
-                model.item.source.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .caseInsensitiveCompare("notification") != .orderedSame
-            }
-            .filter { $0.item.effectiveNeedsInput }
-            .count
-        return Self(rows: visibleRows, needsInputCount: needsInputCount)
-    }
 }
 
 /// The store-free Feed presentation: an X-style full-width timeline of agent
@@ -70,10 +22,7 @@ struct AgentFeedView: View {
     let actions: AgentFeedActions
     var searchText: String = ""
     @Environment(MobileDisplaySettings.self) private var displaySettings
-    @State private var filter: AgentFeedFilter = .all
-    @State private var rowModelCache: AgentFeedRowModelCache
-    @State private var preparedRows: [AgentFeedRowModel]
-    @State private var visibleProjection: AgentFeedVisibleProjection
+    @State private var projection: AgentFeedProjection
     @State private var now = Date()
     @State private var composeContext: AgentFeedComposeContext?
     @State private var readingItem: MobileAgentFeedItem?
@@ -98,13 +47,8 @@ struct AgentFeedView: View {
         self.isActive = isActive
         self.actions = actions
         self.searchText = searchText
-        var rowModelCache = AgentFeedRowModelCache()
-        let preparedRows = rowModelCache.update(items: items)
-        _rowModelCache = State(initialValue: rowModelCache)
-        _preparedRows = State(initialValue: preparedRows)
-        _visibleProjection = State(initialValue: .build(
-            preparedRows: preparedRows,
-            filter: .all,
+        _projection = State(initialValue: AgentFeedProjection(
+            items: items,
             searchText: searchText
         ))
     }
@@ -120,14 +64,6 @@ struct AgentFeedView: View {
         }
         rowActions.viewFullText = { readingItem = $0 }
         return rowActions
-    }
-
-    private func rebuildVisibleProjection() {
-        visibleProjection = .build(
-            preparedRows: preparedRows,
-            filter: filter,
-            searchText: searchText
-        )
     }
 
     var body: some View {
@@ -149,11 +85,11 @@ struct AgentFeedView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 AgentFeedFilterMenu(
-                    filter: filter,
-                    needsInputCount: visibleProjection.needsInputCount,
-                    setFilter: {
-                        filter = $0
-                        actions.filterChanged($0)
+                    filter: projection.filter,
+                    needsInputCount: projection.needsInputCount,
+                    setFilter: { newFilter in
+                        projection.filter = newFilter
+                        actions.filterChanged(newFilter)
                     }
                 )
             }
@@ -176,19 +112,10 @@ struct AgentFeedView: View {
             await actions.refresh()
         }
         .onChange(of: items) { _, newItems in
-            let newPreparedRows = rowModelCache.update(items: newItems)
-            preparedRows = newPreparedRows
-            visibleProjection = .build(
-                preparedRows: newPreparedRows,
-                filter: filter,
-                searchText: searchText
-            )
+            projection.update(items: newItems)
         }
-        .onChange(of: filter) { _, _ in
-            rebuildVisibleProjection()
-        }
-        .onChange(of: searchText) { _, _ in
-            rebuildVisibleProjection()
+        .onChange(of: searchText) { _, newSearchText in
+            projection.searchText = newSearchText
         }
     }
 
@@ -200,16 +127,16 @@ struct AgentFeedView: View {
                 }
             }
             Section {
-                if visibleProjection.rows.isEmpty {
+                if projection.rows.isEmpty {
                     if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         ContentUnavailableView.search(text: searchText)
                             .listRowSeparator(.hidden)
                     } else {
-                        AgentFeedEmptyView(filter: filter)
+                        AgentFeedEmptyView(filter: projection.filter)
                             .listRowSeparator(.hidden)
                     }
                 } else {
-                    ForEach(visibleProjection.rows) { model in
+                    ForEach(projection.rows) { model in
                         let item = model.item
                         AgentFeedRow(
                             model: model,

@@ -4,6 +4,19 @@ import Testing
 @testable import CmuxMobileShellUI
 
 @Suite struct AgentFeedRowModelCacheTests {
+    @Test @MainActor func projectionPublishesTheLatestSnapshot() async {
+        let originalItems = (0..<40).map { makeItem(id: "row-\($0)") }
+        let projection = AgentFeedProjection(items: originalItems)
+        #expect(projection.rows.count == originalItems.count)
+
+        let inserted = makeItem(id: "new-row")
+        projection.update(items: [inserted] + originalItems)
+        await projection.waitForPendingRebuild()
+
+        #expect(projection.rows.first?.id == inserted.id)
+        #expect(projection.rows.count == originalItems.count + 1)
+    }
+
     @Test func reusesUnchangedRowsAndRebuildsOnlyChangedRows() {
         let originalItems = (0..<120).map { makeItem(id: "row-\($0)") }
         var cache = AgentFeedRowModelCache()
