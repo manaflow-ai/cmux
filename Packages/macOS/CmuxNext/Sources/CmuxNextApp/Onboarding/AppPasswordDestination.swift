@@ -6,8 +6,8 @@ import Foundation
 /// (`CEFEngine.importPasswords`, fork API 15), the store autofill reads,
 /// encrypted with cmux's own "cmux Safe Storage" key. A target id that is not
 /// a browser profile is refused (never the default profile). Passwords stay
-/// `SecretBytes` the whole way: the rows point into them, and they stay alive
-/// until the shim has copied them.
+/// `SecretBytes` the whole way: the rows point into them, and they are zeroed
+/// as soon as the shim has copied them.
 struct AppPasswordDestination: PasswordDestination {
     let available: Bool
     let write: @MainActor @Sendable (ChromiumPasswordRows, BrowserProfileID) async throws -> ChromiumPasswordWriteResult
@@ -21,7 +21,7 @@ struct AppPasswordDestination: PasswordDestination {
         let rows = ChromiumPasswordRows(logins.map { login in
             (url: login.url, signonRealm: login.signonRealm, username: login.username,
              password: login.password.unsafeBytesWhileAlive, created: login.created)
-        })
+        }, afterCopy: { for login in logins { login.password.zero() } })
         let result: ChromiumPasswordWriteResult
         do {
             result = try await write(rows, profile)

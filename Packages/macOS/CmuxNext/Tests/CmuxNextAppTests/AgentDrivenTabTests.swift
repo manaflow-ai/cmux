@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDaemon
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -115,5 +116,26 @@ import Testing
         #expect(panels.handle(first, .openPopup(second, BrowserPopupRequest())))
         #expect(second.isAgentDriven)
         #expect(panels.pages(openedBy: "tab").count == 2)
+    }
+
+    /// A tab the CLI, MCP or a script opens is marked before its page exists;
+    /// one whose page came first is left to the first-touch rebuild.
+    @Test func aTabAnAgentOpenedIsMarkedBeforeItsFirstPage() {
+        let cache = TabContentCache(daemon: DaemonService())
+        cache.markAgentDriven(surface: SurfaceID(rawValue: 7))
+        cache.claimAgentDriven(surface: SurfaceID(rawValue: 7), key: "agent")
+        let first = page()
+        cache.install(first, for: "agent")
+        #expect(first.isAgentDriven)
+        #expect(cache.agentDrivenSurfaces.isEmpty)
+
+        cache.claimAgentDriven(surface: SurfaceID(rawValue: 8), key: "user")
+        #expect(!cache.agentDrivenTabs.contains("user"), "only the surfaces an agent opened")
+
+        cache.install(page(), for: "late")
+        cache.markAgentDriven(surface: SurfaceID(rawValue: 9))
+        cache.claimAgentDriven(surface: SurfaceID(rawValue: 9), key: "late")
+        #expect(!cache.agentDrivenTabs.contains("late"), "its page loaded unmarked: the first touch rebuilds it")
+        #expect(cache.agentDrivenSurfaces.isEmpty)
     }
 }

@@ -11,11 +11,14 @@ public nonisolated final class ChromiumPasswordRows: @unchecked Sendable {
     let count: Int
     let rows: UnsafeMutableRawPointer
     private var strings: [UnsafeMutableBufferPointer<UInt8>] = []
+    private var afterCopy: (() -> Void)?
 
     /// `password` is a pointer and a length into memory the caller owns.
     public typealias Row = (url: String, signonRealm: String, username: String, password: UnsafeRawBufferPointer, created: Date?)
 
-    public init(_ entries: [Row]) {
+    /// `afterCopy` zeroes the caller's passwords; it runs once, as soon as the shim has copied them.
+    public init(_ entries: [Row], afterCopy: (() -> Void)? = nil) {
+        self.afterCopy = afterCopy
         count = entries.count
         rows = UnsafeMutableRawPointer.allocate(byteCount: max(count, 1) * Self.stride, alignment: 8)
         rows.initializeMemory(as: UInt8.self, repeating: 0, count: max(count, 1) * Self.stride)
@@ -31,7 +34,16 @@ public nonisolated final class ChromiumPasswordRows: @unchecked Sendable {
         }
     }
 
+    /// The shim has copied every row (or never will): zero the passwords and the copies here now.
+    func copied() {
+        afterCopy?()
+        afterCopy = nil
+        _ = memset_s(rows, max(count, 1) * Self.stride, 0, max(count, 1) * Self.stride)
+        for string in strings { _ = memset_s(string.baseAddress, string.count, 0, string.count) }
+    }
+
     deinit {
+        copied()
         _ = memset_s(rows, max(count, 1) * Self.stride, 0, max(count, 1) * Self.stride)
         rows.deallocate()
         for string in strings {

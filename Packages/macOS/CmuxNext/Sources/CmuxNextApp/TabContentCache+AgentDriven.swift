@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextDaemon
 import Foundation
 
 /// Saved passwords are not filled into a page an agent drives
@@ -29,5 +30,16 @@ extension TabContentCache {
             browserTabs.untrack(key)
             entry.close()
         }
+    }
+
+    /// A tab an agent asked for (`openBrowser` from the CLI, MCP or a
+    /// script) is marked before its page exists, so its first page load
+    /// never fills a saved password. When the page already exists by the time
+    /// the tab arrives, the agent's first operation rebuilds it instead.
+    func markAgentDriven(surface: SurfaceID) { agentDrivenSurfaces.insert(surface) }
+
+    func claimAgentDriven(surface: SurfaceID, key: String) {
+        guard agentDrivenSurfaces.remove(surface) != nil, browsers[key] == nil else { return }
+        agentDrivenTabs.insert(key)
     }
 }

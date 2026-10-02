@@ -15,9 +15,11 @@ extension CEFRuntime {
     func importPasswords(_ rows: ChromiumPasswordRows, profile: BrowserProfileID) async throws -> ChromiumPasswordWriteResult {
         guard rows.count > 0 else { return ChromiumPasswordWriteResult(added: 0, duplicate: 0, conflict: 0, rejected: 0) }
         guard let shim, canImportPasswords else { throw BrowserTabError.closed }
-        // The shim copies every row before it returns; the caller may zero its passwords after that.
+        // The shim copies every row before it returns: the passwords are zeroed then, not when the store replies.
         let reply = try await profileWrite(profile, label: "password import", timeout: Self.passwordImportTimeout) { path, id in
-            shim.importPasswords(path, id, UnsafeRawPointer(rows.rows), Int32(rows.count))
+            let started = shim.importPasswords(path, id, UnsafeRawPointer(rows.rows), Int32(rows.count))
+            rows.copied()
+            return started
         }
         return ChromiumPasswordWriteResult.parse(reply.json)
             ?? ChromiumPasswordWriteResult(added: Int(reply.value), duplicate: 0, conflict: 0, rejected: 0)

@@ -43,6 +43,13 @@ public final class SecretBytes: @unchecked Sendable {
 
     deinit { wipe() }
 
+    /// Zeroes the bytes now (once they have been handed on); the allocation goes at deinit.
+    public func zero() {
+        guard let base = buffer.baseAddress else { return }
+        _ = memset_s(base, buffer.count, 0, buffer.count)
+        count = 0
+    }
+
     /// Zeroes, unlocks and frees the bytes once; later calls (deinit after a failed fill) do nothing.
     private func wipe() {
         guard let base = buffer.baseAddress else { return }

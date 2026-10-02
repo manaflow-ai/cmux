@@ -164,3 +164,19 @@ import Testing
         #endif
     }
 }
+
+/// The caller's passwords are zeroed once, as soon as the shim has copied the rows.
+@Suite struct PasswordRowsCopyTests {
+    @Test func copiedRunsTheZeroingOnce() {
+        final class Count: @unchecked Sendable { var value = 0 }
+        let count = Count()
+        let secret: [UInt8] = Array("hunter2".utf8)
+        secret.withUnsafeBytes { bytes in
+            let rows = ChromiumPasswordRows([(url: "https://example.com/", signonRealm: "https://example.com/", username: "u", password: bytes, created: nil)],
+                                            afterCopy: { count.value += 1 })
+            rows.copied()
+            rows.copied()
+        }
+        #expect(count.value == 1)
+    }
+}

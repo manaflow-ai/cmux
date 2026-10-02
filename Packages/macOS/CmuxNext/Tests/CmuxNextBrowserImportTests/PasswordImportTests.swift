@@ -81,6 +81,14 @@ import Testing
         #expect(Mirror(reflecting: login).children.isEmpty && Mirror(reflecting: login.password).children.isEmpty)
     }
 
+    @Test func zeroEmptiesTheBytesAtOnce() {
+        let secret = SecretBytes(copying: Array("hunter2".utf8))
+        secret.zero()
+        #expect(secret.isEmpty)
+        #expect(secret.unsafeBytesWhileAlive.isEmpty)
+        secret.zero()
+    }
+
     @Test func aFailedFillFreesOnce() {
         struct Stop: Error {}
         #expect(throws: Stop.self) { _ = try SecretBytes(capacity: 32) { _ in throw Stop() } }
