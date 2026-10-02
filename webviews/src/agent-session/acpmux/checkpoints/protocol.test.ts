@@ -32,8 +32,12 @@ describe("checkpoint protocol", () => {
     const catalog = { catalog_sha256: "abc", operations: Object.values(CHECKPOINT_OPS) };
     expect(supportsCheckpointCatalog(catalog, "abc")).toBe(true);
     expect(supportsCheckpointCatalog({ ...catalog, catalog_sha256: "different" }, "abc")).toBe(false);
-    expect(supportsCheckpointCatalog({ ...catalog, operations: Object.values(CHECKPOINT_OPS).slice(1) }, "abc")).toBe(false);
-    expect(supportsCheckpointCatalog({ ...catalog, capabilities: ["git-checkpoints-v1"] }, "abc")).toBe(false);
+    expect(supportsCheckpointCatalog({ ...catalog, operations: Object.values(CHECKPOINT_OPS).slice(1) }, "abc")).toBe(
+      false,
+    );
+    expect(supportsCheckpointCatalog({ catalog_sha256: "abc", capabilities: ["git-checkpoints-v1"] }, "abc")).toBe(
+      false,
+    );
   });
 
   test("accepts decimal revisions and rejects malformed mutation envelopes", () => {
@@ -44,6 +48,8 @@ describe("checkpoint protocol", () => {
 
   test("rejects a checkpoint missing bounded skip accounting", () => {
     const malformed = { ...checkpoint, skipped_total: undefined };
-    expect(() => checkpointList({ repository_id: "repo-1", worktree_id: "worktree-1", checkpoints: [malformed] })).toThrow();
+    expect(() =>
+      checkpointList({ repository_id: "repo-1", worktree_id: "worktree-1", checkpoints: [malformed] }),
+    ).toThrow();
   });
 });
