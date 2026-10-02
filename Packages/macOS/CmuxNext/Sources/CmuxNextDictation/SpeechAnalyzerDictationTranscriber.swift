@@ -146,7 +146,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             guard !isFinishing else { throw CancellationError() }
             // Load the model before capture starts; speech heard while it was
             // still loading was never transcribed.
+            dictationTrace.error("TRACE prepare begin fmt=\(analyzerFormat.sampleRate, privacy: .public)")
             try await analyzer.prepareToAnalyze(in: analyzerFormat)
+            dictationTrace.error("TRACE prepare done")
             guard !isFinishing else { throw CancellationError() }
             do {
                 try startAudioEngine()
@@ -154,6 +156,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
                 throw DictationFailure.audioCaptureFailed(error.localizedDescription)
             }
             try await analyzer.start(inputSequence: inputSequence)
+            dictationTrace.error("TRACE start done")
             guard self.analyzer === analyzer, !isFinishing else {
                 throw CancellationError()
             }
@@ -236,6 +239,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         guard let analyzerFormat, let continuation = convertedInputContinuation else { return }
         let buffer = input.buffer
         guard buffer.frameLength > 0 else { return }
+        dictationTrace.debug("TRACE in t=\(traceTime(input.bufferStartTime ?? .invalid), privacy: .public) n=\(buffer.frameLength, privacy: .public) sr=\(buffer.format.sampleRate, privacy: .public)")
         if buffer.format == analyzerFormat {
             let result = continuation.yield(
                 timeline.input(buffer, capturedAt: input.bufferStartTime)

@@ -1,6 +1,11 @@
 import CoreMedia
 import Foundation
 import Speech
+import os
+
+// DIAGNOSTIC (scratch only)
+let dictationTrace = Logger(subsystem: "com.cmuxterm.app.next", category: "dictation")
+func traceTime(_ t: CMTime) -> String { t.isValid ? String(format: "%.3f", CMTimeGetSeconds(t)) : "inv" }
 
 /// Delivers SpeechAnalyzer results while preserving range finalization metadata.
 actor SpeechAnalyzerResultConsumer {
@@ -20,7 +25,12 @@ actor SpeechAnalyzerResultConsumer {
         var accumulator = SpeechAnalyzerResultAccumulator()
         do {
             for try await result in transcriber.results {
-                for event in accumulator.consume(Self.snapshot(for: result)) {
+                let snap = Self.snapshot(for: result)
+                let segs = snap.segments.map { "[\(traceTime($0.range.start))-\(traceTime($0.range.end))]\($0.text)" }.joined(separator: "|")
+                dictationTrace.error("TRACE result range=\(traceTime(result.range.start), privacy: .public)+\(traceTime(result.range.duration), privacy: .public) fin=\(traceTime(result.resultsFinalizationTime), privacy: .public) text=\(String(result.text.characters), privacy: .public) segs=\(segs, privacy: .public)")
+                let events = accumulator.consume(snap)
+                dictationTrace.error("TRACE events \(String(describing: events), privacy: .public)")
+                for event in events {
                     guard yield(event) else { return }
                 }
             }
