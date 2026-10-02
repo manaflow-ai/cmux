@@ -18,11 +18,14 @@ public final class TabDragLifecycle {
 
     public private(set) var phase: Phase = .dragging
     private let restore: () -> Void
+    private let release: () -> Void
     private let makeTransaction: () -> ClientTransactionID
 
-    public init(makeTransaction: @escaping () -> ClientTransactionID = { .generate() }, restore: @escaping () -> Void) {
+    public init(makeTransaction: @escaping () -> ClientTransactionID = { .generate() }, restore: @escaping () -> Void,
+                release: @escaping () -> Void = {}) {
         self.makeTransaction = makeTransaction
         self.restore = restore
+        self.release = release
     }
 
     public var isDragging: Bool { phase == .dragging }

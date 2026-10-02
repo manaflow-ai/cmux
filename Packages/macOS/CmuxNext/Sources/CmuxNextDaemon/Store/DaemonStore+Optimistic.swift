@@ -79,6 +79,10 @@ extension DaemonStore {
         onTransactionConfirmed?(transaction)
     }
 
+    /// Runs `body` once the store holds the daemon's result of
+    /// `transaction` (stub).
+    public func whenApplied(_ transaction: ClientTransactionID, _ body: @escaping @MainActor () -> Void) {}
+
     func reapplyPendingPatches() {
         pendingPatches.removeAll { $0.dropAtNextSnapshot }
         for pending in pendingPatches { apply(pending.patch) }

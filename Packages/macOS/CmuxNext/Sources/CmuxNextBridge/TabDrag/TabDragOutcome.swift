@@ -50,15 +50,22 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
     public var draggedTabCount: Int
     /// Workspaces the source window lists (1 when it shows only this one).
     public var sourceWindowWorkspaceCount: Int
+    /// The source strip (`TabStripModel.stripID`) and the dragged tab's (or
+    /// group's first tab's) index in its display order; nil for workspace drags.
+    public var sourceStripID: UUID?
+    public var sourceIndex: Int?
 
     public init(sourcePaneID: String, sourcePaneTabCount: Int, sourceWorkspaceID: String,
-                sourceWorkspaceTabCount: Int, draggedTabCount: Int, sourceWindowWorkspaceCount: Int = 1) {
+                sourceWorkspaceTabCount: Int, draggedTabCount: Int, sourceWindowWorkspaceCount: Int = 1,
+                sourceStripID: UUID? = nil, sourceIndex: Int? = nil) {
         self.sourcePaneID = sourcePaneID
         self.sourcePaneTabCount = sourcePaneTabCount
         self.sourceWorkspaceID = sourceWorkspaceID
         self.sourceWorkspaceTabCount = sourceWorkspaceTabCount
         self.draggedTabCount = draggedTabCount
         self.sourceWindowWorkspaceCount = sourceWindowWorkspaceCount
+        self.sourceStripID = sourceStripID
+        self.sourceIndex = sourceIndex
     }
 
     /// The drag carries every tab of its pane: the pane closes when they leave.
