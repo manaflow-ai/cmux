@@ -5580,6 +5580,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "liveInput",
+      "cli_name" : "action agent-pane-search-chats",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.searchChats",
+      "mcp" : "liveInput",
+      "palette" : "offered"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "agent open-terminal-as-chat",
       "context_menu" : "noObject",

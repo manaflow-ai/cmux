@@ -36,6 +36,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { DateLine } from "./conversation/DateLine";
+import { SearchChats } from "./SearchChats";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 
@@ -60,6 +61,8 @@ declare global {
         registryJS?: string;
         layout?: Record<string, unknown>;
       }): void;
+      /// An app action for the page (CmuxNextAgentPane AgentPaneView): "searchChats" toggles Search chats.
+      command?(name: string): void;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -782,6 +785,9 @@ function AcpmuxPane() {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
     void callNative("chat.new").catch(() => undefined);
   }, []);
+  // Search chats opens from the app's agentPane.searchChats action (Cmd-K by default, editable in
+  // Settings and cmux.json), which calls the bridge's command("searchChats").
+  const [searching, setSearching] = useState(false);
   // While the narrow-pane overlay is open, Escape closes it and focus moves into it.
   useEffect(() => {
     if (sidebar !== "open" || wide) return;
@@ -823,6 +829,9 @@ function AcpmuxPane() {
       },
     };
     window.cmuxAcpmuxBridge = {
+      command(name) {
+        if (name === "searchChats") setSearching((open) => !open);
+      },
       receive(next) {
         if (next.protocolVersion !== 1) return;
         const change = diffRows(rowsRef.current, next.rows);
@@ -1042,6 +1051,20 @@ function AcpmuxPane() {
           onStop={() => void callNative("chat.cancel")}
         />
       </div>
+      {searching && (
+        <SearchChats
+          sessions={snapshot.sessions}
+          onClose={() => setSearching(false)}
+          onSelect={(sessionId) => {
+            setSearching(false);
+            selectSession(sessionId);
+          }}
+          onNewChat={() => {
+            setSearching(false);
+            newChat();
+          }}
+        />
+      )}
     </section>
   );
 }

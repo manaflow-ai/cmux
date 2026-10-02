@@ -158,7 +158,7 @@ nonisolated extension ActionSurfaceCatalog {
             "history.search", "bookmark.toggleBar", "bookmark.manager",
         ],
         .liveInput: [
-            "palette.toggleDictation",
+            "palette.toggleDictation", "agentPane.searchChats",
             "taskManager.killProcess", "toggleChecklistItemComplete", "groupSelectedWorkspaces", "canvasAlignLeft",
             "canvasAlignRight", "canvasAlignTop", "canvasAlignBottom", "canvasEqualizeWidths", "canvasEqualizeHeights",
             "canvasDistributeHorizontally", "canvasDistributeVertically", "simulatorHome", "simulatorRotateLeft",

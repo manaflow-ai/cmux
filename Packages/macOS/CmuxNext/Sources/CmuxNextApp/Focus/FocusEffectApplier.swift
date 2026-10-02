@@ -335,9 +335,10 @@ final class FocusEffectApplier: FocusEffectApplying {
         guard services.windows.active === controller else { return }
         let registry = services.registry
         var next = registry.context
-        next.subtract([.terminalFocused, .browserFocused])
+        next.subtract([.terminalFocused, .browserFocused, .agentPaneFocused])
         if context.terminal { next.insert(.terminalFocused) }
         if context.browser { next.insert(.browserFocused) }
+        if context.agent { next.insert(.agentPaneFocused) }
         if registry.context != next { registry.context = next }
     }
 

@@ -176,6 +176,12 @@ public final class AgentPaneView: NSView {
         dictation.toggle(from: event)
     }
 
+    /// Opens the page's "Search chats" palette (Cmd-K, `agentPane.searchChats`);
+    /// a second call closes it.
+    public func showSearchChats() {
+        webView.evaluateJavaScript("window.cmuxAcpmuxBridge?.command?.(\"searchChats\");", completionHandler: nil)
+    }
+
     /// Stops whichever agent pane is dictating, keeping its words, so the
     /// shortcut ends a session started in a tab that is no longer in front.
     /// False when none is.

@@ -47,7 +47,7 @@ public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
     /// Context facts that mean "this action acts on focused content".
     static let contentContexts: ActionContext = [
         .terminalFocused, .browserFocused, .simulatorFocused, .diffViewerFocused, .filePreviewFocused,
-        .markdownFocused, .rightSidebarFocused, .fileExplorerFocused, .textBoxFocused, .paletteOpen,
+        .markdownFocused, .rightSidebarFocused, .fileExplorerFocused, .textBoxFocused, .paletteOpen, .agentPaneFocused,
     ]
 
     /// The catalog default for `descriptor`.

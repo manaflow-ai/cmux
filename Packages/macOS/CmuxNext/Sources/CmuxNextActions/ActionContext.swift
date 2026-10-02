@@ -32,6 +32,8 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     public static let signedIn = ActionContext(rawValue: 1 << 11)
     public static let signedOut = ActionContext(rawValue: 1 << 12)
     public static let cloudWorkspace = ActionContext(rawValue: 1 << 13)
+    /// An agent chat (the acpmux web pane) has the keyboard.
+    public static let agentPaneFocused = ActionContext(rawValue: 1 << 14)
 }
 
 extension ActionContext {

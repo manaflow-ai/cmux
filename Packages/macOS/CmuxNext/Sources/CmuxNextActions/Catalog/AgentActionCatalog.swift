@@ -20,6 +20,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 targets: [.pane], cliName: "agent toggle-dictation", mainMenu: .edit
             ),
             ActionDescriptor(
+                id: "agentPane.searchChats",
+                title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
+                keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
+                // Cmd-K as in Codex and Claude; only while an agent chat has the keyboard,
+                // so the simulator's Cmd-K keeps its meaning.
+                defaultShortcut: Shortcut("k", modifiers: [.command]),
+                category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane]
+            ),
+            ActionDescriptor(
                 id: "palette.openTerminalChatView",
                 title: String(localized: "action.palette.openTerminalChatView", defaultValue: "Open Terminal as Chat", bundle: .module),
                 keywords: ["agent", "chat"], category: .agents, symbol: "text.bubble", surfaces: [.palette],
