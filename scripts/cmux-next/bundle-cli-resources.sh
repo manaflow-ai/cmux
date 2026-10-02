@@ -90,6 +90,7 @@ mkdir -p "$code_mode/sdk"
 rsync -a --delete "$src/cmux-tui/bindings/typescript/src/" "$code_mode/sdk/src/"
 rsync -a "$src/cmux-tui/bindings/typescript/code-mode/" "$code_mode/sdk/code-mode/"
 cp "$src/cmux-tui/bindings/typescript/code-mode/mcp.mjs" "$code_mode/mcp.mjs"
+cp "$src/cmux-tui/bindings/typescript/code-mode/proxy.mjs" "$code_mode/sdk/code-mode/proxy.mjs"
 cp "$src/cmux-tui/spec/resource-operations-v2.json" "$code_mode/resource-operations-v2.json"
 install -m 755 "$src/scripts/cmux-next/cmux-code-mode-runner" "$bin/cmux-code-mode-runner"
 

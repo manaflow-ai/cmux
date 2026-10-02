@@ -231,7 +231,7 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "run") => {
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run") => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
@@ -940,12 +940,12 @@ mod tests {
         assert!(help.contains("cmux help start"));
         assert!(help.starts_with("cmux - "));
         assert!(!help.contains("cmux-tui"));
-        assert!(matches!(
-            parse(&strings(&["help", "start"])).unwrap(),
-            ParsedCommand::Help(Some(scope)) if scope == "start"
-        ));
+        for topic in ["start", "docs"] {
+            assert!(
+                matches!(parse(&strings(&["help", topic])).unwrap(), ParsedCommand::Help(Some(scope)) if scope == topic)
+            );
+        }
     }
-
     #[test]
     fn remote_invocation_allows_leading_global_options() {
         assert!(is_remote_invocation(&strings(&["remote", "connect"])));

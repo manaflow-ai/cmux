@@ -24,7 +24,7 @@ const tools = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      properties: { query: { type: "string", minLength: 1, maxLength: 256 } },
+      properties: { query: { type: "string", minLength: 1, description: "UTF-8 text, at most 256 bytes" } },
       required: ["query"],
     },
     annotations: { readOnlyHint: true },
@@ -35,7 +35,7 @@ const tools = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      properties: { script: { type: "string", minLength: 1, maxLength: 262144 } },
+      properties: { script: { type: "string", minLength: 1, description: "UTF-8 TypeScript, at most 262144 bytes" } },
       required: ["script"],
     },
     annotations: { destructiveHint: false },
@@ -104,7 +104,7 @@ async function execute(script) {
 
 function send(message) {
   const body = JSON.stringify(message);
-  process.stdout.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+  process.stdout.write(`${body}\n`);
 }
 
 async function handle(message) {
@@ -152,21 +152,32 @@ async function handle(message) {
 let pending = Buffer.alloc(0);
 for await (const chunk of process.stdin) {
   pending = Buffer.concat([pending, Buffer.from(chunk)]);
+  if (pending.length > MAX_FRAME_BYTES + 8192) {
+    send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "frame exceeds 1 MiB" } });
+    process.exit(1);
+  }
   while (true) {
-    const marker = pending.indexOf("\r\n\r\n");
-    if (marker < 0) break;
-    const headers = pending.subarray(0, marker).toString();
-    const length = Number(headers.match(/content-length:\s*(\d+)/i)?.[1]);
-    if (!Number.isSafeInteger(length) || length < 0 || length > MAX_FRAME_BYTES) {
-      send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "invalid or oversized Content-Length" } });
-      process.exit(1);
+    const end = pending.indexOf(10);
+    if (end < 0) break;
+    const body = pending.subarray(0, end).toString().replace(/\r$/, "");
+    pending = pending.subarray(end + 1);
+    if (Buffer.byteLength(body) > MAX_FRAME_BYTES) {
+      send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "frame exceeds 1 MiB" } });
+      continue;
     }
-    if (!Number.isSafeInteger(length) || pending.length < marker + 4 + length) break;
-    const body = pending.subarray(marker + 4, marker + 4 + length).toString();
-    pending = pending.subarray(marker + 4 + length);
     let message;
     try {
       message = JSON.parse(body);
+    } catch (error) {
+      send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: String(error?.message ?? error) } });
+      continue;
+    }
+    if (!message || typeof message !== "object" || Array.isArray(message)
+      || message.jsonrpc !== "2.0" || typeof message.method !== "string") {
+      send({ jsonrpc: "2.0", id: message?.id ?? null, error: { code: -32600, message: "invalid JSON-RPC request" } });
+      continue;
+    }
+    try {
       await handle(message);
     } catch (error) {
       send({ jsonrpc: "2.0", id: message?.id ?? null, error: { code: -32602, message: String(error?.message ?? error) } });

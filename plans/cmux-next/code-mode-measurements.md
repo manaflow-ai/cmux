@@ -15,7 +15,7 @@ Preliminary static estimate collected 2026-10-02 on the same catalog revision as
 
 The 222-token roster is an author-supplied synthetic estimate, serialized compactly as `{"tools":[{"name":"...","description":"cmux Computer Use test tool","inputSchema":{"type":"object"}}]}`. It is not a checked-in live helper payload. The live current MCP list must be captured from `tools/list` per harness before a final comparison. The user supplied Playwright baseline is 21 tools and about 13.7k tokens; this is the expected high-cost case that progressive disclosure avoids.
 
-The slice-B MCP server's live `tools/list` response was captured on 2026-10-02 from `Resources/bin/cmux-code-mode-mcp`: the JSON-RPC result is 634 bytes and 146 cl100k tokens, with exactly two tools (`cmux_docs` and `cmux_exec`). The bundled current CUA helper was not built in this checkout, so its live response remains unverified; the repository smoke test reports `SKIP: cmux-cua binary not built`.
+The slice-B MCP server's live `tools/list` response was captured on 2026-10-02 from `cmux-tui/bindings/typescript/code-mode/mcp.mjs` (the same file bundled as `Resources/bin/cmux-code-mode-mcp`): the JSON-RPC result is 700 bytes and 164 cl100k tokens, with exactly two tools (`cmux_docs` and `cmux_exec`). The bundled current CUA helper was not built in this checkout, so its live response remains unverified; the repository smoke test reports `SKIP: cmux-cua binary not built`.
 
 ## Task coverage
 
