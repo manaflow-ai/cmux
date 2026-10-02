@@ -249,3 +249,19 @@ fn install_refuses_an_invalid_channel_before_writing_config() {
     let layout = layout_at(env.tmp.path(), cmux_server::host::platform());
     assert!(!std::path::Path::new(layout.config_file.as_str()).exists());
 }
+
+#[test]
+fn read_verbs_write_no_config() {
+    let env = Env::new();
+    // Binaries exist, so only the missing install id and port stop it.
+    let bin = env.tmp.path().join("pgbin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("initdb"), "").unwrap();
+    let err = env.run(&format!("db url notes --pg-bin {}", bin.display())).unwrap_err();
+    assert_eq!(err.kind, ExitKind::NotFound, "{err}");
+    env.run("status").unwrap();
+    let layout = layout_at(env.tmp.path(), cmux_server::host::platform());
+    let config = std::path::Path::new(layout.config_file.as_str());
+    assert!(!config.exists(), "db url and status wrote {}", config.display());
+    assert!(!std::path::Path::new(layout.state.as_str()).exists(), "no state was created");
+}
