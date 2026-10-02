@@ -22,6 +22,10 @@ struct MachineRowActions {
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
+    /// Opens the Network sheet for a machine id and its display label.
+    var editNetwork: @MainActor (String, String?) -> Void = { _, _ in }
+    /// Turns "Keep Agents Up to Date" on or off through `cmux vm agent-updates`.
+    var setAgentUpdates: @MainActor (String, Bool) -> Void = { _, _ in }
     /// Persists a pin and returns the authoritative fleet order/render state.
     /// Nil means the action was not accepted (for example, after sign-out).
     var setPinned: @MainActor (String, Bool) -> [MachineSnapshot]? = { _, _ in nil }
@@ -81,6 +85,20 @@ struct MachineRowActions {
             },
             promptUpgrade: {
                 ProUpgradePresenter.present(source: .machinesPanelMachineAction)
+            },
+            editNetwork: { id, label in
+                CloudNetworkPolicySheetPresenter.shared.present(
+                    machineID: id,
+                    machineLabel: label,
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                )
+            },
+            setAgentUpdates: { id, keepUpdated in
+                onWillMutate(operationLabel(verb: ["agent-updates"], id: id))
+                let setting = CloudAgentUpdates(keepsAgentsUpdated: keepUpdated)
+                if !launch(arguments: ["vm", "agent-updates", id, setting.rawValue], onDidMutate: onDidMutate) {
+                    onDidMutate()
+                }
             }
         )
     }
@@ -116,6 +134,8 @@ struct MachineRowActions {
             format = String(localized: "machines.operation.fork", defaultValue: "Forking %@\u{2026}")
         } else if verb.contains("status") {
             format = String(localized: "machines.operation.status", defaultValue: "Checking %@\u{2026}")
+        } else if verb.contains("agent-updates") {
+            format = String(localized: "machines.operation.agentUpdates", defaultValue: "Changing agent updates on %@\u{2026}")
         } else if verb.contains("rename") {
             format = String(localized: "machines.operation.rename", defaultValue: "Renaming %@\u{2026}")
         } else if verb.contains("rm") {

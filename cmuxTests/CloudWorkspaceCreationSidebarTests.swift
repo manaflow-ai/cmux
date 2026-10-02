@@ -57,6 +57,8 @@ struct CloudWorkspaceCreationSidebarTests {
 
             let admitted = try #require(fixture.manager.tabs.first { $0.id != fixture.originalWorkspaceID })
             #expect(fixture.manager.tabs.count == 2)
+            // The admitted workspace stays out of view until its remote layout
+            // is applied (#16690), so the starter pane never paints first.
             #expect(fixture.manager.selectedTabId == fixture.originalWorkspaceID)
             #expect(fixture.catalog.snapshot.pendingWorkspaceCreations?[fixture.provider.machine]?[workspace.id] == admitted.id)
             let pendingRow = try #require(fixture.workspaceRows().first { node in

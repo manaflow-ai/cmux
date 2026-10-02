@@ -111,7 +111,7 @@ struct RemoteRelayAgentHookPolicyTests {
     func admissionRebuildsEnvironmentFromSelectors() throws {
         let ownerKey = RemoteRelayAuthorizationPolicy.remoteWorkspaceIDKey
         var parameters = hookParameters(overrides: [
-            "payload": #"{"session_id":"sess-1","cwd":"/home/leo/repo","transcript_path":"/Users/leo/.ssh/id_ed25519","nested":{"transcriptPath":"/etc/passwd","keep":1}}"#,
+            "payload": #"{"session_id":"sess-1","cwd":"/home/dev/repo","transcript_path":"/Users/dev/.ssh/id_ed25519","nested":{"transcriptPath":"/etc/passwd","keep":1}}"#,
         ])
         parameters[ownerKey] = owner.uuidString
         parameters["_cmux_remote_connection_id"] = UUID().uuidString

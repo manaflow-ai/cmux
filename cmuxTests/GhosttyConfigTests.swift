@@ -3628,20 +3628,25 @@ final class GhosttyMouseFocusTests: XCTestCase {
             XCTAssertFalse(
                 GhosttyApp.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
-                    configPaths: [path],
-                    rangeCoverageProbe: { _, _ in false }
+                    configPaths: [path]
                 )
             )
         }
     }
 
     func testShouldInjectCJKFontFallbackAllowsSingleFontWithoutExplicitOverrides() throws {
+        // Probe coverage explicitly: an unresolvable family fails closed
+        // (#9193), so relying on JetBrains Mono being installed made this
+        // depend on the machine's fonts.
         try withTempConfig("font-family = JetBrains Mono\n") { path in
             XCTAssertTrue(
                 GhosttyApp.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
                     configPaths: [path],
-                    rangeCoverageProbe: { _, _ in false }
+                    rangeCoverageProbe: { fontFamily, _ in
+                        XCTAssertEqual(fontFamily, "JetBrains Mono")
+                        return false
+                    }
                 )
             )
         }
