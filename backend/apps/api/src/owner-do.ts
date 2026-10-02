@@ -21,7 +21,6 @@ export interface SubmitResult {
 
 export type ReadResult = { readonly ok: true; readonly value: unknown; readonly revision: string } | ({ readonly ok: false } & Reject)
 
-const MAX_BACKOFF_MS = 5 * 60_000
 const PRUNE_SLACK_MS = 60 * 60_000
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
@@ -194,8 +193,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   private afterCommit() {
     if (!this.engine) return
     const now = Date.now()
-    const backingOff = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_entity WHERE id = 1`)[0]?.attempts ?? 0) > 0
-    const outboxAt = !backingOff && this.engine.outboxPending(1).length > 0 ? now : null
+    // Per channel: a backed-off channel waits, a healthy one drains now (outbox.ts).
+    const outboxAt = this.engine.outbox.nextDueAt(now)
     const wake = this.wakeAt(now)
     const want = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
     if (want === null) return
@@ -297,43 +296,30 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    */
   override async alarm() {
     if (!this.engine) return
-    let outboxAt: number | null = null
-    const rows = this.engine.outboxPending(100)
-    if (rows.length > 0) {
-      let failed = false
-      // PlanetScale projections (no target).
-      const projection = rows.filter((r) => !r.target)
-      if (projection.length > 0) {
-        try {
-          await drainOutbox(this.env, this.engine.stream, projection)
-          this.engine.outboxMarkSent(projection.map((r) => r.id))
-        } catch (e) {
-          failed = true
-          console.error(JSON.stringify({ msg: "outbox drain failed", stream: this.engine.stream, error: String(e) }))
-        }
-      }
-      // DO-to-DO items (E4): one RPC per target object, in order; a failing target does not block others.
-      for (const batch of groupTargets(rows)) {
-        this.engine.outboxMarkSent(batch.superseded)
-        try {
+    const outbox = this.engine.outbox
+    // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
+    // its own, so a dead target cannot stop projections or healthy targets.
+    for (const channel of outbox.dueChannels(Date.now())) {
+      const rows = outbox.pending(channel, 100)
+      if (rows.length === 0) continue
+      try {
+        if (channel === "") {
+          await drainOutbox(this.env, this.engine.stream, rows)
+          outbox.markSent(rows.map((r) => r.id), Date.now())
+        } else {
+          const batch = groupTargets(rows)[0]!
+          outbox.markSent(batch.superseded, Date.now())
           const ns = this.targetNamespace(batch.class)
           if (!ns) throw new Error(`no binding for ${batch.class}`)
           const stub = ns.get(ns.idFromName(batch.name)) as unknown as { systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> }
           const res = await stub.systemDeliver(batch.name, this.engine.stream, batch.items)
-          this.engine.outboxMarkSent(res.done)
-          if (res.done.length < batch.items.length) failed = true
-        } catch (e) {
-          failed = true
-          console.error(JSON.stringify({ msg: "outbox delivery failed", stream: this.engine.stream, target: batch.class, error: String(e) }))
+          outbox.markSent(res.done, Date.now())
+          if (res.done.length < batch.items.length) throw new Error(`${batch.items.length - res.done.length} items not delivered`)
         }
-      }
-      if (failed) {
-        const attempts = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_entity WHERE id = 1`)[0]?.attempts ?? 0) + 1
-        this.store.exec(`UPDATE do_entity SET attempts = ? WHERE id = 1`, attempts)
-        outboxAt = Date.now() + Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempts)
-      } else {
-        this.store.exec(`UPDATE do_entity SET attempts = 0 WHERE id = 1`)
-        if (this.engine.outboxPending(1).length > 0) outboxAt = Date.now()
+        outbox.succeeded(channel)
+      } catch (e) {
+        const dead = outbox.failed(channel, Date.now())
+        console.error(JSON.stringify({ msg: "outbox delivery failed", stream: this.engine.stream, channel: channel || "planetscale", error: String(e), ...(dead === null ? {} : { dead_letter: dead }) }))
       }
     }
     this.engine.pruneEvents(Date.now() - EVENT_RETENTION_MS)
@@ -345,8 +331,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     } catch (e) {
       console.error(JSON.stringify({ msg: "owner wake failed", stream: this.engine.stream, error: String(e) }))
     }
-    // Ops committed during the wake may have added outbox rows (their afterCommit saw the running alarm).
-    if (outboxAt === null && this.engine.outboxPending(1).length > 0) outboxAt = Date.now()
+    // Includes rows committed during the wake (their afterCommit saw the running alarm).
+    const outboxAt = this.engine.outbox.nextDueAt(Date.now())
     const wake = this.wakeAt(Date.now())
     const at = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
     if (at !== null) await this.ctx.storage.setAlarm(at)

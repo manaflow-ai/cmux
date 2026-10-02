@@ -74,5 +74,11 @@ export const migrate = (sql: SqlStore, t: Tables): void => {
   // Target of a DO-to-DO outbox item ({class, name}); null for PlanetScale projections.
   const outboxColumns = sql.exec<{ name: string }>(`PRAGMA table_info(${t.outbox})`).map((c) => c.name)
   if (!outboxColumns.includes("target")) sql.exec(`ALTER TABLE ${t.outbox} ADD COLUMN target TEXT`)
+  // Delivery channel: '' for PlanetScale projections, '<class>:<name>' for a target object.
+  // Each channel reads, backs off and dead-letters on its own (outbox.ts).
+  if (!outboxColumns.includes("channel")) sql.exec(`ALTER TABLE ${t.outbox} ADD COLUMN channel TEXT NOT NULL DEFAULT ''`)
+  if (!outboxColumns.includes("dead_at")) sql.exec(`ALTER TABLE ${t.outbox} ADD COLUMN dead_at INTEGER`)
+  sql.exec(`CREATE INDEX IF NOT EXISTS ${t.outbox}_pending ON ${t.outbox} (channel, id) WHERE sent_at IS NULL AND dead_at IS NULL`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS ${t.outbox}_backoff (channel TEXT PRIMARY KEY, attempts INTEGER NOT NULL, next_at INTEGER NOT NULL)`)
   sql.exec(`INSERT INTO ${t.meta} (key, value) VALUES ('schema_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, String(SCHEMA_VERSION))
 }

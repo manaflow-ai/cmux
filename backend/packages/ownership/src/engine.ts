@@ -1,6 +1,7 @@
 import { createHash, createHmac } from "node:crypto"
 import { idFactory } from "./ids.ts"
-import { checkWrites, SqlRows, type RowWrite } from "./rows.ts"
+import { channelOf, Outbox, type OutboxRow } from "./outbox.ts"
+import { checkWrites, EMPTY_ROWS, readOnly, SqlRows, type RowWrite } from "./rows.ts"
 import { migrate, tablesFor, type Tables } from "./schema.ts"
 import type { SqlStore } from "./sql.ts"
 import type {
@@ -19,6 +20,7 @@ import type {
 } from "./types.ts"
 
 export type { SqlStore } from "./sql.ts"
+export type { OutboxRow } from "./outbox.ts"
 
 /** Where committed frames go. `"all"` = every subscriber of the stream. */
 export type Deliver = (target: "all" | string, frame: OwnerFrame) => void
@@ -87,14 +89,6 @@ interface LedgerRow {
   revision: string
 }
 
-export interface OutboxRow {
-  readonly id: number
-  readonly seq: number
-  readonly kind: string
-  readonly entity: string
-  readonly payload: unknown
-  readonly target: { readonly class: string; readonly name: string; readonly coalesce?: string } | null
-}
 
 type Decision<S> =
   | { ok: true; state: S; value: unknown; changed: boolean; outbox: ReadonlyArray<OutboxItem>; writes: ReadonlyArray<RowWrite> }
@@ -109,6 +103,7 @@ type Decision<S> =
 export class OwnerEngine<S, P = unknown> {
   readonly stream: string
   readonly rows: SqlRows
+  readonly outbox: Outbox
   private readonly t: Tables
   private state: S
   private seq: number
@@ -133,6 +128,7 @@ export class OwnerEngine<S, P = unknown> {
     })
     this.secret = sql.exec<{ value: string }>(`SELECT value FROM ${t.meta} WHERE key = 'tx_secret'`)[0]!.value
     this.rows = new SqlRows(sql, t.rows)
+    this.outbox = new Outbox(sql, t)
     const row = sql.exec<{ seq: number; json: string }>(`SELECT seq, json FROM ${t.state} WHERE id = 1`)[0]
     this.state = row ? (JSON.parse(row.json) as S) : domain.initial()
     this.seq = row ? Number(row.seq) : 0
@@ -201,8 +197,14 @@ export class OwnerEngine<S, P = unknown> {
     if (frame.expected_revision !== undefined && frame.expected_revision !== String(this.seq)) {
       decision = { ok: false, frame: reject("revision.conflict", "expected_revision does not match", { details: { expected: frame.expected_revision, actual: String(this.seq) } }) }
     } else {
-      const r = this.domain.reduce(this.state, frame.op, frame.params as P, { principal, now: at, tx, newId: idFactory(tx), rows: this.rows })
-      if (r.ok) checkWrites(r.writes ?? [])
+      // Only row-mode owners have rows: a JSON domain's mirror replays the reducer, so it must
+      // never read or write rows the mirror cannot see.
+      const rows = this.options.rowMode ? readOnly(this.rows) : EMPTY_ROWS
+      const r = this.domain.reduce(this.state, frame.op, frame.params as P, { principal, now: at, tx, newId: idFactory(tx), rows })
+      if (r.ok && (r.writes?.length ?? 0) > 0) {
+        if (!this.options.rowMode) throw new Error(`${frame.op}: row writes need rowMode on stream ${this.stream}`)
+        checkWrites(r.writes!)
+      }
       decision = r.ok
         ? { ok: true, state: r.state, value: r.value, changed: r.changed ?? true, outbox: r.outbox ?? [], writes: r.writes ?? [] }
         : { ok: false, frame: reject(r.code, r.message, r) }
@@ -252,13 +254,14 @@ export class OwnerEngine<S, P = unknown> {
         )
         for (const item of decision.outbox) {
           this.sql.exec(
-            `INSERT INTO ${t.outbox} (seq, kind, entity, payload, created_at, target) VALUES (?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO ${t.outbox} (seq, kind, entity, payload, created_at, target, channel) VALUES (?, ?, ?, ?, ?, ?, ?)`,
             nextSeq,
             item.kind,
             item.entity,
             JSON.stringify(item.payload),
             at,
-            item.target ? JSON.stringify(item.target) : null
+            item.target ? JSON.stringify(item.target) : null,
+            channelOf(item.target ?? null)
           )
         }
       }
@@ -331,8 +334,9 @@ export class OwnerEngine<S, P = unknown> {
   /** True when every event after `seq` is still stored (otherwise send a snapshot). */
   canReplayFrom(seq: number): boolean {
     if (seq >= this.seq) return true
-    const oldest = this.sql.exec<{ s: number | null }>(`SELECT MIN(seq) AS s FROM ${this.t.events}`)[0]?.s
-    return oldest !== null && oldest !== undefined && Number(oldest) <= seq + 1
+    if (seq < 0) return false
+    const n = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${this.t.events} WHERE seq > ?`, seq)[0]?.n ?? 0
+    return Number(n) === this.seq - seq
   }
 
   /** When the oldest kept event was committed (ms), or null. */
@@ -352,14 +356,22 @@ export class OwnerEngine<S, P = unknown> {
     return r?.at === null || r?.at === undefined ? null : Number(r.at) + retentionMs
   }
 
-  /** Deletes events committed before `before`, never one of the newest `keepLast`. Bounded per call. */
+  /**
+   * Deletes a contiguous prefix of the log: events before the first one committed at or after
+   * `before`, never one of the newest `keepLast` (so a clock step back cannot leave a hole).
+   * Bounded per call.
+   */
   pruneEvents(before: number, keepLast = EVENT_KEEP_LAST, limit = 1000): number {
     const floor = this.seq - keepLast
     if (floor <= 0) return 0
     return this.sql.transaction(() => {
-      const seqs = this.sql.exec<{ seq: number }>(`SELECT seq FROM ${this.t.events} WHERE at < ? AND seq <= ? ORDER BY seq LIMIT ?`, before, floor, limit).map((r) => Number(r.seq))
-      if (seqs.length) this.sql.exec(`DELETE FROM ${this.t.events} WHERE seq <= ? AND at < ?`, seqs[seqs.length - 1]!, before)
-      return seqs.length
+      const firstKept = this.sql.exec<{ s: number | null }>(`SELECT MIN(seq) AS s FROM ${this.t.events} WHERE at >= ?`, before)[0]?.s
+      const cut = Math.min(firstKept === null || firstKept === undefined ? floor + 1 : Number(firstKept), floor + 1)
+      const oldest = this.sql.exec<{ s: number | null }>(`SELECT MIN(seq) AS s FROM ${this.t.events}`)[0]?.s
+      if (oldest === null || oldest === undefined || Number(oldest) >= cut) return 0
+      const upto = Math.min(cut - 1, Number(oldest) + limit - 1)
+      this.sql.exec(`DELETE FROM ${this.t.events} WHERE seq <= ?`, upto)
+      return upto - Number(oldest) + 1
     })
   }
 
@@ -382,28 +394,13 @@ export class OwnerEngine<S, P = unknown> {
     })
   }
 
+  /** Every pending outbox item, oldest first (debug, tests). Delivery uses `outbox` per channel. */
   outboxPending(limit = 100): Array<OutboxRow> {
-    return this.sql
-      .exec<{ id: number; seq: number; kind: string; entity: string; payload: string; target: string | null }>(
-        `SELECT id, seq, kind, entity, payload, target FROM ${this.t.outbox} WHERE sent_at IS NULL ORDER BY id LIMIT ?`,
-        limit
-      )
-      .map((r) => ({
-        id: Number(r.id),
-        seq: Number(r.seq),
-        kind: r.kind,
-        entity: r.entity,
-        payload: JSON.parse(r.payload) as unknown,
-        target: r.target ? (JSON.parse(r.target) as OutboxRow["target"]) : null
-      }))
+    return this.outbox.allPending(limit)
   }
 
   outboxMarkSent(ids: ReadonlyArray<number>): void {
-    if (ids.length === 0) return
-    const at = this.now()
-    this.sql.transaction(() => {
-      for (const id of ids) this.sql.exec(`UPDATE ${this.t.outbox} SET sent_at = ? WHERE id = ?`, at, id)
-    })
+    this.outbox.markSent(ids, this.now())
   }
 
   /** Admin dump for `debug.desync`. */
@@ -414,7 +411,8 @@ export class OwnerEngine<S, P = unknown> {
       state: this.state,
       ledger: this.sql.exec(`SELECT identity, idempotency_key, tx, op, ok, sequence, origin, created_at FROM ${this.t.ledger} ORDER BY created_at DESC LIMIT ?`, tail),
       events: this.eventsAfter(Math.max(0, this.seq - tail)),
-      outbox_pending: this.outboxPending(tail).length
+      outbox_pending: this.outboxPending(tail).length,
+      outbox_dead: this.outbox.deadCount()
     }
   }
 }

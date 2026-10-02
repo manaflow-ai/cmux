@@ -212,7 +212,7 @@ describe("row-backed domains (E1)", () => {
 
   it("prunes old events but keeps the newest, and resumes fall back to a snapshot (E3)", () => {
     let now = 0
-    const engine = new OwnerEngine(sqliteStore(new DatabaseSync(":memory:")), logDomain, { stream: "conv:p", now: () => now })
+    const engine = new OwnerEngine(sqliteStore(new DatabaseSync(":memory:")), logDomain, { stream: "conv:p", now: () => now, rowMode: { snapshotTable: "msg", snapshotTail: 5 } })
     for (let i = 0; i < 20; i++) {
       now = i * 1000
       engine.submit({ identity: "a" }, { t: "op", op: "add", params: { id: `m${i}`, text: "x" }, idempotency_key: `k${i}` }, () => {})

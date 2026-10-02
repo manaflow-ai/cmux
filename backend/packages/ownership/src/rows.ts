@@ -41,7 +41,13 @@ export const checkWrites = (writes: ReadonlyArray<RowWrite>): void => {
   }
 }
 
-/** Rows in the engine's SQLite table. */
+/** A RowReader that hides the writer methods of the object behind it (reducers only read). */
+export const readOnly = (r: RowReader): RowReader => ({ get: (t, k) => r.get(t, k), range: (t, q) => r.range(t, q) })
+
+/** The reader JSON-only domains get: no rows exist for them. */
+export const EMPTY_ROWS: RowReader = { get: () => undefined, range: () => [] }
+
+/** Rows in the engine's SQLite table. `n` is unique per table (range cursors rely on it). */
 export class SqlRows implements RowReader {
   constructor(
     private readonly sql: SqlStore,
@@ -70,7 +76,11 @@ export class SqlRows implements RowReader {
   apply(writes: ReadonlyArray<RowWrite>): void {
     for (const w of writes) {
       if (w.op === "delete") this.sql.exec(`DELETE FROM ${this.table} WHERE tbl = ? AND k = ?`, w.table, w.key)
-      else
+      else {
+        if (w.n !== undefined && w.n !== null) {
+          const clash = this.sql.exec<{ k: string }>(`SELECT k FROM ${this.table} WHERE tbl = ? AND n = ? AND k != ?`, w.table, w.n, w.key)[0]
+          if (clash) throw new Error(`row order ${w.n} in ${w.table} already belongs to ${clash.k}`)
+        }
         this.sql.exec(
           `INSERT INTO ${this.table} (tbl, k, n, json) VALUES (?, ?, ?, ?) ON CONFLICT (tbl, k) DO UPDATE SET n = excluded.n, json = excluded.json`,
           w.table,
@@ -78,6 +88,7 @@ export class SqlRows implements RowReader {
           w.n ?? null,
           JSON.stringify(w.row)
         )
+      }
     }
   }
 

@@ -133,7 +133,11 @@ export interface OutboxItem {
   readonly target?: {
     readonly class: string
     readonly name: string
-    /** Items with the same coalesce key and target collapse to the newest in one drain (for example one inbox bump per conversation). */
+    /**
+     * Items with the same coalesce key and target collapse to the newest in one drain (for
+     * example one inbox bump per conversation). Only for max-merge ops whose newest item
+     * subsumes the older ones; the kept item may be delivered after other items of the batch.
+     */
     readonly coalesce?: string
   }
 }

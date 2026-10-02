@@ -93,7 +93,13 @@ export class ProjectionClient<S, P = unknown> {
     return this.visible().state
   }
 
-  /** Visible rows (row-backed domains): the mirror's loaded rows with the intents' writes on top. */
+  /**
+   * Visible rows (row-backed domains): the mirror's loaded rows with the intents' writes on top.
+   * The intent preview runs the reducer on the rows the mirror holds, so a row-mode domain must
+   * keep every intent path on the head and the snapshot tail (send, react, edit a recent
+   * message). An intent whose preview the reducer refuses for lack of rows stays in `pending`;
+   * clients render such intents from their params (a pending bubble), never drop them.
+   */
   viewRows(): OverlayRows {
     return this.visible().rows
   }
