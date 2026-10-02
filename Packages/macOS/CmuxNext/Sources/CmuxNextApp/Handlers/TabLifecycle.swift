@@ -82,8 +82,9 @@ enum TabLifecycle {
         guard let pane = ctx.daemonPane(invocation) else { return }
         let engine = invocation["engine"]?.stringValue
         // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
-        let cache = ctx.services.cache
-        let agentTab: (@MainActor (SurfaceID) -> Void)? = [.cli, .mcp, .script].contains(invocation.origin) ? { cache.markAgentDriven(surface: $0) } : nil
+        let cache: TabContentCache? = ctx.services.cache
+        let agentTab: (@MainActor (SurfaceID) -> Void)? = [.cli, .mcp, .script].contains(invocation.origin)
+            ? { [weak cache] surface in cache?.markAgentDriven(surface: surface) } : nil
         if let controller = ctx.services.paneController(for: pane) {
             // No URL given: what the selected tab works on (#16620).
             return url == nil ? controller.newBrowserTabFromSelectedTab(engine: engine, then: agentTab)
