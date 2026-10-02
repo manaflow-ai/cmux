@@ -25,7 +25,8 @@ export function takeLock(path: string): (() => void) | undefined {
       } catch {
         continue; // Released between our open and read: try again.
       }
-      if (owner && owner !== process.pid && isAlive(owner)) return undefined;
+      // Our own pid counts as held: a second host in this process is still a second host.
+      if (owner && isAlive(owner)) return undefined;
       rmSync(path, { force: true });
     }
   }

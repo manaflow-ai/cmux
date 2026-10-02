@@ -15,6 +15,8 @@ export interface HostStateData {
   acpmuxSeq: number;
   /** Prompts sent (or to send) to the mux whose turn has not ended: promptId -> where its reply goes. */
   prompts: Record<string, OutstandingPrompt>;
+  /** Prompt ids whose turn ended (newest last, bounded): never prompted again. */
+  answered: string[];
   /** Conversation ops not yet confirmed by the owner, in order (flushed on every daemon connect). */
   outbox: OutboxEntry[];
   /** Child agents: acpmux session id -> its work-part message. */
@@ -46,11 +48,13 @@ export interface ChildRecord {
   edits: number;
 }
 
+const MAX_ANSWERED = 2_000;
+
 export class HostState {
   data: HostStateData;
 
   constructor(private readonly path: string) {
-    const empty: HostStateData = { acpmuxSeq: 0, prompts: {}, outbox: [], children: {} };
+    const empty: HostStateData = { acpmuxSeq: 0, prompts: {}, answered: [], outbox: [], children: {} };
     let loaded: Partial<HostStateData> = {};
     if (existsSync(path)) {
       try {
@@ -60,6 +64,18 @@ export class HostState {
       }
     }
     this.data = { ...empty, ...loaded };
+  }
+
+  isAnswered(promptId: string): boolean {
+    return this.data.answered.includes(promptId);
+  }
+
+  /** The prompt's turn ended: it leaves the outstanding set for good. */
+  markAnswered(promptId: string): void {
+    delete this.data.prompts[promptId];
+    if (this.isAnswered(promptId)) return;
+    this.data.answered.push(promptId);
+    if (this.data.answered.length > MAX_ANSWERED) this.data.answered.splice(0, this.data.answered.length - MAX_ANSWERED);
   }
 
   save(): void {
