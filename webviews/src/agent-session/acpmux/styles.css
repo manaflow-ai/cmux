@@ -78,3 +78,8 @@
 .acpmux-dictation-notice span{flex:1}
 .acpmux-dictation-notice button{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit;cursor:pointer}
 .acpmux-dictation-notice .acpmux-dictation-dismiss{width:24px;padding:0;background:none;color:var(--acpmux-composer-dim)}
+/* New chat (EmptyState.tsx): Codex's centered hero, smaller and muted, in place of the empty transcript. */
+.acpmux-empty{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:0 24px 6%;box-sizing:border-box;text-align:center;font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+.acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
+.acpmux-empty-title{margin:0;max-width:560px;font-size:20px;line-height:28px;font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
+.acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
