@@ -85,6 +85,16 @@ import Testing
         #expect(columnMajor.panes["pd"]?.minX == 254.5)
     }
 
+    @Test func aBandHasAVerticalHandleOnItsInnerEdge() {
+        let bottom = geometry(layout())
+        let handle = try! #require(bottom.columnEdges.first { $0.column == "d" })
+        #expect(handle.axis == .vertical && handle.stickyEdge == .bottom)
+        #expect(handle.hitFrame.minY == 427 && handle.hitFrame.width == bottom.panes["pd"]!.width)
+        let top = geometry(layout(band: .top))
+        let topHandle = try! #require(top.columnEdges.first { $0.column == "d" })
+        #expect(topHandle.hitFrame.maxY == 173)
+    }
+
     @Test func cornersBelongToSideDocksColumnMajorAndToBandsRowMajor() {
         #expect(StickyStripGeometry.ownsCorners(.left, orientation: .columnMajor))
         #expect(!StickyStripGeometry.ownsCorners(.bottom, orientation: .columnMajor))

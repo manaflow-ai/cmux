@@ -10,6 +10,9 @@ public nonisolated struct ColumnEdgeGeometry: Hashable, Sendable {
     public var hitFrame: CGRect
     /// Set for a sticky column's handle (view coordinates, fixed).
     public var stickyEdge: StickyEdge? = nil
+    /// Horizontal for a column edge; vertical for a top or bottom dock's
+    /// inner edge (a horizontal line dragged up and down).
+    public var axis: SplitAxis = .horizontal
 }
 
 /// A "new column" drop zone centered on a column gap.
@@ -138,12 +141,20 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
         fixedPanes.formUnion(result.panes.keys)
         dividers.append(contentsOf: result.dividers)
         fixedSplits.formUnion(result.dividers.map(\.id))
-        // A band has no resize handle yet (its edge is horizontal; the
-        // column-edge drag is horizontal only).
-        guard !entry.sticky.edge.isBand else { return }
+        let edgeHit = style.columnEdgeHitThickness
+        // A top or bottom dock's handle is a horizontal line on its inner
+        // edge, dragged up and down (layout-model.md, dock resize).
+        if entry.sticky.edge.isBand {
+            let y = entry.sticky.edge == .top ? entry.frame.maxY - edgeHit + 1 : entry.frame.minY - 1
+            columnEdges.append(ColumnEdgeGeometry(
+                column: column.id, columnFrame: entry.frame,
+                hitFrame: CGRect(x: entry.frame.minX, y: y, width: entry.frame.width, height: edgeHit),
+                stickyEdge: entry.sticky.edge, axis: .vertical
+            ))
+            return
+        }
         // The handle sits on the column's own inner edge, so the gap beside
         // it stays with the neighboring strip column's handle (both resize).
-        let edgeHit = style.columnEdgeHitThickness
         let x = entry.sticky.edge == .left ? entry.frame.maxX - edgeHit + 1 : entry.frame.minX - 1
         columnEdges.append(ColumnEdgeGeometry(
             column: column.id, columnFrame: entry.frame,

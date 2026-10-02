@@ -45,9 +45,10 @@ organization does not need a second fork in one network. `main` =
 
 | Patch | Why |
 | --- | --- |
-| build: restore iOS slices in GhosttyKit.xcframework | Upstream stopped building the full library for iOS on 2026-08-12 (`7a171895dd`); only libghostty-vt still targets iOS. The iOS code paths in `src/apprt/embedded.zig` and `src/renderer/Metal.zig` are still upstream, so the revert is small. |
+| build: restore iOS slices in the xcframework | Upstream stopped building the full library for iOS on 2026-08-12 (`7a171895dd`); only libghostty-vt still targets iOS. The iOS code paths in `src/apprt/embedded.zig` and `src/renderer/Metal.zig` are still upstream, so the revert is small. |
 | build: add the ios xcframework target | `-Dxcframework-target=ios` builds iOS device, iOS simulator and native macOS (for host-side Swift package tests). |
 | ci: ghostty-next GhosttyKit pipeline | Section 10. |
+| build: name the ios xcframework and module GhosttyNextKit | The iOS app and the desktop app can share one Xcode workspace without a module collision (D9). |
 | build: enable blocks when translating Apple SDK headers | The iOS 26.5 SDK CoreGraphics headers use blocks; translate-c needs `-fblocks` (found by the first iOS build). |
 | ci: zero archive dates and add a link smoke | Reproducible archives; link-and-run smoke for every slice. |
 | (in review, PR 2) remote IO mode | Manual and manual-mirror IO with the desktop fork's C names and values (struct offsets differ: different base), plus `ghostty_surface_text_input`. CI: 88 unit tests green; review asked for fixes (Kitty temp-file media, local clear and reset in mirror mode, exhaustive reply classification, sliced `process_output`, threading contract, byte-level reply corpus test). |
@@ -86,11 +87,14 @@ block the renderer thread when the app goes to the background; ghostty-next
 needs a bounded wait there. Upstream also changed the clipboard callback
 interface, so no Swift code from today's app links unchanged.
 
-Risk for the shipping app: the current iOS app links GhosttyKit from
-`manaflow-ai/ghostty`. The next upstream sync of that fork inherits
-`7a171895dd` and drops the iOS slices unless the sync reverts it. The
-update-ghostty-upstream skill must say so until the shipping iOS app moves
-to ghostty-next.
+**Decided (D1, 2026-10-02): the next upstream sync of `manaflow-ai/ghostty`
+must revert upstream `7a171895dd`.** The shipping iOS app links GhosttyKit
+from `manaflow-ai/ghostty`. That sync inherits `7a171895dd` ("build: stop
+building Ghostty.xcframework for iOS") and drops the iOS slices unless it
+reverts that commit, exactly as ghostty-next's first patch does. Keep the
+revert in every sync until the shipping iOS app links GhosttyNextKit from
+ghostty-next. The sync owner checks that the published GhosttyKit still has
+`ios-arm64` and `ios-arm64-simulator` slices before the cmux pointer bump.
 
 ## 2. Who parses VT
 
@@ -438,8 +442,16 @@ and the live RTT show in the terminal header, so a slow path is visible.
   scrollback on an iPhone 15-class device. Verified with Instruments
   (Allocations, Metal System Trace, Energy) during the lane 14 dogfood.
 
-## 10. GhosttyKit pipeline
+## 10. GhosttyNextKit pipeline
 
+- Current pin for lane 14 (2026-10-02):
+  https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-8562af02889cdb085ad415c6a0ba9a379c78a0c6-ios-v2/GhosttyNextKit.xcframework.zip,
+  sha256 `7d1187486a0a2ecc64bd23854acd2ab6a5a010498e703ac7ee53c71820af6ea2`.
+  It contains the remote IO mode. `next/smoke.sh --release` on the build
+  host: sha256 match, all three slices link, C and Swift
+  (`import GhosttyNextKit`) binaries run on macOS and in an iOS 27
+  simulator; `gh attestation verify` passes. Releases with flavor `ios-v1`
+  use the old module name GhosttyKit; never pin them.
 - Status 2026-10-02: first release
   `xcframework-e699e418bf5e16bac6451dc44bd0c82907af58bc-ios-v1`
   (zip 96,269,903 bytes, sha256
@@ -466,12 +478,14 @@ and the live RTT show in the terminal header, so a slow path is visible.
   timestamps and modes), `SHA256SUMS`, and `manifest.json` (commit, upstream
   base, Zig, Xcode and SDK versions, flags, per-slice SHA-256).
 - A push to `main` publishes release `xcframework-<sha>-<flavor>` (flavor
-  `ios-v1`) with the zip, sums, manifest and a build provenance attestation.
+  `ios-v2`; asset `GhosttyNextKit.xcframework.zip`) with the zip, sums, manifest and a build provenance attestation.
   A release is never replaced. Pull requests build and upload a workflow
   artifact only. `workflow_dispatch -f verify_reproducible=true` rebuilds on
   a second runner without caches and compares slice hashes.
 - The iOS app pins one release with SwiftPM:
-  `.binaryTarget(name: "GhosttyKit", url: "https://github.com/manaflow-ai/ghostty-next/releases/download/<tag>/GhosttyKit.xcframework.zip", checksum: "<sha256>")`.
+  `.binaryTarget(name: "GhosttyNextKit", url: "https://github.com/manaflow-ai/ghostty-next/releases/download/<tag>/GhosttyNextKit.xcframework.zip", checksum: "<sha256>")`,
+  and Swift code does `import GhosttyNextKit`. The C API (`ghostty_*`) is
+  unchanged.
   The zip SHA-256 is the SwiftPM checksum. A pin change is one reviewed
   commit that changes both values. `gh attestation verify` checks
   provenance.
@@ -487,7 +501,7 @@ and the live RTT show in the terminal header, so a slow path is visible.
   a snapshot), `terminal.history`, `terminal.read_range`, idle screen digest,
   grow hysteresis in the sizing reducer (fixture first). File:
   `.cmux-scratch/nx-worker/cli-requests/terminal-snapshot-history.md`.
-- Lane 14 (iOS): consume GhosttyKit only through the pinned release; adopt
+- Lane 14 (iOS): consume GhosttyNextKit only through the pinned release; adopt
   the visibility, keyboard and preview rules of section 6; settings keys in
   sections 4, 5 and 7 go to the settings catalog with documented defaults.
 
@@ -509,11 +523,31 @@ and the live RTT show in the terminal header, so a slow path is visible.
 
 ## 13. Open questions
 
-- Snapshot on the host needs `manaflow-ai/ghostty` to sync past upstream's
-  `snapshot.h`, or cmux-tui to build ghostty-vt from ghostty-next. See the
-  DECISION lines in the lane report.
 - Mac Catalyst for the Home screen (IOS3) would need a `maccatalyst` slice;
   not built until IOS3 picks Catalyst.
 - Whether `visible: false` should also apply when the phone shows the
   terminal in a small Home preview while the user reads messages (rule 4
   treats previews as non-counting).
+
+## 14. Decided (coordinator, 2026-10-02)
+
+- D1: the next upstream sync of `manaflow-ai/ghostty` reverts upstream
+  `7a171895dd`, so the shipping iOS app keeps its iOS slices (section 1).
+- D2: the session host gets the snapshot encoder by syncing
+  `manaflow-ai/ghostty` past upstream `snapshot.h`; the desktop app and the
+  daemon keep one parser. Byte replay stays behind `terminal-snapshot-v1`
+  until then.
+- D3: GHOSTSNP v1 is used with an on-screen Kitty image replay after each
+  snapshot and an exact snapshot version match (section 2).
+- D4: no Ghostty surface call blocks its caller (section 3, item 8).
+- D5: iOS encodes keys with Ghostty's encoder from `pressesBegan`; no Swift
+  key table (section 5).
+- D6: input reaches `io_write_cb` synchronously on the caller's thread.
+- D7: releases that are not bit-reproducible are accepted for now; the
+  sha256 pin and the attestation protect integrity; the cache-path leak is
+  fixed later.
+- D8: the iOS grid rules of section 6 (keyboard never changes rows, a phone
+  counts only while foreground and visible, 250 ms grow delay, previews do
+  not count).
+- D9: the ghostty-next xcframework and Swift module are named
+  GhosttyNextKit, not GhosttyKit.
