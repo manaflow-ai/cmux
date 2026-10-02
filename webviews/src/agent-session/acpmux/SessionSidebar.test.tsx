@@ -57,8 +57,10 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
   expect(projects).toEqual(["web", "app"]);
   const marks = [...container.querySelectorAll(".acpmux-session-mark")].map((node) => node.getAttribute("title"));
   expect(marks).toEqual(["Needs input", "Working", "New activity"]);
-  // Needs input is told from the unread dot by its glyph, not only its colour.
-  expect(container.querySelector(".acpmux-session-mark-input")?.textContent).toBe("?");
+  // Needs input and working are told apart from the unread dot by their glyphs, not only by colour.
+  expect(container.querySelector(".acpmux-session-mark-input svg")).not.toBeNull();
+  expect(container.querySelector(".acpmux-session-mark-running svg")).not.toBeNull();
+  expect(container.querySelector(".acpmux-session-mark-unread svg")).toBeNull();
   // The state is part of the row's accessible name.
   expect(container.querySelector(".acpmux-session-row")?.getAttribute("aria-label")).toBe(
     "Fix the checkout page, Needs input",
