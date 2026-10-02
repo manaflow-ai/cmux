@@ -38,10 +38,12 @@ import Testing
     @Test func theAgentPaneHearsWhenFileOpenRefuses() {
         let registry = ActionRegistry.standard()
         var asked: [ActionInvocation] = []
-        #expect(registry.bind(.fileOpen, invoke: { invocation in
+        // Bound outside #expect: the macro passes its call's arguments through a Sendable closure.
+        let bound = registry.bind(.fileOpen, invoke: { invocation in
             asked.append(invocation)
             if invocation["where"]?.stringValue == "editor" { registry.refuse("no editor") }
-        }))
+        })
+        #expect(bound)
         #expect(registry.openAgentFile(path: "/repo/Retry.swift", target: .tab, pane: "pane-1"))
         #expect(asked.last?.target == ActionTargetRef(kind: .pane, id: "pane-1"))
         #expect(asked.last?["path"]?.stringValue == "/repo/Retry.swift")
