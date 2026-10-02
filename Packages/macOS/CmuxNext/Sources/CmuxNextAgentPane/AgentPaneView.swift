@@ -219,6 +219,11 @@ public final class AgentPaneView: NSView {
     public func showContinueIn() {
         evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"continueIn\");")
     }
+    /// Palette and page buttons enter the same inline checkpoint review.
+    public func showCreateCheckpoint() {
+        guard model.checkpointAvailable else { return }
+        evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"createCheckpoint\");")
+    }
 
     /// Stops whichever agent pane is dictating, keeping its words, so the
     /// shortcut ends a session started in a tab that is no longer in front.
