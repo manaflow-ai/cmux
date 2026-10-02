@@ -4292,6 +4292,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action password-import-c-s-v",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "password.importCSV",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
       "cli" : "unimplemented",
       "cli_name" : "browser enable",
       "context_menu" : "noObject",

@@ -1,0 +1,257 @@
+{
+  "scopes": {
+    "integration.list": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.policy.get": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.connect": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.tools.list": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.tools.policy.set": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.catalog.preview": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.share": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.reauth": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.revoke": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "integration.list": {
+      "connections": [
+        {
+          "id": "conn_github00000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "github",
+          "account": {
+            "key": "github:installation:4211",
+            "name": "orbit-labs"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [
+            "issues:write",
+            "pull_requests:read",
+            "metadata:read"
+          ],
+          "status": "active",
+          "sharing": "team",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "capabilities": {
+            "revoke": true,
+            "share": true,
+            "reauth": true
+          },
+          "resources": {
+            "repos": [
+              "orbit-labs/api",
+              "orbit-labs/web",
+              "orbit-labs/docs"
+            ]
+          }
+        },
+        {
+          "id": "conn_linear00000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "linear",
+          "account": {
+            "key": "linear:org:77",
+            "name": "Orbit"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [
+            "read",
+            "issues:create"
+          ],
+          "status": "active",
+          "sharing": "private",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "capabilities": {
+            "revoke": true,
+            "share": true,
+            "reauth": true
+          }
+        },
+        {
+          "id": "conn_slack000000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_ada",
+          "provider": "slack",
+          "account": {
+            "key": "slack:team:T0ORBIT",
+            "name": "orbit-team"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [
+            "chat:write"
+          ],
+          "status": "needs_reauth",
+          "sharing": "team",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "capabilities": {
+            "revoke": false,
+            "share": false,
+            "reauth": true
+          }
+        },
+        {
+          "id": "conn_calendar000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "google_calendar",
+          "account": null,
+          "scopes_requested": [],
+          "scopes_granted": [],
+          "status": "pending",
+          "sharing": "private",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "capabilities": {
+            "revoke": true,
+            "share": true,
+            "reauth": true
+          }
+        },
+        {
+          "id": "conn_taskboard00000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "openapi",
+          "account": {
+            "key": "openapi:taskboard",
+            "name": "Taskboard API"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [],
+          "status": "active",
+          "sharing": "private",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "capabilities": {
+            "revoke": true,
+            "share": true,
+            "reauth": true
+          },
+          "catalog": {
+            "kind": "openapi",
+            "title": "Taskboard API",
+            "version": "2.4.0",
+            "digest": "openapi:8dfd4a2e",
+            "tools": 8,
+            "source_url": "https://specs.taskboard.example.com/openapi.json"
+          }
+        },
+        {
+          "id": "conn_docs0000000000000000",
+          "owner": "team_orbit",
+          "created_by": "usr_me",
+          "provider": "mcp",
+          "account": {
+            "key": "mcp:docs",
+            "name": "Docs Server"
+          },
+          "scopes_requested": [],
+          "scopes_granted": [],
+          "status": "active",
+          "sharing": "team",
+          "created_at": 1790000000000,
+          "updated_at": 1790000000000,
+          "capabilities": {
+            "revoke": true,
+            "share": true,
+            "reauth": true
+          },
+          "catalog": {
+            "kind": "mcp",
+            "title": "Docs Server",
+            "version": "1.2.0",
+            "digest": "mcp:ec9223b0",
+            "tools": 4,
+            "source_url": "https://mcp.docs.example.com/mcp"
+          }
+        }
+      ],
+      "providers": [
+        {
+          "provider": "github",
+          "configured": true
+        },
+        {
+          "provider": "linear",
+          "configured": true
+        },
+        {
+          "provider": "slack",
+          "configured": true
+        },
+        {
+          "provider": "google_calendar",
+          "configured": true
+        }
+      ],
+      "revision": "r12"
+    },
+    "integration.policy.get": {
+      "allowed_providers": null,
+      "github": {
+        "scope": "linking_user_repos",
+        "require_org_admin": false,
+        "repo_allowlist": null
+      },
+      "source": "admin",
+      "locked": false,
+      "updated_at": 1790000000000,
+      "updated_by": "usr_ada"
+    },
+    "integration.tools.list": {
+      "namespace": "github",
+      "tools": [
+        {
+          "path": "issue.comment",
+          "title": "github.issue.comment",
+          "kind": "provider",
+          "target": "github.issue.comment",
+          "op_class": "send-external",
+          "default_action": "ask"
+        }
+      ],
+      "rules": [
+        {
+          "id": "pol_t2",
+          "owner": "team",
+          "pattern": "github.issue.comment",
+          "action": "ask"
+        }
+      ]
+    }
+  }
+}

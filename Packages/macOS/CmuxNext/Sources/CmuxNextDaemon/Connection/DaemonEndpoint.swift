@@ -92,6 +92,10 @@ public struct DaemonCapabilities: Sendable {
     /// Sticky columns: `set-column-sticky` and `columns[].sticky`
     /// (plans/cmux-next/sticky-column.md).
     public let stickyColumns = "sticky-columns-v1"
+    /// Top and bottom docks (`columns[].dock`, plans/cmux-next/layout-model.md).
+    /// No daemon serves it yet; the app refuses to send a top or bottom dock
+    /// until one does.
+    public let edgeDocks = "edge-docks-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -132,9 +136,16 @@ public struct DaemonCapabilities: Sendable {
     /// `screen.move`, `screen_group.*`, ...) with idempotency keys, one commit
     /// path shared with the raw commands (PR #16174, cmux-tui 52103e740).
     public let stateResources = "state-resources-v1"
+    /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
+    /// cmux-tui PR #16842).
+    public let sidebarLayout = "sidebar-layout-v1"
+    /// `move-tab-to-split` `respawn`: splitting a pane with its only tab
+    /// spawns a new tab of the same kind in the source pane, in the same
+    /// owner op (plans/cmux-next/layout-invariants.md).
+    public let tabSplitRespawn = "tab-split-respawn-v1"
     public var awaitingPin: [String] {
         [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
-         endTerminalsKeepLayout, stateResources, localConversations]
+         endTerminalsKeepLayout, stateResources, localConversations, sidebarLayout, tabSplitRespawn]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.

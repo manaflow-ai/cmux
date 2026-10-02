@@ -5634,136 +5634,398 @@
         }
       }
     },
-    "onboarding.passwords.keychain": {
-      "extractionState": "manual",
+    "onboarding.passwords.keychain2": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next, macOS asks whether cmux may use %@. That Keychain item is the key the browser locks its saved passwords with. Choose Allow, and cmux unlocks them once, on this Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "次に、cmux が %@ を使用してよいか macOS が確認します。このキーチェーン項目は、ブラウザが保存済みパスワードを暗号化する鍵です。「許可」を選ぶと、cmux はこの Mac 上で一度だけそれらを復号します。"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "بعد ذلك، يسأل macOS ما إذا كان يمكن لـ cmux استخدام %@. عنصر سلسلة المفاتيح هذا هو المفتاح الذي يقفل به المتصفح كلمات السر المحفوظة. اختر «السماح»، فيفتحها cmux مرة واحدة على هذا الـ Mac."
+            "value": "يطلب منك الاستيراد التأكيد باستخدام Touch ID أو كلمة السر. بعد ذلك يسأل macOS عمّا إذا كان يمكن لـ cmux استخدام %@، وهو عنصر سلسلة المفاتيح الذي يقفل به المتصفح كلمات السر المحفوظة. اختر «السماح»، وسيفتحها cmux مرة واحدة على هذا الـ Mac."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zatim macOS pita smije li cmux koristiti %@. Ta stavka privjeska ključeva je ključ kojim preglednik zaključava sačuvane lozinke. Odaberite Dozvoli i cmux će ih otključati jednom, na ovom Macu."
+            "value": "Uvoz traži da potvrdite pomoću Touch ID-a ili lozinke. Zatim macOS pita smije li cmux koristiti %@, stavku privjeska ključeva kojom preglednik zaključava sačuvane lozinke. Odaberite Dozvoli i cmux ih otključava jednom, na ovom Macu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Derefter spørger macOS, om cmux må bruge %@. Det nøgleringsemne er den nøgle, browseren låser sine gemte adgangskoder med. Vælg Tillad, så låser cmux dem op én gang på denne Mac."
+            "value": "Import beder dig bekræfte med Touch ID eller din adgangskode. Derefter spørger macOS, om cmux må bruge %@, nøgleringsemnet, som browseren låser sine gemte adgangskoder med. Vælg Tillad, så låser cmux dem op én gang på denne Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Als Nächstes fragt macOS, ob cmux %@ verwenden darf. Dieser Schlüsselbundeintrag ist der Schlüssel, mit dem der Browser seine gespeicherten Passwörter verschlüsselt. Wähle „Erlauben“, dann entschlüsselt cmux sie einmalig auf diesem Mac."
+            "value": "Beim Import bestätigst du mit Touch ID oder deinem Passwort. Danach fragt macOS, ob cmux %@ verwenden darf, den Schlüsselbundeintrag, mit dem der Browser seine gespeicherten Passwörter verschlüsselt. Wähle „Erlauben“, dann entschlüsselt cmux sie einmalig auf diesem Mac."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import asks you to confirm with Touch ID or your password. Then macOS asks whether cmux may use %@, the Keychain item the browser locks its saved passwords with. Choose Allow, and cmux unlocks them once, on this Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A continuación, macOS preguntará si cmux puede usar %@. Ese ítem del llavero es la clave con la que el navegador cifra sus contraseñas guardadas. Elige Permitir y cmux las desbloqueará una sola vez, en este Mac."
+            "value": "Al importar se te pide confirmar con Touch ID o tu contraseña. Después, macOS pregunta si cmux puede usar %@, el ítem del llavero con el que el navegador protege sus contraseñas guardadas. Elige Permitir y cmux las desbloquea una vez, en este Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ensuite, macOS demande si cmux peut utiliser %@. Cet élément du trousseau est la clé avec laquelle le navigateur chiffre ses mots de passe enregistrés. Choisissez Autoriser, et cmux les déverrouille une seule fois, sur ce Mac."
+            "value": "L’importation vous demande de confirmer avec Touch ID ou votre mot de passe. macOS demande ensuite si cmux peut utiliser %@, l’élément du trousseau avec lequel le navigateur verrouille ses mots de passe enregistrés. Choisissez Autoriser et cmux les déverrouille une fois, sur ce Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Poi macOS chiede se cmux può usare %@. Quell’elemento del portachiavi è la chiave con cui il browser cifra le password salvate. Scegli Consenti e cmux le sbloccherà una sola volta, su questo Mac."
+            "value": "L’importazione ti chiede di confermare con Touch ID o la password. Poi macOS chiede se cmux può usare %@, l’elemento del portachiavi con cui il browser protegge le password salvate. Scegli Consenti e cmux le sblocca una volta, su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "読み込むときに Touch ID またはパスワードで確認します。続いて macOS が、cmux に %@ の使用を許可するか尋ねます。これはブラウザが保存済みパスワードを保護しているキーチェーン項目です。「許可」を選ぶと、cmux はこの Mac 上で一度だけそれを解除します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទាប់មក macOS នឹងសួរថាតើ cmux អាចប្រើ %@ បានឬទេ។ ធាតុ Keychain នោះជាកូនសោដែលកម្មវិធីរុករកប្រើចាក់សោពាក្យសម្ងាត់ដែលបានរក្សាទុក។ ជ្រើសរើស អនុញ្ញាត ហើយ cmux នឹងដោះសោវាម្ដង នៅលើ Mac នេះ។"
+            "value": "ការនាំចូលនឹងសុំឲ្យអ្នកបញ្ជាក់ដោយ Touch ID ឬពាក្យសម្ងាត់របស់អ្នក។ បន្ទាប់មក macOS សួរថាតើ cmux អាចប្រើ %@ បានឬទេ ដែលជាធាតុ Keychain ដែលកម្មវិធីរុករកប្រើចាក់សោពាក្យសម្ងាត់ដែលបានរក្សាទុក។ ជ្រើស Allow ហើយ cmux នឹងដោះសោវាម្តងគត់ នៅលើ Mac នេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "다음으로 macOS가 cmux에서 %@ 항목을 사용해도 되는지 묻습니다. 이 키체인 항목은 브라우저가 저장된 암호를 잠그는 키입니다. 허용을 선택하면 cmux가 이 Mac에서 한 번만 잠금을 해제합니다."
+            "value": "가져오기를 하면 Touch ID 또는 암호로 확인하라는 요청이 표시됩니다. 그런 다음 macOS가 cmux에서 %@을(를) 사용해도 되는지 묻습니다. 이 키체인 항목은 브라우저가 저장된 암호를 잠그는 데 쓰는 키입니다. 허용을 선택하면 cmux가 이 Mac에서 한 번만 잠금을 해제합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Deretter spør macOS om cmux kan bruke %@. Det nøkkelringobjektet er nøkkelen nettleseren låser de lagrede passordene med. Velg Tillat, så låser cmux dem opp én gang, på denne Macen."
+            "value": "Importen ber deg bekrefte med Touch ID eller passordet ditt. Deretter spør macOS om cmux kan bruke %@, nøkkelringobjektet nettleseren låser de lagrede passordene sine med. Velg Tillat, så låser cmux dem opp én gang på denne Macen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Następnie macOS zapyta, czy cmux może użyć %@. Ten element pęku kluczy to klucz, którym przeglądarka szyfruje zapisane hasła. Wybierz Pozwól, a cmux odblokuje je jednorazowo na tym Macu."
+            "value": "Import poprosi o potwierdzenie za pomocą Touch ID lub hasła. Następnie macOS zapyta, czy cmux może użyć %@, czyli elementu pęku kluczy, którym przeglądarka chroni zapisane hasła. Wybierz Zezwól, a cmux odblokuje je jednorazowo na tym Macu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Em seguida, o macOS pergunta se o cmux pode usar %@. Esse item das Chaves é a chave com que o navegador protege as senhas salvas. Escolha Permitir, e o cmux as desbloqueia uma única vez, neste Mac."
+            "value": "A importação pede que você confirme com o Touch ID ou sua senha. Depois, o macOS pergunta se o cmux pode usar %@, o item das Chaves com que o navegador protege as senhas salvas. Escolha Permitir e o cmux as desbloqueia uma vez, neste Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Затем macOS спросит, может ли cmux использовать %@. Этот объект связки ключей — ключ, которым браузер шифрует сохранённые пароли. Выберите «Разрешить», и cmux однократно расшифрует их на этом Mac."
+            "value": "При импорте нужно подтвердить действие с помощью Touch ID или пароля. Затем macOS спросит, может ли cmux использовать %@ — объект связки ключей, которым браузер защищает сохранённые пароли. Выберите «Разрешить», и cmux разблокирует их один раз на этом Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ถัดไป macOS จะถามว่า cmux ใช้ %@ ได้หรือไม่ รายการพวงกุญแจนั้นคือกุญแจที่เบราว์เซอร์ใช้ล็อกรหัสผ่านที่บันทึกไว้ เลือก อนุญาต แล้ว cmux จะปลดล็อกเพียงครั้งเดียวบน Mac เครื่องนี้"
+            "value": "การนำเข้าจะขอให้คุณยืนยันด้วย Touch ID หรือรหัสผ่าน จากนั้น macOS จะถามว่า cmux ใช้ %@ ได้หรือไม่ ซึ่งเป็นรายการพวงกุญแจที่เบราว์เซอร์ใช้ล็อกรหัสผ่านที่บันทึกไว้ เลือก อนุญาต แล้ว cmux จะปลดล็อกเพียงครั้งเดียวบน Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ardından macOS, cmux’ın %@ öğesini kullanıp kullanamayacağını soracak. Bu anahtar zinciri öğesi, tarayıcının kayıtlı parolalarını kilitlediği anahtardır. İzin Ver’i seçin; cmux bunları bu Mac’te bir kez açar."
+            "value": "İçe aktarma, Touch ID veya parolanızla onaylamanızı ister. Ardından macOS, cmux’un %@ öğesini kullanıp kullanamayacağını sorar; bu, tarayıcının kayıtlı parolalarını kilitlediği Anahtar Zinciri öğesidir. İzin Ver’i seçin, cmux bunları bu Mac’te bir kez açar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Далі macOS запитає, чи може cmux використати %@. Цей елемент в’язки ключів — ключ, яким браузер шифрує збережені паролі. Виберіть «Дозволити», і cmux одноразово розшифрує їх на цьому Mac."
+            "value": "Під час імпорту потрібно підтвердити дію за допомогою Touch ID або пароля. Потім macOS запитає, чи може cmux використати %@ — об’єкт зв’язки ключів, яким браузер захищає збережені паролі. Виберіть «Дозволити», і cmux розблокує їх один раз на цьому Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tiếp theo, macOS sẽ hỏi cmux có được dùng %@ không. Mục chuỗi khóa đó là khóa mà trình duyệt dùng để khóa mật khẩu đã lưu. Chọn Cho phép, và cmux sẽ mở khóa chúng một lần, trên máy Mac này."
+            "value": "Khi nhập, bạn sẽ được yêu cầu xác nhận bằng Touch ID hoặc mật khẩu. Sau đó macOS hỏi cmux có được dùng %@ không, đây là mục Chuỗi khóa mà trình duyệt dùng để khóa các mật khẩu đã lưu. Chọn Cho phép, và cmux sẽ mở khóa chúng một lần trên máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "接下来,macOS 会询问 cmux 能否使用 %@。这个钥匙串项目是浏览器用来锁定已存储密码的密钥。选择“允许”后,cmux 只会在这台 Mac 上解锁一次。"
+            "value": "导入时会请你用触控 ID 或密码确认。随后 macOS 会询问是否允许 cmux 使用 %@，这是浏览器用来锁定已存储密码的钥匙串项目。选择“允许”，cmux 会在这台 Mac 上解锁一次。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "接著,macOS 會詢問 cmux 能否使用 %@。這個鑰匙圈項目是瀏覽器用來鎖定已儲存密碼的密鑰。選擇「允許」後,cmux 只會在這台 Mac 上解鎖一次。"
+            "value": "匯入時會請你用 Touch ID 或密碼確認。接著 macOS 會詢問是否允許 cmux 使用 %@，這是瀏覽器用來鎖定已儲存密碼的鑰匙圈項目。選擇「允許」，cmux 會在這台 Mac 上解鎖一次。"
           }
         }
-      }
+      },
+      "extractionState": "manual"
+    },
+    "onboarding.passwords.authReason": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "استيراد كلمات السر المحفوظة من متصفحاتك الأخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uvesti sačuvane lozinke iz vaših drugih preglednika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "importere gemte adgangskoder fra dine andre browsere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "gespeicherte Passwörter aus deinen anderen Browsern importieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "import saved passwords from your other browsers"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "importar contraseñas guardadas de tus otros navegadores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "importer les mots de passe enregistrés de vos autres navigateurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "importare le password salvate dagli altri browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ほかのブラウザから保存済みパスワードを読み込もうとしています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នាំចូលពាក្យសម្ងាត់ដែលបានរក្សាទុកពីកម្មវិធីរុករកផ្សេងទៀតរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 브라우저에서 저장된 암호를 가져오려고 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "importere lagrede passord fra de andre nettleserne dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zaimportować zapisane hasła z innych przeglądarek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "importar senhas salvas dos seus outros navegadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "импортировать сохранённые пароли из других браузеров"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นำเข้ารหัสผ่านที่บันทึกไว้จากเบราว์เซอร์อื่นของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "diğer tarayıcılarınızdaki kayıtlı parolaları içe aktarmak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "імпортувати збережені паролі з інших браузерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nhập mật khẩu đã lưu từ các trình duyệt khác của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从你的其他浏览器导入已存储的密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從你的其他瀏覽器匯入已儲存的密碼"
+          }
+        }
+      },
+      "extractionState": "manual"
+    },
+    "onboarding.passwords.authDenied": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تتم قراءة أي شيء: لم يكتمل التأكيد. انقر «استيراد» للمحاولة مرة أخرى، أو استورد دون كلمات السر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ništa nije pročitano: potvrda nije završena. Kliknite Uvezi da pokušate ponovo ili uvezite bez lozinki."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet blev læst: bekræftelsen blev ikke fuldført. Klik på Importér for at prøve igen, eller importér uden adgangskoder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es wurde nichts gelesen: Die Bestätigung wurde nicht abgeschlossen. Klicke auf „Importieren“, um es erneut zu versuchen, oder importiere ohne Passwörter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was read: the confirmation didn’t finish. Click Import to try again, or import without passwords."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se leyó nada: la confirmación no terminó. Haz clic en Importar para volver a intentarlo o importa sin contraseñas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rien n’a été lu : la confirmation n’a pas abouti. Cliquez sur Importer pour réessayer, ou importez sans les mots de passe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non è stato letto nulla: la conferma non è stata completata. Fai clic su Importa per riprovare, oppure importa senza password."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "何も読み込まれていません。確認が完了しませんでした。もう一度試すには「読み込む」をクリックするか、パスワードなしで読み込んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានអានអ្វីទេ៖ ការបញ្ជាក់មិនបានបញ្ចប់។ ចុច Import ដើម្បីសាកម្តងទៀត ឬនាំចូលដោយគ្មានពាក្យសម្ងាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아무것도 읽지 않았습니다. 확인이 완료되지 않았습니다. 다시 시도하려면 가져오기를 클릭하거나 암호 없이 가져오세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingenting ble lest: bekreftelsen ble ikke fullført. Klikk Importer for å prøve igjen, eller importer uten passord."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nic nie zostało odczytane: potwierdzenie się nie zakończyło. Kliknij Importuj, aby spróbować ponownie, lub zaimportuj bez haseł."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nada foi lido: a confirmação não terminou. Clique em Importar para tentar de novo ou importe sem as senhas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ничего не прочитано: подтверждение не завершено. Нажмите «Импортировать», чтобы повторить, или импортируйте без паролей."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่มีการอ่านข้อมูลใด ๆ: การยืนยันไม่เสร็จสมบูรณ์ คลิก นำเข้า เพื่อลองอีกครั้ง หรือนำเข้าโดยไม่รวมรหัสผ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiçbir şey okunmadı: onay tamamlanmadı. Yeniden denemek için İçe Aktar’ı tıklayın veya parolalar olmadan içe aktarın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нічого не прочитано: підтвердження не завершено. Натисніть «Імпортувати», щоб спробувати ще раз, або імпортуйте без паролів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa đọc gì cả: việc xác nhận chưa hoàn tất. Nhấp Nhập để thử lại, hoặc nhập mà không có mật khẩu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未读取任何内容：确认未完成。点按“导入”重试，或不含密码导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未讀取任何內容：確認未完成。按一下「匯入」再試一次，或不含密碼匯入。"
+          }
+        }
+      },
+      "extractionState": "manual"
     },
     "onboarding.passwords.store": {
       "extractionState": "manual",

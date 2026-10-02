@@ -147,7 +147,7 @@ final class WorkspaceRowView: SidebarRowView {
         switch iconKind {
         case nil: side = 0
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
-        case .symbol?: side = SidebarStyle.iconBox
+        case .symbol?, .emoji?: side = SidebarStyle.iconBox
         }
         icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
 

@@ -49,6 +49,30 @@ import Testing
         #expect(invocation == nil)
     }
 
+    /// Import Passwords from CSV is a person's: the socket refuses it even
+    /// when the caller claims to be the user, and the handler never runs.
+    @Test func thePasswordCSVImportIsRefusedOverTheSocket() async {
+        let registry = ActionRegistry.standard()
+        var ran = false
+        registry.bind("password.importCSV", invoke: { _ in ran = true })
+        let bridge = RegistryControlBridge(registry: registry)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        for origin: JSONValue in ["user", "cli", "mcp", .null] {
+            let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: [
+                "action": "password.importCSV", "origin": origin,
+            ]))
+            guard case .failure(let error) = result else {
+                Issue.record("expected a refusal for origin \(origin)")
+                continue
+            }
+            #expect(error.code == "unavailable")
+            #expect(error.data?["reason"] == .string(ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action")))
+        }
+        #expect(!ran)
+        #expect(registry.descriptor(for: "password.importCSV")?.isPersonOnly == true)
+    }
+
     @Test func inAppRunsAreTheUsers() {
         #expect(ActionInvocation().origin == .user)
         #expect(ActionInvocation().allowsViewChange)
