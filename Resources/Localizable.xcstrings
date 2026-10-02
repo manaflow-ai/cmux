@@ -361878,115 +361878,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Record Keys"
+            "value": "Detect Shortcut"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تسجيل المفاتيح"
+            "value": "اكتشاف اختصار"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Snimi tipke"
+            "value": "Otkrij prečicu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Optag taster"
+            "value": "Registrér genvej"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasten aufnehmen"
+            "value": "Tastenkürzel erkennen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grabar teclas"
+            "value": "Detectar atajo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enregistrer les touches"
+            "value": "Détecter un raccourci"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Registra tasti"
+            "value": "Rileva scorciatoia"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "キーを記録"
+            "value": "ショートカットを検出"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "키 기록"
+            "value": "단축키 감지"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ta opp taster"
+            "value": "Oppdag snarvei"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nagraj klawisze"
+            "value": "Wykryj skrót"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gravar teclas"
+            "value": "Detectar atalho"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Записать клавиши"
+            "value": "Определить сочетание"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บันทึกปุ่ม"
+            "value": "ตรวจจับคีย์ลัด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tuşları kaydet"
+            "value": "Kısayolu algıla"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Записати клавіші"
+            "value": "Визначити сполучення"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "录制按键"
+            "value": "检测快捷键"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錄製按鍵"
+            "value": "偵測快速鍵"
           }
         }
       }
@@ -361997,115 +361997,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Press keys…"
+            "value": "Listening…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اضغط المفاتيح…"
+            "value": "جارٍ الاستماع…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pritisnite tipke…"
+            "value": "Slušam…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tryk på taster…"
+            "value": "Lytter…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tasten drücken …"
+            "value": "Warte auf Tasten …"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pulsa las teclas…"
+            "value": "Escuchando…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Appuyez sur des touches…"
+            "value": "En écoute…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Premi i tasti…"
+            "value": "In ascolto…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "キーを押してください…"
+            "value": "入力待ち…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "키를 누르세요…"
+            "value": "입력 대기 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trykk på taster…"
+            "value": "Lytter…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Naciśnij klawisze…"
+            "value": "Nasłuchiwanie…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pressione as teclas…"
+            "value": "Ouvindo…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нажмите клавиши…"
+            "value": "Ожидание нажатия…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "กดปุ่ม…"
+            "value": "กำลังรอการกด…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tuşlara basın…"
+            "value": "Dinleniyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Натисніть клавіші…"
+            "value": "Очікування натискання…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请按按键…"
+            "value": "正在监听…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請按按鍵…"
+            "value": "正在聆聽…"
           }
         }
       }

@@ -16,16 +16,31 @@ struct ShortcutListSearchBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            TextField(
-                String(localized: "settings.shortcuts.search.placeholder", defaultValue: "Search shortcuts"),
-                text: $query.text
-            )
-            .textFieldStyle(.roundedBorder)
-            .accessibilityIdentifier("SettingsShortcutSearchField")
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                TextField(
+                    String(localized: "settings.shortcuts.search.placeholder", defaultValue: "Search shortcuts"),
+                    text: $query.text
+                )
+                .textFieldStyle(.plain)
+                .accessibilityIdentifier("SettingsShortcutSearchField")
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+            }
 
             ShortcutDetectorView(
                 placeholder: query.keys.map { shortcutDisplayString($0, numbered: false) }
-                    ?? String(localized: "settings.shortcuts.detector.idle", defaultValue: "Record Keys"),
+                    ?? String(localized: "settings.shortcuts.detector.idle", defaultValue: "Detect Shortcut"),
                 awaitsSecondStroke: hasChord,
                 clearCount: clearCount,
                 onKeys: { keys in
@@ -105,7 +120,10 @@ private struct ShortcutDetectorView: NSViewRepresentable {
     private func configure(_ button: RecorderHostButton) {
         let onKeys = onKeys
         button.placeholder = placeholder
-        button.recordingPrompt = String(localized: "settings.shortcuts.detector.prompt", defaultValue: "Press keys…")
+        button.recordingPrompt = String(localized: "settings.shortcuts.detector.prompt", defaultValue: "Listening…")
+        button.restingImage = NSImage(systemSymbolName: "keyboard", accessibilityDescription: nil)
+        button.recordingImage = NSImage(systemSymbolName: "keyboard.badge.ellipsis", accessibilityDescription: nil)
+        button.recordingTintColor = .controlAccentColor
         button.firstStrokeRequiresModifier = false
         button.startsRecordingOnFocus = false
         button.awaitsSecondStroke = awaitsSecondStroke

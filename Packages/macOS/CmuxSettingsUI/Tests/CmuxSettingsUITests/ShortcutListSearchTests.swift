@@ -107,15 +107,27 @@ struct ShortcutListSearchTests {
         #expect(!button.isRecording)
     }
 
-    @Test func recorderUsesCustomRecordingPrompt() {
+    @Test func recorderShowsCustomPromptIconAndTintWhileArmed() {
         let button = RecorderHostButton(frame: .zero)
         defer { button.cancelRecordingIfActive() }
-        button.placeholder = "Record Keys"
-        button.recordingPrompt = "Press keys…"
+        let resting = NSImage(systemSymbolName: "keyboard", accessibilityDescription: nil)
+        let recording = NSImage(systemSymbolName: "keyboard.badge.ellipsis", accessibilityDescription: nil)
+        button.placeholder = "Detect Shortcut"
+        button.recordingPrompt = "Listening…"
+        button.restingImage = resting
+        button.recordingImage = recording
+        button.recordingTintColor = .controlAccentColor
         button.refreshTitle()
-        #expect(button.title == "Record Keys")
+        #expect(button.title == "Detect Shortcut")
+        #expect(button.image === resting)
+        #expect(button.contentTintColor == nil)
         button.startRecording()
-        #expect(button.title == "Press keys…")
+        #expect(button.title == "Listening…")
+        #expect(button.image === recording)
+        #expect(button.contentTintColor == .controlAccentColor)
+        button.stopRecording()
+        #expect(button.image === resting)
+        #expect(button.contentTintColor == nil)
     }
 
     private func makeModel() -> ShortcutListModel {

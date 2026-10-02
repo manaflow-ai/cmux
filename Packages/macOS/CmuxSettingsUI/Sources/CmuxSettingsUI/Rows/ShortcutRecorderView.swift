@@ -193,6 +193,12 @@ public final class RecorderHostButton: NSButton {
     public var onFirstStroke: ((ShortcutStroke) -> Void)?
     /// Title shown while armed, or `nil` for the localized "Press shortcut…".
     public var recordingPrompt: String?
+    /// Leading symbol while idle; `nil` keeps the plain text button.
+    public var restingImage: NSImage?
+    /// Leading symbol while armed; falls back to ``restingImage``.
+    public var recordingImage: NSImage?
+    /// Title and symbol tint while armed; `nil` keeps the default color.
+    public var recordingTintColor: NSColor?
     /// Whether gaining keyboard focus arms the recorder. The detector turns
     /// this off so tabbing onto it does not swallow the next Tab.
     public var startsRecordingOnFocus = true
@@ -464,6 +470,13 @@ public final class RecorderHostButton: NSButton {
             title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
         } else {
             title = placeholder
+        }
+        if restingImage != nil || recordingImage != nil {
+            image = isRecording ? (recordingImage ?? restingImage) : restingImage
+            imagePosition = .imageLeading
+        }
+        if let recordingTintColor {
+            contentTintColor = isRecording ? recordingTintColor : nil
         }
     }
 
