@@ -10,7 +10,11 @@ import Observation
 /// ``BillingTransactionDeliverer``, which finishes it only after a 2xx. A
 /// transaction the server did not accept stays unfinished; StoreKit keeps it,
 /// and ``retryUndeliveredTransactions()`` posts it again at launch, sign-in,
-/// foreground, and each time the plans screen loads.
+/// foreground, and each time the plans screen loads. A transaction the server
+/// refused for good (``BillingFailure/isPermanentRejection``, for example
+/// another account's subscription) is not re-posted automatically until the
+/// account changes, and is never finished, so the right account can still
+/// claim it.
 ///
 /// Build one at the composition root, call ``start()`` once at launch, and
 /// inject it into SwiftUI with `.environment(model)`.
@@ -41,6 +45,9 @@ public final class BillingModel {
     /// Bumped on sign-out so a load that started for the previous account
     /// cannot publish its result.
     private var accountGeneration = 0
+    /// Transactions the server refused for good for the current account. They
+    /// stay unfinished; automatic retries skip them until sign-out.
+    private var rejectedTransactions: [UInt64: BillingFailure] = [:]
 
     /// Creates the model.
     /// - Parameters:
@@ -130,10 +137,12 @@ public final class BillingModel {
         case .completed(.unverified):
             fail(.unverified, properties: properties)
         case .completed(.verified(let transaction)):
-            switch await deliverer.deliver(transaction) {
+            switch await deliver(transaction) {
             case .accepted(let receipt):
                 purchase = .completed(receipt.planID)
                 await loadAccount()
+            case .rejected(let failure):
+                fail(failure, properties: properties)
             case .deferred:
                 // Apple charged the user; only the server step is missing.
                 // The transaction stays unfinished and is retried, and the
@@ -164,11 +173,13 @@ public final class BillingModel {
         }
         var accepted = 0
         var lastFailure: BillingFailure?
+        // Restore is an explicit request, so it posts even transactions the
+        // server refused earlier in this session.
         for entitlement in await store.currentEntitlements() {
             guard case .verified(let transaction) = entitlement else { continue }
-            switch await deliverer.deliver(transaction) {
+            switch await deliver(transaction) {
             case .accepted: accepted += 1
-            case .deferred(let failure): lastFailure = failure
+            case .deferred(let failure), .rejected(let failure): lastFailure = failure
             }
         }
         await retryUndeliveredTransactions()
@@ -186,7 +197,8 @@ public final class BillingModel {
     }
 
     /// Posts every unfinished verified transaction to the server and finishes
-    /// the ones it accepts. Unverified transactions are never posted.
+    /// the ones it accepts. Unverified transactions are never posted, and
+    /// transactions refused for good are skipped until the account changes.
     public func retryUndeliveredTransactions() async {
         for update in await store.unfinishedTransactions() {
             await handle(update)
@@ -200,10 +212,12 @@ public final class BillingModel {
     }
 
     /// Forgets the signed-out account. Unfinished transactions stay with
-    /// StoreKit and are delivered for whichever account signs in next; the
-    /// server rejects a token that belongs to another user.
+    /// StoreKit and are delivered for whichever account signs in next, even
+    /// ones the previous account was refused; the server rejects a token that
+    /// belongs to another user.
     public func resetForSignOut() {
         accountGeneration += 1
+        rejectedTransactions = [:]
         account = .idle
         offers = []
         offersFailure = nil
@@ -213,18 +227,39 @@ public final class BillingModel {
 
     /// Delivers one transaction from the listener or a retry.
     func handle(_ update: StoreTransactionVerification) async {
-        guard case .verified(let transaction) = update else { return }
-        guard case .accepted(let receipt) = await deliverer.deliver(transaction) else { return }
-        switch purchase {
-        case .pending(let productID) where productID == transaction.productID,
-             .awaitingServer(let productID) where productID == transaction.productID:
+        guard case .verified(let transaction) = update, rejectedTransactions[transaction.id] == nil else { return }
+        let receipt: BillingTransactionReceipt
+        switch await deliver(transaction) {
+        case .accepted(let accepted):
+            receipt = accepted
+        case .rejected(let failure):
+            if purchase.isWaiting(for: transaction.productID) { purchase = .failed(failure) }
+            return
+        case .deferred:
+            return
+        }
+        if purchase.isWaiting(for: transaction.productID) {
             purchase = .completed(receipt.planID)
-        default:
-            break
         }
         if account.account != nil {
             await loadAccount()
         }
+    }
+
+    /// Posts one transaction and remembers a permanent refusal for this
+    /// account, unless the account changed while the post ran.
+    private func deliver(_ transaction: StoreTransaction) async -> BillingDeliveryOutcome {
+        let generation = accountGeneration
+        let outcome = await deliverer.deliver(transaction)
+        switch outcome {
+        case .rejected(let failure) where generation == accountGeneration:
+            rejectedTransactions[transaction.id] = failure
+        case .accepted:
+            rejectedTransactions[transaction.id] = nil
+        default:
+            break
+        }
+        return outcome
     }
 
     private func loadAccount() async {

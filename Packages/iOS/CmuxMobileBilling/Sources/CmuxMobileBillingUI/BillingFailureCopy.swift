@@ -18,6 +18,16 @@ struct BillingFailureCopy: Equatable {
                 "mobile.billing.error.network",
                 defaultValue: "Couldn't reach the App Store or cmux. Check your connection and try again."
             )
+        case .accountMismatch:
+            L10n.string(
+                "mobile.billing.error.accountMismatch",
+                defaultValue: "This subscription belongs to another cmux account. Sign in with that account to use it."
+            )
+        case .server where failure.isPermanentRejection:
+            L10n.string(
+                "mobile.billing.error.rejected",
+                defaultValue: "cmux can't apply this purchase to your account. Contact cmux support for help."
+            )
         case .server, .invalidResponse:
             L10n.string("mobile.billing.error.server", defaultValue: "cmux couldn't confirm this right now. Try again later.")
         case .unverified:

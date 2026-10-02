@@ -106,6 +106,9 @@ public struct HTTPBillingAPI: BillingAPI {
         }
         guard let http = response as? HTTPURLResponse else { throw BillingAPIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 403, (try? JSONDecoder().decode(ErrorBody.self, from: data))?.error == "account_mismatch" {
+                throw BillingAPIError.accountMismatch
+            }
             throw BillingAPIError.rejected(statusCode: http.statusCode)
         }
         do {
@@ -117,5 +120,9 @@ public struct HTTPBillingAPI: BillingAPI {
 
     private struct TransactionBody: Encodable {
         let signedTransactionInfo: String
+    }
+
+    private struct ErrorBody: Decodable {
+        let error: String?
     }
 }

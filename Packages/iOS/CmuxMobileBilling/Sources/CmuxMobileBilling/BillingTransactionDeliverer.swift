@@ -22,7 +22,8 @@ public actor BillingTransactionDeliverer {
 
     /// Posts a transaction's JWS, then finishes it if the server accepted it.
     /// - Parameter transaction: A StoreKit-verified transaction.
-    /// - Returns: Whether the server accepted it.
+    /// - Returns: Whether the server accepted it, will be asked again, or
+    ///   refused it for good.
     public func deliver(_ transaction: StoreTransaction) async -> BillingDeliveryOutcome {
         if let running = inFlight[transaction.id] {
             return await running.value
@@ -39,7 +40,8 @@ public actor BillingTransactionDeliverer {
         do {
             receipt = try await api.submitTransaction(signedTransactionInfo: transaction.jwsRepresentation)
         } catch {
-            return .deferred(BillingFailure(error))
+            let failure = BillingFailure(error)
+            return failure.isPermanentRejection ? .rejected(failure) : .deferred(failure)
         }
         // Finish strictly after the server's 2xx. A crash between the two
         // leaves the transaction unfinished, and the idempotent route accepts

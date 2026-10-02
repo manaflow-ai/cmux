@@ -10,6 +10,9 @@ public enum BillingAPIError: Error, Sendable, Equatable {
     case transport
     /// The server answered with a non-2xx status.
     case rejected(statusCode: Int)
+    /// `403 account_mismatch`: the transaction's subscription belongs to
+    /// another cmux account.
+    case accountMismatch
     /// The server's 2xx body did not match the contract.
     case invalidResponse
 }
