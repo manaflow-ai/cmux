@@ -28,7 +28,7 @@ import {
 
 export const PRO_PLAN_ID = "pro";
 export const GO_PLAN_ID = "go";
-// Max is Pro plus the 32 GB and 64 GB machine sizes. It is a personal
+// Max is Pro plus the 16, 24, and 32 GB machine sizes. It is a personal
 // subscription like Pro: same Stripe customer scope, same metadata mirror
 // (`cmuxPlan: "max"`), and it satisfies every "is Pro" check.
 export const MAX_PLAN_ID = "max";
@@ -768,7 +768,7 @@ export function metadataPlanId(raw: unknown): string | null {
  * Writes `cmuxPlan: "team"` and `cmuxSeats` (the subscription quantity) into
  * a Stack team's clientReadOnlyMetadata while a Stripe Team subscription is
  * active; both are removed when it lapses. Seats size the team's Cloud VM
- * allowance (50 machines per seat), so a quantity change must land here even
+ * allowance (5 machines per seat), so a quantity change must land here even
  * when the plan id is unchanged. `cmuxVmPlan` is operator-owned and left
  * untouched.
  */

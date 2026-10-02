@@ -13,6 +13,7 @@ extension TerminalController {
         "debug.app.activate",
         "debug.workspace_todo.checklist_add_field",
         "debug.pro_welcome_checklist.show",
+        "debug.native_pricing.show",
         "debug.command_palette.toggle",
         "debug.command_palette.rename_tab.open",
         "debug.command_palette.visible",
