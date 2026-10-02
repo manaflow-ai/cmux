@@ -328,6 +328,7 @@ workspace <selector> screen ...
 screen list|create
 screen <selector> show|rename|focus|close
 screen <selector> layout export|undo
+screen <selector> column <split_id> update
 screen <selector> pane ...
 
 pane list|create

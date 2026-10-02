@@ -257,6 +257,8 @@ pub enum ResourceOperation {
     PaneSplitRatioSet,
     #[serde(rename = "pane.viewport_width.set")]
     PaneViewportWidthSet,
+    #[serde(rename = "column.update")]
+    ColumnUpdate,
     #[serde(rename = "pane.close")]
     PaneClose,
     #[serde(rename = "pane.run")]
@@ -616,26 +618,8 @@ impl ResourceOperation {
 }
 
 #[cfg(test)]
-mod resource_operation_wire_name_tests {
-    use super::ResourceOperation;
-
-    #[test]
-    fn wire_name_round_trips_through_serde() {
-        for name in [
-            "machine.list",
-            "session.journal.append",
-            "workspace.create",
-            "terminal.output_read",
-            "browser.close",
-            "stream.cancel",
-        ] {
-            let operation: ResourceOperation =
-                serde_json::from_str(&format!("\"{name}\"")).expect("known operation");
-            assert_eq!(operation.wire_name(), name);
-            assert_eq!(serde_json::to_string(&operation).unwrap(), format!("\"{name}\""));
-        }
-    }
-}
+#[path = "resource/wire_name_tests.rs"]
+mod resource_operation_wire_name_tests;
 
 impl ResourceOperation {
     pub const fn wire_name(self) -> &'static str {
@@ -706,6 +690,7 @@ impl ResourceOperation {
             Self::PaneZoom => "pane.zoom",
             Self::PaneSplitRatioSet => "pane.split_ratio.set",
             Self::PaneViewportWidthSet => "pane.viewport_width.set",
+            Self::ColumnUpdate => "column.update",
             Self::PaneClose => "pane.close",
             Self::PaneRun => "pane.run",
             Self::TabList => "tab.list",

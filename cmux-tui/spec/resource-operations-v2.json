@@ -8605,6 +8605,107 @@
         "validation.invalid"
       ]
     },
+    "column.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "screen",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "required"
+        },
+        "fields": {
+          "column": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "split"
+            },
+            "description": "The column's stable id, its column_id in the screen's layout document."
+          },
+          "sticky": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true pins the column to edge; false unpins it. Omit to leave the flag unchanged."
+          },
+          "edge": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "left",
+                "right"
+              ]
+            },
+            "description": "Viewport edge for sticky:true. Default right."
+          },
+          "mode": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "docked",
+                "overlay"
+              ]
+            },
+            "description": "Presentation for sticky:true. Default docked."
+          },
+          "width": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "float64"
+            },
+            "description": "Column width as a fraction of the viewport. Omit to leave the width unchanged."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ScreenSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "At least one of sticky or width is required. edge and mode require the sticky field and apply only when sticky is true.",
+        "width is finite, at least 0.1, and at most 1.",
+        "A screen keeps at most one sticky column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid.",
+        "The layout document of the resulting ScreenSnapshot does not carry sticky flags; the JSON-lines Screen.columns[].sticky does."
+      ]
+    },
     "frontend_projection.get": {
       "class": "read",
       "idempotency": "forbidden",
