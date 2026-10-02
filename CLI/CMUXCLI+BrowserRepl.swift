@@ -161,7 +161,14 @@ extension CMUXCLI {
     /// `browser.repl.reset`, the socket methods the other subcommands use.
     private func runBrowserReplMCP(_ arguments: [String], client: SocketClient) throws {
         let (sessionOption, afterSession) = parseOption(arguments, name: "--session")
-        let (baseParams, timeoutMilliseconds, remaining) = try browserReplBaseParams(afterSession, client: client)
+        let (sharedParams, timeoutMilliseconds, remaining) = try browserReplBaseParams(afterSession, client: client)
+        var baseParams = sharedParams
+        // MCP hosts often start servers in `/` or the home directory, which
+        // the app refuses as an fs root and the agent cannot change. Send no
+        // cwd then, so the session gets a temporary directory of its own.
+        if let cwd = baseParams["cwd"] as? String, Self.browserReplCwdIsTooBroad(cwd) {
+            baseParams.removeValue(forKey: "cwd")
+        }
         if let stray = remaining.first {
             let prefix = String(
                 localized: "cli.browser.repl.error.unknownOption",
@@ -210,6 +217,14 @@ extension CMUXCLI {
             guard let reply = server.handle(line: line) else { continue }
             FileHandle.standardOutput.write(Data((reply + "\n").utf8))
         }
+    }
+
+    /// Whether the app refuses `path` as a REPL fs root: `/`, the home
+    /// directory or a directory containing it (`BrowserReplFileSandbox.rootRejection`).
+    private static func browserReplCwdIsTooBroad(_ path: String) -> Bool {
+        let canonical = (path as NSString).resolvingSymlinksInPath
+        let home = (NSHomeDirectory() as NSString).resolvingSymlinksInPath
+        return canonical == "/" || canonical == home || home.hasPrefix(canonical + "/")
     }
 
     /// Sends one cell and prints its output, then `[ok | Nms]` or `[error | Nms]`.

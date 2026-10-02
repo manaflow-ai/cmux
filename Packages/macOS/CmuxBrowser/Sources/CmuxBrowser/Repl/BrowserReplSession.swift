@@ -62,6 +62,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Driver calls and fetches in flight; `close()` cancels them.
     private var inFlight: [Int: Task<Void, Never>] = [:]
     private var nextInFlightID = 0
+    /// The per-session temporary directory created when no cwd was given.
+    private let ownedWorkingDirectory: String?
+    private let homeDirectory: String
 
     // JS-thread state.
     private var context: JSContext?
@@ -132,33 +135,63 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Creates a session. The context is created lazily on the first evaluation.
     /// - Parameters:
     ///   - id: Session name.
-    ///   - cwd: Absolute root for the `fs` global.
+    ///   - cwd: Absolute root for the `fs` global, or `nil` for a new
+    ///     directory of this session's own under the temporary directory
+    ///     (removed on close when still empty). `/`, the home directory and
+    ///     directories containing it are refused when evaluating.
     ///   - bundle: Runtime scripts.
     ///   - driver: Engine driver for the session's tabs.
     ///   - sleeper: Cancellable sleep used for evaluation timeouts.
     ///   - temporaryDirectory: The second `fs` root; `nil` uses `NSTemporaryDirectory()`.
+    ///   - homeDirectory: The user's home directory, refused as a root;
+    ///     `nil` uses `NSHomeDirectory()`.
     public init(
         id: String,
-        cwd: String,
+        cwd: String?,
         bundle: BrowserReplRuntimeBundle,
         driver: any BrowserReplDriver,
         sleeper: any BrowserReplSleeping = BrowserReplClockSleeper(clock: ContinuousClock()),
-        temporaryDirectory: String? = nil
+        temporaryDirectory: String? = nil,
+        homeDirectory: String? = nil
     ) {
+        let temporaryRoot = BrowserReplFileSandbox.canonicalize(
+            BrowserReplFileSandbox.lexicallyNormalized(temporaryDirectory ?? NSTemporaryDirectory())
+        )
+        let resolvedCwd: String
+        if let cwd {
+            resolvedCwd = cwd
+            ownedWorkingDirectory = nil
+        } else {
+            resolvedCwd = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot)
+            ownedWorkingDirectory = resolvedCwd
+        }
         self.id = id
-        self.workingDirectory = cwd
+        self.workingDirectory = resolvedCwd
+        self.homeDirectory = homeDirectory ?? NSHomeDirectory()
         self.bundle = bundle
         self.driver = driver
         self.sleeper = sleeper
         self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)")
         self.fetcher = BrowserReplFetcher(driver: driver)
         self.fileSystem = BrowserReplFileSystem(
-            sandbox: BrowserReplFileSandbox(root: cwd),
-            temporaryDirectory: temporaryDirectory
+            sandbox: BrowserReplFileSandbox(root: resolvedCwd),
+            temporaryDirectory: temporaryRoot
         )
         self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock()) { [weak self] id in
             self?.fireTimer(id)
         }
+    }
+
+    /// Creates `<temporaryRoot>/cmux-browser-repl/<id>-<random>` for a
+    /// session started without a cwd.
+    private static func makeSessionDirectory(id: String, temporaryRoot: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let safeID = String(String.UnicodeScalarView(id.unicodeScalars.prefix(64).map { allowed.contains($0) ? $0 : "_" }))
+        let name = "\(safeID)-\(UUID().uuidString.prefix(8))"
+        let path = (temporaryRoot == "/" ? "" : temporaryRoot) + "/cmux-browser-repl/" + name
+        // A failure surfaces as ENOENT on the first fs write.
+        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        return path
     }
 
     /// The fs root.
@@ -211,13 +244,15 @@ public final class BrowserReplSession: @unchecked Sendable {
         await withCheckedContinuation { continuation in
             stateLock.lock()
             lastUsedAt = .now
-            guard !closed else {
+            var refusal: String?
+            if closed {
+                refusal = "Error: REPL session '\(id)' is closed"
+            } else if let reason = BrowserReplFileSandbox.rootRejection(cwd ?? workingDirectory, homeDirectory: homeDirectory) {
+                refusal = "Error: \(reason)"
+            }
+            if let refusal {
                 stateLock.unlock()
-                continuation.resume(returning: BrowserReplEvalResult(
-                    lines: [],
-                    error: "Error: REPL session '\(id)' is closed",
-                    durationMilliseconds: 0
-                ))
+                continuation.resume(returning: BrowserReplEvalResult(lines: [], error: refusal, durationMilliseconds: 0))
                 return
             }
             if let cwd { workingDirectory = cwd }
@@ -269,6 +304,10 @@ public final class BrowserReplSession: @unchecked Sendable {
         driver.detach()
         fetcher.invalidate()
         running?.finish(error: "Error: REPL session '\(id)' was closed")
+        if let ownedWorkingDirectory {
+            // Only an empty directory goes; files the session wrote stay.
+            rmdir(ownedWorkingDirectory)
+        }
     }
 
     /// Finishes `state` and forgets it when it is still the current evaluation.
@@ -448,7 +487,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         native.setObject(fileSystem.sandbox.root, forKeyedSubscript: "cwd" as NSString)
         native.setObject(driver.capabilities, forKeyedSubscript: "capabilities" as NSString)
         native.setObject(fileSystem.temporaryRoot, forKeyedSubscript: "tmpdir" as NSString)
-        native.setObject(NSHomeDirectory(), forKeyedSubscript: "homedir" as NSString)
+        native.setObject(homeDirectory, forKeyedSubscript: "homedir" as NSString)
 
         let print: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] level, text in
             guard let self, let state = self.stateLock.withLock({ self.currentEval }) else { return }

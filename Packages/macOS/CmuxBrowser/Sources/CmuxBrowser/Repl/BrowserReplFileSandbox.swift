@@ -44,6 +44,20 @@ public struct BrowserReplFileSandbox: Sendable {
         self.root = Self.canonicalize(Self.lexicallyNormalized(root))
     }
 
+    /// Why `root` cannot be a REPL working directory, or `nil` when it can.
+    ///
+    /// `/`, the home directory and any directory containing it would give
+    /// scripts every file the user owns, so they are refused. The reason is
+    /// written for the agent running the command and says what to do.
+    public static func rootRejection(_ root: String, homeDirectory: String) -> String? {
+        let canonical = canonicalize(lexicallyNormalized(root))
+        let home = canonicalize(lexicallyNormalized(homeDirectory))
+        guard canonical == "/" || canonical == home || home.hasPrefix(canonical + "/") else { return nil }
+        let subject = canonical == home ? "the home directory '\(root)'" : "'\(root)'"
+        return "refusing to use \(subject) as the REPL working directory: fs would reach every file in it. "
+            + "cd to a project or scratch directory (for example cd \"$(mktemp -d)\") and run the command again"
+    }
+
     /// Allows reading one file outside the root, for example a finished download.
     public mutating func allowReading(_ path: String) {
         readableFiles.insert(Self.canonicalize(Self.lexicallyNormalized(path)))

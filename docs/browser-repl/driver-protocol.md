@@ -142,7 +142,7 @@ structured values cross the boundary as JSON strings.
 | Member | Contract |
 | --- | --- |
 | `version` | `1` |
-| `sessionId`, `cwd` | session name; absolute fs root (the CLI caller's cwd) |
+| `sessionId`, `cwd` | session name; absolute fs root: the CLI caller's cwd, or, when the request has none, a new directory of the session's own under the temporary directory (removed on close when empty). The app refuses `/`, the home directory and any directory containing it with an error telling the agent to `cd` to a project or scratch directory; `cmux browser repl mcp` sends no cwd when started in one of those |
 | `capabilities` | array of driver capability names (`[]` on WebKit) |
 | `print(level, text)` | append one output line; `level` is `log`, `info`, `warn`, `error` or `debug`; `text` is already formatted |
 | `setTimer(id, delayMs, repeat)` / `clearTimer(id)` | on fire the app calls `globalThis.__cmuxHostOnTimer(id)`; repeating timers keep firing until cleared |

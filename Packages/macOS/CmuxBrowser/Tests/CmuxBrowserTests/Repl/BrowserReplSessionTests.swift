@@ -213,6 +213,62 @@ struct BrowserReplSessionTests {
         #expect(refused.error?.contains("refusing to use '/'") == true)
     }
 
+    @Test("A session without a cwd gets its own temporary directory, removed on close when empty")
+    func sessionWithoutWorkingDirectory() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-session-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        func make(_ id: String) -> BrowserReplSession {
+            BrowserReplSession(
+                id: id,
+                cwd: nil,
+                bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "stub.js", source: stubRuntime)], agentScripts: []),
+                driver: RecordingReplDriver(),
+                temporaryDirectory: base.path
+            )
+        }
+        let writer = make("writer/../session")
+        let idle = make("idle")
+        let canonicalBase = BrowserReplFileSandbox.canonicalize(base.path)
+
+        #expect(writer.cwd != idle.cwd)
+        for session in [writer, idle] {
+            #expect((session.cwd as NSString).deletingLastPathComponent == canonicalBase + "/cmux-browser-repl")
+            var isDirectory: ObjCBool = false
+            #expect(FileManager.default.fileExists(atPath: session.cwd, isDirectory: &isDirectory) && isDirectory.boolValue)
+        }
+        let wrote = await writer.evaluate(code: "fs('writeFile', { path: 'out.txt', base64: 'aGk=' }); console.log(native.cwd);")
+        #expect(wrote.error == nil)
+        #expect(wrote.lines == [BrowserReplOutputLine(level: "log", text: writer.cwd)])
+
+        writer.close()
+        idle.close()
+        #expect(FileManager.default.contents(atPath: writer.cwd + "/out.txt") == Data("hi".utf8))
+        #expect(!FileManager.default.fileExists(atPath: idle.cwd))
+    }
+
+    @Test("The injected home directory is the one refused")
+    func injectedHomeDirectoryIsRefused() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-home-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("project"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let session = BrowserReplSession(
+            id: "home",
+            cwd: home.appendingPathComponent("project").path,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "stub.js", source: stubRuntime)], agentScripts: []),
+            driver: RecordingReplDriver(),
+            homeDirectory: home.path
+        )
+        defer { session.close() }
+
+        let project = await session.evaluate(code: "console.log(native.homedir);")
+        let refused = await session.evaluate(code: "console.log('ran');", cwd: home.path + "/project/..")
+
+        #expect(project.lines == [BrowserReplOutputLine(level: "log", text: home.path)])
+        #expect(refused.lines.isEmpty)
+        #expect(refused.error?.contains("refusing to use the home directory") == true)
+    }
+
     @Test("A closed session refuses evaluations")
     func closedSession() async {
         let session = makeSession(driver: RecordingReplDriver())

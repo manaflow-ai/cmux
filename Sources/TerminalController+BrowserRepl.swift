@@ -84,8 +84,9 @@ extension TerminalController {
                 data: nil
             )
         }
+        // Without a cwd a new session gets a temporary directory of its own;
+        // the session refuses `/` and the home directory as roots.
         let cwd = (params["cwd"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
-            ?? FileManager.default.temporaryDirectory.appendingPathComponent("cmux-browser-repl").path
         let timeoutMilliseconds = (params["timeout_ms"] as? NSNumber)?.intValue ?? 120_000
         let named = (params["session"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let sessionID = named ?? "oneshot-\(UUID().uuidString)"
