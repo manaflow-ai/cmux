@@ -112,6 +112,21 @@ test("a key with a modifier, while composing, or for no option does nothing", as
   expect(answers).toEqual([]);
 });
 
+test("one ask takes one answer from the keyboard: no key repeat, no second key", async () => {
+  const answers = await render(ask);
+  await press("y", { repeat: true });
+  await press("n");
+  await press("y");
+  expect(answers).toEqual(["reject_once"]);
+});
+
+test("the ask is named by its title once", async () => {
+  await render(ask);
+  const group = doc.querySelector("fieldset")!;
+  expect(group.getAttribute("aria-label")).toBeNull();
+  expect(doc.getElementById(group.getAttribute("aria-labelledby")!)?.textContent).toBe("Run git push?");
+});
+
 test("an answered ask takes no keys", async () => {
   const answers = await render({ ...ask, pending: false });
   await press("y");
