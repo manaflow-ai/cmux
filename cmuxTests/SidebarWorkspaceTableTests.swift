@@ -41,6 +41,43 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func optimisticSelectionPreviewBailsOutOnInjectedClockDeadline() async throws {
+        let clock = SidebarTestManualClock()
+        let controller = SidebarWorkspaceTableController(previewBailoutClock: clock)
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+
+        let row = makeRowConfiguration()
+        controller.apply(
+            rows: [row], actions: makeTableActions(), workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil, selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+
+        controller.previewSelection(row: 0, modifiers: [], hitView: nil)
+        await clock.waitUntilSleeping(for: .milliseconds(400))
+        #expect(cell.hasOptimisticSelectionForTesting)
+
+        clock.advance(by: .milliseconds(400))
+        await clock.waitUntilIdle()
+        #expect(!cell.hasOptimisticSelectionForTesting)
+    }
+
+    @Test
+    @MainActor
     func reorderDropDestinationIsOverlayNotTable() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let pasteboardType = SidebarWorkspaceReorderDropOverlay.pasteboardType

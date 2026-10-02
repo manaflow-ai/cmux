@@ -2085,13 +2085,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private var applyGeneration: UInt64 = 0
     private var previewBailoutTask: Task<Void, Never>?
-    private let previewBailoutClock = ContinuousClock()
+    private let previewBailoutClock: any Clock<Duration>
     /// Rows whose cells carry optimistic paint. apply()'s reconcile diff only
     /// reconfigures rows whose MODEL changed, and a preview on a row whose
     /// authoritative state ends up unchanged (modifier mismatch, replaced
     /// preview) would otherwise keep its speculative paint forever — the
     /// apply cancels the bailout believing it reconciled.
     private var optimisticallyPaintedRowIds: Set<SidebarWorkspaceRenderItemID> = []
+
+    override init() {
+        previewBailoutClock = ContinuousClock()
+        super.init()
+    }
+
+    init(previewBailoutClock: any Clock<Duration>) {
+        self.previewBailoutClock = previewBailoutClock
+        super.init()
+    }
 
     private func schedulePreviewBailout() {
         previewBailoutTask?.cancel()
