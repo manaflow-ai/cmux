@@ -2,8 +2,8 @@
 // is on (conversation.css).
 export function Thinking() {
   return (
-    <div className="cv-worked">
+    <output className="cv-worked">
       <span className="cv-thinking">Thinking</span>
-    </div>
+    </output>
   );
 }

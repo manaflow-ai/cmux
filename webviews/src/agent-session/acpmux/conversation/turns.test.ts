@@ -58,7 +58,7 @@ describe("turn view", () => {
   });
 
   test("only the last turn is live, and only while the session works", () => {
-    const next = [row("u2", "user", 60_000, { text: "again" }), row("c2", "assistant", 61_000, { text: "On it." })];
+    const next = [row("u2", "user", 60_000, { text: "again" }), row("t2", "activity", 61_000, { items: [read] })];
     expect(ids(turnView([...turn, ...next], new Set(), true))).toEqual([
       "u",
       "worked-u",
@@ -67,11 +67,28 @@ describe("turn view", () => {
       "s",
       "u2",
       "working-u2",
-      "c2",
+      "t2",
     ]);
-    expect(ids(turnView([...turn, ...next], new Set(), false))).toEqual(["u", "worked-u", "a", "e", "s", "u2", "c2"]);
+    expect(ids(turnView([...turn, ...next], new Set(), false))).toEqual(["u", "worked-u", "a", "e", "s", "u2", "t2"]);
     // A turn that ended has its fold, whatever the flag says.
     expect(ids(turnView(turn, new Set(), true))).toEqual(["u", "worked-u", "a", "e", "s"]);
+  });
+
+  test("a running turn shapes its status the way it will fold", () => {
+    // Only an answer so far: it will end without a fold, so no status line comes and goes.
+    expect(ids(turnView([turn[0]!, turn[1]!], new Set(), true))).toEqual(["u", "c"]);
+    // Text after work: the clock holds at the text's start, where Worked for would time it.
+    const answering = turnView(turn.slice(0, 5), new Set(), true);
+    expect(ids(answering)).toEqual(["u", "working-u", "c", "t", "e", "a"]);
+    expect(answering[1]).toMatchObject({ durationMs: 15_000, version: 2 });
+    expect(workedLabel(turnView(turn, new Set())[1]!)).toStartWith("Worked for 15s");
+    // While a tool runs, the line ticks on its own clock.
+    expect(turnView(turn.slice(0, 4), new Set(), true)[1]?.durationMs).toBeUndefined();
+  });
+
+  test("a prompt sent while the turn runs draws after its status", () => {
+    const held = row("p", "user", 500, { text: "also this", pending: true });
+    expect(ids(turnView([turn[0]!, held], new Set(), true))).toEqual(["u", "thinking-u", "p"]);
   });
 
   test("a turn with nothing before its answer has no fold", () => {

@@ -140,7 +140,7 @@ const WorkingRow = memo(
   function WorkingRow({ row }: RowProps) {
     return <WorkingFor row={row} />;
   },
-  (a, b) => a.row.id === b.row.id && a.row.at === b.row.at,
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.durationMs === b.row.durationMs,
 );
 
 const SummaryRow = memo(

@@ -1590,6 +1590,13 @@ describe("acpmux live turn status", () => {
       clock = 61_000;
       await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
       expect(label()).toBe("Working for 1m 1s");
+      // While text streams, the line holds at the text's start instead of ticking.
+      const held = { id: "working-u", version: 2, at: 0, kind: "working", durationMs: 15_000 };
+      await act(async () => root.render(createElement(WorkingFor, { row: held, now })));
+      expect(label()).toBe("Working for 15s");
+      clock = 90_000;
+      await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
+      expect(label()).toBe("Working for 15s");
     } finally {
       await act(async () => root.unmount());
     }

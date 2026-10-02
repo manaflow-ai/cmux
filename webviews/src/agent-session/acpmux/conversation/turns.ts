@@ -114,12 +114,20 @@ function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<str
 
 const VERSION_SPAN = 1_000_000;
 
-/// The live status is timed from the prompt; the row draws its own clock, so it never changes
-/// version as the seconds pass. The client's empty "typing" placeholder gives way to it.
+/// The live status, shaped as the turn will fold when it ends: rows before the latest text are
+/// its work, so a turn so far only streaming its answer draws no status (it ends without a
+/// fold). The line is timed from the prompt and draws its own clock; while text streams, the
+/// clock stops at that text's start, where "Worked for" would time the turn if it ended there.
+/// The client's empty "typing" placeholder gives way to it.
 function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[]): AcpmuxRow[] {
-  const work = turn.filter((row) => row.kind !== "typing");
-  const kind = work.length ? WORKING : THINKING;
-  return [{ id: `${kind}-${user.id}`, version: 1, at: user.at, kind }, ...work];
+  const rows = turn.filter((row) => row.kind !== "typing");
+  const last = rows.at(-1);
+  if (!last) return [{ id: `${THINKING}-${user.id}`, version: 1, at: user.at, kind: THINKING }];
+  const answering = last.kind === "assistant";
+  if (answering && rows.length === 1) return rows;
+  const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at, kind: WORKING };
+  if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
+  return [status, ...rows];
 }
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
