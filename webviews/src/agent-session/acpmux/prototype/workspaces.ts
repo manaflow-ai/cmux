@@ -108,13 +108,11 @@ export function workspaceLead(workspace: Workspace): WorkspaceTab {
   return workspace.tabs.find((tab) => tab.kind === "agent") ?? workspace.tabs[0]!;
 }
 
-/** A new workspace of the default kind, at the top of the stack. */
+/** A new workspace of the default kind, at the top of the stack. A new chat has no session until the pane makes one. */
 export function newWorkspace(stack: Stack, kind: "terminal" | "agent"): Stack {
   const id = `ws-new-${stack.workspaces.length + 1}`;
   const tab: WorkspaceTab =
-    kind === "terminal"
-      ? terminal(`t-${id}`, "~ · zsh")
-      : { id: `agent-${id}`, kind: "agent", title: "New chat", sessionId: id };
+    kind === "terminal" ? terminal(`t-${id}`, "~ · zsh") : { id: `agent-${id}`, kind: "agent", title: "New chat" };
   return { activeId: id, workspaces: [workspace(id, tab), ...stack.workspaces] };
 }
 

@@ -165,7 +165,10 @@ export function WorkspaceShell() {
           className="proto-rail-button"
           aria-label="New workspace"
           title={terminalStyle ? "New workspace (terminal)" : "New workspace"}
-          onClick={() => show(newWorkspace(stack, terminalStyle ? "terminal" : "agent"))}
+          onClick={() => {
+            show(newWorkspace(stack, terminalStyle ? "terminal" : "agent"));
+            if (!terminalStyle) void window.cmuxAcpmuxActions?.["chat.new"]?.({});
+          }}
         >
           <PlusIcon />
         </button>
@@ -420,7 +423,8 @@ function WorkspaceRow({
 
 function TerminalMock({ tab }: { tab: WorkspaceTab }) {
   return (
-    <pre className="proto-terminal" aria-label={tab.title}>
+    <pre className="proto-terminal">
+      <span className="acpmux-hidden-label">{tab.title}</span>
       <span className="t-dim">~/code/cmux</span> <span className="t-accent">feat-cmux-next</span>
       {"\n"}
       <span className="t-prompt">❯</span> bun test src/agent-session{"\n"}
