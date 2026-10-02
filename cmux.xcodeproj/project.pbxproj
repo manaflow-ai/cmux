@@ -3895,6 +3895,7 @@
 		A6A6A6A60000000000000001 /* TerminalTabAgentIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6A6A6A60000000000000002 /* TerminalTabAgentIcon.swift */; };
 		A91C0D0F0000000000000002 /* TerminalTabIconRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91C0D0F0000000000000001 /* TerminalTabIconRegressionTests.swift */; };
 		F83620020000000000000001 /* TerminalTTYSessionIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F83620020000000000000002 /* TerminalTTYSessionIdentity.swift */; };
+		7BD009EEE5F7443C8EAFDEA6 /* TerminalTTYSessionIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDA45BE3861EEBF458303ED3 /* TerminalTTYSessionIdentityTests.swift */; };
 		EC010A01 /* TerminalUploadCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC010A02 /* TerminalUploadCommand.swift */; };
 		EC010C01 /* TerminalUploadCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC010C02 /* TerminalUploadCommandTests.swift */; };
 		EC7F0101 /* TerminalUploadFailureNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7F0102 /* TerminalUploadFailureNotification.swift */; };
@@ -8199,6 +8200,7 @@
 		A6A6A6A60000000000000002 /* TerminalTabAgentIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabAgentIcon.swift; sourceTree = "<group>"; };
 		A91C0D0F0000000000000001 /* TerminalTabIconRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabIconRegressionTests.swift; sourceTree = "<group>"; };
 		F83620020000000000000002 /* TerminalTTYSessionIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTTYSessionIdentity.swift; sourceTree = "<group>"; };
+		CDA45BE3861EEBF458303ED3 /* TerminalTTYSessionIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalTTYSessionIdentityTests.swift"; sourceTree = "<group>"; };
 		EC010A02 /* TerminalUploadCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalUploadCommand.swift; sourceTree = "<group>"; };
 		EC010C02 /* TerminalUploadCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalUploadCommandTests.swift; sourceTree = "<group>"; };
 		EC7F0102 /* TerminalUploadFailureNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalUploadFailureNotification.swift; sourceTree = "<group>"; };
@@ -13174,6 +13176,7 @@
 				52DCC8C8DADFD89BE7611119 /* CLINotifyProcessIntegrationRegressionTests+Desktop.swift */,
 				DFD38A422E92A103776448E9 /* CmuxTopTTYCollisionAttributionTests.swift */,
 				5FA4140BCE8D49BBAE4E8234 /* CodexForkMonitorArgumentTests.swift */,
+				CDA45BE3861EEBF458303ED3 /* TerminalTTYSessionIdentityTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18025,6 +18028,7 @@
 				99230001992300019923000E /* TerminalStartupRestoreFailureTests.swift in Sources */,
 				40CEF603FB3F6F03B5CB2965 /* TerminalSurfaceTestTeardown.swift in Sources */,
 				A91C0D0F0000000000000002 /* TerminalTabIconRegressionTests.swift in Sources */,
+				7BD009EEE5F7443C8EAFDEA6 /* TerminalTTYSessionIdentityTests.swift in Sources */,
 				EC010C01 /* TerminalUploadCommandTests.swift in Sources */,
 				EC7F0201 /* TerminalUploadFailureNotificationTests.swift in Sources */,
 				C0DE7A9E000000000000C011 /* TerminalWindowPortalCommittedGeometryTests.swift in Sources */,
