@@ -5,7 +5,7 @@ import Foundation
 /// request: the session host refuses unknown fields too (`extra: false`), and
 /// a refusal here is never sent. A JavaScript `null` (`NSNull`) is absent.
 nonisolated struct AgentPanePageParams {
-    struct Malformed: Error {}
+    nonisolated struct Malformed: Error {}
 
     private let values: [String: Any]
 

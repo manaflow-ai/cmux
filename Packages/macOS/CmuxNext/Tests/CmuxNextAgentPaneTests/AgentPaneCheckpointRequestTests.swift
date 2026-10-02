@@ -166,6 +166,17 @@ import Testing
         #expect(asked == [.checkpoint(.unpin(cwd: "/repo", checkpointID: "cp_1", pinID: "user:1", idempotencyKey: "key-4"))])
     }
 
+    /// A mutation whose answer is not JSON may still have applied, so the
+    /// page gets `native.timed_out` and looks the key up before it retries.
+    @Test func anUnreadableMutationAnswerStaysUncertain() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        model.onGit = { _ in Data("not json".utf8) }
+        let reply = await model.respond(to: Self.request("git.checkpoint.unpin",
+            #"{"cwd":"/repo","checkpoint_id":"cp_1","pin_id":"user:1","idempotency_key":"key-4"}"#))
+        let error = try #require(reply["error"] as? [String: Any])
+        #expect(error["code"] as? String == "native.timed_out")
+    }
+
     /// A failed checkpoint request keeps the session host's fields under the
     /// checkpoint review's own failure text, not the changes view's.
     @Test func aCheckpointFailureKeepsItsFieldsUnderTheCheckpointText() async throws {

@@ -12,6 +12,8 @@ import Foundation
 final class AgentPaneGitLink {
     private let endpoint: DaemonConnection.EndpointProvider
     private var opening: Task<DaemonConnection, any Error>?
+    /// The connection `opening` produced, until its events end.
+    private var current: DaemonConnection?
     /// Reads and drops the connection's tree events: every handshake
     /// subscribes, and nothing here uses them.
     private var drain: Task<Void, Never>?
@@ -64,11 +66,13 @@ final class AgentPaneGitLink {
     }
 
     /// `{checkpoints}` from the identify of the daemon this link reaches,
-    /// opening the link first; false when it cannot connect.
+    /// opening the link first; false unless it is connected now. A
+    /// connection remembers the last identify after it drops.
     private func capabilities() async -> Data {
-        let connection = try? await self.connection()
-        let identity = await connection?.identity
-        return Self.capabilitiesReply(identity)
+        guard let connection = try? await self.connection(), await connection.isReady else {
+            return Self.capabilitiesReply(nil)
+        }
+        return Self.capabilitiesReply(await connection.identity)
     }
 
     /// `{"checkpoints": true}` only when `identity` advertises
@@ -80,15 +84,19 @@ final class AgentPaneGitLink {
 
     /// The page's mutation envelope (`MutationEnvelope` in the checkpoint
     /// client): the catalog's `value` as `result`, with its `revision` and
-    /// `replayed`. A missing `replayed` is a first result.
+    /// `replayed`. The catalog's `MutationResult` requires both, so a reply
+    /// without them is malformed rather than filled in.
     nonisolated static func pageEnvelope(_ reply: ResourceMutationResult<JSONValue>) throws -> Data {
-        var envelope: [String: JSONValue] = ["result": reply.value, "replayed": .bool(reply.replayed ?? false)]
-        if let revision = reply.revision { envelope["revision"] = .string(revision) }
+        guard let revision = reply.revision, let replayed = reply.replayed else {
+            throw DaemonError.malformedResponse("MutationResult")
+        }
+        let envelope: [String: JSONValue] = ["result": reply.value, "revision": .string(revision), "replayed": .bool(replayed)]
         return try JSONEncoder().encode(JSONValue.object(envelope))
     }
 
     /// Opens the connection on the first request; afterwards it reconnects
-    /// by itself. A failed open is tried again by the next request.
+    /// by itself. A failed open, or a connection closed for good (a wrong
+    /// app, an unsupported protocol), is opened again by the next request.
     private func connection() async throws -> DaemonConnection {
         let task = opening ?? open()
         opening = task
@@ -113,13 +121,22 @@ final class AgentPaneGitLink {
                 await connection.close()
                 throw error
             }
-            drain = Task {
+            current = connection
+            drain = Task { [weak self] in
                 do {
                     for try await _ in connection.events {}
                 } catch {}
+                // The events end only when the connection closes for good.
+                self?.closed(connection)
             }
             return connection
         }
+    }
+
+    private func closed(_ connection: DaemonConnection) {
+        guard current === connection else { return }
+        current = nil
+        opening = nil
     }
 }
 

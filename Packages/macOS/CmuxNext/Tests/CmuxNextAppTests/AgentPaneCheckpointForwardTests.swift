@@ -66,6 +66,23 @@ struct AgentPaneCheckpointForwardTests {
         ]))
     }
 
+    /// The catalog's `MutationResult` requires `revision` and `replayed`; a
+    /// reply without them is malformed, which keeps the mutation uncertain.
+    @Test func aMutationReplyMissingRevisionOrReplayedIsMalformed() throws {
+        for line in [#"{"value":{},"replayed":false}"#, #"{"value":{},"revision":"7"}"#] {
+            let reply = try JSONDecoder().decode(ResourceMutationResult<JSONValue>.self, from: Data(line.utf8))
+            #expect(throws: DaemonError.self) { try AgentPaneGitLink.pageEnvelope(reply) }
+        }
+    }
+
+    /// A daemon that cannot be reached, or a connection that dropped after it
+    /// identified, serves no checkpoints.
+    @Test func capabilitiesWithoutAConnectionAreFalse() async throws {
+        let link = AgentPaneGitLink(endpoint: { throw DaemonError.notConnected })
+        let data = try await link.run(.capabilities)
+        #expect(try JSONDecoder().decode(JSONValue.self, from: data) == .object(["checkpoints": .bool(false)]))
+    }
+
     @Test func capabilitiesFollowTheDaemonsIdentify() throws {
         func checkpoints(_ data: Data) throws -> JSONValue? {
             guard case .object(let object) = try JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
@@ -99,7 +116,7 @@ struct AgentPaneCheckpointForwardTests {
         #expect(AgentPaneGitFailure(mutating: CancellationError()) == .timedOut)
         #expect(AgentPaneGitFailure.timedOut.origin == .native)
         #expect(AgentPaneGitFailure(mutating: DaemonError.notConnected) == .notConnected)
-        #expect(AgentPaneGitFailure(mutating: DaemonError.command(cmd: "git.checkpoint.pin", message: "no", code: nil)) == .failed)
+        #expect(AgentPaneGitFailure(mutating: DaemonError.command(cmd: "git.checkpoint.pin", message: "no", code: nil)) == .timedOut)
     }
 
     @Test func aSessionHostErrorOfAMutationKeepsItsCodeDetailsAndRetryable() throws {

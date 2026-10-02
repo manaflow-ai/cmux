@@ -92,7 +92,8 @@ public final class AgentPaneModel {
             do {
                 let data = try await onGit(git)
                 guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
-                    return Self.gitFailure(.failed, operation: git.operation)
+                    // A mutation may have applied, so it stays uncertain.
+                    return Self.gitFailure(git.idempotencyKey == nil ? .failed : .timedOut, operation: git.operation)
                 }
                 return AgentPaneReply.success(value)
             } catch {
