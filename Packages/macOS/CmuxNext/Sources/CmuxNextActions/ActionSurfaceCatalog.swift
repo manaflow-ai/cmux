@@ -25,8 +25,8 @@ nonisolated enum ActionSurfaceCatalog {
 
     /// One placement row (`ActionSurfaceCatalog+Menus.swift`).
     static func p(_ context: ActionMenuContext, _ group: MenuGroup, _ rank: Int, _ style: MenuPlacementStyle = .item,
-                  in parent: ActionID? = nil) -> ContextMenuPlacement {
-        ContextMenuPlacement(context, group, rank, style: style, parent: parent)
+                  in parent: ActionID? = nil, folder: MenuFolder? = nil) -> ContextMenuPlacement {
+        ContextMenuPlacement(context, group, rank, style: style, parent: parent, folder: folder)
     }
 
     /// Inverts a reason-to-actions table. An id listed under two reasons
