@@ -77,13 +77,13 @@ Default role set: every machine. Sizes are installed sizes on the guest.
 | Program | Role | Source and verification | Installed | Idle |
 | --- | --- | --- | --- | --- |
 | `cmux` (Rust: session host, link, automations host, team host, updater, reconciler; today `cmux-tui` + hook) | all | files.cmux.com by commit, sha256 + build attestation | 45 MB | daemon 0.01 CPU-s/min, 51 MB PSS; terminal host 0.12 to 0.14 CPU-s/min |
-| coderouter CLI (`coderouter`, `cr`) configured for the VM's edge alias | all | coderouter release, sha256 (manifest unsigned today) | 7 MB | none (CLI) |
+| coderouter CLI (`coderouter`, `cr`) configured for the VM's edge alias | all | coderouter release by sha256; today a glibc build with an unsigned checksum file and no declared license (ask: a static musl build and a signed manifest) | 7 MB | none (CLI) |
 | Claude Code (native binary) | all | vendor release manifest sha256 + its signature | 234 MB | none until run |
 | Codex (musl release tarball) | all | vendor release, sha256 + Sigstore bundle | 263 MB | none until run |
 | OpenCode (linux-x64 package) | all | npm integrity | 186 MB | none until run |
-| pi | all | npm (ships a shrinkwrap), integrity + provenance | 437 MB | none until run |
+| pi (1.0.0 is current; today's pin is 0.85.1) | all | npm (ships a shrinkwrap), integrity + provenance | 437 MB | none until run |
 | Node 24 LTS, Bun, Python 3.12 + uv | all | upstream releases, checksums + signatures | 208 + 76 + 104 + 47 MB | none |
-| git, gh, ripgrep, jq, fd, fzf, sqlite3, tmux, build-essential, bubblewrap, curl, rsync, vim, nano | all | apt snapshot mirror; gh release tarball | (in L1) | none |
+| git, gh, ripgrep, jq, fd, fzf, sqlite3, tmux, build-essential, bubblewrap, fuse3, acl, curl, rsync, vim, nano | all | apt snapshot mirror; gh release tarball | (in L1) | none |
 | Docker engine | all, socket-activated | apt (Ubuntu archive snapshot) | about 400 MiB | 0 until the first `docker` call (today dockerd + containerd: 116 MB PSS, 0.06 CPU-s/min) |
 | telemetry agent: OpenTelemetry Collector built with the collector builder (OTLP, filelog, journald, hostmetrics receivers; batch, memory_limiter; otlphttp exporter) | all | our CI build, sha256 | 42 MB | 34 MiB RSS; 0.32% of a core with 10 s host metrics (1 min interval proposed) |
 | WireGuard | all | built into the guest kernel; `wg` present | 0 | 0 (the overlay runs in-process in `cmux`, spec sync-and-transport section 6) |
@@ -131,7 +131,7 @@ What still needs a rebake: L1 (apt packages, units, the boot unit's command line
 
 ### 4.6 Boot and per-clone identity
 
-(Filled from the clone-identity prototype; section 6.)
+See section 6.
 
 ### 4.7 Fast boot
 
@@ -147,9 +147,9 @@ Budget for an idle machine (no client attached, no agent running): total under 0
 
 | Source today | Proposal |
 | --- | --- |
-| boot supervisor, 1 s metadata poll (2.01 CPU-s/min) | event-driven bind (section 4.6); no loop |
+| boot supervisor, 1 s metadata poll (2.01 CPU-s/min; 18.5 CPU-s/min while parked at 50 ms) | event-driven bind (section 6.2): 0.00 CPU-s/min, under 2 wakeups per minute |
 | desktop supervisor, 30 s re-run (0.58) | desktop is a role, systemd restarts on exit |
-| network announce, `arping` every 30 s | keep only if the fabric drops idle machines (UNVERIFIED); then run it from the `cmux` process on a one-shot deadline after the last outbound frame, not on a fixed tick |
+| network announce, `arping` every 30 s | once at bind and on each resume signal (section 6.4) |
 | prompt sync, Python, 30 s fetch | the session host receives the machine's name from the control plane over the link (event) |
 | resource reporter, Python, HTTPS POST every 30 s | the session host serves `machine-stats` on request and streams it only while a client watches |
 | Docker running from boot (0.06, 116 MB) | `docker.socket` activation |
@@ -189,7 +189,46 @@ The team VM and self-hosted servers run the same "VM software" (spec SV1 to SV3;
 
 ## 6. Boot and per-clone identity
 
-(Filled from the clone-identity prototype.)
+### 6.1 What a clone inherits
+
+A Freestyle create from a snapshot resumes the memory image. Measured on clones of one snapshot: `boot_id`, `/etc/machine-id`, hostname, the eth0 MAC and its IPv6 and link addresses are identical; the monotonic and boot clocks jump forward by the snapshot's age, so every timer that expired in between fires in the first instant after resume. There is no VM generation id device (the kernel supports one; the hypervisor exposes none), so the kernel is never told it was cloned. The metadata service's `instance-id` is the only per-machine value.
+
+Random state: in forks made seconds after a snapshot, the first read of `/dev/urandom` and a `getrandom()` call in a process that was running in the snapshot returned the same bytes on two of three forks. Clones made 100 s or more after the snapshot were unique (25 of 25), and all values diverged by 30 s. The explicit reseed at bind (`RNDRESEEDCRNG` with the instance id mixed in) is therefore required and must run before any key is made.
+
+### 6.2 Detecting the clone without polling
+
+Two signals reach the guest before `vms.create` returns: the provider's guest agent sets the realtime clock on every resume, which wakes a `CLOCK_REALTIME` timerfd armed with `TFD_TIMER_CANCEL_ON_SET` (p50 16 ms before create returns, n = 25), and the kernel reports the eth0 IPv6 address again over rtnetlink (p50 28 ms before, n = 25). The metadata service already answers with the new id at that moment (10 of 10 first reads). A third path is ours: the driver writes `/run/cmux/instance-id` right after create (lands about 25 ms after create returns) and an inotify watch wakes on it.
+
+| Detector (5 clones each) | Clone confirmed, p50 / max, relative to create returning | Idle CPU-s/min | Wakeups/min | Weakness |
+| --- | --- | --- | --- | --- |
+| today: metadata poll every 1 s | +15 / +31 ms | 1.57 | 234 (+235 forks) | costs forever; a request in flight at snapshot time hangs on resume (one fork took 2,043 ms) |
+| today while parked: poll every 50 ms | +20 / +40 ms | 18.5 | 3,295 (+3,295 forks) | 31% of a vCPU on the builder |
+| inotify on the driver's file | +35 / +45 ms | 0.00 | 0 | misses clones made outside our driver |
+| clock-set timerfd + rtnetlink | -17 / -7 ms | 0.00 | 1.8 | depends on provider agent behavior |
+| both (proposed) | -10 / 0 ms | 0.00 | 0.8 | none found |
+
+The resume signals also fire about ten times per control-plane call (each exec or file write) and never on an idle machine (0 in 300 s). Each wake costs one metadata read, so they are harmless.
+
+Metadata service rules learned the hard way: concurrent readers stall (8 parallel readers: 18 of 160 requests hung to the 1 s timeout), and a request in flight when a snapshot or pause is taken hangs until its timeout after resume. So: one reader per machine, a 250 ms timeout, retries counted by attempts (a monotonic time budget expires across a pause), and no request in flight while parked.
+
+### 6.3 Bind sequence
+
+`cmux host run` (the one boot unit, a role of the `cmux` binary) blocks in one epoll set over the three signals. On a new instance id, in this order:
+
+1. Reseed the kernel CRNG with the instance id mixed in.
+2. Drop any inherited remote identity and connection state (as today), write the bound id, start the session host by direct spawn (not `systemd-run`: on a resumed clone systemd waits about 1.8 s before it starts the first transient unit; spawn to listening was 2,079 ms that way versus 260 ms direct).
+3. Off the critical path: regenerate `/etc/machine-id` (and its D-Bus link) and the systemd random seed; generate SSH host keys (ed25519 only; RSA generation costs most of a second of CPU); generate the WireGuard key inside `cmux`; apply the role set and the machine's name from the binding; re-arm systemd timers after 10 min; run one store update check (section 4.5).
+4. Supervise the session host by waiting on its process (pidfd), restart on exit. No tick.
+
+The bake parks exactly as today (`/etc/cmux/bake-instance-id`): the session host stopped, no metadata request in flight, timers stopped, then the snapshot.
+
+### 6.4 Private network announce
+
+Today a clone sends a gratuitous ARP burst at bind and every 30 s, because an earlier measurement found the provider fabric dropped traffic to a clone until it transmitted. On 2026-10-02 a clone on a private network was reachable 7 s after create, and again after 8 and 40 minutes idle, with no announce (IPv4 and IPv6, 0% loss): the private VLAN interface is created at create time, so the kernel transmits on it by itself. Proposal: announce once at bind and on each resume signal (pause and start produce the same clock-set and address events), and drop the 30 s loop. Idle periods longer than 40 minutes and snapshots baked while already on a private network are UNVERIFIED; the CI smoke adds a 2-hour idle reachability check before the loop is removed in production.
+
+### 6.5 Guest capabilities (measured)
+
+Kernel 6.1.102 with everything built in and no loadable modules: WireGuard (`ip link add type wireguard` works, `wg` installed), `/dev/net/tun`, nftables and iptables-nft, IP forwarding on, cgroup v2 with cpu, memory, io and pids controllers and working user delegation (`systemd-run --user -p MemoryMax=… -p CPUQuota=…`), user namespaces (rootless overlay mounts work), overlayfs, loop devices, `/dev/kvm` (nested virtualization), systemd 255 with socket activation, Docker 29.1.3. FUSE works (`/dev/fuse` 0666) once the image installs `fuse3` (setuid `fusermount3`; add `user_allow_other` to `/etc/fuse.conf` for JuiceFS); POSIX ACLs work on the ext4 root once `acl` is installed. Pause takes 104 to 219 ms (the first call 7 s), start 71 to 217 ms; inotify watches survive, and monotonic timers count paused time.
 
 ## 7. Ownership
 
@@ -211,7 +250,7 @@ The team VM and self-hosted servers run the same "VM software" (spec SV1 to SV3;
 ## 9. Strongest objections
 
 1. "A store updater is a live software-update channel into every customer machine; a compromised signing key owns the fleet." Answer: signatures with keys held in KMS and used only by CI on protected branches; two baked public keys for rotation; sequence and expiry checks against replay and freeze attacks; per-team pinning; an audit record per apply; the same trust as today's in-place cmux-tui upgrade, with more checks.
-2. "Event-driven bind can miss a clone made outside our driver." Answer: section 6 keeps a fallback signal and a check at every link connect.
+2. "Event-driven bind depends on provider behavior (the agent setting the clock on resume)." Answer: the proposed detector uses two independent provider signals plus our own driver write, and confirms with the metadata service; the CI smoke fails a snapshot whose clones are not bound within the latency budget, so a provider change is caught before promotion.
 3. "Postgres in every image costs disk for roles that never use it." Answer: 68 MB, disabled unit; one image is cheaper to bake, test and audit than two.
 
 ## 10. Surfaces
@@ -235,4 +274,4 @@ Settings: `cloud.machines.channel` (`stable` default, `beta`), `cloud.machines.d
 
 ## 12. Decisions needed
 
-Listed in the lane report to the coordinator.
+Sent to the coordinator with recommendations (lane report): chief in the base image; signing key custody for the channel manifest; whether the 30 s network announce is removed in production; live versus dated apt sources for users; keep or remove the provider's Python; desktop off by default.
