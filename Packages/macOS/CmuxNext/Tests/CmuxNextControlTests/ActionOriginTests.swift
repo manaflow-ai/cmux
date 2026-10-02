@@ -62,10 +62,12 @@ import Testing
             let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: [
                 "action": "password.importCSV", "origin": origin,
             ]))
-            guard case .failure = result else {
+            guard case .failure(let error) = result else {
                 Issue.record("expected a refusal for origin \(origin)")
                 continue
             }
+            #expect(error.code == "unavailable")
+            #expect(error.data?["reason"] == .string(ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action")))
         }
         #expect(!ran)
         #expect(registry.descriptor(for: "password.importCSV")?.isPersonOnly == true)

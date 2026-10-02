@@ -45,8 +45,9 @@ import Testing
             + "login,a,https://a.example/,me@mail.example,octo,\(Self.marker)-1\n"
             + "login,b,https://a.example/,,second,\(Self.marker)-2\n"
             + "login,c,https://a.example/,third@mail.example,,\(Self.marker)-3\n"
+            + "login,d,https://a.example/,fourth@mail.example, ,\(Self.marker)-4\n"
         let (logins, skipped) = try read(csv)
-        #expect(logins.map(\.username) == ["octo", "second", "third@mail.example"])
+        #expect(logins.map(\.username) == ["octo", "second", "third@mail.example", "fourth@mail.example"])
         #expect(skipped == LoginSkipCounts())
     }
 

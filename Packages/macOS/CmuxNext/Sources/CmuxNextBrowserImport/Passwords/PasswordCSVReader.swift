@@ -51,7 +51,7 @@ public struct PasswordCSVReader: Sendable {
                 continue
             }
             let username = usernameColumns.lazy.compactMap { $0 < record.count ? Self.text(record[$0], in: bytes) : nil }
-                .first { !$0.isEmpty } ?? ""
+                .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
             // The first row for a site and username wins, as the export lists it.
             guard seen.insert(realm + "\u{0}" + username).inserted else {
                 skipped.duplicate += 1

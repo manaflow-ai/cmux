@@ -90,6 +90,7 @@ public final class ImportStepModel {
     public func redetect() {
         // Never under a running import: its rows and summary would be lost.
         guard !isImporting else { return }
+        endAuthorization()
         task?.cancel()
         phase = .detecting
         task = Task { [weak self, services] in
