@@ -70,7 +70,7 @@ processes or on a person's window run in the cmux app only.
 | `contenteditable-bold` | Rich editor, select all and bold with the keyboard | Native Meta+B toggles bold; typing continues after it | `edge.contenteditable-bold` |
 | `typing-unicode` | Accents, emoji, CJK, ZWJ sequences | Typed text arrives exactly | `edge.typing-unicode` |
 | `composition-events` | IME-style commit | `keyboard.insertText` commits the text with trusted `input` events | `edge.composition` |
-| `ime-only-editor` | A Google Sheets style cell editor that drops text arriving without a keydown or a composition, and an editor that reverts text no trusted `beforeinput` announced | `keyboard.insertText` and `fill` commit through an IME composition, so the editor takes the text | `edge.ime-only-editor` |
+| `ime-only-editor` | A Google Sheets style cell editor that drops text arriving without a keydown or a composition, and an editor that reverts text no trusted `beforeinput` announced | In a `contenteditable` editor, `keyboard.insertText` and `fill` commit through an IME composition, so the editor takes the text; a form field gets one plain `input` event | `edge.ime-only-editor` |
 | `trusted-paste` | An editor that reads a paste from the event's `clipboardData` | Meta+V fires a trusted `paste` event carrying every type on the tab's clipboard; Meta+C fills the tab's clipboard from a trusted `copy`; the system clipboard is untouched | `edge.trusted-paste` |
 | `keyboard-shortcuts` | Shortcuts with modifiers (`ControlOrMeta+a`, `Alt+Shift+K`) | Native key events with the modifiers held | `keyboard.shortcuts` |
 | `hover-menu-delay` | Menu that opens 300 ms after hover | `hover()` then a locator wait finds the menu item | `loc.hover` |

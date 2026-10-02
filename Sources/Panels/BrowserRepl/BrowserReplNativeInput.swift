@@ -131,12 +131,13 @@ enum BrowserReplNativeInput {
     /// (Google Sheets' cell editor in WebKit) take the text; a plain
     /// `insertText:` with no composition reaches the DOM but not their model.
     ///
-    /// Text inserts directly, as before, when it holds a line break or a tab
-    /// (editing commands, not composed text), when focus is in a password
-    /// field or a frame the agent cannot inspect (WebKit allows no
-    /// composition in a password field and would insert the text twice), or
-    /// when WebKit's editor state, which gates marked text, is not current
-    /// within `stateTimeout`.
+    /// Only a rich-text editor (a `contenteditable` element) gets the
+    /// composition. A text field gets a plain insert, which fires one `input`
+    /// event as Chrome's `Input.insertText` does; a composition there would
+    /// fire three. Text also inserts directly when it holds a line break or a
+    /// tab (editing commands, not composed text), when focus is in a frame
+    /// the agent cannot inspect, or when WebKit's editor state, which gates
+    /// marked text, is not current within `stateTimeout`.
     static func insertText(
         _ text: String,
         into webView: WKWebView,
@@ -147,7 +148,7 @@ enum BrowserReplNativeInput {
         let composable = !text.contains { $0.isNewline || $0 == "\t" }
         if composable,
            !client.hasMarkedText(),
-           await focusAcceptsComposition(webView),
+           await focusIsRichTextEditor(webView),
            await afterPresentationUpdate(webView, timeout: stateTimeout) {
             let length = (text as NSString).length
             client.setMarkedText(
@@ -160,9 +161,9 @@ enum BrowserReplNativeInput {
     }
 
     /// Whether the focused element, followed through same-origin frames and
-    /// shadow roots, may take a composition: not a password field and not
-    /// inside a frame the agent world cannot read.
-    private static func focusAcceptsComposition(_ webView: WKWebView) async -> Bool {
+    /// shadow roots, is a `contenteditable` editor (not a form field) in a
+    /// frame the agent world can read.
+    private static func focusIsRichTextEditor(_ webView: WKWebView) async -> Bool {
         let result = try? await webView.callAsyncJavaScript(
             """
             let doc = document;
@@ -180,7 +181,8 @@ enum BrowserReplNativeInput {
                 break;
               }
             }
-            return !(el && el.tagName === "INPUT" && String(el.type).toLowerCase() === "password");
+            if (!el || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return false;
+            return el.isContentEditable === true;
             """,
             arguments: [:],
             in: nil,

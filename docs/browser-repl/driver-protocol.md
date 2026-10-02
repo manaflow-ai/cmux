@@ -75,7 +75,7 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 | --- | --- |
 | `input.mouse` | `{ targetId, type: "move"\|"down"\|"up"\|"wheel", x, y, button: "left"\|"right"\|"middle", clickCount, modifiers, deltaX?, deltaY? }` |
 | `input.key` | `{ targetId, type: "down"\|"up", key, code, text?, location?, modifiers, autoRepeat? }` |
-| `input.insertText` | `{ targetId, text }` (IME commit into the focused element: on WebKit marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted; text with a line break or tab, a password field, or focus in an unreadable frame inserts without a composition) |
+| `input.insertText` | `{ targetId, text }` (IME commit into the focused element. On WebKit a `contenteditable` editor gets marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted, and editors that start an edit only on a keydown or a composition (Google Sheets) take it; a form field gets a plain insert with one `input` event, as Chrome's `Input.insertText`; text with a line break or tab, or focus in an unreadable frame, inserts without a composition) |
 | `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers }` (native drag session so HTML5 drag and drop fires) |
 
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
