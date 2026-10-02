@@ -822,6 +822,33 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(truncated.contains("\u{0007}"))
     }
 
+    func testLongCompletedOSCBeforeCutPreservesVisibleOutput() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let completedOSC = "\u{001B}]2;" + String(repeating: "T", count: 1_500) + "\u{0007}"
+        let visibleBeforeBEL = "visible-before-bell"
+        let visibleAfterBEL = "visible-after-bell"
+        let cutInsideVisibleOffset = 3
+        let suffixFromCut =
+            visibleBeforeBEL.count - cutInsideVisibleOffset
+            + 1
+            + visibleAfterBEL.count
+        let filler = String(repeating: "F", count: maxChars - suffixFromCut)
+        let source =
+            completedOSC
+            + visibleBeforeBEL
+            + "\u{0007}"
+            + visibleAfterBEL
+            + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix(String(visibleBeforeBEL.dropFirst(cutInsideVisibleOffset))))
+        XCTAssertTrue(truncated.contains("\u{0007}" + visibleAfterBEL))
+    }
+
     func testMalformedANSIStringScanDoesNotDropDistantRealOutput() {
         let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
         let malformed = "\u{001B}]0;unterminated-title"
@@ -4211,6 +4238,56 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "/bin/sh -c " + shellQuotedForTest("\"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-empty-node-options' '--model' 'sonnet'")
         )
     }
+
+    func testClaudeResumeCommandStripsQuotedCmuxNodeOptionsRestoreModuleAndKeepsModelArguments() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-quoted-node-options",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--model", "sonnet"],
+                workingDirectory: nil,
+                environment: [
+                    "NODE_OPTIONS": "--require=\"/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs\" --max-old-space-size=4096 --trace-warnings"
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--trace-warnings' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-quoted-node-options' '--model' 'sonnet'")
+        )
+    }
+
+
+    func testClaudeResumeCommandStripsSpaceSeparatedQuotedCmuxNodeOptionsRestoreModuleInHomeWithSpace() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-session-quoted-separate-node-options",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "claude",
+                arguments: ["claude", "--model", "sonnet"],
+                workingDirectory: nil,
+                environment: [
+                    "NODE_OPTIONS": "--require \"/Users/a b/.cmuxterm/cmux-claude-node-options/restore-node-options.cjs\" --max-old-space-size 4096 --require=\"/Users/a b/lib/user \\\"preload\\\".cjs\""
+                ],
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--require=\"/Users/a b/lib/user \\\"preload\\\".cjs\"' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-quoted-separate-node-options' '--model' 'sonnet'")
+        )
+    }
+
 
     func testOpenCodeWrapperResumeCommandAndUnsupportedOhMyLaunchers() {
         let direct = SessionRestorableAgentSnapshot(
