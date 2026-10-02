@@ -30,9 +30,14 @@ const txtAnswers = async (http: Http, request: Request): Promise<Array<string>> 
   try {
     const res = await http(request)
     if (!res.ok) return []
-    const body = (await res.json()) as { Status?: number; Answer?: Array<{ type?: number; data?: string }> }
+    const body = (await res.json()) as { Status?: number; Answer?: Array<{ name?: string; type?: number; data?: string }> }
     if (body.Status !== 0) return []
-    return (body.Answer ?? []).filter((a) => a.type === 16 && typeof a.data === "string").map((a) => a.data!)
+    // Only TXT records of the exact name: an answer reached through a CNAME (for example a wildcard
+    // or dangling record pointing elsewhere) would let whoever controls the target verify.
+    const want = new URL(request.url).searchParams.get("name")!.toLowerCase().replace(/\.$/, "")
+    return (body.Answer ?? [])
+      .filter((a) => a.type === 16 && typeof a.data === "string" && (a.name ?? "").toLowerCase().replace(/\.$/, "") === want)
+      .map((a) => a.data!)
   } catch {
     return []
   }
@@ -78,18 +83,29 @@ export const domainExternal = async (
     return { ...base, ok: true, value: res.value, transaction: res.tx, replayed: res.replayed, sequence: settled?.sequence ?? 0 }
   }
 
+  const by = principal.user ?? principal.identity
   if (frame.op === "domain.release") {
-    if (claim.state === "verified") await deps.domainStub(domain).release(deps.team)
-    return commit("domain.mark_released", { domain }, `domain-released:${domain}:${claim.record_value}`)
+    // Always, whatever TeamDO's state says: release is scoped to this team and idempotent.
+    await deps.domainStub(domain).release(deps.team)
+    return commit("domain.mark_released", { domain, by }, `domain-released:${domain}:${claim.record_value}`)
   }
 
-  if (claim.state === "verified") return { ...base, ok: true, value: claim }
-  if (claim.expires_at <= deps.now) return fail("domain.not_verified", "the claim expired; claim the domain again for a new record")
+  // A verified claim is re-checked against DomainDO (the single writer), never trusted from TeamDO alone.
+  if (claim.state === "verified" || claim.state === "lost") {
+    const held = await deps.domainStub(domain).claim(domain, deps.team, deps.now)
+    if (held.ok && claim.state === "verified") return { ...base, ok: true, value: claim }
+    if (!held.ok) return claim.state === "lost" ? fail("domain.taken", `${domain} is verified by another team`) : commit("domain.mark_lost", { domain }, `domain-lost:${domain}:${claim.record_value}`)
+  }
+  if (claim.expires_at <= deps.now && claim.state === "pending") return fail("domain.not_verified", "the claim expired; claim the domain again for a new record")
   const results = await Promise.all(RESOLVERS.map((r) => txtAnswers(deps.http, r(claim.record_name))))
   if (!results.every((answers) => txtContains(answers, claim.record_value))) {
     return fail("domain.not_verified", `both resolvers must see TXT ${claim.record_name} = ${claim.record_value}; DNS can take minutes to propagate`, true)
   }
   const owned = await deps.domainStub(domain).claim(domain, deps.team, deps.now)
   if (!owned.ok) return fail("domain.taken", `${domain} is verified by another team`)
-  return commit("domain.mark_verified", { domain, record_value: claim.record_value, verified_at: owned.verified_at }, `domain-verified:${domain}:${claim.record_value}`)
+  const reply = commit("domain.mark_verified", { domain, record_value: claim.record_value, verified_at: owned.verified_at, by }, `domain-verified:${domain}:${claim.record_value}`)
+  // The claim changed while DNS was checked (released, or re-claimed with a new value): undo DomainDO,
+  // so it never owns a domain TeamDO does not claim (review P1-a).
+  if (!reply.ok) await deps.domainStub(domain).release(deps.team)
+  return reply
 }

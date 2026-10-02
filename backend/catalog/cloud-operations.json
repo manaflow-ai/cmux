@@ -2194,7 +2194,8 @@
             "kind": "enum",
             "values": [
               "pending",
-              "verified"
+              "verified",
+              "lost"
             ]
           }
         },
@@ -8639,7 +8640,8 @@
                 "type": "string",
                 "enum": [
                   "pending",
-                  "verified"
+                  "verified",
+                  "lost"
                 ]
               },
               "record_name": {
@@ -8799,7 +8801,8 @@
                 "type": "string",
                 "enum": [
                   "pending",
-                  "verified"
+                  "verified",
+                  "lost"
                 ]
               },
               "record_name": {
@@ -9069,7 +9072,8 @@
                 "type": "string",
                 "enum": [
                   "pending",
-                  "verified"
+                  "verified",
+                  "lost"
                 ]
               },
               "record_name": {

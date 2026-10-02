@@ -23,6 +23,8 @@ export class DomainDO extends DurableObject<Env> {
   /** Makes `team` the owner unless another team owns the domain. Idempotent for the owner. */
   async claim(domain: string, team: string, now: number): Promise<{ ok: true; verified_at: number } | { ok: false; owner: string }> {
     const row = this.current()
+    // One object per domain: a call naming another domain is a routing bug, never an ownership change.
+    if (row && row.domain !== domain) throw new Error(`DomainDO for ${row.domain} called for ${domain}`)
     if (row && row.team !== team) return { ok: false, owner: row.team }
     if (row) return { ok: true, verified_at: row.verified_at }
     this.ctx.storage.sql.exec(`INSERT INTO owner (id, domain, team, verified_at) VALUES (1, ?, ?, ?)`, domain, team, now)

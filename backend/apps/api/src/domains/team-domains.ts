@@ -62,7 +62,7 @@ export const reduceDomainClaim = <S extends DomainState>(state: S, params: unkno
 
 /** System op domain.mark_verified {domain, record_value, verified_at}: DomainDO accepted the team. */
 export const reduceDomainVerified = <S extends DomainState>(state: S, params: unknown): Result<S> => {
-  const p = params as { domain?: unknown; record_value?: unknown; verified_at?: unknown }
+  const p = params as { domain?: unknown; record_value?: unknown; verified_at?: unknown; by?: unknown }
   const claim = typeof p?.domain === "string" ? state.domains?.[p.domain] : undefined
   if (!claim) return reject("selector.not_found", "no claim for this domain")
   // Only the value that was checked: a newer claim's value must be checked on its own.
@@ -73,16 +73,26 @@ export const reduceDomainVerified = <S extends DomainState>(state: S, params: un
     ok: true,
     state: { ...state, domains: { ...state.domains, [claim.domain]: verified } },
     value: verified,
-    audit: { summary: `verified ${claim.domain}`, detail: { domain: claim.domain } }
+    audit: { summary: `verified ${claim.domain}`, detail: { domain: claim.domain, by: typeof p.by === "string" ? p.by : null } }
   }
+}
+
+/** System op domain.mark_lost {domain}: DomainDO refused a re-check (another team owns it now). */
+export const reduceDomainLost = <S extends DomainState>(state: S, params: unknown): Result<S> => {
+  const domain = (params as { domain?: unknown })?.domain
+  const claim = typeof domain === "string" ? state.domains?.[domain] : undefined
+  if (!claim || claim.state === "lost") return { ok: true, state, value: claim ?? null, changed: false }
+  const lost: Domain = { ...claim, state: "lost" }
+  return { ok: true, state: { ...state, domains: { ...state.domains, [claim.domain]: lost } }, value: lost, audit: { summary: `lost ${claim.domain}`, detail: { domain: claim.domain } } }
 }
 
 /** System op domain.mark_released {domain}: DomainDO dropped the team's claim. */
 export const reduceDomainReleased = <S extends DomainState>(state: S, params: unknown): Result<S> => {
-  const domain = (params as { domain?: unknown })?.domain
+  const p = params as { domain?: unknown; by?: unknown }
+  const domain = p?.domain
   if (typeof domain !== "string" || !state.domains?.[domain]) return { ok: true, state, value: { domain }, changed: false }
   const { [domain]: _gone, ...rest } = state.domains
-  return { ok: true, state: { ...state, domains: rest }, value: { domain }, audit: { summary: `released ${domain}`, detail: { domain } } }
+  return { ok: true, state: { ...state, domains: rest }, value: { domain }, audit: { summary: `released ${domain}`, detail: { domain, by: typeof p.by === "string" ? p.by : null } } }
 }
 
 /** True when both resolvers' TXT answers for the record contain the value. */

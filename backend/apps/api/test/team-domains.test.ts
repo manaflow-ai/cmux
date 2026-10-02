@@ -73,7 +73,7 @@ const fakeDns = (records: (resolver: "cloudflare" | "google", name: string) => A
   const url = new URL(req.url)
   const resolver = url.hostname === "dns.google" ? "google" : "cloudflare"
   const name = url.searchParams.get("name")!
-  return new Response(JSON.stringify({ Status: 0, Answer: records(resolver, name).map((data) => ({ type: 16, data: `"${data}"` })) }), { headers: { "content-type": "application/dns-json" } })
+  return new Response(JSON.stringify({ Status: 0, Answer: records(resolver, name).map((data) => ({ name: `${name}.`, type: 16, data: `"${data}"` })) }), { headers: { "content-type": "application/dns-json" } })
 }
 
 describe("domain verification over the API (workerd)", () => {

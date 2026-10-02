@@ -2,7 +2,7 @@ import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
-import { reduceDomainClaim, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
+import { reduceDomainClaim, reduceDomainLost, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, reduceReleaseDone, reduceReleaseLock, type IntegrationSyncState } from "./team-integration-sync.ts"
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
@@ -105,9 +105,11 @@ export const teamDomain: Domain<TeamState> = {
         return withAudit(reduceDomainClaim(state, params, ctx), state.team.id, ctx, op)
       }
       case "domain.mark_verified":
-      case "domain.mark_released": {
+      case "domain.mark_released":
+      case "domain.mark_lost": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
-        return withAudit(op === "domain.mark_verified" ? reduceDomainVerified(state, params) : reduceDomainReleased(state, params), state.team.id, ctx, op)
+        const r = op === "domain.mark_verified" ? reduceDomainVerified(state, params) : op === "domain.mark_lost" ? reduceDomainLost(state, params) : reduceDomainReleased(state, params)
+        return withAudit(r, state.team.id, ctx, op)
       }
       case "team.integration.release_lock": {
         if (!state.team) return reject("validation.invalid", "team not initialized")

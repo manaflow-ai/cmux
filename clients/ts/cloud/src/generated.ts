@@ -380,7 +380,7 @@ export type TargetPolicy = {
 
 export type TeamDomain = {
   readonly domain: EmailDomain
-  readonly state: "pending" | "verified"
+  readonly state: "pending" | "verified" | "lost"
   readonly record_name: string
   readonly record_value: string
   readonly requested_at: number

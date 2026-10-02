@@ -16,7 +16,8 @@ export const EmailDomain = Schema.String.check(
 
 export const TeamDomain = Schema.Struct({
   domain: EmailDomain,
-  state: Schema.Literals(["pending", "verified"]),
+  /** lost: TeamDO thought the team owned the domain, but DomainDO refused it on a re-check. */
+  state: Schema.Literals(["pending", "verified", "lost"]),
   /** The TXT record to publish: name and value. */
   record_name: Schema.String,
   record_value: Schema.String,
