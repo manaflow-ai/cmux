@@ -87,8 +87,9 @@ struct AppRegistryTests {
         let root = try scratch()
         let registry = AppRegistry(directory: root)
         var changed: [String] = []
-        registry.onChange = { changed.append($0.id) }
         await registry.load()
+        try await registry.install("cmux/github-prs") // samples are opt-in
+        registry.onChange = { changed.append($0.id) }
         let prs = try #require(registry.app("cmux/github-prs"))
         #expect(prs.tier == .firstParty)
         #expect(prs.grants == AppGrants.Snapshot(scopes: ["actions:run", "net:api.github.com"], sandboxed: false))

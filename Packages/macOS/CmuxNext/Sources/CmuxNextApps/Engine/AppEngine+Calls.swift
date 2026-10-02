@@ -34,7 +34,8 @@ extension AppEngine {
         var key = options["idempotencyKey"]?.stringValue
         if key == nil, configuration.scopes.isMutation(name) { key = UUID().uuidString.lowercased() }
         return AppOperationRequest(app: configuration.manifest.id, appVersion: configuration.manifest.version, op: name, params: params,
-                                   options: options, origin: gestureDepth > 0 ? .user : .script, idempotencyKey: key)
+                                   options: options, origin: acceptGesture(options["gesture"]?.stringValue, consume: configuration.scopes.isMutation(name)) ? .user : .script,
+                                   idempotencyKey: key)
     }
 
     private func finish(_ callback: Int, _ result: Result<AppOperationResult, AppOperationError>) {
