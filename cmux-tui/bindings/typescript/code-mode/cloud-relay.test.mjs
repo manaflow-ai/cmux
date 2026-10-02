@@ -72,6 +72,25 @@ test("catalog mutations use the protocol's script origin", async () => {
   assert.equal(payload.idempotency_key, "attach-key");
 });
 
+test("domain and publication operations use fixed VM routes", async () => {
+  const calls = [];
+  const broker = createCloudBroker({
+    catalog: relayCatalog,
+    apiUrl: "https://cloud.test",
+    bearerToken: "fixture-secret",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ ok: true, publication: { id: "pub_fixture" } }), { status: 200 });
+    },
+  });
+  await broker.request("vm.domain.verify", { name: "example.test" }, "domain-key");
+  await broker.request("vm.publication.update", { id: "pub_fixture", accessMode: "personal" }, "publication-key");
+  assert.equal(calls[0].url, "https://cloud.test/api/vm/domains/example.test/verify");
+  assert.equal(calls[1].url, "https://cloud.test/api/vm/publications/pub_fixture");
+  assert.equal(calls[1].init.method, "PATCH");
+  assert.deepEqual(JSON.parse(calls[1].init.body), { accessMode: "personal" });
+});
+
 test("host relay serves typed requests over a Unix socket", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cmux-cloud-relay-"));
   const socketPath = join(dir, "relay.sock");

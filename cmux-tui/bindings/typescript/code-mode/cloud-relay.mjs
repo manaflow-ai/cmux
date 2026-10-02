@@ -3,15 +3,21 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 const VM = new Set(["vm.list", "vm.get", "vm.create", "vm.update", "vm.start", "vm.resume", "vm.pause", "vm.resize", "vm.delete", "vm.snapshot.list", "vm.snapshot.create", "vm.snapshot.restore", "vm.snapshot.delete", "vm.exec", "vm.fs.list", "vm.fs.read", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove", "vm.fs.stat"]);
+const PUBLICATION = new Set(["vm.domain.list", "vm.domain.verify", "vm.publication.list", "vm.publication.create", "vm.publication.update", "vm.publication.delete", "vm.publication.verify"]);
 const CLOUD = new Set(["network.list", "tunnel.attach", "tunnel.detach", "tunnel.rotate-key", "firewall.list", "firewall.get", "firewall.create", "firewall.delete"]);
 const FS = new Set(["vm.fs.list", "vm.fs.read", "vm.fs.stat", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove"]);
 const MUTATIONS = new Set(["vm.create", "vm.update", "vm.start", "vm.resume", "vm.pause", "vm.resize", "vm.delete", "vm.snapshot.create", "vm.snapshot.restore", "vm.snapshot.delete", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove", "tunnel.attach", "tunnel.detach", "tunnel.rotate-key", "firewall.create", "firewall.delete"]);
 const VM_ID = /^[A-Za-z0-9._:-]{1,256}$/;
+const ROUTE_SEGMENT = /^[A-Za-z0-9._*:-]{1,256}$/;
 const MAX_FRAME = 4 * 1024 * 1024;
 
 function vmId(params, operation) {
   if (typeof params.vm_id !== "string" || !VM_ID.test(params.vm_id)) throw new Error(`${operation} requires vm_id`);
   return params.vm_id;
+}
+function routeSegment(params, field, operation) {
+  if (typeof params[field] !== "string" || !ROUTE_SEGMENT.test(params[field])) throw new Error(`${operation} requires a valid ${field}`);
+  return params[field];
 }
 function guestPath(params, operation) {
   if (typeof params.path !== "string" || !params.path.startsWith("/") || params.path.includes("\0") || params.path.split("/").includes("..") || Buffer.byteLength(params.path) > 4096) throw new Error(`${operation} requires an absolute guest path without '..'`);
@@ -54,6 +60,18 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
           else if (snap === "restore") { method = "POST"; path = `/api/vm/${encodeURIComponent(id)}/restore`; payload = bodyWithout(params, "vm_id"); }
           else { method = "DELETE"; path = `/api/vm/${encodeURIComponent(id)}/snapshots/${encodeURIComponent(String(params.snapshot_id ?? ""))}`; }
         }
+      }
+    } else if (PUBLICATION.has(operation)) {
+      if (operation === "vm.domain.list") { method = "GET"; path = "/api/vm/domains"; }
+      else if (operation === "vm.domain.verify") { method = "POST"; path = `/api/vm/domains/${encodeURIComponent(routeSegment(params, "name", operation))}/verify`; payload = {}; }
+      else if (operation === "vm.publication.list") { method = "GET"; path = "/api/vm/publications"; }
+      else {
+        const id = routeSegment(params, "id", operation);
+        path = `/api/vm/publications/${encodeURIComponent(id)}`;
+        if (operation === "vm.publication.verify") { method = "POST"; path += "/verify"; payload = {}; }
+        else if (operation === "vm.publication.update") { method = "PATCH"; payload = bodyWithout(params, "id"); }
+        else if (operation === "vm.publication.delete") { method = "DELETE"; }
+        else { method = "POST"; payload = bodyWithout(params, "id"); }
       }
     } else if (catalogOps.has(operation)) {
       const descriptor = catalog.operations[operation];
