@@ -19,13 +19,27 @@ fn invalid(field: &str, reason: impl Into<String>) -> anyhow::Error {
     anyhow::Error::new(ResourceError::validation_invalid(Some(field), reason))
 }
 
+/// An optional field: absent is `None`, a value of the wrong type (including
+/// `null`) is a reject rather than an absent field.
+fn typed<'a, T>(
+    fields: &'a Map<String, Value>,
+    name: &str,
+    read: impl Fn(&'a Value) -> Option<T>,
+    expected: &str,
+) -> anyhow::Result<Option<T>> {
+    fields
+        .get(name)
+        .map(|value| read(value).ok_or_else(|| invalid(name, format!("{name} must be {expected}"))))
+        .transpose()
+}
+
 impl ColumnUpdate {
     fn parse(fields: &Map<String, Value>) -> anyhow::Result<Self> {
         let column = SplitPublicId::parse(required_str(fields, "column")?.to_string())
             .map_err(anyhow::Error::new)?;
-        let edge = fields.get("edge").and_then(Value::as_str);
-        let mode = fields.get("mode").and_then(Value::as_str);
-        let sticky = match fields.get("sticky").and_then(Value::as_bool) {
+        let edge = typed(fields, "edge", Value::as_str, "a string")?;
+        let mode = typed(fields, "mode", Value::as_str, "a string")?;
+        let sticky = match typed(fields, "sticky", Value::as_bool, "a boolean")? {
             Some(sticky) => Some(
                 parse_column_sticky(sticky, edge, mode)
                     .map_err(|error| invalid("sticky", error.to_string()))?,
@@ -35,7 +49,7 @@ impl ColumnUpdate {
             }
             None => None,
         };
-        let width = fields.get("width").and_then(Value::as_f64).map(|width| width as f32);
+        let width = typed(fields, "width", Value::as_f64, "a number")?.map(|width| width as f32);
         if let Some(width) = width
             && !(width.is_finite()
                 && (MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width))
