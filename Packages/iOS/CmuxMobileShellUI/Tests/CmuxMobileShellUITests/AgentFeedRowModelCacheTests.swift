@@ -17,6 +17,31 @@ import Testing
         #expect(projection.rows.count == originalItems.count + 1)
     }
 
+    @Test @MainActor func projectionHidesRetainedRowsUntilScopeRefreshCompletes() async {
+        let originalItems = (0..<40).map { makeItem(id: "row-\($0)") }
+        let initialRevision = AgentFeedItemsRevision(
+            sourceRevision: 1,
+            scopeRevision: AgentFeedScopeRevision(selection: .all, selectedMachineIDs: nil)
+        )
+        let nextRevision = AgentFeedItemsRevision(
+            sourceRevision: 1,
+            scopeRevision: AgentFeedScopeRevision(
+                selection: .machine("mac-b"),
+                selectedMachineIDs: ["mac-b"]
+            )
+        )
+        let projection = AgentFeedProjection(
+            items: originalItems,
+            itemsRevision: initialRevision
+        )
+
+        projection.update(items: originalItems, itemsRevision: nextRevision)
+
+        #expect(projection.rows(for: nextRevision).isEmpty)
+        await projection.waitForPendingRebuild()
+        #expect(projection.rows(for: nextRevision).count == originalItems.count)
+    }
+
     @Test func reusesUnchangedRowsAndRebuildsOnlyChangedRows() {
         let originalItems = (0..<120).map { makeItem(id: "row-\($0)") }
         var cache = AgentFeedRowModelCache()

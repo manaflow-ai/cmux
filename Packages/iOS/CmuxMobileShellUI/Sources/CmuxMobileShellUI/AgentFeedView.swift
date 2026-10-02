@@ -65,6 +65,7 @@ struct AgentFeedView: View {
         self.searchText = searchText
         _projection = State(initialValue: AgentFeedProjection(
             items: items,
+            itemsRevision: itemsRevision,
             searchText: searchText
         ))
     }
@@ -102,7 +103,7 @@ struct AgentFeedView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 AgentFeedFilterMenu(
                     filter: projection.filter,
-                    needsInputCount: projection.needsInputCount,
+                    needsInputCount: visibleNeedsInputCount,
                     setFilter: { newFilter in
                         projection.filter = newFilter
                         actions.filterChanged(newFilter)
@@ -128,11 +129,19 @@ struct AgentFeedView: View {
             await actions.refresh()
         }
         .onChange(of: itemsRevision) { _, _ in
-            projection.update(items: items)
+            projection.update(items: items, itemsRevision: itemsRevision)
         }
         .onChange(of: searchText) { _, newSearchText in
             projection.searchText = newSearchText
         }
+    }
+
+    private var visibleRows: [AgentFeedRowModel] {
+        projection.rows(for: itemsRevision)
+    }
+
+    private var visibleNeedsInputCount: Int {
+        projection.needsInputCount(for: itemsRevision)
     }
 
     private var feedList: some View {
@@ -143,7 +152,7 @@ struct AgentFeedView: View {
                 }
             }
             Section {
-                if projection.rows.isEmpty {
+                if visibleRows.isEmpty {
                     if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         ContentUnavailableView.search(text: searchText)
                             .listRowSeparator(.hidden)
@@ -152,7 +161,7 @@ struct AgentFeedView: View {
                             .listRowSeparator(.hidden)
                     }
                 } else {
-                    ForEach(projection.rows) { model in
+                    ForEach(visibleRows) { model in
                         let item = model.item
                         AgentFeedRow(
                             model: model,

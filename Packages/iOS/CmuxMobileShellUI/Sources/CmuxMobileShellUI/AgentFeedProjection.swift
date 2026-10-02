@@ -42,18 +42,23 @@ final class AgentFeedProjection {
 
     @ObservationIgnored private var sourceItems: [MobileAgentFeedItem]
     @ObservationIgnored private var rowModelCache: AgentFeedRowModelCache
+    @ObservationIgnored private var requestedItemsRevision: AgentFeedItemsRevision
+    private(set) var publishedItemsRevision: AgentFeedItemsRevision
     @ObservationIgnored private var sourceRevision = 0
     @ObservationIgnored private var rebuildRevision = 0
     @ObservationIgnored private var rebuildTask: Task<Void, Never>?
 
     init(
         items: [MobileAgentFeedItem],
+        itemsRevision: AgentFeedItemsRevision = AgentFeedItemsRevision(sourceRevision: 0),
         filter: AgentFeedFilter = .all,
         searchText: String = ""
     ) {
         self.filter = filter
         self.searchText = searchText
         sourceItems = items
+        requestedItemsRevision = itemsRevision
+        publishedItemsRevision = itemsRevision
 
         var rowModelCache = AgentFeedRowModelCache()
         let preparedRows = rowModelCache.update(items: items)
@@ -67,11 +72,25 @@ final class AgentFeedProjection {
         needsInputCount = output.needsInputCount
     }
 
-    func update(items: [MobileAgentFeedItem]) {
-        guard sourceItems != items else { return }
+    func update(
+        items: [MobileAgentFeedItem],
+        itemsRevision: AgentFeedItemsRevision = AgentFeedItemsRevision(sourceRevision: 0)
+    ) {
+        guard sourceItems != items || requestedItemsRevision != itemsRevision else { return }
         sourceItems = items
+        requestedItemsRevision = itemsRevision
         sourceRevision &+= 1
         scheduleRebuild()
+    }
+
+    func rows(for itemsRevision: AgentFeedItemsRevision) -> [AgentFeedRowModel] {
+        guard publishedItemsRevision == itemsRevision else { return [] }
+        return rows
+    }
+
+    func needsInputCount(for itemsRevision: AgentFeedItemsRevision) -> Int {
+        guard publishedItemsRevision == itemsRevision else { return 0 }
+        return needsInputCount
     }
 
     func waitForPendingRebuild() async {
@@ -83,6 +102,7 @@ final class AgentFeedProjection {
         let requestedRebuildRevision = rebuildRevision
         let requestedSourceRevision = sourceRevision
         let requestedItems = sourceItems
+        let requestedItemsRevision = requestedItemsRevision
         let requestedFilter = filter
         let requestedSearchText = searchText
         let requestedRowModelCache = rowModelCache
@@ -123,6 +143,7 @@ final class AgentFeedProjection {
             self.rowModelCache = output.rowModelCache
             self.rows = output.projection.rows
             self.needsInputCount = output.projection.needsInputCount
+            self.publishedItemsRevision = requestedItemsRevision
         }
     }
 }
