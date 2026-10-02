@@ -21,19 +21,26 @@ public struct AuthTimeouts: Sendable, Equatable {
     /// post-sign-in hook). Sized above the Stack SDK's 30s per-request timeout
     /// so it only fires when retries stack up or a call wedges.
     public var network: Duration
+    /// Shorter deadline for launch session restore. This state blocks the
+    /// first screen behind "Restoring session", so it should fail open to the
+    /// cached session instead of waiting for the full backend-call budget.
+    public var sessionRestore: Duration
 
-    /// The production defaults: 300s interactive, 60s network.
+    /// The production defaults: 300s interactive, 60s network, 8s launch restore.
     public static let `default` = AuthTimeouts(
         interactiveFlow: .seconds(300),
-        network: .seconds(60)
+        network: .seconds(60),
+        sessionRestore: .seconds(8)
     )
 
     /// Creates a timeout table.
     /// - Parameters:
     ///   - interactiveFlow: Deadline for flows with interactive system UI.
     ///   - network: Deadline for non-interactive backend calls.
-    public init(interactiveFlow: Duration, network: Duration) {
+    ///   - sessionRestore: Deadline for launch cached-session restore.
+    public init(interactiveFlow: Duration, network: Duration, sessionRestore: Duration? = nil) {
         self.interactiveFlow = interactiveFlow
         self.network = network
+        self.sessionRestore = sessionRestore ?? network
     }
 }

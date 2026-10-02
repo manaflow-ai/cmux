@@ -1,5 +1,4 @@
 public import AppKit
-public import CmuxTerminalCopyMode
 
 extension TerminalKeyboardCopyModeModifiers {
     /// Maps AppKit modifier flags into the platform-neutral copy-mode set.

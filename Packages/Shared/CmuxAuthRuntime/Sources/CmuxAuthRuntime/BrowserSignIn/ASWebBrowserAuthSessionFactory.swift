@@ -18,7 +18,7 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
     public func makeSession(
         signInURL: URL,
         callbackScheme: String,
-        completion: @escaping @MainActor (URL?) -> Void
+        completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
     ) -> any HostBrowserAuthSession {
         log.log("auth.webauth.makeSession signInURL=\(signInURL.absoluteString) callbackScheme=\(callbackScheme)")
         let session = ASWebAuthenticationSession(
@@ -41,10 +41,11 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
     /// boundary when that off-main delivery happens. This bridge carries no
     /// isolation assumption and hops to the main actor itself.
     nonisolated func sessionCompletionBridge(
-        completion: @escaping @MainActor (URL?) -> Void
+        completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
     ) -> @Sendable (URL?, (any Error)?) -> Void {
         let log = self.log
         return { callbackURL, error in
+            let result = self.sessionResult(callbackURL: callbackURL, error: error)
             Task { @MainActor in
                 if let error {
                     let nsError = error as NSError
@@ -53,9 +54,38 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
                 } else {
                     log.log("auth.webauth.completion error=nil callback=\(callbackURL == nil ? "nil" : "present")")
                 }
-                completion(callbackURL)
+                completion(result)
             }
         }
+    }
+
+    nonisolated private func sessionResult(
+        callbackURL: URL?,
+        error: (any Error)?
+    ) -> HostBrowserAuthSessionResult {
+        if let callbackURL {
+            return .callback(callbackURL)
+        }
+        guard let error else {
+            return .failed(reason: "missing_callback")
+        }
+        let nsError = error as NSError
+        if nsError.domain == ASWebAuthenticationSessionError.errorDomain {
+            switch nsError.code {
+            case ASWebAuthenticationSessionError.Code.canceledLogin.rawValue:
+                return .cancelled(reason: "canceled_login")
+            case ASWebAuthenticationSessionError.Code.presentationContextInvalid.rawValue:
+                return .failed(reason: "presentation_context_invalid")
+            case ASWebAuthenticationSessionError.Code.presentationContextNotProvided.rawValue:
+                return .failed(reason: "presentation_context_not_provided")
+            default:
+                return .failed(reason: "aswebauthentication_\(nsError.code)")
+            }
+        }
+        if nsError.domain == NSURLErrorDomain {
+            return .failed(reason: "network_\(nsError.code)")
+        }
+        return .failed(reason: "error_\(nsError.code)")
     }
 }
 

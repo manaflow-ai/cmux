@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// The one-time discovery hint that appears, with a soft scale+fade, after a
@@ -12,15 +13,13 @@ struct CanvasCommandScrollHint: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            keycap("⌘")
+            textKeycap("⌘")
             Image(systemName: "plus")
-                .font(.system(size: 9, weight: .bold))
+                .cmuxFont(size: 9, weight: .bold)
                 .foregroundStyle(.secondary)
-            Image(systemName: "scroll")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+            symbolKeycap("arrow.up.and.down.and.arrow.left.and.right")
             Text(text)
-                .font(.system(size: 12, weight: .medium))
+                .cmuxFont(size: 12, weight: .medium)
                 .foregroundStyle(.primary)
                 .fixedSize()
         }
@@ -40,9 +39,22 @@ struct CanvasCommandScrollHint: View {
         .accessibilityLabel(text)
     }
 
-    private func keycap(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12, weight: .semibold))
+    private func textKeycap(_ text: String) -> some View {
+        keycapContainer {
+            Text(text)
+                .cmuxFont(size: 12, weight: .semibold)
+        }
+    }
+
+    private func symbolKeycap(_ systemName: String) -> some View {
+        keycapContainer {
+            Image(systemName: systemName)
+                .cmuxFont(size: 12, weight: .semibold)
+        }
+    }
+
+    private func keycapContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
             .foregroundStyle(.primary)
             .frame(minWidth: 18, minHeight: 18)
             .padding(.horizontal, 4)

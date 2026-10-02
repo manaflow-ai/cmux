@@ -1,10 +1,26 @@
+import CmuxWorkspaces
+
 extension SidebarWorkspaceSnapshotBuilder.Snapshot {
     struct ContextMenuImmediateFields: Equatable {
         let title: String
         let customDescription: String?
         let isPinned: Bool
+        let isMuted: Bool
+        let cloudWorkspaceLabel: String?
+        let deviceWorkspaceLabel: String?
         let customColorHex: String?
         let finderDirectoryPath: String?
+        let mediaActivity: BrowserMediaActivity
+        let taskStatus: WorkspaceTaskStatus?
+        let todoStatusMenuModel: SidebarWorkspaceCompactStatusMenuModel?
+        let hasManualTaskStatus: Bool
+        let checklistItems: [WorkspaceChecklistItem]
+        let checklistCompletedCount: Int
+        let checklistTotalCount: Int
+        let checklistFirstUncheckedText: String?
+        let activeCodingAgentCount: Int
+        let compactStatusGlyph: SidebarCompactStatusGlyph?
+        let taskStatusInput: SidebarWorkspaceTaskStatusSnapshot
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -12,8 +28,22 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
+            isMuted: isMuted,
+            cloudWorkspaceLabel: cloudWorkspaceLabel,
+            deviceWorkspaceLabel: deviceWorkspaceLabel,
             customColorHex: customColorHex,
-            finderDirectoryPath: finderDirectoryPath
+            finderDirectoryPath: finderDirectoryPath,
+            mediaActivity: mediaActivity,
+            taskStatus: taskStatus,
+            todoStatusMenuModel: todoStatusMenuModel,
+            hasManualTaskStatus: hasManualTaskStatus,
+            checklistItems: checklistItems,
+            checklistCompletedCount: checklistCompletedCount,
+            checklistTotalCount: checklistTotalCount,
+            checklistFirstUncheckedText: checklistFirstUncheckedText,
+            activeCodingAgentCount: activeCodingAgentCount,
+            compactStatusGlyph: compactStatusGlyph,
+            taskStatusInput: taskStatusInput
         )
     }
 
@@ -24,7 +54,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             title: snapshot.title,
             customDescription: snapshot.customDescription,
             isPinned: snapshot.isPinned,
+            isMuted: snapshot.isMuted,
             customColorHex: snapshot.customColorHex,
+            cloudWorkspaceLabel: snapshot.cloudWorkspaceLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -35,6 +67,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,
             progress: progress,
+            // The loading spinner is a leading row glyph like mediaActivity, so
+            // it also updates immediately while the context menu is open.
+            activeCodingAgentCount: snapshot.activeCodingAgentCount,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
@@ -42,7 +77,25 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
             listeningPorts: listeningPorts,
-            finderDirectoryPath: snapshot.finderDirectoryPath
+            finderDirectoryPath: snapshot.finderDirectoryPath,
+            // Media activity drives a leading row glyph, so stale values are
+            // visually worse than ordinary telemetry text while the menu is open.
+            mediaActivity: snapshot.mediaActivity,
+            // Todo status/checklist are mutated FROM this context menu (Status
+            // submenu, Mark as Done, checkbox clicks), so the done-row dim and
+            // checklist must reflect the change immediately, not on menu close.
+            taskStatus: snapshot.taskStatus,
+            todoStatusMenuModel: snapshot.todoStatusMenuModel,
+            hasManualTaskStatus: snapshot.hasManualTaskStatus,
+            checklistItems: snapshot.checklistItems,
+            checklistCompletedCount: snapshot.checklistCompletedCount,
+            checklistTotalCount: snapshot.checklistTotalCount,
+            checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText,
+            taskStatusInput: snapshot.taskStatusInput,
+            deviceWorkspaceLabel: snapshot.deviceWorkspaceLabel,
+            // The status glyph is resolved against the spinner state, so it
+            // updates with the spinner while the menu is open.
+            compactStatusGlyph: snapshot.compactStatusGlyph
         )
     }
 }
@@ -56,7 +109,7 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
         let hasDeferredWorkspaceObservationInvalidation: Bool
     }
 
-    static func decision(
+    func decision(
         current: SidebarWorkspaceSnapshotBuilder.Snapshot?,
         next: SidebarWorkspaceSnapshotBuilder.Snapshot,
         force: Bool,
@@ -79,62 +132,5 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
             pendingWorkspaceSnapshot: hasDeferredChanges ? next : nil,
             hasDeferredWorkspaceObservationInvalidation: hasDeferredChanges
         )
-    }
-}
-
-struct SidebarWorkspaceRowInteractionState: Equatable {
-    private(set) var isPointerHovering = false
-    private(set) var contextMenuVisible = false
-    private var contextMenuTrackingSuppressesCloseButton = false
-    private var deferredPointerHoveringWhileContextMenuTracking: Bool?
-
-    mutating func setPointerHovering(_ hovering: Bool) {
-        if contextMenuTrackingSuppressesCloseButton {
-            deferredPointerHoveringWhileContextMenuTracking = hovering
-            isPointerHovering = false
-            return
-        }
-        deferredPointerHoveringWhileContextMenuTracking = nil
-        isPointerHovering = hovering
-    }
-
-    mutating func contextMenuDidAppear() {
-        contextMenuVisible = true
-        contextMenuTrackingSuppressesCloseButton = true
-        deferredPointerHoveringWhileContextMenuTracking = nil
-        isPointerHovering = false
-    }
-
-    mutating func contextMenuDidDisappear() {
-        contextMenuVisible = false
-        contextMenuTrackingSuppressesCloseButton = false
-        applyDeferredPointerHovering()
-    }
-
-    mutating func contextMenuTrackingDidBegin() {
-        contextMenuTrackingSuppressesCloseButton = true
-        deferredPointerHoveringWhileContextMenuTracking = nil
-        isPointerHovering = false
-    }
-
-    mutating func contextMenuTrackingDidEnd() {
-        contextMenuTrackingSuppressesCloseButton = false
-        applyDeferredPointerHovering()
-    }
-
-    func shouldShowCloseButton(
-        canCloseWorkspace: Bool,
-        shortcutHintModeActive: Bool
-    ) -> Bool {
-        isPointerHovering
-            && !contextMenuTrackingSuppressesCloseButton
-            && canCloseWorkspace
-            && !shortcutHintModeActive
-    }
-
-    private mutating func applyDeferredPointerHovering() {
-        guard let deferredHover = deferredPointerHoveringWhileContextMenuTracking else { return }
-        self.deferredPointerHoveringWhileContextMenuTracking = nil
-        isPointerHovering = deferredHover
     }
 }

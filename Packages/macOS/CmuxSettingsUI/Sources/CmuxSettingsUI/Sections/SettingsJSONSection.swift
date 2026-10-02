@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -37,7 +38,7 @@ public struct SettingsJSONSection: View {
         ) {
             HStack(spacing: 8) {
                 Text(displayPath)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .cmuxFont(size: 11, weight: .medium, design: .monospaced)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -66,7 +67,7 @@ public struct SettingsJSONSection: View {
                 String(localized: "settings.settingsJSON.docsButton", defaultValue: "Open Docs"),
                 destination: URL(string: "https://cmux.com/docs/configuration#cmux-json")!
             )
-            .font(.caption)
+            .cmuxFont(.caption)
             .accessibilityIdentifier("SettingsJSONDocsLink")
         }
     }

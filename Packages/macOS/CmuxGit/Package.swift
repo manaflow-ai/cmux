@@ -14,13 +14,17 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../CmuxProcess"),
+        .package(path: "../CmuxFoundation"),
+        .package(path: "../../Shared/CmuxAgentChat"),
+        .package(path: "../../Shared/CMUXMobileCore"),
     ],
     targets: [
         .target(
             name: "CmuxGit",
             dependencies: [
-                .product(name: "CmuxProcess", package: "CmuxProcess"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CmuxAgentChat", package: "CmuxAgentChat"),
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

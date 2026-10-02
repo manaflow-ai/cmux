@@ -130,4 +130,52 @@ if [ -d "$CMUX_VDISPLAY_LOCK_DIR" ]; then
   exit 1
 fi
 
-echo "PASS: virtual display lock serializes acquisition, preserves live-owner locks, reclaims ownerless and dead-owner locks, and releases only matching tokens"
+# reap-strays kills leaked display helpers while the lock is held, leaves the
+# clang compile of the source alone, and refuses to act without the lock token.
+REAP_LOCK_DIR="$TMP_DIR/cmux-test-reap.lock"
+REAP_ENV="$(
+  RUNNER_TEMP="$TMP_DIR" \
+  CMUX_VDISPLAY_LOCK_DIR="$REAP_LOCK_DIR" \
+  "$SCRIPT" acquire
+)"
+eval "$REAP_ENV"
+
+( exec -a "$TMP_DIR/create-virtual-display --ready-path /tmp/x" sleep 30 ) &
+STRAY_PID=$!
+( exec -a "clang -framework CoreGraphics -o $TMP_DIR/create-virtual-display scripts/create-virtual-display.m" sleep 30 ) &
+COMPILE_PID=$!
+sleep 0.3
+
+# Without the token, reap-strays must refuse (non-zero) and kill nothing.
+if RUNNER_TEMP="$TMP_DIR" CMUX_VDISPLAY_LOCK_DIR="$CMUX_VDISPLAY_LOCK_DIR" \
+  "$SCRIPT" reap-strays >/dev/null 2>&1; then
+  echo "FAIL: reap-strays succeeded without the lock token" >&2
+  exit 1
+fi
+if ! kill -0 "$STRAY_PID" 2>/dev/null; then
+  echo "FAIL: reap-strays killed a helper without the lock token" >&2
+  exit 1
+fi
+
+RUNNER_TEMP="$TMP_DIR" \
+CMUX_VDISPLAY_LOCK_DIR="$CMUX_VDISPLAY_LOCK_DIR" \
+CMUX_VDISPLAY_LOCK_TOKEN="$CMUX_VDISPLAY_LOCK_TOKEN" \
+  "$SCRIPT" reap-strays >/dev/null 2>&1
+sleep 0.3
+if kill -0 "$STRAY_PID" 2>/dev/null; then
+  echo "FAIL: reap-strays did not kill the leaked display helper" >&2
+  kill "$STRAY_PID" "$COMPILE_PID" 2>/dev/null || true
+  exit 1
+fi
+if ! kill -0 "$COMPILE_PID" 2>/dev/null; then
+  echo "FAIL: reap-strays killed the clang compile of the helper source" >&2
+  kill "$COMPILE_PID" 2>/dev/null || true
+  exit 1
+fi
+kill "$COMPILE_PID" 2>/dev/null || true
+RUNNER_TEMP="$TMP_DIR" \
+CMUX_VDISPLAY_LOCK_DIR="$CMUX_VDISPLAY_LOCK_DIR" \
+CMUX_VDISPLAY_LOCK_TOKEN="$CMUX_VDISPLAY_LOCK_TOKEN" \
+  "$SCRIPT" release
+
+echo "PASS: virtual display lock serializes acquisition, preserves live-owner locks, reclaims ownerless and dead-owner locks, releases only matching tokens, and reap-strays kills leaked helpers (token-gated, compile-safe)"

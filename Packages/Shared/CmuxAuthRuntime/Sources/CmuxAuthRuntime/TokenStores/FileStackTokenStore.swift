@@ -69,6 +69,11 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
         return true
     }
 
+    /// Replaces tokens only while the stored refresh token is still `compareRefreshToken`.
+    ///
+    /// The compare value is the staleness guard. A double-nil replacement is the
+    /// Stack SDK's `RefreshOutcome.definitivelyRejected` clear, and must delete
+    /// the persisted session once the current refresh token still matches.
     public func compareAndSet(
         compareRefreshToken: String,
         newRefreshToken: String?,
@@ -79,8 +84,7 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
         log.log("file.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false)")
         guard matches else { return }
         if newRefreshToken == nil && newAccessToken == nil {
-            log.log("file.compareAndSet: blocked double-nil clear (preserving session)")
-            return
+            log.log("file.compareAndSet: cleared definitively-rejected session")
         }
         await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)
     }

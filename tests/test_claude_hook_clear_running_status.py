@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: /clear SessionStart keeps Claude Running status current."""
+"""Regression: /clear stays Idle until the following prompt starts work."""
 
 from __future__ import annotations
 
@@ -97,7 +97,12 @@ class HookSocketServer:
                         continue
                     line = raw_line.decode("utf-8", errors="replace")
                     self.commands.append(line)
-                    conn.sendall((self._response_for(line) + "\n").encode("utf-8"))
+                    try:
+                        conn.sendall((self._response_for(line) + "\n").encode("utf-8"))
+                    except (BrokenPipeError, ConnectionResetError):
+                        # Hook commands are fire-and-forget: the CLI may close the socket
+                        # without reading the reply. The command is already recorded.
+                        return
 
     def _response_for(self, line: str) -> str:
         if not line.startswith("{"):
@@ -109,7 +114,21 @@ class HookSocketServer:
 
         method = request.get("method")
         result: dict[str, object] = {}
-        if method == "surface.list":
+        if method == "agent.resolve_delivery_target":
+            params = request.get("params")
+            if isinstance(params, dict) and "pid" in params:
+                result = {
+                    "source": "pid",
+                    "workspace_id": self.workspace_id,
+                    "surface_id": self.surface_id,
+                }
+            else:
+                result = {
+                    "source": "surface",
+                    "workspace_id": self.workspace_id,
+                    "surface_id": self.surface_id,
+                }
+        elif method == "surface.list":
             result = {
                 "surfaces": [
                     {
@@ -169,6 +188,18 @@ def has_command(commands: list[str], fragment: str) -> bool:
 
 def has_command_with(commands: list[str], *fragments: str) -> bool:
     return any(all(fragment in command for fragment in fragments) for command in commands)
+
+
+def stored_lifecycle(state_path: Path, session_id: str) -> str | None:
+    state = json.loads(state_path.read_text())
+    sessions = state.get("sessions")
+    if not isinstance(sessions, dict):
+        return None
+    record = sessions.get(session_id)
+    if not isinstance(record, dict):
+        return None
+    lifecycle = record.get("agentLifecycle")
+    return lifecycle if isinstance(lifecycle, str) else None
 
 
 def main() -> int:
@@ -254,17 +285,46 @@ def main() -> int:
         )
         clear_commands = server.commands[clear_start:]
 
-        if not has_command(clear_commands, f"clear_notifications --tab={workspace_id}"):
-            print("FAIL: expected clear SessionStart to clear stale notifications")
+        if not has_command(
+            clear_commands,
+            f"clear_notifications --tab={workspace_id} --panel={surface_id}",
+        ):
+            print("FAIL: expected clear SessionStart to clear only the current panel")
             print(f"clear_commands={clear_commands!r}")
             return 1
         if not has_command_with(
             clear_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            print("FAIL: expected clear SessionStart to leave Claude Idle on the current panel")
+            print(f"clear_commands={clear_commands!r}")
+            return 1
+        if stored_lifecycle(state_path, new_session_id) != "idle":
+            print("FAIL: expected clear SessionStart to persist Claude idle lifecycle")
+            print(f"state={state_path.read_text()}")
+            return 1
+
+        new_prompt_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {"session_id": new_session_id, "turn_id": "turn-after-clear", "cwd": "/tmp"},
+            env,
+        )
+        new_prompt_commands = server.commands[new_prompt_start:]
+        if not has_command_with(
+            new_prompt_commands,
             f"set_status claude_code Running --icon=bolt.fill --color=#4C8DFF --tab={workspace_id}",
             f"--panel={surface_id}",
         ):
-            print("FAIL: expected clear SessionStart to set Claude Running on the current panel")
-            print(f"clear_commands={clear_commands!r}")
+            print("FAIL: expected prompt after /clear to set Claude Running")
+            print(f"new_prompt_commands={new_prompt_commands!r}")
+            return 1
+        if stored_lifecycle(state_path, new_session_id) != "running":
+            print("FAIL: expected prompt after /clear to persist Claude running lifecycle")
+            print(f"state={state_path.read_text()}")
             return 1
 
         late_old_start = len(server.commands)
@@ -324,7 +384,34 @@ def main() -> int:
                 print(f"old_session_end_commands={old_session_end_commands!r}")
                 return 1
 
-    print("PASS: Claude /clear SessionStart preserves Running against stale Stop and SessionEnd")
+        new_stop_start = len(server.commands)
+        run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "stop",
+            {
+                "session_id": new_session_id,
+                "turn_id": "turn-after-clear",
+                "cwd": "/tmp",
+                "last_assistant_message": "post-clear turn completed",
+            },
+            env,
+        )
+        new_stop_commands = server.commands[new_stop_start:]
+        if not has_command_with(
+            new_stop_commands,
+            f"set_status claude_code Idle --icon=pause.circle.fill --color=#8E8E93 --tab={workspace_id}",
+            f"--panel={surface_id}",
+        ):
+            print("FAIL: expected Stop after /clear prompt to return Claude to Idle")
+            print(f"new_stop_commands={new_stop_commands!r}")
+            return 1
+        if stored_lifecycle(state_path, new_session_id) != "idle":
+            print("FAIL: expected Stop after /clear prompt to persist Claude idle lifecycle")
+            print(f"state={state_path.read_text()}")
+            return 1
+
+    print("PASS: Claude /clear stays Idle, prompt starts Running, and Stop returns Idle")
     return 0
 
 

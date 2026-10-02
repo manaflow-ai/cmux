@@ -3,15 +3,16 @@ public import CmuxFoundation
 public import Foundation
 
 /// The resolved cmux terminal configuration: fonts, colors, theme, scrollback,
-/// and sidebar appearance parsed from the user's ghostty config files plus
-/// cmux's managed defaults.
+/// and sidebar appearance parsed from the user's ghostty config files.
 ///
 /// `GhosttyConfig` is the value type that drives the embedded ghostty runtime's
 /// appearance. It parses ghostty's textual config format (``parse(_:loadingThemesImmediatelyFor:)``),
-/// resolves themes by light/dark color scheme, and folds in cmux's managed
-/// default appearance when the user has set neither a `theme` nor explicit
-/// terminal color directives. The wire format it reads (directive keys, theme
-/// resolution, NSColor hex codecs) is frozen and pinned by tests.
+/// resolves themes by light/dark color scheme, and can fold in cmux's managed
+/// default appearance when enabled and no theme or terminal colors are authored.
+/// Font, keybinding, and other non-color settings retain that adaptive base.
+/// Authored colors resolve from Ghostty's built-in defaults plus user settings.
+/// The wire format (directive keys, theme resolution, NSColor hex codecs) is
+/// frozen and pinned by tests.
 public struct GhosttyConfig {
     /// The light/dark terminal theme preference. An alias for
     /// ``TerminalColorSchemePreference``; the nested name keeps the
@@ -27,11 +28,9 @@ public struct GhosttyConfig {
     public static let cmuxDefaultDarkThemeName = "Apple System Colors"
 
     private static let loadCacheLock = NSLock()
-    // Every read/write of this cache is serialized by `loadCacheLock` (see
-    // `cachedLoad`/`storeCachedLoad`/`invalidateLoadCache`), so the mutable
-    // static is data-race-safe despite being nonisolated. Faithful lift of the
-    // app-target lock-guarded cache; the lock contract is unchanged.
-    nonisolated(unsafe) private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
+    // Every read/write of this cache is serialized by `loadCacheLock`; the
+    // nonisolated static mirrors the app-target lock-guarded cache contract.
+    nonisolated(unsafe) private static var cachedConfigsByColorScheme: [String: GhosttyConfig] = [:]
     /// The default sidebar font size, in points.
     public static let defaultSidebarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize)
     /// The minimum sidebar font size the parser will clamp to.
@@ -44,11 +43,10 @@ public struct GhosttyConfig {
     public static let minSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize)
     /// The maximum surface tab-bar font size the parser will clamp to.
     public static let maxSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
-
     /// The terminal font family.
     public var fontFamily: String = "Menlo"
-    /// The terminal font size, in points.
-    public var fontSize: CGFloat = 12
+    /// The terminal font size, in points. Ghostty's native macOS default is 13.
+    public var fontSize: CGFloat = 13
     /// The surface tab-bar font size, in points.
     public var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
     /// The sidebar font size, in points.
@@ -57,8 +55,10 @@ public struct GhosttyConfig {
     public var theme: String?
     /// The configured `working-directory`, or `nil` when unset.
     public var workingDirectory: String?
+    /// The explicit `command` directive, or `nil` when Ghostty should resolve the login shell.
+    public var command: String?
     /// The scrollback limit. Ghostty measures this in bytes, not lines.
-    public var scrollbackLimit: Int = 10_000_000
+    public var scrollbackLimit: Int = 50_000_000
     /// The opacity (0...1) applied to unfocused split panes.
     public var unfocusedSplitOpacity: Double = 0.7
     /// The fill color for the unfocused-split overlay, or `nil` to use the
@@ -69,8 +69,8 @@ public struct GhosttyConfig {
     public var splitDividerColor: NSColor?
 
     // Colors (from theme or config)
-    /// The terminal background color.
-    public var backgroundColor: NSColor = NSColor(hex: "#272822")!
+    /// The terminal background color. Ghostty's vendored `Config.zig` default is `#282C34`.
+    public var backgroundColor: NSColor = NSColor(hex: "#282C34")!
     /// Whether a `background` directive was seen, regardless of whether it parsed.
     public var hasBackgroundColorDirective = false
     /// Whether the `background` directive parsed to a valid color.
@@ -87,35 +87,65 @@ public struct GhosttyConfig {
     public var hasBackgroundBlurDirective = false
     /// Whether the `background-blur` directive parsed to a valid value.
     public var hasParsedBackgroundBlur = false
-    /// The terminal foreground color.
-    public var foregroundColor: NSColor = NSColor(hex: "#fdfff1")!
+    /// The terminal foreground color. Ghostty's vendored `Config.zig` default is white.
+    public var foregroundColor: NSColor = NSColor(hex: "#FFFFFF")!
+    /// The configured bold-color behavior (`bright` or canonical `#rrggbb`).
+    public var boldColor: String?
     /// Whether a `foreground` directive was seen.
     public var hasForegroundColorDirective = false
     /// Whether the `foreground` directive parsed to a valid color.
     public var hasParsedForegroundColor = false
-    /// The cursor color.
-    public var cursorColor: NSColor = NSColor(hex: "#c0c1b5")!
+    /// Explicit cursor color, or `nil` when Ghostty derives it dynamically.
+    private var configuredCursorColor: NSColor?
+    /// The cursor color, falling back to the resolved foreground when unset.
+    public var cursorColor: NSColor {
+        get { configuredCursorColor ?? foregroundColor }
+        set { configuredCursorColor = newValue }
+    }
+    /// Cell-relative cursor color semantics, when configured.
+    public var cursorColorSemantic: GhosttyCellRelativeColor?
     /// Whether a `cursor-color` directive was seen.
     public var hasCursorColorDirective = false
-    /// Whether the `cursor-color` directive parsed to a valid color.
+    /// Whether the `cursor-color` directive parsed to a valid value.
     public var hasParsedCursorColor = false
-    /// The cursor text color.
-    public var cursorTextColor: NSColor = NSColor(hex: "#8d8e82")!
+    /// Explicit cursor-text color, or `nil` when Ghostty derives it dynamically.
+    private var configuredCursorTextColor: NSColor?
+    /// The cursor text color, falling back to the resolved background when unset.
+    public var cursorTextColor: NSColor {
+        get { configuredCursorTextColor ?? backgroundColor }
+        set { configuredCursorTextColor = newValue }
+    }
+    /// Cell-relative cursor text semantics, when configured.
+    public var cursorTextColorSemantic: GhosttyCellRelativeColor?
     /// Whether a `cursor-text` directive was seen.
     public var hasCursorTextColorDirective = false
-    /// Whether the `cursor-text` directive parsed to a valid color.
+    /// Whether the `cursor-text` directive parsed to a valid value.
     public var hasParsedCursorTextColor = false
-    /// The selection background color.
-    public var selectionBackground: NSColor = NSColor(hex: "#57584f")!
+    /// Explicit selection background, or `nil` when Ghostty derives it dynamically.
+    private var configuredSelectionBackground: NSColor?
+    /// The selection background, falling back to the resolved foreground when unset.
+    public var selectionBackground: NSColor {
+        get { configuredSelectionBackground ?? foregroundColor }
+        set { configuredSelectionBackground = newValue }
+    }
+    /// Cell-relative selection background semantics, when configured.
+    public var selectionBackgroundSemantic: GhosttyCellRelativeColor?
     /// Whether a `selection-background` directive was seen.
     public var hasSelectionBackgroundDirective = false
-    /// Whether the `selection-background` directive parsed to a valid color.
+    /// Whether the `selection-background` directive parsed to a valid value.
     public var hasParsedSelectionBackground = false
-    /// The selection foreground color.
-    public var selectionForeground: NSColor = NSColor(hex: "#fdfff1")!
+    /// Explicit selection foreground, or `nil` when Ghostty derives it dynamically.
+    private var configuredSelectionForeground: NSColor?
+    /// The selection foreground, falling back to the resolved background when unset.
+    public var selectionForeground: NSColor {
+        get { configuredSelectionForeground ?? backgroundColor }
+        set { configuredSelectionForeground = newValue }
+    }
+    /// Cell-relative selection foreground semantics, when configured.
+    public var selectionForegroundSemantic: GhosttyCellRelativeColor?
     /// Whether a `selection-foreground` directive was seen.
     public var hasSelectionForegroundDirective = false
-    /// Whether the `selection-foreground` directive parsed to a valid color.
+    /// Whether the `selection-foreground` directive parsed to a valid value.
     public var hasParsedSelectionForeground = false
 
     // Sidebar appearance
@@ -130,11 +160,30 @@ public struct GhosttyConfig {
     /// The sidebar tint opacity (0...1), or `nil` when unset.
     public var sidebarTintOpacity: Double?
 
-    /// The 16-color ANSI palette, indexed 0...15.
-    public var palette: [Int: NSColor] = [:]
+    /// The ANSI palette, initialized from vendored Ghostty's
+    /// `terminal/color.zig` defaults at indexes 0...15. Explicit `palette`
+    /// directives replace individual entries.
+    public var palette: [Int: NSColor] = [
+        0: NSColor(hex: "#1D1F21")!,
+        1: NSColor(hex: "#CC6666")!,
+        2: NSColor(hex: "#B5BD68")!,
+        3: NSColor(hex: "#F0C674")!,
+        4: NSColor(hex: "#81A2BE")!,
+        5: NSColor(hex: "#B294BB")!,
+        6: NSColor(hex: "#8ABEB7")!,
+        7: NSColor(hex: "#C5C8C6")!,
+        8: NSColor(hex: "#666666")!,
+        9: NSColor(hex: "#D54E53")!,
+        10: NSColor(hex: "#B9CA4A")!,
+        11: NSColor(hex: "#E7C547")!,
+        12: NSColor(hex: "#7AA6DA")!,
+        13: NSColor(hex: "#C397D8")!,
+        14: NSColor(hex: "#70C0B1")!,
+        15: NSColor(hex: "#EAEAEA")!,
+    ]
 
-    /// Creates a config with cmux's built-in default appearance, before any
-    /// config file or theme is parsed.
+    /// Creates a config with Ghostty's built-in default appearance, before any
+    /// config file, theme, or optional cmux managed appearance is parsed.
     public init() {}
 
     /// The opacity (0...1) of the overlay drawn over unfocused splits, derived
@@ -162,45 +211,48 @@ public struct GhosttyConfig {
     }
 
     /// Loads the resolved terminal config for `preferredColorScheme` (or the
-    /// current system/app preference when `nil`), caching per color scheme when
-    /// `useCache` is set. `loadFromDisk` is injectable for tests.
+    /// current system/app preference when `nil`), caching per color scheme,
+    /// adaptive-default choice, and optional app-injected magnification percent.
+    /// `loadFromDisk` is injectable for tests that need deterministic base
+    /// config values.
     public static func load(
         preferredColorScheme: ColorSchemePreference? = nil,
         useCache: Bool = true,
-        loadFromDisk: (_ preferredColorScheme: ColorSchemePreference) -> GhosttyConfig = Self.loadFromDisk
+        globalFontMagnificationPercent: Int? = nil,
+        adaptiveDefaultThemeEnabled: Bool = false,
+        loadFromDisk: (
+            _ preferredColorScheme: ColorSchemePreference,
+            _ adaptiveDefaultThemeEnabled: Bool
+        ) -> GhosttyConfig = Self.loadFromDisk
     ) -> GhosttyConfig {
         let resolvedColorScheme = preferredColorScheme ?? currentColorSchemePreference()
-        if useCache, let cached = cachedLoad(for: resolvedColorScheme) {
-            return cached
+        let magnificationPercent = globalFontMagnificationPercent.map(GlobalFontMagnification.clamp)
+        let cacheKey = "\(resolvedColorScheme)#\(magnificationPercent ?? -1)#\(adaptiveDefaultThemeEnabled)"
+        if useCache {
+            let cached: GhosttyConfig? = {
+                loadCacheLock.lock()
+                defer { loadCacheLock.unlock() }
+                return cachedConfigsByColorScheme[cacheKey]
+            }()
+            if let cached {
+                return cached
+            }
         }
 
-        let loaded = loadFromDisk(resolvedColorScheme)
+        var loaded = loadFromDisk(resolvedColorScheme, adaptiveDefaultThemeEnabled)
+        if let magnificationPercent { loaded.applyGlobalMagnification(percent: magnificationPercent) }
         if useCache {
-            storeCachedLoad(loaded, for: resolvedColorScheme)
+            loadCacheLock.lock()
+            cachedConfigsByColorScheme[cacheKey] = loaded
+            loadCacheLock.unlock()
         }
         return loaded
     }
 
-    /// Drops every cached per-color-scheme config so the next ``load(preferredColorScheme:useCache:loadFromDisk:)``
-    /// re-reads from disk.
+    /// Drops every cached config so the next ``load(preferredColorScheme:useCache:globalFontMagnificationPercent:adaptiveDefaultThemeEnabled:loadFromDisk:)`` re-reads from disk.
     public static func invalidateLoadCache() {
         loadCacheLock.lock()
         cachedConfigsByColorScheme.removeAll()
-        loadCacheLock.unlock()
-    }
-
-    private static func cachedLoad(for colorScheme: ColorSchemePreference) -> GhosttyConfig? {
-        loadCacheLock.lock()
-        defer { loadCacheLock.unlock() }
-        return cachedConfigsByColorScheme[colorScheme]
-    }
-
-    private static func storeCachedLoad(
-        _ config: GhosttyConfig,
-        for colorScheme: ColorSchemePreference
-    ) {
-        loadCacheLock.lock()
-        cachedConfigsByColorScheme[colorScheme] = config
         loadCacheLock.unlock()
     }
 
@@ -272,14 +324,9 @@ public struct GhosttyConfig {
         }
     }
 
-    // Internal + @usableFromInline so it can back the public `load` default
-    // argument value (default args of public APIs are emitted into callers and
-    // cannot reference a `private` symbol). The body is not inlinable; this only
-    // widens the symbol's reference visibility, not its definition.
-    @usableFromInline
-    static func loadFromDisk(preferredColorScheme: ColorSchemePreference) -> GhosttyConfig {
-        var config = GhosttyConfig()
-
+    /// The top-level config files Ghostty loads on macOS, in load order: the
+    /// user's Ghostty config, then cmux's own config files.
+    public static func resolvedConfigPaths() -> [String] {
         // Match Ghostty's default load order on macOS.
         let appSupportGhosttyDirectory = NSString(
             string: "~/Library/Application Support/com.mitchellh.ghostty"
@@ -300,24 +347,29 @@ public struct GhosttyConfig {
             configPaths.append(appSupportLegacyConfig)
         }
         configPaths.append(contentsOf: cmuxConfigPaths())
+        return configPaths
+    }
+
+    // Internal + @usableFromInline so it can back the public `load` default
+    // argument value (default args of public APIs are emitted into callers and
+    // cannot reference a `private` symbol). The body is not inlinable; this only
+    // widens the symbol's reference visibility, not its definition.
+    @usableFromInline
+    static func loadFromDisk(
+        preferredColorScheme: ColorSchemePreference,
+        adaptiveDefaultThemeEnabled: Bool
+    ) -> GhosttyConfig {
+        var config = GhosttyConfig()
+        let configPaths = resolvedConfigPaths()
 
         #if DEBUG
         let startupPreviewOverride = TerminalStartupAppearancePreviewOverride.installed
         if startupPreviewOverride?.loadsRealUserConfig ?? true {
-            loadConfigFiles(
-                configPaths,
-                into: &config,
-                preferredColorScheme: preferredColorScheme
+            config.loadResolvedUserConfig(
+                configPaths: configPaths,
+                preferredColorScheme: preferredColorScheme,
+                adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled
             )
-
-            if config.theme == nil,
-               Self.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
-                config.applyCmuxDefaultAppearance(
-                    environment: ProcessInfo.processInfo.environment,
-                    bundleResourceURL: Bundle.main.resourceURL,
-                    preferredColorScheme: preferredColorScheme
-                )
-            }
         } else if let contents = startupPreviewOverride?.previewConfigContents(
             preferredColorScheme
         ) {
@@ -327,20 +379,11 @@ public struct GhosttyConfig {
             )
         }
         #else
-        loadConfigFiles(
-            configPaths,
-            into: &config,
-            preferredColorScheme: preferredColorScheme
+        config.loadResolvedUserConfig(
+            configPaths: configPaths,
+            preferredColorScheme: preferredColorScheme,
+            adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled
         )
-
-        if config.theme == nil,
-           Self.shouldApplyManagedDefaultAppearance(configPaths: configPaths) {
-            config.applyCmuxDefaultAppearance(
-                environment: ProcessInfo.processInfo.environment,
-                bundleResourceURL: Bundle.main.resourceURL,
-                preferredColorScheme: preferredColorScheme
-            )
-        }
         #endif
 
         config.resolveSidebarBackground(preferredColorScheme: preferredColorScheme)
@@ -349,8 +392,45 @@ public struct GhosttyConfig {
         return config
     }
 
+    /// Optionally applies cmux's managed default appearance when the resolved
+    /// user config contains no theme or terminal colors, then parses its files.
+    /// Non-color settings preserve the adaptive base; authored colors preserve
+    /// Ghostty's own resolved base instead of receiving the managed appearance.
+    mutating func loadResolvedUserConfig(
+        configPaths: [String],
+        preferredColorScheme: ColorSchemePreference,
+        adaptiveDefaultThemeEnabled: Bool = false,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleResourceURL: URL? = Bundle.main.resourceURL
+    ) {
+        if Self.shouldApplyManagedDefaultAppearance(
+            configPaths: configPaths,
+            adaptiveDefaultThemeEnabled: adaptiveDefaultThemeEnabled
+        ) {
+            applyCmuxDefaultAppearance(
+                environment: environment,
+                bundleResourceURL: bundleResourceURL,
+                preferredColorScheme: preferredColorScheme
+            )
+        }
+        Self.loadConfigFiles(
+            configPaths,
+            into: &self,
+            preferredColorScheme: preferredColorScheme
+        )
+    }
+
+    mutating func applyGlobalMagnification(percent: Int) {
+        let scale = GlobalFontMagnification.scale(for: percent)
+        guard scale != 1 else { return }
+        fontSize = max(1, fontSize * scale)
+        surfaceTabBarFontSize = max(1, surfaceTabBarFontSize * scale)
+    }
+
     /// Applies cmux's managed default theme for `preferredColorScheme` by parsing
-    /// the bundled (or fallback) theme config contents into this config.
+    /// the bundled (or fallback) theme config contents into this config. Apply it
+    /// before parsing the user's config files so their explicit color directives
+    /// override individual managed colors.
     public mutating func applyCmuxDefaultAppearance(
         environment: [String: String],
         bundleResourceURL: URL?,
@@ -505,11 +585,11 @@ public struct GhosttyConfig {
                     if let size = Double(value) {
                         fontSize = CGFloat(size)
                     }
-                case "surface-tab-bar-font-size":
+                case Self.surfaceTabBarFontSizeKey:
                     if let size = Double(value), size.isFinite {
                         surfaceTabBarFontSize = Self.clampedSurfaceTabBarFontSize(CGFloat(size))
                     }
-                case "sidebar-font-size":
+                case Self.sidebarFontSizeKey:
                     if let size = Double(value), size.isFinite {
                         sidebarFontSize = Self.clampedSidebarFontSize(CGFloat(size))
                     }
@@ -525,6 +605,10 @@ public struct GhosttyConfig {
                     }
                 case "working-directory":
                     workingDirectory = value
+                case "command":
+                    if !value.isEmpty {
+                        command = value
+                    }
                 case "scrollback-limit":
                     if let limit = Self.parseIntegerLiteral(value) {
                         scrollbackLimit = limit
@@ -561,36 +645,70 @@ public struct GhosttyConfig {
                     } else {
                         hasParsedForegroundColor = false
                     }
+                case "bold-color":
+                    if value.lowercased() == "bright" {
+                        boldColor = "bright"
+                    } else {
+                        boldColor = parseGhosttyColor(value)?.hexString().lowercased()
+                    }
                 case "cursor-color":
                     hasCursorColorDirective = true
-                    if let color = NSColor(hex: value) {
+                    if let semantic = GhosttyCellRelativeColor(rawValue: value) {
+                        configuredCursorColor = nil
+                        cursorColorSemantic = semantic
+                        hasParsedCursorColor = true
+                    } else if let color = NSColor(hex: value) {
+                        cursorColorSemantic = nil
                         cursorColor = color
                         hasParsedCursorColor = true
                     } else {
+                        configuredCursorColor = nil
+                        cursorColorSemantic = nil
                         hasParsedCursorColor = false
                     }
                 case "cursor-text":
                     hasCursorTextColorDirective = true
-                    if let color = NSColor(hex: value) {
+                    if let semantic = GhosttyCellRelativeColor(rawValue: value) {
+                        configuredCursorTextColor = nil
+                        cursorTextColorSemantic = semantic
+                        hasParsedCursorTextColor = true
+                    } else if let color = NSColor(hex: value) {
+                        cursorTextColorSemantic = nil
                         cursorTextColor = color
                         hasParsedCursorTextColor = true
                     } else {
+                        configuredCursorTextColor = nil
+                        cursorTextColorSemantic = nil
                         hasParsedCursorTextColor = false
                     }
                 case "selection-background":
                     hasSelectionBackgroundDirective = true
-                    if let color = NSColor(hex: value) {
+                    if let semantic = GhosttyCellRelativeColor(rawValue: value) {
+                        configuredSelectionBackground = nil
+                        selectionBackgroundSemantic = semantic
+                        hasParsedSelectionBackground = true
+                    } else if let color = NSColor(hex: value) {
+                        selectionBackgroundSemantic = nil
                         selectionBackground = color
                         hasParsedSelectionBackground = true
                     } else {
+                        configuredSelectionBackground = nil
+                        selectionBackgroundSemantic = nil
                         hasParsedSelectionBackground = false
                     }
                 case "selection-foreground":
                     hasSelectionForegroundDirective = true
-                    if let color = NSColor(hex: value) {
+                    if let semantic = GhosttyCellRelativeColor(rawValue: value) {
+                        configuredSelectionForeground = nil
+                        selectionForegroundSemantic = semantic
+                        hasParsedSelectionForeground = true
+                    } else if let color = NSColor(hex: value) {
+                        selectionForegroundSemantic = nil
                         selectionForeground = color
                         hasParsedSelectionForeground = true
                     } else {
+                        configuredSelectionForeground = nil
+                        selectionForegroundSemantic = nil
                         hasParsedSelectionForeground = false
                     }
                 case "palette":
@@ -610,12 +728,12 @@ public struct GhosttyConfig {
                         unfocusedSplitFill = color
                     }
                 case "split-divider-color":
-                    if let color = NSColor(hex: value) {
+                    if let color = parseGhosttyColor(value) {
                         splitDividerColor = color
                     }
-                case "sidebar-background":
+                case Self.sidebarBackgroundKey:
                     rawSidebarBackground = value
-                case "sidebar-tint-opacity":
+                case Self.sidebarTintOpacityKey:
                     if let opacity = Double(value) {
                         sidebarTintOpacity = min(max(opacity, 0), 1)
                     }
@@ -764,10 +882,12 @@ public struct GhosttyConfig {
         recursiveConfigPaths.append(absolute)
     }
 
-    /// A scan of the user's resolved Ghostty config for the appearance
-    /// directives that determine whether cmux should apply its managed default
-    /// theme, and the last `theme` value seen.
+    /// A scan of the user's resolved Ghostty config for whether it contains any
+    /// directives, its explicit terminal-color directives, and its last
+    /// `theme` value.
     public struct UserAppearanceConfigSummary {
+        /// Whether any parsed Ghostty config directive was seen.
+        public var hasConfigDirective = false
         /// Whether any `theme` directive was seen.
         public var hasThemeDirective = false
         /// Whether any explicit terminal color directive (background, foreground,
@@ -779,26 +899,24 @@ public struct GhosttyConfig {
         /// Creates an empty summary.
         public init() {}
 
-        /// Whether cmux should apply its managed default appearance: true only
-        /// when neither a theme nor an explicit terminal color directive was seen.
+        /// Whether the config is eligible for cmux's managed default
+        /// appearance. Typography and behavior settings do not choose a palette.
+        /// Authored themes or terminal colors preserve Ghostty's resolved base;
+        /// the caller's adaptive-default preference is evaluated separately.
         public var shouldApplyDefaultAppearance: Bool {
             !hasThemeDirective && !hasExplicitTerminalColorDirective
         }
 
         /// Records one config directive into the summary.
         public mutating func recordDirective(key: String, value: String?) {
+            hasConfigDirective = true
             switch key {
             case "theme":
                 hasThemeDirective = true
                 let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 lastThemeDirective = trimmedValue.isEmpty ? nil : trimmedValue
-            case "background",
-                 "foreground",
-                 "palette",
-                 "cursor-color",
-                 "cursor-text",
-                 "selection-background",
-                 "selection-foreground":
+            case "background", "foreground", "bold-color", "palette", "cursor-color", "cursor-text",
+                 "selection-background", "selection-foreground":
                 hasExplicitTerminalColorDirective = true
             default:
                 break
@@ -807,26 +925,62 @@ public struct GhosttyConfig {
     }
 
     /// Whether cmux should inject its managed default appearance: true only when
-    /// the user has set neither a `theme` nor any explicit terminal color
-    /// directive across the resolved config paths.
+    /// the caller enables it and the resolved user config contains no authored
+    /// theme or terminal colors.
     public static func shouldApplyManagedDefaultAppearance(
-        configPaths: [String]
+        configPaths: [String],
+        adaptiveDefaultThemeEnabled: Bool = false
     ) -> Bool {
-        userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
+        adaptiveDefaultThemeEnabled
+            && userAppearanceConfigSummary(configPaths: configPaths).shouldApplyDefaultAppearance
     }
 
     /// Scans the given top-level config paths (following `config-file` includes)
-    /// for the appearance directives that drive managed-default-theme decisions.
+    /// for directives that drive managed-default-theme decisions.
     public static func userAppearanceConfigSummary(
         configPaths: [String]
     ) -> UserAppearanceConfigSummary {
         var summary = UserAppearanceConfigSummary()
+        visitResolvedConfigDirectives(configPaths: configPaths) { key, value, _ in
+            summary.recordDirective(key: key, value: value)
+        }
+        return summary
+    }
+
+    /// Every value assigned to each of `keys` across the resolved config files,
+    /// unquoted, in Ghostty's load order (see
+    /// ``visitResolvedConfigDirectives(configPaths:_:)``), with the path of the
+    /// file that made the last assignment. A key with no assignment is absent
+    /// from both.
+    ///
+    /// Only config files are read. Values a `theme` file supplies (a theme can
+    /// set `background-opacity`, for example) are not included.
+    public static func resolvedDirectiveValues(
+        forKeys keys: Set<String>,
+        configPaths: [String] = resolvedConfigPaths()
+    ) -> (values: [String: [String]], lastSourcePaths: [String: String]) {
+        var values: [String: [String]] = [:]
+        var lastSourcePaths: [String: String] = [:]
+        visitResolvedConfigDirectives(configPaths: configPaths) { key, value, path in
+            guard keys.contains(key) else { return }
+            values[key, default: []].append(value ?? "")
+            lastSourcePaths[key] = path
+        }
+        return (values, lastSourcePaths)
+    }
+
+    /// Visits every directive in Ghostty's load order: each top-level file in
+    /// turn, then the `config-file` includes they collected, breadth first.
+    private static func visitResolvedConfigDirectives(
+        configPaths: [String],
+        _ visit: (_ key: String, _ value: String?, _ path: String) -> Void
+    ) {
         var recursiveConfigPaths: [String] = []
 
         for path in configPaths.map({ NSString(string: $0).expandingTildeInPath }) {
-            scanAppearanceConfigFile(
+            scanConfigFile(
                 atPath: path,
-                summary: &summary,
+                visit: visit,
                 recursiveConfigPaths: &recursiveConfigPaths
             )
         }
@@ -838,19 +992,17 @@ public struct GhosttyConfig {
             guard !loadedRecursivePaths.contains(resolved) else { continue }
             loadedRecursivePaths.insert(resolved)
 
-            scanAppearanceConfigFile(
+            scanConfigFile(
                 atPath: path,
-                summary: &summary,
+                visit: visit,
                 recursiveConfigPaths: &recursiveConfigPaths
             )
         }
-
-        return summary
     }
 
-    private static func scanAppearanceConfigFile(
+    private static func scanConfigFile(
         atPath path: String,
-        summary: inout UserAppearanceConfigSummary,
+        visit: (_ key: String, _ value: String?, _ path: String) -> Void,
         recursiveConfigPaths: inout [String]
     ) {
         let resolved = (path as NSString).standardizingPath
@@ -862,27 +1014,14 @@ public struct GhosttyConfig {
         for line in contents.components(separatedBy: .newlines) {
             guard let entry = parsedConfigEntry(from: line) else { continue }
 
-            switch entry.key {
-            case "theme",
-                 "background",
-                 "foreground",
-                 "palette",
-                 "cursor-color",
-                 "cursor-text",
-                 "selection-background",
-                 "selection-foreground":
-                summary.recordDirective(key: entry.key, value: entry.value)
-            case "config-file":
-                guard let value = entry.value else { continue }
-                applyConfigFileDirective(
-                    value,
-                    valueWasQuoted: entry.valueWasQuoted,
-                    parentDir: parentDir,
-                    recursiveConfigPaths: &recursiveConfigPaths
-                )
-            default:
-                continue
-            }
+            visit(entry.key, entry.value, resolved)
+            guard entry.key == "config-file", let value = entry.value else { continue }
+            applyConfigFileDirective(
+                value,
+                valueWasQuoted: entry.valueWasQuoted,
+                parentDir: parentDir,
+                recursiveConfigPaths: &recursiveConfigPaths
+            )
         }
     }
 
@@ -943,10 +1082,10 @@ public struct GhosttyConfig {
         bundleResourceURL: URL?,
         preferredColorScheme: ColorSchemePreference? = nil
     ) {
-        let resolvedThemeName = Self.resolveThemeName(
+        guard let resolvedThemeName = Self.appliedThemeName(
             from: name,
             preferredColorScheme: preferredColorScheme ?? Self.currentColorSchemePreference()
-        )
+        ) else { return }
         let expandedThemePath = NSString(string: resolvedThemeName).expandingTildeInPath
         if (expandedThemePath as NSString).isAbsolutePath,
            let contents = try? String(contentsOfFile: expandedThemePath, encoding: .utf8) {

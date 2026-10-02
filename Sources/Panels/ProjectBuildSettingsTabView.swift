@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CMUXProjectModel
 import SwiftUI
 
@@ -9,6 +10,7 @@ import SwiftUI
 /// Resolved column is computed locally as the first non-empty value in the
 /// stack (target → project → empty). The cell whose value won is marked.
 struct ProjectBuildSettingsTabView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
 
@@ -28,7 +30,7 @@ struct ProjectBuildSettingsTabView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text("Target")
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundStyle(.secondary)
                 targetPicker
                 Spacer(minLength: 4)
@@ -36,12 +38,12 @@ struct ProjectBuildSettingsTabView: View {
                     .foregroundStyle(.secondary)
                 TextField("Filter settings", text: $panel.settingsSearchText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                 Toggle("Customized only", isOn: $panel.settingsCustomizedOnly)
                     .toggleStyle(.checkbox)
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                 Text("\(rowCount) settings")
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundStyle(.secondary)
             }
         }
@@ -104,7 +106,7 @@ struct ProjectBuildSettingsTabView: View {
                     .overlay(alignment: .leading) {
                         if row.winner == .target {
                             Rectangle()
-                                .fill(Color.accentColor)
+                                .fill(cmuxAccent.color)
                                 .frame(width: 3)
                         }
                     }
@@ -116,7 +118,7 @@ struct ProjectBuildSettingsTabView: View {
     @ViewBuilder
     private func columnHeader(_ title: String, weight: CGFloat, alignment: Alignment) -> some View {
         Text(title)
-            .font(.system(size: 11, weight: .semibold))
+            .cmuxFont(size: 11, weight: .semibold)
             .foregroundStyle(.secondary)
             .frame(width: weight, alignment: alignment)
     }
@@ -189,6 +191,7 @@ private struct BuildSettingRow {
 }
 
 private struct SettingsRow: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let row: BuildSettingRow
     let settingColumnWidth: CGFloat
     let valueColumnWidth: CGFloat
@@ -197,7 +200,7 @@ private struct SettingsRow: View {
         HStack(spacing: 0) {
             Spacer().frame(width: 3)
             Text(row.key)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .cmuxFont(size: 11, weight: .medium, design: .monospaced)
                 .frame(width: settingColumnWidth, alignment: .leading)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -218,13 +221,13 @@ private struct SettingsRow: View {
     private func valueCell(_ value: String, emphasis: CellEmphasis) -> some View {
         let style: Color = {
             switch emphasis {
-            case .accent: return Color.accentColor
+            case .accent: return cmuxAccent.color
             case .normal: return Color.primary
             case .dim: return Color.secondary
             }
         }()
         Text(value)
-            .font(.system(size: 11, design: .monospaced))
+            .cmuxFont(size: 11, design: .monospaced)
             .lineLimit(1)
             .truncationMode(.tail)
             .foregroundStyle(value == "—" ? Color.secondary.opacity(0.6) : style)

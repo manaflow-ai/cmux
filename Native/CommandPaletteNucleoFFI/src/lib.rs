@@ -26,6 +26,7 @@ pub struct CmuxNucleoMatch {
 
 struct Candidate {
     title: String,
+    search_title: String,
     search_text: String,
     search_lines: Vec<String>,
     rank: i32,
@@ -165,9 +166,11 @@ pub unsafe extern "C" fn cmux_nucleo_index_create(
         let (search_low, search_high) = ascii_mask(search_text);
         let title_initials = title_word_initials(title);
         let title_char_count = title.chars().count();
+        let search_title = title_search_word_text(title);
         let search_lines = search_text.lines().map(str::to_owned).collect();
         candidates.push(Candidate {
             title: title.to_owned(),
+            search_title,
             search_text: search_text.to_owned(),
             search_lines,
             rank: span.rank,
@@ -427,7 +430,10 @@ fn weighted_query_score(
     // jackpot in `exact_search_text_line_score`. `title_literal_score` sits above every keyword
     // tier so the visible title wins. This mirrors the Swift `CommandPaletteSearchEngine`
     // reference ordering (title prefix > exact keyword).
-    match (token_score, title_literal_score(state, title_literal, candidate)) {
+    match (
+        token_score,
+        title_literal_score(state, title_literal, candidate),
+    ) {
         (Some(token), Some(literal)) => Some(token.max(literal)),
         (Some(token), None) => Some(token),
         (None, Some(literal)) => Some(literal),
@@ -581,7 +587,21 @@ fn title_literal_score(
     if state.atom_score(&query.exact, &candidate.title).is_some() {
         return Some(TITLE_EXACT_TOKEN_SCORE * token_count);
     }
+    if !candidate.search_title.is_empty()
+        && state
+            .atom_score(&query.exact, &candidate.search_title)
+            .is_some()
+    {
+        return Some(TITLE_EXACT_TOKEN_SCORE * token_count);
+    }
     if state.atom_score(&query.prefix, &candidate.title).is_some() {
+        return Some(TITLE_PREFIX_TOKEN_SCORE * token_count);
+    }
+    if !candidate.search_title.is_empty()
+        && state
+            .atom_score(&query.prefix, &candidate.search_title)
+            .is_some()
+    {
         return Some(TITLE_PREFIX_TOKEN_SCORE * token_count);
     }
     None
@@ -660,6 +680,28 @@ fn title_word_initials(title: &str) -> Vec<char> {
         previous_was_boundary = is_boundary;
     }
     starts
+}
+
+fn title_search_word_text(title: &str) -> String {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    for character in title.chars() {
+        if is_title_word_boundary(character) {
+            append_search_word(&mut words, &mut current);
+            continue;
+        }
+        current.push(character);
+    }
+    append_search_word(&mut words, &mut current);
+    words.join(" ")
+}
+
+fn append_search_word(words: &mut Vec<String>, current: &mut String) {
+    if current.chars().any(char::is_alphanumeric) {
+        words.push(std::mem::take(current));
+    } else {
+        current.clear();
+    }
 }
 
 fn is_title_word_boundary(character: char) -> bool {

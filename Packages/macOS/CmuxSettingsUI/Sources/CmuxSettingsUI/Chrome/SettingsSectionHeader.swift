@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// Section header rendered above a ``SettingsCard``.
@@ -23,7 +24,7 @@ public struct SettingsSectionHeader: View {
 
     public var body: some View {
         Text(title)
-            .font(.system(size: 13, weight: .semibold))
+            .cmuxFont(size: 13, weight: .semibold)
             .foregroundColor(.secondary)
             .padding(.leading, 2)
             .padding(.bottom, -2)

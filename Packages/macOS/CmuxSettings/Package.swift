@@ -14,13 +14,18 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../CmuxFileWatch"),
+        .package(path: "../CmuxFoundation"),
+        .package(path: "../CmuxCore"),
     ],
     targets: [
         .target(
             name: "CmuxSettings",
             dependencies: [
-                .product(name: "CmuxFileWatch", package: "CmuxFileWatch"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CmuxCore", package: "CmuxCore"),
+            ],
+            resources: [
+                .copy("Resources/CustomSidebarTemplates"),
             ]
         ),
         .testTarget(

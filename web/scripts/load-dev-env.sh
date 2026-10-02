@@ -56,6 +56,19 @@ set +a
 if ! grep -q '^STACK_SUPER_SECRET_ADMIN_KEY=' "$cmux_secret_file"; then
   unset STACK_SUPER_SECRET_ADMIN_KEY
 fi
+
+# Vercel intentionally redacts sensitive values when an environment is pulled.
+# Recover the staging relay signer from a chmod-600 local file so downloaded
+# environments cannot silently start a web server that never publishes Iroh.
+cmux_relay_policy_key_file="${CMUX_RELAY_POLICY_PRIVATE_KEY_FILE:-$HOME/.secrets/cmux-staging-relay-policy-2026-08.pem}"
+if [[ -z "${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM:-}" && -f "$cmux_relay_policy_key_file" ]]; then
+  # The key id and private key are one cryptographic identity. A Vercel pull can
+  # leave the old, non-secret key id populated while redacting the private key;
+  # retaining that id would advertise a signer different from the local PEM.
+  export CMUX_RELAY_POLICY_KEY_ID="${CMUX_RELAY_POLICY_LOCAL_KEY_ID:-cmux-staging-relay-policy-2026-08}"
+  export CMUX_RELAY_POLICY_PRIVATE_KEY_PEM="$(< "$cmux_relay_policy_key_file")"
+fi
+
 if [[ "$cmux_nounset_was_enabled" == "1" ]]; then
   set -u
 fi
@@ -87,7 +100,15 @@ export CMUX_DB_PASSWORD="${CMUX_DB_PASSWORD:-cmux}"
 export CMUX_DB_NAME="${CMUX_DB_NAME:-cmux}"
 export CMUX_DB_PORT="${CMUX_DB_PORT:-$((cmux_port + cmux_db_offset))}"
 
-if [[ "${CMUX_DEV_USE_EXTERNAL_DATABASE_URL:-0}" != "1" ]]; then
+cmux_external_database_url="${PLANETSCALE_DATABASE_URL:-${DATABASE_URL:-}}"
+if [[ "${CMUX_DEV_USE_PLANETSCALE:-0}" == "1" || "${CMUX_DEV_USE_EXTERNAL_DATABASE_URL:-0}" == "1" ]]; then
+  if [[ -z "$cmux_external_database_url" ]]; then
+    echo "CMUX_DEV_USE_PLANETSCALE=1 requires PLANETSCALE_DATABASE_URL or DATABASE_URL" >&2
+    return 1 2>/dev/null || exit 1
+  fi
+  export DATABASE_URL="$cmux_external_database_url"
+  export DIRECT_DATABASE_URL="$cmux_external_database_url"
+elif [[ "${CMUX_DEV_USE_EXTERNAL_DATABASE_URL:-0}" != "1" ]]; then
   export DATABASE_URL="postgres://${CMUX_DB_USER}:${CMUX_DB_PASSWORD}@localhost:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
   export DIRECT_DATABASE_URL="$DATABASE_URL"
 elif [[ -z "${DIRECT_DATABASE_URL:-}" && -n "${DATABASE_URL:-}" ]]; then
@@ -98,12 +119,17 @@ if [[ "${CMUX_DEV_USE_EXTERNAL_VM_API_BASE_URL:-0}" != "1" ]]; then
   export CMUX_VM_API_BASE_URL="http://localhost:${CMUX_PORT}"
 fi
 
+# Local Cloud VM dogfood uses Freestyle (the public platform) by default. A
+# caller can still opt into another provider explicitly with
+# CMUX_VM_DEFAULT_PROVIDER.
+export CMUX_VM_DEFAULT_PROVIDER="${CMUX_VM_DEFAULT_PROVIDER:-freestyle}"
+
 # Local dev should not require a checked-in or per-worktree .env.local just to pass
 # startup validation for routes the developer is not exercising.
 export RESEND_API_KEY="${RESEND_API_KEY:-cmux-local-dev}"
 export CMUX_FEEDBACK_FROM_EMAIL="${CMUX_FEEDBACK_FROM_EMAIL:-dev@example.invalid}"
 export CMUX_FEEDBACK_RATE_LIMIT_ID="${CMUX_FEEDBACK_RATE_LIMIT_ID:-cmux-feedback-local}"
-export CMUX_PUSH_RATE_LIMIT_ID="${CMUX_PUSH_RATE_LIMIT_ID:-cmux-push-local}"
+export CMUX_CLIENT_CONFIG_RATE_LIMIT_ID="${CMUX_CLIENT_CONFIG_RATE_LIMIT_ID:-cmux-client-config-local}"
 
 export CMUX_WEB_SECRET_ENV_FILE="$cmux_secret_file"
 export CMUX_WEB_EXTRA_SECRET_ENV_FILE="$cmux_extra_secret_file"

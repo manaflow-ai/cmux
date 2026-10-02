@@ -4,8 +4,6 @@ import Darwin
 
 extension CMUXCLI {
     static let cmuxThemeOverrideBundleIdentifier = CmuxGhosttyConfigPathResolver.releaseBundleIdentifier
-    static let cmuxThemesBlockStart = "# cmux themes start"
-    static let cmuxThemesBlockEnd = "# cmux themes end"
     static let cmuxThemesReloadNotificationName = "com.cmuxterm.themes.reload-config"
 
     struct ThemeSelection {
@@ -145,7 +143,7 @@ extension CMUXCLI {
         let originalForegroundProcessGroup = isatty(STDIN_FILENO) == 1 ? tcgetpgrp(STDIN_FILENO) : -1
         var didForegroundChild = false
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch {
             throw CLIError(message: "Failed to launch interactive theme picker: \(String(describing: error))")
         }

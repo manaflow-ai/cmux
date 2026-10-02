@@ -41,6 +41,7 @@ extension AuthError {
                 "INVALID_OTP",
                 "OTP_EXPIRED",
                 "RATE_LIMIT",
+                "RATE_LIMITED",
                 "EMAIL_PASSWORD_MISMATCH",
                 "USER_NOT_FOUND",
                 "PASSKEY_AUTHENTICATION_FAILED",
@@ -48,7 +49,18 @@ extension AuthError {
                 "INVALID_TOTP_CODE",
                 "REDIRECT_URL_NOT_WHITELISTED",
                 "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN",
-                "INVALID_APPLE_CREDENTIALS":
+                "INVALID_APPLE_CREDENTIALS",
+                "APPLE_SIGNIN_NOT_CONFIGURED",
+                "APPLE_SIGNIN_NOT_HANDLED",
+                "APPLE_SIGNIN_INVALID_RESPONSE",
+                "APPLE_SIGNIN_FAILED",
+                "APPLE_SIGNIN_NOT_INTERACTIVE",
+                "APPLE_SIGNIN_ERROR",
+                "OAUTH_ERROR",
+                "MISSING_CODE",
+                "PARSE_ERROR",
+                "INVALID_RESPONSE",
+                "INVALID_URL":
                 // Already display-safe; the sign-in UI renders these codes.
                 return nil
             case "UNAUTHORIZED", "INVALID_TOKEN", "TOKEN_EXPIRED":

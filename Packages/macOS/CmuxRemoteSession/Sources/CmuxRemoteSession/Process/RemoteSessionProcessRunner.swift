@@ -46,8 +46,8 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
     private final class PipeCaptureState: @unchecked Sendable {
         var stdoutData = Data()
         var stderrData = Data()
-        var stdoutReadError: Error?
-        var stderrReadError: Error?
+        var stdoutReadError: (any Error)?
+        var stderrReadError: (any Error)?
     }
 
     /// Runs the request to completion on the calling thread; see
@@ -60,6 +60,13 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         let arguments = request.arguments
         let timeout = request.timeout
         let stdin = request.stdin
+        let stdinFileHandle: FileHandle?
+        if let stdinFile = request.stdinFile {
+            stdinFileHandle = try FileHandle(forReadingFrom: stdinFile)
+        } else {
+            stdinFileHandle = nil
+        }
+        defer { try? stdinFileHandle?.close() }
 
         debugLog(
             "remote.proc.start exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
@@ -80,7 +87,9 @@ public struct RemoteSessionProcessRunner: RemoteSessionProcessRunning {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        if stdin != nil {
+        if let stdinFileHandle {
+            process.standardInput = stdinFileHandle
+        } else if stdin != nil {
             process.standardInput = Pipe()
         } else {
             process.standardInput = FileHandle.nullDevice

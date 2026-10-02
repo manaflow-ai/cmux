@@ -29,12 +29,17 @@ public struct SidebarBranchOrdering: Sendable {
         public let isDirty: Bool
         /// The displayed directory (tilde-form preferred), if known.
         public let directory: String?
+        /// Whether `directory` is a reporter-supplied display label rather
+        /// than a path spelling. Labels are opaque text and must not go
+        /// through path shortening or `~` abbreviation.
+        public let directoryIsDisplayLabel: Bool
 
         /// Creates a branch+directory row.
-        public init(branch: String?, isDirty: Bool, directory: String?) {
+        public init(branch: String?, isDirty: Bool, directory: String?, directoryIsDisplayLabel: Bool = false) {
             self.branch = branch
             self.isDirty = isDirty
             self.directory = directory
+            self.directoryIsDisplayLabel = directoryIsDisplayLabel
         }
     }
 
@@ -228,10 +233,13 @@ public struct SidebarBranchOrdering: Sendable {
 
     /// Unique pull requests in first-seen panel order, deduplicated by
     /// normalized review URL; fresher then higher-status states win.
+    /// Explicit workspace rows follow panel rows and override matching panel state.
+    /// - Parameter additionalPullRequests: Workspace-owned rows to merge after panel state.
     public func orderedUniquePullRequests(
         orderedPanelIds: [UUID],
         panelPullRequests: [UUID: SidebarPullRequestState],
-        fallbackPullRequest: SidebarPullRequestState?
+        fallbackPullRequest: SidebarPullRequestState?,
+        additionalPullRequests: [SidebarPullRequestState] = []
     ) -> [SidebarPullRequestState] {
         func statusPriority(_ status: SidebarPullRequestStatus) -> Int {
             switch status {
@@ -270,8 +278,9 @@ public struct SidebarBranchOrdering: Sendable {
         var orderedKeys: [String] = []
         var pullRequestsByKey: [String: SidebarPullRequestState] = [:]
 
-        for panelId in orderedPanelIds {
-            guard let state = panelPullRequests[panelId] else { continue }
+        let states = orderedPanelIds.compactMap { panelPullRequests[$0] }.map { ($0, false) }
+            + additionalPullRequests.map { ($0, true) }
+        for (state, isExplicit) in states {
             let key = reviewKey(for: state)
             if pullRequestsByKey[key] == nil {
                 orderedKeys.append(key)
@@ -279,7 +288,7 @@ public struct SidebarBranchOrdering: Sendable {
                 continue
             }
             guard let existing = pullRequestsByKey[key] else { continue }
-            if freshnessPriority(state.isStale) > freshnessPriority(existing.isStale) {
+            if isExplicit || freshnessPriority(state.isStale) > freshnessPriority(existing.isStale) {
                 pullRequestsByKey[key] = state
             } else if freshnessPriority(state.isStale) == freshnessPriority(existing.isStale),
                       statusPriority(state.status) > statusPriority(existing.status) {
@@ -296,10 +305,15 @@ public struct SidebarBranchOrdering: Sendable {
 
     /// Unique branch+directory rows in first-seen panel order, one row per
     /// canonical directory; falls back to the workspace branch/directory.
+    /// `panelDirectoryDisplayLabels` optionally maps panels to
+    /// reporter-supplied display labels: a label replaces the row's displayed
+    /// directory text (first label wins) while dedup keys keep deriving from
+    /// the real directory in `panelDirectories`.
     public func orderedUniqueBranchDirectoryEntries(
         orderedPanelIds: [UUID],
         panelBranches: [UUID: SidebarGitBranchState],
         panelDirectories: [UUID: String],
+        panelDirectoryDisplayLabels: [UUID: String] = [:],
         defaultDirectory: String?,
         homeDirectoryForTildeExpansion: String?,
         fallbackBranch: SidebarGitBranchState?
@@ -313,6 +327,7 @@ public struct SidebarBranchOrdering: Sendable {
             var branch: String?
             var isDirty: Bool
             var directory: String?
+            var directoryIsDisplayLabel: Bool
         }
 
         let normalized = normalizedDirectory
@@ -330,6 +345,11 @@ public struct SidebarBranchOrdering: Sendable {
             let panelBranch = normalized(panelBranches[panelId]?.branch)
             let branch = panelBranch ?? defaultBranchForPanels
             let directory = normalized(panelDirectories[panelId])
+            // Rows display the reported label when present, but dedup keys
+            // below always derive from the real filesystem directory. A label
+            // wins over an unlabeled path spelling for a shared directory; the
+            // first reported label wins over later ones.
+            let displayLabel = normalized(panelDirectoryDisplayLabels[panelId])
             guard branch != nil || directory != nil else { continue }
 
             let panelDirty = panelBranch != nil
@@ -357,11 +377,18 @@ public struct SidebarBranchOrdering: Sendable {
                     } else if existing.branch == nil {
                         existing.isDirty = panelDirty
                     }
-                    existing.directory = preferredDisplayedDirectory(
-                        existing: existing.directory,
-                        replacement: directory,
-                        homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-                    )
+                    if let displayLabel {
+                        if !existing.directoryIsDisplayLabel {
+                            existing.directory = displayLabel
+                            existing.directoryIsDisplayLabel = true
+                        }
+                    } else if !existing.directoryIsDisplayLabel {
+                        existing.directory = preferredDisplayedDirectory(
+                            existing: existing.directory,
+                            replacement: directory,
+                            homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
+                        )
+                    }
                     entries[key] = existing
                 } else if panelDirty {
                     existing.isDirty = true
@@ -369,7 +396,12 @@ public struct SidebarBranchOrdering: Sendable {
                 }
             } else {
                 order.append(key)
-                entries[key] = MutableEntry(branch: branch, isDirty: panelDirty, directory: directory)
+                entries[key] = MutableEntry(
+                    branch: branch,
+                    isDirty: panelDirty,
+                    directory: displayLabel ?? directory,
+                    directoryIsDisplayLabel: displayLabel != nil
+                )
             }
         }
 
@@ -391,7 +423,8 @@ public struct SidebarBranchOrdering: Sendable {
             return BranchDirectoryEntry(
                 branch: entry.branch,
                 isDirty: entry.isDirty,
-                directory: entry.directory
+                directory: entry.directory,
+                directoryIsDisplayLabel: entry.directoryIsDisplayLabel
             )
         }
     }

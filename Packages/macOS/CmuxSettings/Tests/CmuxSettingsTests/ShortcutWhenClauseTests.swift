@@ -4,8 +4,13 @@ import Testing
 
 @Suite("ShortcutWhenClause")
 struct ShortcutWhenClauseTests {
-    private func state(browser: Bool = false, markdown: Bool = false, sidebar: Bool = false) -> ShortcutFocusState {
-        ShortcutFocusState(browser: browser, markdown: markdown, sidebar: sidebar)
+    private func state(
+        browser: Bool = false,
+        markdown: Bool = false,
+        sidebar: Bool = false,
+        simulator: Bool = false
+    ) -> ShortcutFocusState {
+        ShortcutFocusState(browser: browser, markdown: markdown, sidebar: sidebar, simulator: simulator)
     }
 
     /// A context with one of each value kind for evaluation tests.
@@ -22,6 +27,7 @@ struct ShortcutWhenClauseTests {
     @Test func parsesNegatedAtom() {
         #expect(ShortcutWhenClause.parse("!sidebarFocus") == .not(.atom(.sidebarFocus)))
         #expect(ShortcutWhenClause.parse("  sidebarFocus ") == .atom(.sidebarFocus))
+        #expect(ShortcutWhenClause.parse("simulatorFocus") == .atom(.simulatorFocus))
     }
 
     @Test func parsesAndOrWithPrecedence() {
@@ -187,6 +193,22 @@ struct ShortcutWhenClauseTests {
         #expect(!ShortcutWhenClause.atom(.sidebarFocus).evaluate(state(browser: true)))
         #expect(ShortcutWhenClause.atom(.terminalFocus).evaluate(state()))
         #expect(!ShortcutWhenClause.atom(.terminalFocus).evaluate(state(sidebar: true)))
+        #expect(ShortcutWhenClause.atom(.simulatorFocus).evaluate(state(simulator: true)))
+        #expect(!ShortcutWhenClause.atom(.terminalFocus).evaluate(state(simulator: true)))
+    }
+
+    @Test func canvasZoomDefaultsYieldToFocusedSimulatorContent() {
+        var context = ShortcutContext()
+        context.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
+        context.setBool(ShortcutContextKnownKey.simulatorFocus.rawValue, true)
+
+        for action in [
+            ShortcutAction.canvasZoomIn,
+            ShortcutAction.canvasZoomOut,
+            ShortcutAction.canvasZoomReset,
+        ] {
+            #expect(!action.defaultFocusWhenClause.evaluate(context))
+        }
     }
 
     @Test func workspaceDigitsExceptSidebar() throws {
@@ -296,5 +318,57 @@ struct ShortcutWhenClauseTests {
         let browser = try #require(ShortcutWhenClause.parse("browserFocus && commandPaletteVisible"))
         let markdown = try #require(ShortcutWhenClause.parse("markdownFocus && commandPaletteVisible"))
         #expect(!ShortcutWhenClause.canCoexist(browser, markdown))
+    }
+
+    // MARK: - Key references (lazy context values)
+
+    @Test func referencesFindsKeyAnywhereInTheTree() throws {
+        let key = ShortcutContextKnownKey.terminalAlternateScreen.rawValue
+        let referencing = [
+            "terminalAlternateScreen",
+            "!terminalAlternateScreen",
+            "terminalFocus && !terminalAlternateScreen",
+            "browserFocus || (paneCount > 1 && terminalAlternateScreen)",
+            "terminalAlternateScreen == false",
+        ]
+        for raw in referencing {
+            let clause = try #require(ShortcutWhenClause.parse(raw), "\(raw)")
+            #expect(clause.references(key: key), "\(raw)")
+        }
+        let notReferencing = [
+            "",
+            "terminalFocus",
+            "!sidebarFocus && paneCount > 1",
+            "terminalFindVisible || sidebarMode == 'find'",
+        ]
+        for raw in notReferencing {
+            let clause = try #require(ShortcutWhenClause.parse(raw), "\(raw)")
+            #expect(!clause.references(key: key), "\(raw)")
+        }
+    }
+
+    @Test func referencesMatchesFocusAtomsByName() throws {
+        let clause = try #require(ShortcutWhenClause.parse("!sidebarFocus"))
+        #expect(clause.references(key: "sidebarFocus"))
+        #expect(!clause.references(key: "terminalFocus"))
+    }
+
+    /// The Ctrl+W close-at-the-prompt recipe: fires at the shell, passes through
+    /// to a full-screen app, and an absent value (no terminal focused) fires.
+    @Test func terminalAlternateScreenGatesABindingToTheShellPrompt() throws {
+        let key = ShortcutContextKnownKey.terminalAlternateScreen.rawValue
+        #expect(ShortcutContextKnownKey.terminalAlternateScreen.valueType == .bool)
+        let clause = try #require(ShortcutWhenClause.parse("!terminalAlternateScreen"))
+        #expect(clause == .not(.key(key)))
+
+        var shell = ShortcutContext()
+        shell.setBool(key, false)
+        #expect(clause.evaluate(shell))
+
+        var fullScreenApp = ShortcutContext()
+        fullScreenApp.setBool(key, true)
+        #expect(!clause.evaluate(fullScreenApp))
+
+        #expect(clause.evaluate(ShortcutContext()))
     }
 }

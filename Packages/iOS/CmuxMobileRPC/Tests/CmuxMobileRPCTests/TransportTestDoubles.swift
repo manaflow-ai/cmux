@@ -9,26 +9,38 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
     var supportedRouteKinds: [CmxAttachTransportKind]
     var transportFactory: any CmxByteTransportFactory
     var stackAccessTokenProvider: @Sendable () async throws -> String
+    var stackAccessTokenForStatusProvider: @Sendable () async -> String?
     var stackAccessTokenForceRefresher: @Sendable () async throws -> String
     var rpcRequestTimeoutNanoseconds: UInt64
     var pairingRequestTimeoutNanoseconds: UInt64
     var now: @Sendable () -> Date
     var supportsServerPushEvents: Bool
+    var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider?
+    var independentEventsMergeSurfaceLanes: Bool
 
     init(
         transportFactory: any CmxByteTransportFactory,
         supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .iroh, .websocket, .debugLoopback],
         stackAccessToken: String? = "test-stack-token",
+        stackAccessTokenForStatus: String? = nil,
+        stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
+        stackAccessTokenForStatusProvider: (@Sendable () async -> String?)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         now: @escaping @Sendable () -> Date = Date.init,
-        supportsServerPushEvents: Bool = true
+        supportsServerPushEvents: Bool = true,
+        independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
+        independentEventsMergeSurfaceLanes: Bool = false
     ) {
+        self.independentEventsMergeSurfaceLanes = independentEventsMergeSurfaceLanes
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
-        self.stackAccessTokenProvider = {
+        self.stackAccessTokenProvider = stackAccessTokenProvider ?? {
             guard let stackAccessToken else { throw MissingTestStackAccessToken() }
             return stackAccessToken
+        }
+        self.stackAccessTokenForStatusProvider = stackAccessTokenForStatusProvider ?? {
+            stackAccessTokenForStatus
         }
         self.stackAccessTokenForceRefresher = {
             guard let stackAccessToken else { throw MissingTestStackAccessToken() }
@@ -38,6 +50,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
         self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.now = now
         self.supportsServerPushEvents = supportsServerPushEvents
+        self.independentEventByteStreamProvider = independentEventByteStreamProvider
     }
 }
 
@@ -140,6 +153,10 @@ actor QueuedCancellationProbeTransport: CmxByteTransport {
         releaseFirstSend()
     }
 
+    func closed() -> Bool {
+        isClosed
+    }
+
     func releaseFirstSend() {
         firstSendRelease?.resume()
         firstSendRelease = nil
@@ -167,5 +184,38 @@ struct QueuedCancellationProbeTransportFactory: CmxByteTransportFactory {
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         transport
+    }
+}
+
+final class TransportRequestCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: CmxByteTransportRequest?
+
+    func record(_ request: CmxByteTransportRequest) {
+        lock.lock()
+        value = request
+        lock.unlock()
+    }
+
+    func request() -> CmxByteTransportRequest? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
+struct IntentRecordingTransportFactory: CmxByteTransportFactory {
+    let transport: QueuedCancellationProbeTransport
+    let capture: TransportRequestCapture
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        transport
+    }
+
+    func makeTransport(
+        for request: CmxByteTransportRequest
+    ) throws -> any CmxByteTransport {
+        capture.record(request)
+        return transport
     }
 }

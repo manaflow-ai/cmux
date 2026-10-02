@@ -78,32 +78,51 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             return
         }
         let baselinePresentCount = baselineStats.presentCount
+        let minimumPresentAdvanceForLiveness = 6
+        let maximumSecondsSinceLastPresentAdvance = 1.0
         var maxPresentCount = baselinePresentCount
         var maxDiagnosticsUpdatedAt = baselineStats.diagnosticsUpdatedAt
         var lastStats = baselineStats
+        var latestPresentAdvanceStats: RenderStats?
+        var doneObservedUptime: Double?
 
-        // When pre-launched from CI, the display helper uses --start-delay-ms
-        // instead of a start signal file (sandbox prevents writing to /tmp/).
-        // displayStartPath is empty when the harness manifest omits startPath.
-        if prelaunch == nil && !displayStartPath.isEmpty {
-            do {
-                try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
-            } catch {
-                XCTFail("Expected start signal file to be created at \(displayStartPath): \(error)")
-                return
+        func recordObservedStats(_ stats: RenderStats) {
+            lastStats = stats
+            if stats.presentCount > maxPresentCount {
+                latestPresentAdvanceStats = stats
             }
+            maxPresentCount = max(maxPresentCount, stats.presentCount)
+            maxDiagnosticsUpdatedAt = max(maxDiagnosticsUpdatedAt, stats.diagnosticsUpdatedAt)
         }
 
-        let deadline = Date().addingTimeInterval(30.0)
+        if !displayStartPath.isEmpty, prelaunch == nil {
+            try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
+        } else if !displayStartPath.isEmpty, let marker = prelaunch?.baselineReadyMarker, !marker.isEmpty {
+            let data = Data("\(marker)\n".utf8)
+            FileHandle.standardOutput.write(data)
+            FileHandle.standardError.write(data)
+        } else if !displayStartPath.isEmpty {
+            XCTFail("Prelaunched display harness requires a baseline-ready marker")
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(75.0)
         while Date() < deadline {
             if let stats = loadRenderStats() {
-                lastStats = stats
-                maxPresentCount = max(maxPresentCount, stats.presentCount)
-                maxDiagnosticsUpdatedAt = max(maxDiagnosticsUpdatedAt, stats.diagnosticsUpdatedAt)
+                recordObservedStats(stats)
             }
 
             let doneMarker = readTrimmedFile(atPath: displayDonePath)
-            if doneMarker == "done" && maxPresentCount >= baselinePresentCount + 8 {
+            if doneMarker == "done", doneObservedUptime == nil {
+                doneObservedUptime = ProcessInfo.processInfo.systemUptime
+            }
+            let livenessReferenceUptime = doneObservedUptime ?? maxDiagnosticsUpdatedAt
+            let presentAdvancedNearChurnEnd = latestPresentAdvanceStats.map {
+                abs(livenessReferenceUptime - $0.lastPresentTime) <= maximumSecondsSinceLastPresentAdvance
+            } ?? false
+            if doneMarker == "done" &&
+                maxPresentCount >= baselinePresentCount + minimumPresentAdvanceForLiveness &&
+                presentAdvancedNearChurnEnd {
                 break
             }
             if let doneMarker, doneMarker.hasPrefix("error:") {
@@ -113,29 +132,46 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.15))
         }
 
+        let finalDoneMarker = readTrimmedFile(atPath: displayDonePath)
+        if finalDoneMarker == "done", doneObservedUptime == nil {
+            doneObservedUptime = ProcessInfo.processInfo.systemUptime
+        }
         XCTAssertEqual(
-            readTrimmedFile(atPath: displayDonePath),
+            finalDoneMarker,
             "done",
             "Expected display churn to finish. helperLog=\(readTrimmedFile(atPath: helperLogPath) ?? "<missing>")"
         )
 
         guard let finalStats = waitForRenderStats(timeout: 6.0) else {
-            XCTFail("Expected render stats after display churn. diagnostics=\(loadDiagnostics() ?? [:])")
+            XCTFail("Expected render stats after display churn. lastValid=\(lastStats) diagnostics=\(loadDiagnostics() ?? [:])")
             return
         }
 
-        maxPresentCount = max(maxPresentCount, finalStats.presentCount)
-        maxDiagnosticsUpdatedAt = max(maxDiagnosticsUpdatedAt, finalStats.diagnosticsUpdatedAt)
+        recordObservedStats(finalStats)
+        let finalStatsDescription = String(describing: finalStats)
+        let livenessReferenceUptime = doneObservedUptime ?? maxDiagnosticsUpdatedAt
+        let secondsBetweenChurnEndAndLastPresentAdvance = latestPresentAdvanceStats.map {
+            abs(livenessReferenceUptime - $0.lastPresentTime)
+        } ?? Double.greatestFiniteMagnitude
+        let latestPresentDescription = latestPresentAdvanceStats.map { String(describing: $0) } ?? "<none>"
 
+        // Require more than one pass through the four display modes, and require
+        // the last observed present to be near churn completion so an early burst
+        // cannot mask a later freeze.
         XCTAssertGreaterThanOrEqual(
             maxPresentCount - baselinePresentCount,
-            8,
-            "Expected terminal presents to keep advancing during display churn. baseline=\(baselineStats) last=\(lastStats) final=\(finalStats)"
+            minimumPresentAdvanceForLiveness,
+            "Expected terminal presents to keep advancing during display churn. baseline=\(baselineStats) latestPresent=\(latestPresentDescription) last=\(lastStats) final=\(finalStatsDescription)"
+        )
+        XCTAssertLessThanOrEqual(
+            secondsBetweenChurnEndAndLastPresentAdvance,
+            maximumSecondsSinceLastPresentAdvance,
+            "Expected terminal presents to advance near the end of display churn. secondsBetweenChurnEndAndLastPresentAdvance=\(secondsBetweenChurnEndAndLastPresentAdvance) livenessReferenceUptime=\(livenessReferenceUptime) baseline=\(baselineStats) latestPresent=\(latestPresentDescription) last=\(lastStats) final=\(finalStatsDescription)"
         )
         XCTAssertGreaterThan(
             maxDiagnosticsUpdatedAt,
             baselineStats.diagnosticsUpdatedAt,
-            "Expected render diagnostics to keep updating during display churn. baseline=\(baselineStats) final=\(finalStats)"
+            "Expected render diagnostics to keep updating during display churn. baseline=\(baselineStats) final=\(finalStatsDescription)"
         )
     }
 
@@ -161,8 +197,10 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             }
             displayReadyPath = readyPath
             self.displayIDPath = displayIDPath
-            // startPath is optional — CI uses --start-delay-ms instead of a start
-            // signal file because the XCTest sandbox can't write to /tmp/.
+            // startPath is optional for helper-binary manifests. Prelaunched CI
+            // passes a shell-owned /tmp start path and a baseline marker; XCTest
+            // prints the marker after sampling baseline stats, and the shell
+            // writes the start file.
             if let startPath = externalHarness.startPath, !startPath.isEmpty {
                 displayStartPath = startPath
             } else {
@@ -495,6 +533,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
 
     private struct PrelaunchManifest: Decodable {
         let diagnosticsPath: String?
+        let baselineReadyMarker: String?
     }
 
     private func loadPrelaunchManifest() -> PrelaunchManifest? {

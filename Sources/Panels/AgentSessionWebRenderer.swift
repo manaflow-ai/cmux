@@ -8,6 +8,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
     let isFocused: Bool
     let backgroundColor: NSColor
     let theme: AgentSessionWebTheme
+    let sessionContentWidthPresentation: SessionContentWidthPresentation
     let onRequestPanelFocus: () -> Void
 
     func makeCoordinator() -> AgentSessionWebRendererCoordinator {
@@ -47,6 +48,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         applyBackground(to: host)
         applyBackground(to: webView)
         applyAppearance(to: webView)
+        host.setSessionContentWidthPresentation(sessionContentWidthPresentation)
         host.attachWebView(webView)
         host.onDidMoveToWindow = { [weak coordinator = context.coordinator] in
             coordinator?.loadShellIfNeeded()

@@ -10,15 +10,20 @@ struct RemoteDaemonCapabilityTests {
         #expect(RemoteDaemonCapability.ptySessionToken.rawValue == "pty.session.token")
         #expect(RemoteDaemonCapability.ptyPersistentDaemon.rawValue == "pty.session.persistent_daemon")
         #expect(RemoteDaemonCapability.ptyWriteNotification.rawValue == "pty.write.notification")
+        #expect(RemoteDaemonCapability.ptyResizeNotification.rawValue == "pty.resize.notification")
+        #expect(RemoteDaemonCapability.ptyAttachCancel.rawValue == "pty.attach.cancel")
+        #expect(RemoteDaemonCapability.ptyInputSeqAck.rawValue == "pty.input.seq_ack")
     }
 
-    @Test("the persistent PTY family is the four PTY capabilities")
+    @Test("the persistent PTY family is the PTY capability set")
     func persistentPTYFamily() {
         #expect(RemoteDaemonCapability.persistentPTYFamily == [
             "pty.session",
             "pty.session.token",
             "pty.session.persistent_daemon",
             "pty.write.notification",
+            "pty.resize.notification",
+            "pty.attach.cancel",
         ])
     }
 }
@@ -27,7 +32,10 @@ struct RemoteDaemonCapabilityTests {
 struct RemoteDaemonStringsTests {
     private let strings = RemoteDaemonStrings(
         missingPersistentPTYCapability: "persistent-pty-message",
-        missingRequiredFunctionality: "generic-message"
+        missingRequiredFunctionality: "generic-message",
+        cloudNotificationClearWorkspaceInvalid: "invalid workspace",
+        cloudNotificationClearWorkspaceDenied: "workspace denied",
+        cloudNotificationClearSurfaceInvalid: "invalid surface"
     )
 
     @Test("any missing persistent-PTY capability selects the persistent PTY message")
@@ -37,6 +45,8 @@ struct RemoteDaemonStringsTests {
             "pty.session.token",
             "pty.session.persistent_daemon",
             "pty.write.notification",
+            "pty.resize.notification",
+            "pty.attach.cancel",
         ] {
             #expect(
                 strings.missingRequiredCapabilitiesMessage([capability])

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// Tiny stylized desktop+windows thumbnail used by ``ThemePickerRow``.
@@ -9,6 +10,7 @@ import SwiftUI
 /// based on ``isDark``.
 @MainActor
 struct ThemeWindowThumbnail: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let isDark: Bool
 
     var body: some View {
@@ -50,7 +52,7 @@ struct ThemeWindowThumbnail: View {
                 VStack(spacing: 0) {
                     HStack {
                         Image(systemName: "applelogo")
-                            .font(.system(size: max(height * 0.08, 6)))
+                            .cmuxFont(size: max(height * 0.08, 6))
                             .foregroundColor(isDark ? .white : .black)
                             .opacity(0.8)
                         Spacer()
@@ -70,7 +72,7 @@ struct ThemeWindowThumbnail: View {
                         Rectangle()
                             .fill(isDark ? Color(white: 0.15) : Color(white: 0.98))
                         RoundedRectangle(cornerRadius: max(width * 0.02, 2), style: .continuous)
-                            .fill(Color.accentColor)
+                            .fill(cmuxAccent.color)
                             .frame(height: max(height * 0.12, 6))
                             .padding(max(width * 0.04, 4))
                     }

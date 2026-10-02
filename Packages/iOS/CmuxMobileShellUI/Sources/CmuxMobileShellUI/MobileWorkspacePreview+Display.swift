@@ -6,6 +6,18 @@ import SwiftUI
 /// Display-only derivations of ``MobileWorkspacePreview`` used by the workspace
 /// list rows (preview line, status color, avatar, timestamp/detail summaries).
 extension MobileWorkspacePreview {
+    /// Non-empty custom description displayed above live activity in a row.
+    var displayDescription: String? {
+        guard let customDescription else { return nil }
+        let trimmed = customDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Workspace-specific accent, kept separate from the owning Mac's avatar color.
+    var workspaceAccentColor: Color? {
+        customColorHex.flatMap { Color(hexString: $0) }
+    }
+
     var previewLine: String {
         // Prefer the Mac's last-activity preview (latest notification text). Fall
         // back to the first terminal's name (or the workspace name) when the Mac
@@ -25,21 +37,6 @@ extension MobileWorkspacePreview {
         case .unavailable:
             return .red
         }
-    }
-
-    var avatarSymbolName: String {
-        terminals.count > 1 ? "rectangle.stack.fill" : "terminal.fill"
-    }
-
-    var avatarGradient: LinearGradient {
-        let palettes: [[Color]] = [
-            [Color.blue, Color.cyan],
-            [Color.green, Color.teal],
-            [Color.orange, Color.yellow],
-            [Color.gray, Color.blue],
-        ]
-        let colors = palettes[abs(stableAvatarSeed) % palettes.count]
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     /// The row's trailing slot: the connection problem when there is one,
@@ -75,10 +72,14 @@ extension MobileWorkspacePreview {
 
     func accessibilitySummary(connectionStatus: MobileMacConnectionStatus) -> String {
         var parts: [String] = []
-        // The unread dot itself is accessibility-hidden; VoiceOver hears the
-        // state here instead, leading like Messages does.
+        // The unread indicator itself is accessibility-hidden; VoiceOver hears
+        // the state here instead, leading like Messages does, with the exact
+        // count when the Mac reports one.
         if hasUnread {
-            parts.append(L10n.string("mobile.workspace.unread", defaultValue: "Unread"))
+            parts.append(L10n.unreadLabel(count: unreadState.count))
+        }
+        if let displayDescription {
+            parts.append(displayDescription)
         }
         parts.append(previewLine)
         // A healthy connection contributes no status text anywhere, including VoiceOver.
@@ -95,9 +96,4 @@ extension MobileWorkspacePreview {
     /// `.distantPast` (which buckets to `.none`, an empty trailing slot).
     private var latestActivityDate: Date { lastActivityAt ?? previewAt ?? .distantPast }
 
-    private var stableAvatarSeed: Int {
-        id.rawValue.unicodeScalars.reduce(0) { partialResult, scalar in
-            partialResult + Int(scalar.value)
-        }
-    }
 }

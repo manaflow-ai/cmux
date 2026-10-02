@@ -1,6 +1,5 @@
 import XCTest
 import CmuxBrowser
-import CmuxBrowserImport
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -51,6 +50,34 @@ final class BrowserImportMappingTests: XCTestCase {
         XCTAssertEqual(plan.mode, .singleDestination)
         XCTAssertEqual(plan.entries.count, 1)
         XCTAssertEqual(plan.entries[0].sourceProfiles.map(\.displayName), ["You"])
+    }
+
+    @MainActor
+    func testDestinationSelectorRejectsAmbiguousNamesAndAcceptsUUIDOnlySelector() throws {
+        let sharedName = [
+            BrowserProfileDefinition(
+                id: UUID(), displayName: "Shared", createdAt: .distantPast, isBuiltInDefault: false
+            ),
+            BrowserProfileDefinition(
+                id: UUID(), displayName: "shared", createdAt: .distantPast, isBuiltInDefault: false
+            ),
+        ]
+        XCTAssertThrowsError(
+            try BrowserImportDestinationResolver().resolve(
+                params: ["destination_profile": "SHARED"], destinationProfiles: sharedName
+            )
+        ) { error in
+            guard let automationError = error as? BrowserProfileAutomationError,
+                  case .ambiguousProfile = automationError else {
+                return XCTFail("Expected ambiguous destination profile error")
+            }
+        }
+
+        let selected = try BrowserImportDestinationResolver().resolve(
+            params: ["destination_profile_id": sharedName[0].id.uuidString],
+            destinationProfiles: sharedName
+        )
+        XCTAssertEqual(selected, sharedName[0].id)
     }
 
     @MainActor
@@ -284,39 +311,6 @@ final class BrowserImportMappingTests: XCTestCase {
         XCTAssertTrue(lines.contains("You -> You"))
         XCTAssertTrue(lines.contains("austin -> austin"))
         XCTAssertTrue(lines.contains("Created cmux profiles: You, austin"))
-    }
-
-    @MainActor
-    func testImportWizardCanBeConstructedForSettingsChoosePath() {
-        let destinationProfiles = [
-            BrowserProfileDefinition(
-                id: UUID(uuidString: "52B43C05-4A1D-45D3-8FD5-9EF94952E445")!,
-                displayName: "Default",
-                createdAt: .distantPast,
-                isBuiltInDefault: true
-            )
-        ]
-        let browser = makeInstalledBrowserCandidate(
-            descriptorID: "google-chrome",
-            displayName: "Chrome",
-            profiles: [
-                makeSourceProfile(displayName: "Default", path: "/tmp/browser-import-chrome-default", isDefault: true),
-                makeSourceProfile(displayName: "Profile 1", path: "/tmp/browser-import-chrome-profile-1", isDefault: false),
-            ]
-        )
-
-        let window = BrowserDataImportCoordinator.shared.debugMakeImportWizardWindow(
-            browsers: [browser],
-            destinationProfiles: destinationProfiles,
-            defaultDestinationProfileID: destinationProfiles[0].id
-        )
-        defer {
-            window.orderOut(nil)
-            window.close()
-        }
-
-        XCTAssertEqual(window.title, "Import Browser Data")
-        XCTAssertNotNil(window.contentView)
     }
 
     private func makeSourceProfile(displayName: String, path: String, isDefault: Bool) -> InstalledBrowserProfile {

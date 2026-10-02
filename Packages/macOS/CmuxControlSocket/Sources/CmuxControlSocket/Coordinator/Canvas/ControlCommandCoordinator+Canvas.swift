@@ -263,10 +263,13 @@ extension ControlCommandCoordinator {
     /// defaults to `terminal`).
     func canvasNewPane(_ params: [String: JSONValue]) -> ControlCallResult {
         let type = string(params, "type") ?? "terminal"
-        guard ["terminal", "browser"].contains(type) else {
+        guard ["terminal", "browser", "simulator"].contains(type) else {
             return .err(
                 code: "invalid_params",
-                message: "type must be terminal or browser",
+                message: String(
+                    localized: "cli.canvas.error.invalidPaneType",
+                    defaultValue: "type must be terminal, browser, or simulator"
+                ),
                 data: nil
             )
         }
@@ -278,7 +281,7 @@ extension ControlCommandCoordinator {
 
     // MARK: - Shared resolution mapping
 
-    private func canvasActionResult(_ resolution: ControlCanvasActionResolution) -> ControlCallResult {
+    func canvasActionResult(_ resolution: ControlCanvasActionResolution) -> ControlCallResult {
         switch resolution {
         case .ok(let mode):
             return .ok(.object(["mode": .string(mode)]))
@@ -296,6 +299,12 @@ extension ControlCommandCoordinator {
             return .err(
                 code: "invalid_state",
                 message: "Workspace is not in canvas layout (run canvas.set_mode first)",
+                data: nil
+            )
+        case .viewportUnavailable:
+            return .err(
+                code: "invalid_state",
+                message: "Canvas viewport is not attached",
                 data: nil
             )
         case .paneNotFound(let id):

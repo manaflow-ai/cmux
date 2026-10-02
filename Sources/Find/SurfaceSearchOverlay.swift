@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import SwiftUI
@@ -16,18 +17,25 @@ private extension NSView {
     }
 }
 
+/// Hosting root for the terminal find bar: the overlay plus the cmux accent
+/// environment, since it mounts outside any window root.
+typealias SurfaceSearchOverlayRoot = ModifiedContent<SurfaceSearchOverlay, CmuxAccentColorEnvironmentModifier>
+
 struct SurfaceSearchOverlay: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let tabId: UUID
     let surfaceId: UUID
     @ObservedObject var searchState: TerminalSurface.SearchState
     let canApplyFocusRequest: () -> Bool
-    let onNavigateSearch: (_ action: String) -> Void
+    let onNavigateSearch: (_ direction: TerminalSearchNavigation) -> Void
+    let onSearchTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
     let onClose: () -> Void
     @State private var corner: Corner = .topRight
     @State private var dragOffset: CGSize = .zero
     @State private var barSize: CGSize = .zero
     @State private var isSearchFieldFocused: Bool = true
+    @State private var isSearchFieldEditing: Bool = false
 
     private let padding: CGFloat = 8
 
@@ -40,7 +48,9 @@ struct SurfaceSearchOverlay: View {
                     surfaceId: surfaceId,
                     selectionOwner: searchState,
                     canApplyFocusRequest: canApplyFocusRequest,
+                    onTextChanged: onSearchTextChanged,
                     onFieldDidFocus: onFieldDidFocus,
+                    onEditingChanged: { isSearchFieldEditing = $0 },
                     onEscape: {
                         #if DEBUG
                         cmuxDebugLog("find.nativeField.escape surface=\(surfaceId.uuidString.prefix(5)) needleEmpty=\(searchState.needle.isEmpty)")
@@ -48,10 +58,7 @@ struct SurfaceSearchOverlay: View {
                         onClose()
                     },
                     onReturn: { isShift in
-                        let action = isShift
-                            ? "navigate_search:previous"
-                            : "navigate_search:next"
-                        onNavigateSearch(action)
+                        onNavigateSearch(isShift ? .previous : .next)
                     }
                 )
                 .accessibilityIdentifier("TerminalFindSearchTextField")
@@ -61,17 +68,21 @@ struct SurfaceSearchOverlay: View {
                 .padding(.vertical, 6)
                 .background(Color.primary.opacity(0.1))
                 .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isSearchFieldEditing ? cmuxAccent.color : Color.clear, lineWidth: 1)
+                )
                 .overlay(alignment: .trailing) {
                     if let selected = searchState.selected {
                         let totalText = searchState.total.map { String($0) } ?? "?"
                         Text("\(selected + 1)/\(totalText)")
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                             .monospacedDigit()
                             .padding(.trailing, 8)
                     } else if let total = searchState.total {
                         Text("-/\(total)")
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                             .monospacedDigit()
                             .padding(.trailing, 8)
@@ -82,7 +93,7 @@ struct SurfaceSearchOverlay: View {
                     #if DEBUG
                     cmuxDebugLog("findbar.next surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
-                    onNavigateSearch("navigate_search:next")
+                    onNavigateSearch(.next)
                 }) {
                     Image(systemName: "chevron.up")
                 }
@@ -93,7 +104,7 @@ struct SurfaceSearchOverlay: View {
                     #if DEBUG
                     cmuxDebugLog("findbar.prev surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
-                    onNavigateSearch("navigate_search:previous")
+                    onNavigateSearch(.previous)
                 }) {
                     Image(systemName: "chevron.down")
                 }
@@ -229,9 +240,14 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     let surfaceId: UUID
     let selectionOwner: AnyObject
     let canApplyFocusRequest: () -> Bool
+    let onTextChanged: () -> Void
     let onFieldDidFocus: () -> Void
+    /// Actual editing state, reported by the field itself. `isFocused` is only
+    /// the focus request and can stay true when focus never lands.
+    let onEditingChanged: (Bool) -> Void
     let onEscape: () -> Void
     let onReturn: (_ isShift: Bool) -> Void
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: SearchTextFieldRepresentable
@@ -266,6 +282,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         func controlTextDidChange(_ obj: Notification) {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
+            parent.onTextChanged()
             parent.text = field.stringValue
             rememberSelection(from: field)
         }
@@ -350,9 +367,16 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> SearchNativeTextField {
         let field = SearchNativeTextField(frame: .zero)
-        field.font = .systemFont(ofSize: NSFont.systemFontSize)
+        field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
         field.setAccessibilityIdentifier("TerminalFindSearchTextField")
+        field.cmuxOnEditingChanged = { [weak coordinator = context.coordinator] isEditing in
+            // Deferred like the isFocused writes: AppKit can report this while
+            // SwiftUI is updating the view.
+            DispatchQueue.main.async {
+                coordinator?.parent.onEditingChanged(isEditing)
+            }
+        }
         field.delegate = context.coordinator
         field.cmuxSelectionOwner = selectionOwner
         field.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
@@ -401,6 +425,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         nsView.delegate = context.coordinator
         nsView.cmuxSelectionOwner = selectionOwner
         nsView.cmuxOnEscape = { [weak coordinator = context.coordinator] textView in coordinator?.handleEscape(from: textView) ?? false }
+        nsView.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
 
         // Sync text from binding to field (skip during active IME composition)
         if let editor = nsView.currentEditor() as? NSTextView {

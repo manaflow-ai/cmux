@@ -20,7 +20,7 @@ public struct MobileTerminalFontPreference {
     /// scale as macOS (see the iOS DPI handling in `ghostty/src/font/face.zig`);
     /// the Retina pixel multiplier is applied separately via content scale.
     public static let defaultSize: Float32 = 10
-    /// Smallest size the zoom controls will reach.
+    /// Smallest size the zoom controls (and `cmux mobile set-font`) will reach.
     static let minimumSize: Float32 = 8
     /// Largest size the zoom controls will reach.
     static let maximumSize: Float32 = 28

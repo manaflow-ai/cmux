@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -40,7 +41,7 @@ public struct SettingsToggleRow: View {
                 Text(title)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                 }
             }

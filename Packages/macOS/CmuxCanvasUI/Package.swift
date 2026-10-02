@@ -15,12 +15,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxCanvas"),
+        .package(path: "../CmuxFoundation"),
     ],
     targets: [
         .target(
             name: "CmuxCanvasUI",
             dependencies: [
                 "CmuxCanvas",
+                "CmuxFoundation",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

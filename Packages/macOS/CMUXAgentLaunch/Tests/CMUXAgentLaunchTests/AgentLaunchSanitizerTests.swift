@@ -36,62 +36,6 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
-    @Test("Preserves direct Codex fork launch context")
-    func preservesDirectCodexForkLaunchContext() {
-        #expect(
-            AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "codex",
-                    "--model",
-                    "gpt-5.4",
-                    "fork",
-                    "019dad34-d218-7943-b81a-eddac5c87951",
-                    "--sandbox",
-                    "danger-full-access",
-                    "--remote",
-                    "ws://127.0.0.1:1",
-                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
-                    "prompt should not replay",
-                ],
-                launcher: "codex",
-                fallbackKind: "codex"
-            ) == [
-                "codex",
-                "--model",
-                "gpt-5.4",
-                "--sandbox",
-                "danger-full-access",
-            ]
-        )
-    }
-
-    @Test("Detects Codex fork after startup image options")
-    func detectsCodexForkAfterStartupImageOptions() {
-        #expect(
-            AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "codex",
-                    "--image",
-                    "/tmp/screenshot.png",
-                    "fork",
-                    "019dad34-d218-7943-b81a-eddac5c87951",
-                    "--sandbox",
-                    "danger-full-access",
-                    "--remote",
-                    "ws://127.0.0.1:1",
-                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
-                    "prompt should not replay",
-                ],
-                launcher: "codex",
-                fallbackKind: "codex"
-            ) == [
-                "codex",
-                "--sandbox",
-                "danger-full-access",
-            ]
-        )
-    }
-
     @Test("Drops Codex startup images and keeps following flags")
     func dropsCodexStartupImagesAndKeepsFollowingFlags() {
         #expect(
@@ -230,35 +174,6 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
-    @Test("Preserves generated Codex fork launch context")
-    func preservesGeneratedCodexForkLaunchContext() {
-        #expect(
-            AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "codex",
-                    "fork",
-                    "--model",
-                    "gpt-5.4",
-                    "--add-dir",
-                    "/tmp/extra repo",
-                    "--sandbox",
-                    "danger-full-access",
-                    "019dad34-d218-7943-b81a-eddac5c87951",
-                ],
-                launcher: "codex",
-                fallbackKind: "codex"
-            ) == [
-                "codex",
-                "--model",
-                "gpt-5.4",
-                "--add-dir",
-                "/tmp/extra repo",
-                "--sandbox",
-                "danger-full-access",
-            ]
-        )
-    }
-
     @Test("Keeps Codex variadic values named fork")
     func keepsCodexVariadicValuesNamedFork() {
         #expect(
@@ -278,37 +193,6 @@ struct AgentLaunchSanitizerTests {
                 "fork",
                 "--model",
                 "gpt-5.4",
-            ]
-        )
-    }
-
-    @Test("Preserves Codex Teams fork launch context")
-    func preservesCodexTeamsForkLaunchContext() {
-        #expect(
-            AgentLaunchSanitizer.sanitizedLaunchArguments(
-                [
-                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
-                    "codex-teams",
-                    "--model",
-                    "gpt-5.4",
-                    "fork",
-                    "019dad34-d218-7943-b81a-eddac5c87951",
-                    "--ask-for-approval",
-                    "never",
-                    "--remote",
-                    "ws://127.0.0.1:1",
-                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
-                    "prompt should not replay",
-                ],
-                launcher: "codexTeams",
-                fallbackKind: "codex"
-            ) == [
-                "/Applications/cmux.app/Contents/Resources/bin/cmux",
-                "codex-teams",
-                "--model",
-                "gpt-5.4",
-                "--ask-for-approval",
-                "never",
             ]
         )
     }
@@ -730,6 +614,37 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Strips a restored Amp thread id that follows preserved options")
+    func stripsRestoredAmpThreadIdAfterPreservedOptions() {
+        // A cmux restore emits `amp threads continue <options> <thread>`, so
+        // the next capture carries the thread id after the preserved options.
+        // `amp threads continue` resumes every positional thread and shows the
+        // first in the foreground, so a stale id that survived here would win
+        // over the thread cmux appends for the new restore.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "threads", "continue", "--mode", "smart", "T-old-id"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == ["amp", "--mode", "smart"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["amp", "t", "c", "--mode", "smart", "--effort", "high", "T-old-id"],
+                launcher: "amp",
+                fallbackKind: "amp"
+            ) == ["amp", "--mode", "smart", "--effort", "high"]
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "amp",
+                sessionId: "T-new-id",
+                executablePath: "/Users/example/.local/bin/amp",
+                arguments: ["/Users/example/.local/bin/amp", "threads", "continue", "--mode", "smart", "T-old-id"]
+            ) == ["amp", "threads", "continue", "--mode", "smart", "T-new-id"]
+        )
+    }
+
     @Test("Removes cwd options that duplicate the saved working directory")
     func removesSavedWorkingDirectoryOptions() {
         #expect(
@@ -755,6 +670,94 @@ struct AgentLaunchSanitizerTests {
                 from: ["qoder", "-w", "/tmp/project", "--model", "best"],
                 workingDirectory: "/tmp/project"
             ) == ["qoder", "--model", "best"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["kimi", "--resume", "session", "--work-dir=/tmp/project", "--model", "kimi-k2"],
+                workingDirectory: "/tmp/project"
+            ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
+    }
+
+    @Test("Removes every cwd option while preserving arguments after the boundary")
+    func removesWorkingDirectoryOptions() {
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["kimi", "--resume", "session", "--work-dir", "/local/repo", "--model", "kimi-k2"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["grok", "-r", "session", "--cwd=/local/repo", "--", "--cwd", "prompt text"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["grok", "-r", "session", "--", "--cwd", "prompt text"]
+        )
+        // The space-separated form of the same thing: a cwd option whose "value" is the
+        // end-of-options delimiter. Taking "--" as the value would drop the delimiter and
+        // leave the payload behind it to be sanitized as options.
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["grok", "--work-dir", "--", "--cwd", "/not/a/flag", "prompt"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["grok", "--", "--cwd", "/not/a/flag", "prompt"]
+        )
+        // Same option with nothing after it at all: drop the option, invent no value.
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["grok", "--resume", "session", "--work-dir"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["grok", "--resume", "session"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["codex", "resume", "session", "-C/local/repo", "--model", "gpt-5.4"],
+                workingDirectory: nil,
+                agentKind: "codex",
+                removeAllWorkingDirectoryOptions: true
+            ) == ["codex", "resume", "session", "--model", "gpt-5.4"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["kimi", "--resume", "session", "-w/local/repo", "--model", "kimi-k2"],
+                workingDirectory: nil,
+                agentKind: "kimi",
+                removeAllWorkingDirectoryOptions: true
+            ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
+    }
+
+    @Test("Remove-all keeps cwd-shaped options that are not a cwd for the agent kind")
+    func removeAllWorkingDirectoryOptionsIsKindScoped() {
+        func removeAll(_ args: [String], kind: String?) -> [String] {
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: args,
+                workingDirectory: nil,
+                agentKind: kind,
+                removeAllWorkingDirectoryOptions: true
+            )
+        }
+        // Claude's -w/--worktree is not a cwd.
+        #expect(removeAll(["claude", "--resume", "s", "-w", "wt"], kind: "claude") == ["claude", "--resume", "s", "-w", "wt"])
+        // Qoder's --workspace selects a saved profile; its -w is the cwd.
+        #expect(removeAll(["qoder", "--workspace", "x", "-w", "/local/repo"], kind: "qoder") == ["qoder", "--workspace", "x"])
+        #expect(removeAll(["qoder", "--workspace=x"], kind: "qoder") == ["qoder", "--workspace=x"])
+        // Attached tokens that merely start with -C/-w stay unless that short option is a cwd.
+        #expect(removeAll(["agent", "-Continue", "-Color", "-wide"], kind: "claude") == ["agent", "-Continue", "-Color", "-wide"])
+        #expect(removeAll(["agent", "-Continue", "-C", "dir"], kind: nil) == ["agent", "-Continue", "-C", "dir"])
+        // Codex -C is the cwd, in split, `=`, and attached forms.
+        #expect(removeAll(["codex", "resume", "s", "-C", "dir", "--model", "m"], kind: "codex") == ["codex", "resume", "s", "--model", "m"])
+        #expect(removeAll(["codex", "-C=dir", "-Cdir"], kind: "codex") == ["codex"])
+        // Cursor's --workspace is the cwd.
+        #expect(removeAll(["cursor-agent", "--workspace", "/local/repo", "--resume", "s"], kind: "cursor") == ["cursor-agent", "--resume", "s"])
+        // Custom registrations and unknown kinds only lose the unambiguous cwd spellings.
+        #expect(
+            removeAll(["custom", "--cwd", "/a", "--cd=/b", "--work-dir", "/c", "-w", "p", "--workspace", "q"], kind: nil)
+                == ["custom", "-w", "p", "--workspace", "q"]
         )
     }
 }

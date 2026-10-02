@@ -10,21 +10,33 @@ extension ControlCommandCoordinator {
         "close_left", "close_right", "close_others",
         "new_terminal_right", "new_browser_right",
         "reload", "duplicate", "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",
-        "pin", "unpin", "mark_read", "mark_unread",
+        "pin", "unpin", "mark_read", "mark_unread", "toggle_full_width_tab",
     ]
 
     /// `surface.action` / `tab.action` — run one surface-tab mutation.
     func tabAction(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let systemContext else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
         let action = actionKey(params)
-        let resolution = systemContext?.controlTabAction(
+        let surfaceID = uuid(params, "surface_id")
+        let tabID = uuid(params, "tab_id")
+        if params["surface_id"] != nil, surfaceID == nil {
+            return .err(code: "not_found", message: systemContext.controlSystemSurfaceNotFoundMessage(), data: nil)
+        }
+        if params["tab_id"] != nil, tabID == nil {
+            return .err(code: "not_found", message: systemContext.controlSystemTabNotFoundMessage(), data: nil)
+        }
+        let resolution = systemContext.controlTabAction(
             routing: routingSelectors(params),
             actionKey: action,
             title: string(params, "title"),
             rawURL: string(params, "url"),
-            surfaceID: uuid(params, "surface_id") ?? uuid(params, "tab_id"),
+            surfaceID: surfaceID ?? tabID,
             requestedFocus: bool(params, "focus") ?? false,
+            force: bool(params, "force") ?? false,
             moveParams: params
-        ) ?? .tabManagerUnavailable
+        )
 
         switch resolution {
         case .tabManagerUnavailable:
@@ -38,7 +50,7 @@ extension ControlCommandCoordinator {
         case .tabNotFound(let surfaceID):
             return .err(
                 code: "not_found",
-                message: "Tab not found",
+                message: systemContext.controlSystemTabNotFoundMessage(),
                 data: .object([
                     "surface_id": .string(surfaceID.uuidString),
                     "surface_ref": ref(.surface, surfaceID),
@@ -71,8 +83,19 @@ extension ControlCommandCoordinator {
             return browserDisabledResult(outcome)
         case .tabPaneNotFound:
             return .err(code: "not_found", message: "Tab pane not found", data: nil)
+        case .fullWidthTabToggleFailed:
+            return .err(code: "invalid_state", message: "Failed to toggle full-width tab mode", data: nil)
         case .tabNotFoundInPane:
             return .err(code: "not_found", message: "Tab not found in pane", data: nil)
+        case .confirmationRequired(let surfaceIDs):
+            return .err(
+                code: "confirmation_required",
+                message: context?.controlSystemCloseStrings().confirmationRequired
+                    ?? "One or more surfaces have a running process; retry with force=true",
+                data: .object([
+                    "surface_ids": .array(surfaceIDs.map { .string($0.uuidString) })
+                ])
+            )
         case .createFailed:
             return .err(code: "internal_error", message: "Failed to create tab", data: nil)
         case .duplicateFailed:
@@ -105,6 +128,8 @@ extension ControlCommandCoordinator {
                 payload["title"] = .string(title)
             case .pinned(let pinned):
                 payload["pinned"] = .bool(pinned)
+            case .fullWidthTabMode(let enabled):
+                payload["full_width_tab_mode"] = .bool(enabled)
             case .created(let createdID):
                 payload["created_surface_id"] = .string(createdID.uuidString)
                 payload["created_surface_ref"] = ref(.surface, createdID)

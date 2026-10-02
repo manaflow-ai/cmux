@@ -14,8 +14,10 @@ actor FlowFakeAuthClient: AuthClient {
     private var user: CMUXAuthUser?
     private let store: FlowInMemoryTokenStore
     private(set) var pendingUserRequests = 0
+    private var currentUserError: (any Error)?
     private var userGateClosed = false
     private var userGateWaiters: [CheckedContinuation<Void, Never>] = []
+    private var pendingUserRequestWaiters: [CheckedContinuation<Void, Never>] = []
     private var storedAccessGateArmed = false
     private var storedAccessParked: [CheckedContinuation<Void, Never>] = []
     private var storedAccessParkWaiters: [CheckedContinuation<Void, Never>] = []
@@ -26,6 +28,8 @@ actor FlowFakeAuthClient: AuthClient {
         self.store = store
     }
 
+    func setCurrentUserError(_ error: (any Error)?) { currentUserError = error }
+
     func closeUserGate() { userGateClosed = true }
 
     func openUserGate() {
@@ -33,6 +37,12 @@ actor FlowFakeAuthClient: AuthClient {
         let waiters = userGateWaiters
         userGateWaiters = []
         for waiter in waiters { waiter.resume() }
+    }
+
+    /// Suspends until a `currentUser` read is parked on the closed user gate.
+    func pendingUserRequestDidPark() async {
+        if pendingUserRequests > 0 { return }
+        await withCheckedContinuation { pendingUserRequestWaiters.append($0) }
     }
 
     func armStoredAccessTokenGate() { storedAccessGateArmed = true }
@@ -56,8 +66,16 @@ actor FlowFakeAuthClient: AuthClient {
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
         if userGateClosed {
             pendingUserRequests += 1
-            await withCheckedContinuation { userGateWaiters.append($0) }
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                userGateWaiters.append(continuation)
+                let waiters = pendingUserRequestWaiters
+                pendingUserRequestWaiters = []
+                for waiter in waiters { waiter.resume() }
+            }
             pendingUserRequests -= 1
+        }
+        if let currentUserError {
+            throw currentUserError
         }
         return user
     }
@@ -133,15 +151,40 @@ actor FlowInMemoryTokenStore: StackAuthTokenStoreProtocol {
 @MainActor
 final class FakeBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
     private(set) var sessions: [FakeBrowserAuthSession] = []
+    var nextStartResult = true
+    private var sessionWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    /// Suspends until the attempt has created at least `count` sessions, so a
+    /// test acts on a session that exists rather than polling for one.
+    func sessionsDidReach(_ count: Int) async {
+        if sessions.count >= count { return }
+        await withCheckedContinuation { sessionWaiters.append((count, $0)) }
+    }
 
     func makeSession(
         signInURL: URL,
         callbackScheme: String,
-        completion: @escaping @MainActor (URL?) -> Void
+        completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
     ) -> any HostBrowserAuthSession {
-        let session = FakeBrowserAuthSession(signInURL: signInURL, completion: completion)
+        let session = FakeBrowserAuthSession(
+            signInURL: signInURL,
+            startResult: nextStartResult,
+            completion: completion
+        )
         sessions.append(session)
+        nextStartResult = true
+        for waiter in takeSatisfiedSessionWaiters() { waiter.resume() }
         return session
+    }
+
+    private func takeSatisfiedSessionWaiters() -> [CheckedContinuation<Void, Never>] {
+        var satisfied: [CheckedContinuation<Void, Never>] = []
+        sessionWaiters.removeAll { waiter in
+            guard sessions.count >= waiter.count else { return false }
+            satisfied.append(waiter.continuation)
+            return true
+        }
+        return satisfied
     }
 }
 
@@ -150,27 +193,37 @@ final class FakeBrowserAuthSessionFactory: HostBrowserAuthSessionFactory {
 final class FakeBrowserAuthSession: HostBrowserAuthSession {
     let signInURL: URL
     var deliverCancelCompletion = true
-    private let completion: @MainActor (URL?) -> Void
+    private let startResult: Bool
+    private let completion: @MainActor (HostBrowserAuthSessionResult) -> Void
     private var completed = false
     private(set) var cancelled = false
 
-    init(signInURL: URL, completion: @escaping @MainActor (URL?) -> Void) {
+    init(
+        signInURL: URL,
+        startResult: Bool,
+        completion: @escaping @MainActor (HostBrowserAuthSessionResult) -> Void
+    ) {
         self.signInURL = signInURL
+        self.startResult = startResult
         self.completion = completion
     }
 
-    func start() -> Bool { true }
+    func start() -> Bool { startResult }
 
     func cancel() {
         cancelled = true
         if deliverCancelCompletion {
-            deliver(nil)
+            deliver(.cancelled(reason: "fake_cancel"))
         }
     }
 
-    func deliver(_ url: URL?) {
+    func deliver(_ url: URL) {
+        deliver(.callback(url))
+    }
+
+    func deliver(_ result: HostBrowserAuthSessionResult) {
         guard !completed else { return }
         completed = true
-        completion(url)
+        completion(result)
     }
 }

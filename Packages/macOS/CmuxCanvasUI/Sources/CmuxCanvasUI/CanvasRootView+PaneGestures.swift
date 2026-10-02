@@ -205,9 +205,11 @@ extension CanvasRootView: CanvasPaneViewDelegate {
 
     func paneViewDidRequestFocus(_ view: CanvasPaneView) {
         guard let panelId = selectedPanelId(of: view) else { return }
-        model.bringToFront(panelId)
-        applyZOrder()
-        callbacks.onLayoutChanged()
+        if model.layout.paneIDs.last != view.paneID {
+            model.bringToFront(panelId)
+            applyZOrder()
+            callbacks.onLayoutChanged()
+        }
         callbacks.onFocusPanel(panelId)
         callbacks.onViewportGeometryChanged(window)
     }

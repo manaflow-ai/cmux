@@ -9,14 +9,45 @@ import Foundation
 ///
 /// `ControlCommandContext` is the umbrella; `TerminalController` satisfies it by
 /// conforming to each domain constituent (one extension per domain file). The
-/// umbrella conformance itself carries no requirements.
-extension TerminalController: ControlCommandContext {}
+/// umbrella carries one requirement of its own: the worker-lane resolution hop.
+extension TerminalController: ControlCommandContext {
+    /// The worker-lane resolution hop primitive: forwards to `v2MainSync` (so
+    /// the hop collapses to an inline call when the caller is already on the
+    /// main thread, propagates the focus-allowance stack, and records per-hop
+    /// timing exactly like every other socket main hop) and refreshes the
+    /// known `kind:N` refs FIRST, mirroring the main-lane dispatch preamble
+    /// (`v2MainActorResponse`) byte-for-byte so caller-supplied refs resolve.
+    /// NOTE: the refresh covers only main-window workspace topology; dock-hosted
+    /// surfaces/panes (the per-window `DockSplitStore`s, post-#7144) are
+    /// first-minted by each body's in-hop mint pass, so every mint pass MUST
+    /// preserve its payload's literal mint order — that ordering, not the
+    /// refresh, is what keeps `kind:N` ordinals identical to the legacy build.
+    /// The body receives `self` back as its main-actor seam parameter (see the
+    /// protocol requirement's doc).
+    nonisolated func controlResolveOnMain<T: Sendable>(
+        _ body: @MainActor (any ControlCommandContext) -> T
+    ) -> T {
+        v2MainSync {
+            self.v2RefreshKnownRefs()
+            return body(self)
+        }
+    }
+}
 
 /// The window-domain witnesses are the byte-faithful bodies of the former
 /// `v2Window*` dispatchers, minus the per-read `v2MainSync` hop: the coordinator
 /// already runs on the main actor inside the socket-command policy scope, so each
 /// hop would re-apply the identical thread-local focus-allowance stack — a no-op.
 extension TerminalController: ControlWindowContext {
+    func controlWindowCloseStrings() -> ControlWindowCloseStrings {
+        ControlWindowCloseStrings(
+            confirmationRequired: String(
+                localized: "cli.socket.error.windowCloseConfirmationRequired",
+                defaultValue: "One or more workspaces or Dock surfaces have a running process; retry with --force"
+            )
+        )
+    }
+
     func controlWindowSummaries() -> [ControlWindowSummary] {
         (AppDelegate.shared?.listMainWindowSummaries() ?? []).map { summary in
             ControlWindowSummary(
@@ -45,8 +76,8 @@ extension TerminalController: ControlWindowContext {
         AppDelegate.shared?.focusMainWindow(windowId: id) ?? false
     }
 
-    func controlCreateWindowAndActivate() -> UUID? {
-        guard let windowId = AppDelegate.shared?.createMainWindow() else { return nil }
+    func controlCreateWindowAndActivate(title: String?) -> UUID? {
+        guard let windowId = AppDelegate.shared?.createMainWindow(initialWorkspaceTitle: title) else { return nil }
         // The new window should become key, but setActiveTabManager defensively
         // (preserves the legacy v2WindowCreate side effect and ordering).
         if let tabManager = AppDelegate.shared?.tabManagerFor(windowId: windowId) {
@@ -57,6 +88,21 @@ extension TerminalController: ControlWindowContext {
 
     func controlCloseWindow(id: UUID) -> Bool {
         AppDelegate.shared?.closeMainWindow(windowId: id) ?? false
+    }
+
+    func controlCloseWindow(id: UUID, force: Bool) -> ControlWindowCloseResolution {
+        guard let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(windowId: id) else {
+            return .notFound
+        }
+        let activeWorkspaceIDs = manager.tabs
+            .filter { $0.needsConfirmClose() }
+            .map(\.id)
+        let dockNeedsConfirmation = app.existingWindowDock(for: manager)?.needsConfirmClose() == true
+        guard force || (activeWorkspaceIDs.isEmpty && !dockNeedsConfirmation) else {
+            return .confirmationRequired(workspaceIDs: activeWorkspaceIDs)
+        }
+        return app.closeMainWindow(windowId: id) ? .resolved : .notFound
     }
 
     func controlAvailableDisplays() -> [ControlDisplayInfo] {

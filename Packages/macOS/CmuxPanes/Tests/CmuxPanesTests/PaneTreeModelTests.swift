@@ -81,7 +81,7 @@ struct PaneTreeModelTests {
         let model = PaneTreeModel<String>()
         let tabId = TabID()
         let panelId = UUID()
-        model.surfaceIdToPanelId[tabId] = panelId
+        model.bindSurface(tabId, toPanelId: panelId)
         #expect(model.surfaceIdToPanelId[tabId] == panelId)
         model.lastOrderedPanelIds = [panelId]
         #expect(model.lastOrderedPanelIds == [panelId])
@@ -94,11 +94,74 @@ struct PaneTreeModelTests {
         let model = PaneTreeModel<String>()
         let tabId = TabID()
         let panelId = UUID()
-        model.surfaceIdToPanelId[tabId] = panelId
+        model.bindSurface(tabId, toPanelId: panelId)
 
         #expect(model.panelId(forSurfaceId: tabId) == panelId)
         #expect(model.surfaceId(forPanelId: panelId) == tabId)
         #expect(model.panelId(forSurfaceId: TabID()) == nil)
         #expect(model.surfaceId(forPanelId: UUID()) == nil)
+    }
+
+    /// Rebinding one live panel to a new bonsplit surface must not leave the
+    /// old surface id resolving to the same panel.
+    @Test func rebindingPanelToNewSurfaceInvalidatesOldSurfaceMapping() {
+        let model = PaneTreeModel<String>()
+        let oldTabId = TabID()
+        let newTabId = TabID()
+        let panelId = UUID()
+
+        model.bindSurface(oldTabId, toPanelId: panelId)
+        model.bindSurface(newTabId, toPanelId: panelId)
+
+        #expect(model.panelId(forSurfaceId: oldTabId) == nil)
+        #expect(model.panelId(forSurfaceId: newTabId) == panelId)
+        #expect(model.surfaceId(forPanelId: panelId) == newTabId)
+    }
+
+    /// Reusing one bonsplit surface for a different panel must also clear the
+    /// old panel's reverse lookup.
+    @Test func rebindingSurfaceToNewPanelInvalidatesOldPanelMapping() {
+        let model = PaneTreeModel<String>()
+        let tabId = TabID()
+        let oldPanelId = UUID()
+        let newPanelId = UUID()
+
+        model.bindSurface(tabId, toPanelId: oldPanelId)
+        model.bindSurface(tabId, toPanelId: newPanelId)
+
+        #expect(model.panelId(forSurfaceId: tabId) == newPanelId)
+        #expect(model.surfaceId(forPanelId: oldPanelId) == nil)
+        #expect(model.surfaceId(forPanelId: newPanelId) == tabId)
+    }
+
+    /// Close cleanup removes the surface owned by the closed panel.
+    @Test func closedPanelCleanupRemovesClosedSurfaceMapping() {
+        let model = PaneTreeModel<String>()
+        let closedPanelTabId = TabID()
+        let closedPanelId = UUID()
+
+        model.bindSurface(closedPanelTabId, toPanelId: closedPanelId)
+        model.removeSurfaceMappings(forPanelId: closedPanelId)
+
+        #expect(model.panelId(forSurfaceId: closedPanelTabId) == nil)
+        #expect(model.surfaceId(forPanelId: closedPanelId) == nil)
+    }
+
+    /// Close cleanup removes stale aliases for the closed panel without using
+    /// a stale tab id to drop a surface that has already moved to another panel.
+    @Test func closedPanelCleanupKeepsReboundSurfaceMapping() {
+        let model = PaneTreeModel<String>()
+        let reboundTabId = TabID()
+        let closedPanelId = UUID()
+        let livePanelId = UUID()
+
+        model.bindSurface(reboundTabId, toPanelId: closedPanelId)
+        model.bindSurface(reboundTabId, toPanelId: livePanelId)
+
+        model.removeSurfaceMappings(forPanelId: closedPanelId)
+
+        #expect(model.panelId(forSurfaceId: reboundTabId) == livePanelId)
+        #expect(model.surfaceId(forPanelId: closedPanelId) == nil)
+        #expect(model.surfaceId(forPanelId: livePanelId) == reboundTabId)
     }
 }

@@ -1,3 +1,4 @@
+import AuthenticationServices
 import Foundation
 import Testing
 @testable import CmuxAuthRuntime
@@ -13,30 +14,50 @@ import Testing
     @Test func bridgeDeliveredOffMainCompletesOnMainActor() async {
         let factory = ASWebBrowserAuthSessionFactory(anchor: FakeAnchor())
         let url = URL(string: "cmux-dev://auth-callback?stack_refresh=r&stack_access=a")!
-        let received: URL? = await withCheckedContinuation { continuation in
-            let bridge = factory.sessionCompletionBridge { callbackURL in
+        let received: HostBrowserAuthSessionResult = await withCheckedContinuation { continuation in
+            let bridge = factory.sessionCompletionBridge { result in
                 // @MainActor closure: reaching here off-main would trap.
-                continuation.resume(returning: callbackURL)
+                continuation.resume(returning: result)
             }
             // Simulate the OS delivering the completion on a non-main queue.
             DispatchQueue.global(qos: .userInitiated).async {
                 bridge(url, nil)
             }
         }
-        #expect(received == url)
+        #expect(received == .callback(url))
     }
 
-    @Test func bridgeDeliversNilOnOffMainCancellation() async {
-        struct CancelledError: Error {}
+    @Test func bridgeClassifiesOffMainCancellation() async {
         let factory = ASWebBrowserAuthSessionFactory(anchor: FakeAnchor())
-        let received: URL? = await withCheckedContinuation { continuation in
-            let bridge = factory.sessionCompletionBridge { callbackURL in
-                continuation.resume(returning: callbackURL)
+        let received: HostBrowserAuthSessionResult = await withCheckedContinuation { continuation in
+            let bridge = factory.sessionCompletionBridge { result in
+                continuation.resume(returning: result)
             }
             DispatchQueue.global(qos: .utility).async {
-                bridge(nil, CancelledError())
+                let error = NSError(
+                    domain: ASWebAuthenticationSessionError.errorDomain,
+                    code: ASWebAuthenticationSessionError.Code.canceledLogin.rawValue
+                )
+                bridge(nil, error)
             }
         }
-        #expect(received == nil)
+        #expect(received == .cancelled(reason: "canceled_login"))
+    }
+
+    @Test func bridgeClassifiesOffMainPresentationFailure() async {
+        let factory = ASWebBrowserAuthSessionFactory(anchor: FakeAnchor())
+        let received: HostBrowserAuthSessionResult = await withCheckedContinuation { continuation in
+            let bridge = factory.sessionCompletionBridge { result in
+                continuation.resume(returning: result)
+            }
+            DispatchQueue.global(qos: .utility).async {
+                let error = NSError(
+                    domain: ASWebAuthenticationSessionError.errorDomain,
+                    code: ASWebAuthenticationSessionError.Code.presentationContextInvalid.rawValue
+                )
+                bridge(nil, error)
+            }
+        }
+        #expect(received == .failed(reason: "presentation_context_invalid"))
     }
 }

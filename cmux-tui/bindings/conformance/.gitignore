@@ -1,0 +1,9 @@
+.build/
+__pycache__/
+*.py[cod]
+adapters/**/.zig-cache/
+adapters/**/build/
+adapters/**/out/
+adapters/**/target/
+adapters/**/zig-out/
+adapters/go/cmux-conformance-go

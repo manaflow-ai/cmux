@@ -1,4 +1,5 @@
-public import Foundation
+internal import CMUXMobileCore
+internal import Foundation
 internal import UserNotifications
 
 /// Production ``DeliveredNotificationClearing`` backed by the system
@@ -20,7 +21,12 @@ public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing 
 
     /// Remove the delivered banners carrying the given Mac notification ids.
     /// - Parameter ids: The stable Mac-side notification ids to clear.
-    public func removeDelivered(ids: [String]) async {
+    public func removeDelivered(
+        ids: [String],
+        macDeviceID: String?,
+        instanceTag: String?
+    ) async {
+        guard Self.canUseNotificationCenter else { return }
         guard !ids.isEmpty else { return }
         let targets = Set(ids)
         // Resolve the Mac ids to the actual delivered request identifiers
@@ -29,7 +35,14 @@ public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing 
         // cannot report completion to iOS before the removal ran.
         let center = UNUserNotificationCenter.current()
         let matching = await center.deliveredNotifications()
-            .filter { targets.contains(Self.macNotificationID(for: $0.request)) }
+            .filter {
+                targets.contains(Self.macNotificationID(for: $0.request))
+                    && Self.matchesOwner(
+                        request: $0.request,
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    )
+            }
             .map(\.request.identifier)
         guard !matching.isEmpty else { return }
         center.removeDeliveredNotifications(withIdentifiers: matching)
@@ -38,15 +51,27 @@ public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing 
     /// The Mac notification ids of every currently delivered banner, for the
     /// reconcile sweep.
     /// - Returns: One id per delivered notification (see ``macNotificationID(for:)``).
-    public func deliveredIdentifiers() async -> [String] {
-        await UNUserNotificationCenter.current()
+    public func deliveredIdentifiers(
+        macDeviceID: String?,
+        instanceTag: String?
+    ) async -> [String] {
+        guard Self.canUseNotificationCenter else { return [] }
+        return await UNUserNotificationCenter.current()
             .deliveredNotifications()
+            .filter {
+                Self.matchesOwner(
+                    request: $0.request,
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
+            }
             .map { Self.macNotificationID(for: $0.request) }
     }
 
     /// SET the app-icon badge to the Mac's authoritative unread total.
     /// - Parameter count: The unread total; clamped to zero.
     public func setBadgeCount(_ count: Int) {
+        guard Self.canUseNotificationCenter else { return }
         // Fire-and-forget: a badge write failure (no authorization yet) is
         // non-fatal and the next event/push/reconcile sets the total again.
         UNUserNotificationCenter.current().setBadgeCount(max(0, count), withCompletionHandler: nil)
@@ -66,5 +91,37 @@ public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing 
             return id
         }
         return request.identifier
+    }
+
+    /// Owner match for a delivered banner. Supplying an identity requires the
+    /// exact device and build tag; legacy unscoped callers retain their broad
+    /// compatibility behavior.
+    static func matchesOwner(
+        request: UNNotificationRequest,
+        macDeviceID: String?,
+        instanceTag: String?
+    ) -> Bool {
+        guard let macDeviceID = normalized(macDeviceID) else { return true }
+        guard let cmux = request.content.userInfo["cmux"] as? [String: Any],
+              let deliveredDeviceID = normalized(cmux["macDeviceId"] as? String) else {
+            return false
+        }
+        return CmxMacAppInstanceIdentity(
+            macDeviceID: deliveredDeviceID,
+            instanceTag: cmux["macInstanceTag"] as? String
+        ).id == CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private static var canUseNotificationCenter: Bool {
+        Bundle.main.bundleURL.pathExtension == "app"
     }
 }

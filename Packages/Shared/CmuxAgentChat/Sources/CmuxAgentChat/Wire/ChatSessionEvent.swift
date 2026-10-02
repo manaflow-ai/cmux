@@ -10,12 +10,22 @@ public enum ChatSessionEvent: Sendable, Equatable {
     case stateChanged(ChatAgentState)
     /// The session's descriptor changed (title, terminal binding, ...).
     case descriptorChanged(ChatSessionDescriptor)
+    /// The producing host removed this session from its live registry.
+    case sessionRemoved(version: Int)
 
     /// Terminal command-blocks were appended or updated (terminal-kind
     /// sessions). Receivers upsert by ``TerminalCommandBlock/id``; the
     /// producer sends the whole current block value, so a replayed block on
     /// reconnect is idempotent.
     case terminalBlocks([TerminalCommandBlock])
+
+    /// A live, not-yet-committed preview of the agent's in-progress prose for
+    /// the current turn, scraped from the terminal's rendered screen while the
+    /// authoritative JSONL line has not been written yet. The payload replaces
+    /// any prior preview wholesale; `nil` clears it. It lives outside the
+    /// message window and is superseded the instant the authoritative agent
+    /// prose lands via ``appended``, so it never duplicates a real message.
+    case streamingProse(ChatMessage?)
 
     /// The producing transcript was truncated or replaced; the session's
     /// seq space restarted and clients must re-anchor from history.
@@ -30,9 +40,11 @@ extension ChatSessionEvent: Codable {
     private enum CodingKeys: String, CodingKey {
         case event
         case messages
+        case message
         case state
         case descriptor
         case blocks
+        case version
     }
 
     private enum EventName: String {
@@ -40,7 +52,9 @@ extension ChatSessionEvent: Codable {
         case updated
         case stateChanged = "state_changed"
         case descriptorChanged = "descriptor_changed"
+        case sessionRemoved = "session_removed"
         case terminalBlocks = "terminal_blocks"
+        case streamingProse = "streaming_prose"
         case reset
     }
 
@@ -56,8 +70,12 @@ extension ChatSessionEvent: Codable {
             self = .stateChanged(try container.decode(ChatAgentState.self, forKey: .state))
         case .descriptorChanged:
             self = .descriptorChanged(try container.decode(ChatSessionDescriptor.self, forKey: .descriptor))
+        case .sessionRemoved:
+            self = .sessionRemoved(version: try container.decodeIfPresent(Int.self, forKey: .version) ?? Int.max)
         case .terminalBlocks:
             self = .terminalBlocks(try container.decode([TerminalCommandBlock].self, forKey: .blocks))
+        case .streamingProse:
+            self = .streamingProse(try container.decodeIfPresent(ChatMessage.self, forKey: .message))
         case .reset:
             self = .reset
         case .none:
@@ -83,9 +101,15 @@ extension ChatSessionEvent: Codable {
         case .descriptorChanged(let descriptor):
             try container.encode(EventName.descriptorChanged.rawValue, forKey: .event)
             try container.encode(descriptor, forKey: .descriptor)
+        case .sessionRemoved(let version):
+            try container.encode(EventName.sessionRemoved.rawValue, forKey: .event)
+            try container.encode(version, forKey: .version)
         case .terminalBlocks(let blocks):
             try container.encode(EventName.terminalBlocks.rawValue, forKey: .event)
             try container.encode(blocks, forKey: .blocks)
+        case .streamingProse(let message):
+            try container.encode(EventName.streamingProse.rawValue, forKey: .event)
+            try container.encodeIfPresent(message, forKey: .message)
         case .reset:
             try container.encode(EventName.reset.rawValue, forKey: .event)
         case .unknown(let raw):
