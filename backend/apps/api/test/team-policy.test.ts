@@ -320,4 +320,33 @@ describe("team policy over the API (workerd)", () => {
     expect(policy.values["github.requireOrgAdmin"]).toEqual({ value: true, mode: "enforced" })
     expect(policy.values["github.repoAllowList"]).toEqual({ value: ["acme/api"], mode: "enforced" })
   })
+
+  it("after the seed ConnectionDO is locked to TeamPolicy, so there is one writer (review P1-1)", async () => {
+    const session = await sessionToken("stack-policy-adopt")
+    expect((await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.ok).toBe(true)
+    const team = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.team as string
+    await call("/v1/ops", session, { op: "integration.policy.set", params: { github: { require_org_admin: true } }, idempotency_key: crypto.randomUUID() })
+    await call("/v1/ops", session, { op: "team.policy.update", params: { changes: [set("telemetry.level", "off")], expected_version: 0 }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
+    await settleIntegration(session, stub, (v) => v.source === "team_policy")
+    const after = await call("/v1/read", session, { op: "integration.policy.get", params: {} })
+    expect(after.json.value).toMatchObject({ source: "team_policy", locked: true, github: { require_org_admin: true } })
+    const direct = await call("/v1/ops", session, { op: "integration.policy.set", params: { github: { repo_allowlist: ["acme/x"] } }, idempotency_key: crypto.randomUUID() })
+    expect(direct.json.error.code).toBe("policy.locked")
+  })
+
+  it("an empty ConnectionDO allow list (deny all) stays deny all after the seed (review P1-2)", async () => {
+    const session = await sessionToken("stack-policy-denyall")
+    expect((await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.ok).toBe(true)
+    const team = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.team as string
+    const denied = await call("/v1/ops", session, { op: "integration.policy.set", params: { github: { repo_allowlist: [] } }, idempotency_key: crypto.randomUUID() })
+    expect(denied.json.ok).toBe(true)
+    await call("/v1/ops", session, { op: "team.policy.update", params: { changes: [set("telemetry.level", "off")], expected_version: 0 }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
+    await settleIntegration(session, stub, (v) => v.source === "team_policy")
+    const after = await call("/v1/read", session, { op: "integration.policy.get", params: {} })
+    expect(after.json.value.github.repo_allowlist).toEqual([])
+    const policy = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.policy
+    expect(policy.values["github.repoAllowList"]).toEqual({ value: "none", mode: "enforced" })
+  })
 })
