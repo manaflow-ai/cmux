@@ -41,6 +41,7 @@ test("every transition and animation runs on a motion token with the ease-out cu
   }
 });
 
+// These mirror MotionFade in Packages/macOS/CmuxNext (CmuxNextDesign/Motion/MotionFadeTokens.swift); the host overrides them through the theme.
 test("the motion tokens default to the host's fast fades", () => {
   const root = rules.find((rule) => rule.selector === ":root")!;
   const tokens = Object.fromEntries(root.declarations.map(({ property, value }) => [property, value]));
