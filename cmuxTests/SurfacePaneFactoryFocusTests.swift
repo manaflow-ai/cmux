@@ -437,6 +437,7 @@ import SwiftUI
         defer {
             catalog.endProjections(panelID: sourcePanelID, reason: .replaced)
             catalog.replaceUnavailableCloudState(on: machine, resources: [], info: info)
+            catalog.unregister(machine: machine)
         }
         let panelCount = workspace.panels.count
         let outcome = workspace.newTerminalSplitOutcome(
