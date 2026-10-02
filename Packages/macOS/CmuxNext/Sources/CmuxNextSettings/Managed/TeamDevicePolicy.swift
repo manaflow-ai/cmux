@@ -10,9 +10,12 @@ extension TeamPolicyLayer {
         guard value["managed"]?.boolValue == true else { return nil }
         self.init(
             teamName: value["team_name"]?.stringValue ?? "",
-            defaults: value["defaults"]?.objectValue?.filter { ManagedPreferences.isSettingKey($0.key) } ?? [:],
-            enforced: value["enforced"]?.objectValue?.filter { ManagedPreferences.isSettingKey($0.key) } ?? [:]
+            defaults: value["defaults"]?.objectValue ?? [:],
+            enforced: value["enforced"]?.objectValue ?? [:],
+            teamID: value["team"]?.stringValue ?? "",
+            version: value["version"]?.intValue ?? 0
         )
+        self = limitedToCatalog()
     }
 }
 
@@ -27,9 +30,10 @@ extension ManagedPreferences {
             .replacingOccurrences(of: "=", with: "")
     }
 
-    /// The managed `EnrollmentToken`, trimmed; nil when absent or empty.
+    /// The forced `EnrollmentToken`, trimmed; nil when absent or empty. A
+    /// non-forced value is ignored: any local user could have written it.
     public var enrollmentToken: String? {
-        let token = (forced["EnrollmentToken"] ?? recommended["EnrollmentToken"])?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = forced["EnrollmentToken"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
         return token?.isEmpty == false ? token : nil
     }
 }

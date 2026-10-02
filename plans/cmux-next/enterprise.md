@@ -12,7 +12,9 @@ Spec text pushed before the 2026-10-02 rule change (only the coordinator writes 
 - E2: MDM wins over team enforced; the conflict is reported.
 - E3: device keys come only from the managing team (enrollment token or explicit accept).
 - E4: Swift and Rust readers with shared vectors now; Rust config crate only later.
-- E5: all enterprise features are paid, MDM included (open follow-up F1 below).
+- E5 and licensing (Lawrence, 2026-10-02): the app stays GPL-3 and always applies MDM locks; no client DRM. Paid value is server-side: SSO and SCIM, enforced team policy sync, enrollment, audit export, the admin dashboard, support. Official builds show "cmux Enterprise required" to team admins without a plan (dashboard and admin surfaces only). The cmux trademark covers official builds.
+- F2: a Worker cron copies the plan flag from the old billing API into TeamDO; every paid op checks it.
+- F3: `integration.policy.set` forwards to `team.policy.update` for one release, then is removed (automations lead).
 - E6: domain `com.manaflow.cmux` plus the legacy forced `DisableAutoUpdate` in `com.cmuxterm.app`.
 
 ## Owners (binding, OWNERSHIP-PRINCIPLES)
@@ -70,8 +72,43 @@ Changes to cmux-next-spec `spec/enterprise.md` that the coordinator should write
 5. Section 10: E1 to E6 answered as above.
 6. New section, entitlement (E5): see F1.
 
-Follow-up questions (recommendation first):
+Follow-up questions F1 to F3: answered (see Decisions).
 
-- F1. How is "MDM is paid" enforced on a Mac? (1, rec.) Managed keys apply only when the device's managing team (enrollment token) has the enterprise plan; otherwise Settings shows "Managed settings need cmux Enterprise" and ignores them, except the legacy `DisableAutoUpdate`, which already shipped. Objection: an admin who deploys a profile before buying gets no locks (fail open). (2) Device keys always apply (fail safe); the paid plan gates enrollment, team policy, SSO, SCIM and audit export only. (3) Device keys always apply, but only for 30 days without a paid managing team.
-- F2. Where does the entitlement come from before billing ports to the new backend? (1, rec.) TeamDO reads a team flag mirrored from the old backend's billing API by a Worker cron, and enforces it in every enterprise op. (2) A manual staff flag in TeamDO until billing ports.
-- F3. Should the automations lead remove `integration.policy.set` now that TeamPolicy owns the values? (1, rec.) Yes: forward it to `team.policy.update` for one release, then remove it. (2) Keep it for teams without a TeamPolicy version.
+## MDM the way enterprises run it (proposal, 2026-10-02)
+
+Lawrence: "make sure we support MDM the way most enterprises do it, like if they have custom MDM app/dashboard". Principle: cmux adds no agent and no proprietary channel. It consumes what every MDM already delivers and reports state in forms their dashboards already read.
+
+### Delivery paths (in)
+
+| Path | Who uses it | cmux support | Status |
+| --- | --- | --- | --- |
+| Configuration profile, custom settings payload (`PayloadType = com.manaflow.cmux`) | every macOS MDM: Jamf Pro, Kandji (now Iru), Intune, Workspace ONE, Mosyle, Addigy, Fleet, SimpleMDM, Hexnode, Jumpcloud | read through CFPreferences (forced and non-forced); `docs/mdm/cmux-example.mobileconfig` | landed |
+| Schema-driven editors | Jamf Pro (Application & Custom Settings JSON schema), iMazing Profile Editor and ProfileCreator (ProfileManifests), Intune (preference file template) | generated from `SettingsSchema` in `docs/mdm/` | landed |
+| Apple Declarative Device Management | MDMs on DDM (Jamf, Kandji/Iru, Mosyle, SimpleMDM, Fleet, Intune for some declarations) | The portable DDM path is the legacy-profile declaration (`com.apple.configuration.legacy`) that carries our profile. Whether Apple's managed app configuration declaration covers third-party macOS app preferences is UNVERIFIED; M3 checks Apple's device-management schema and adds it if so. Ship a generated example declaration plus asset. Same read path, no app change | step M3 |
+| Enrollment token | any MDM, as the `EnrollmentToken` key in the same profile | hashed on device, `team.device.enroll` | backend in PR 16774; app client blocked on the new-backend client |
+| Script-based delivery (`defaults write /Library/Managed Preferences/...` is not supported; admins who push scripts use `profiles install` or their MDM's custom profile) | Fleet scripts, Addigy, Munki shops | document only; non-forced values written by scripts into the domain act as recommended values | docs |
+| iOS Managed App Configuration (`com.apple.configuration.managed`) and the AppConfig specfile | every iOS MDM | same keys and precedence; generated AppConfig XML specfile from the catalog's iOS-relevant keys | step M6 (after the iOS app uses cmux-next settings) |
+| Linux (team VMs, minis) | Ansible, Fleet, Chef | `/etc/cmux/policy.json` read by the Rust config crate | step M5 |
+
+### Status paths (out), so a custom dashboard can see compliance
+
+| Path | Reader | Content |
+| --- | --- | --- |
+| Status file `~/Library/Application Support/cmux/managed-status.json` (per user, 0644) | osquery (`parse_json` table or Fleet's `file` + JSON), Jamf extension attributes, Kandji/Addigy custom scripts | schema version, app version and channel, policy domain, keys seen (forced / recommended, names only, never values of `EnrollmentToken`), keys applied and their source, conflicts (MDM forced vs team enforced, E2), managing team id and policy version, enrolled yes/no, last applied time |
+| `cmux mdm status --json` (CLI verb, catalog op `mdm.status`) | admin scripts, MDM script runners | the same document; reads the status file, works with the app closed |
+| Backend admin API `team.device.compliance` (read, admins) fed by `team.device.report_status` from each install | the cmux dashboard, the customer's own dashboard through an API token, SIEM | per device: install, user, app version, policy version applied, MDM keys present (names), conflicts, last report time; compliant = applied version equals the team's current version and no conflicts |
+| Audit export | SIEM | `audit_events` (phase 2b) |
+
+### Steps
+
+| Step | Content | Tests |
+| --- | --- | --- |
+| M1 | Status file written by the config layer after each applied load (atomic write, only on change), conflicts per E2 | Swift: content, no token value, conflict detection, write only on change |
+| M2 | `team.device.report_status` (install) and `team.device.compliance` (admins) in TeamDO | reducer + workerd |
+| M3 | Per-vendor guides `docs/mdm/vendors.md` (Jamf Pro, Kandji/Iru, Intune, Workspace ONE, Mosyle, Addigy, Fleet, SimpleMDM, generic), DDM legacy-profile declaration example, osquery/Fleet query examples | generated example parses |
+| M4 | `cmux mdm status --json` in the Rust CLI (reads the status file) | testbox |
+| M5 | Rust config crate reader (`core-foundation`) and `/etc/cmux/policy.json` with the shared precedence vectors | testbox |
+| M6 | iOS managed app config and AppConfig specfile | iOS tests |
+| M7 | App reports status to the backend after enrollment (needs the new-backend client) | |
+
+Strongest objection: "A status file the user can edit is not evidence." Answer: it is for admins' own tooling on machines they manage (root-owned profile, non-admin users); the evidence of record is the backend's `team.device.compliance`, written only by the install's authenticated reports, and the app recomputes it on each load. A tampered local file can mislead only local scripts.

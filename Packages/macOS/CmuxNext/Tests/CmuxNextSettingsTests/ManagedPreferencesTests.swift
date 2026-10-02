@@ -53,7 +53,8 @@ import Testing
         let managed = ManagedPreferences(forced: ["EnrollmentToken": "tok", "DisabledFeatures": .array(["mcp"])], recommended: ["UpdateChannel": "nightly"])
         let result = EffectiveSettings.merge(file: file("{\"a\": 1}"), managed: managed, team: .none)
         #expect(result.root == file("{\"a\": 1}"))
-        #expect(result.policy == ["EnrollmentToken": "tok", "DisabledFeatures": .array(["mcp"]), "UpdateChannel": "nightly"])
+        // Policy keys come from forced values only: a local user can write non-forced values.
+        #expect(result.policy == ["EnrollmentToken": "tok", "DisabledFeatures": .array(["mcp"])])
         #expect(result.managedKeys.isEmpty)
     }
 
@@ -158,11 +159,12 @@ import Testing
 
     @Test func devicePolicyBecomesATeamLayerOnlyWhenManaged() {
         let managed: JSONValue = .object([
-            "managed": true, "team_name": "Acme", "version": 3,
-            "defaults": .object(["updates.channel": "stable"]),
-            "enforced": .object(["telemetry.level": "crash_only", "NotASetting": true]),
+            "managed": true, "team": "team_00000000000000000001", "team_name": "Acme", "version": 3,
+            "defaults": .object(["layout.stripScrollbar": "always"]),
+            "enforced": .object([Self.speed: "off", "telemetry.level": "crash_only", "NotASetting": true]),
         ])
-        #expect(TeamPolicyLayer(devicePolicy: managed) == TeamPolicyLayer(teamName: "Acme", defaults: ["updates.channel": "stable"], enforced: ["telemetry.level": "crash_only"]))
+        #expect(TeamPolicyLayer(devicePolicy: managed) == TeamPolicyLayer(teamName: "Acme", defaults: ["layout.stripScrollbar": "always"], enforced: [Self.speed: "off"],
+                                                                   teamID: "team_00000000000000000001", version: 3))
         #expect(TeamPolicyLayer(devicePolicy: .object(["managed": false, "enforced": .object(["telemetry.level": "off"])])) == nil)
     }
 
@@ -171,5 +173,103 @@ import Testing
         #expect(ManagedPreferences.enrollmentTokenHash("cmxe_shared_vector_v1") == "gBhFw31wF2LFrvU2l8Xgno2GFgrlOQQkj_hhy9_5fvw")
         #expect(ManagedPreferences(forced: ["EnrollmentToken": "  tok \n"]).enrollmentToken == "tok")
         #expect(ManagedPreferences(recommended: ["EnrollmentToken": ""]).enrollmentToken == nil)
+    }
+
+    // MARK: Status file (MDM tooling)
+
+    @Test func statusReportListsKeysSourcesAndConflictsButNeverTheToken() {
+        let managed = ManagedPreferences(forced: [Self.speed: "off", "EnrollmentToken": "cmxe_secret", "DisabledFeatures": .array(["mcp"])],
+                                         recommended: ["layout.stripScrollbar": "always"])
+        let team = TeamPolicyLayer(teamName: "Acme", enforced: [Self.speed: "normal", "appearance.borders": "none"], teamID: "team_00000000000000000001", version: 4)
+        let effective = EffectiveSettings.merge(file: file("{}"), managed: managed, team: team)
+        let body = ManagedStatusReport.body(context: .init(appVersion: "1.2.3", bundleID: "com.cmuxterm.app"), managed: managed, team: team, effective: effective)
+        #expect(!body.compactText.contains("cmxe_secret"))
+        #expect(body["enrollment_token_present"] == true)
+        #expect(body["policy"]?["EnrollmentToken"] == "<set>")
+        #expect(body["policy"]?["DisabledFeatures"] == .array(["mcp"]))
+        #expect(body["keys_forced"] == .array(["DisabledFeatures", "EnrollmentToken", "ui.animationSpeed"]))
+        #expect(body["applied"] == .array([
+            .object(["key": "appearance.borders", "source": "team", "value": "none"]),
+            .object(["key": "ui.animationSpeed", "source": "mdm", "value": "off"]),
+        ]))
+        #expect(body["conflicts"] == .array([.object(["key": .string(Self.speed), "mdm_value": "off", "team_value": "normal", "winner": "mdm"])]))
+        #expect(body["managing_team"]?["policy_version"] == 4)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func controllerWritesTheStatusFileOnlyWhenItChanges() async throws {
+        let (settings, _) = try controller("{}", managed: ManagedPreferences(forced: [Self.speed: "off"]))
+        let url = FileManager.default.temporaryDirectory.appending(path: "cmux-status-\(UUID().uuidString)/managed-status.json")
+        settings.writeManagedStatus(to: url, context: .init(appVersion: "1", bundleID: "com.cmuxterm.app.debug"))
+        await settings.reload()
+        while !FileManager.default.fileExists(atPath: url.path) { await Task.yield() }
+        var written = try JSONValue.parse(Data(contentsOf: url))
+        while written["applied"] == nil { await Task.yield(); written = try JSONValue.parse(Data(contentsOf: url)) }
+        #expect(written["applied"]?.arrayValue?.count == 1)
+        let stamp = try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+        await settings.reload()
+        await settings.reload()
+        #expect(try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date == stamp)
+        #expect(ManagedStatusReport.defaultURL(bundleID: "com.cmuxterm.app", home: URL(fileURLWithPath: "/Users/a")).path == "/Users/a/Library/Application Support/cmux/managed-status.json")
+    }
+
+    // MARK: Review findings (2026-10-02)
+
+    @Test func anUnreadableFileStillAppliesForcedValuesOverTheLastGoodFile() async throws {
+        let (settings, url) = try controller("{\"layout\": {\"stripScrollbar\": \"always\"}}", managed: ManagedPreferences(forced: [Self.speed: "off"]))
+        await settings.reload()
+        try Data("{ not json".utf8).write(to: url)
+        await settings.reload()
+        #expect(settings.snapshot.animationSpeed == .off)
+        #expect(settings.snapshot.stripScrollbar == .always)
+        #expect(settings.managedKeys == [Self.speed: .device])
+        #expect(settings.diagnostics.contains { $0.kind == .unreadableFile })
+        // Broken from the start: forced values apply over an empty document.
+        let (fresh, freshURL) = try controller("{ broken", managed: ManagedPreferences(forced: [Self.speed: "off"]))
+        await fresh.reload()
+        #expect(fresh.snapshot.animationSpeed == .off)
+        _ = freshURL
+    }
+
+    @Test func policyKeysAndTheEnrollmentTokenIgnoreNonForcedValues() {
+        let local = ManagedPreferences(recommended: ["EnrollmentToken": "planted", "DisabledFeatures": .array(["mcp"])])
+        #expect(local.enrollmentToken == nil)
+        #expect(EffectiveSettings.merge(file: file("{}"), managed: local, team: .none).policy.isEmpty)
+    }
+
+    @Test func anMDMValueThatOverridesTheTeamPolicyIsReported() {
+        let result = EffectiveSettings.merge(file: file("{}"), managed: ManagedPreferences(forced: [Self.speed: "off"]),
+                                             team: TeamPolicyLayer(teamName: "Acme", enforced: [Self.speed: "normal"]))
+        #expect(result.root.value(at: ["ui", "animationSpeed"]) == "off")
+        #expect(result.diagnostics.contains { $0.kind == .managedConflict && $0.path == Self.speed })
+    }
+
+    @Test func theTeamLayerSetsOnlyCatalogSettings() {
+        let team = TeamPolicyLayer(teamName: "Acme", enforced: [
+            "appearance": .object(["borders": "none"]), "shortcuts.bindings.tab.close": "cmd+w", "actions.evil": .object(["command": "rm"]),
+            Self.speed: "normal",
+        ])
+        let result = EffectiveSettings.merge(file: file("{\"appearance\": {\"density\": \"comfortable\"}}"), managed: .empty, team: team)
+        #expect(result.root.value(at: ["appearance", "density"]) == "comfortable")
+        #expect(result.root["shortcuts"] == nil)
+        #expect(result.root["actions"] == nil)
+        #expect(result.managedKeys == [Self.speed: .team("Acme")])
+    }
+
+    /// The backend's team.device.policy shape reaches a real setting (effect, not just the layer).
+    @Test func backendDevicePolicyChangesAnEffectiveSetting() async throws {
+        let (settings, _) = try controller("{}", managed: .empty)
+        await settings.reload()
+        let read: JSONValue = .object([
+            "team": "team_00000000000000000001", "managed": true, "team_name": "Acme", "version": 2,
+            "defaults": .object([:]), "enforced": .object([Self.speed: "off", "telemetry.level": "off"]),
+        ])
+        let layer = try #require(TeamPolicyLayer(devicePolicy: read))
+        #expect(layer.enforced.keys.sorted() == [Self.speed])
+        settings.setTeamPolicy(layer)
+        await settings.waitForLoad(atLeast: settings.loadCount + 1)
+        #expect(settings.snapshot.animationSpeed == .off)
+        // A stale read (older version of the same team) does not roll back.
+        settings.setTeamPolicy(TeamPolicyLayer(teamName: "Acme", enforced: [Self.speed: "normal"], teamID: "team_00000000000000000001", version: 1))
+        #expect(settings.teamPolicy.version == 2)
     }
 }
