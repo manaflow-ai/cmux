@@ -1072,11 +1072,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testFullscreenTilingOptOutOnlyAppliesToNativeFullscreenSources() {
         let sourceWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
-            styleMask: [.titled, .resizable],
+            styleMask: [.titled, .resizable, .fullScreen],
             backing: .buffered,
             defer: false
         )
-        sourceWindow.styleMask.insert(.fullScreen)
         defer {
             sourceWindow.close()
         }
