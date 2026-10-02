@@ -8,8 +8,12 @@ import Testing
 /// Every reachable state of a small universe is explored breadth first to
 /// a fixed depth; the invariants of `FocusAfterClose` (close-focus.md) are
 /// checked after every step. Each mutant breaks one rule and must be caught.
-@Suite struct FocusAfterCloseModelCheckTests {
-    typealias PaneRule = (_ focused: Int?, _ before: [[Int]], _ after: [[Int]], _ history: [Int], _ policy: CloseFocusPolicy) -> Int?
+/// Nonisolated and serialized: the exploration is seconds to minutes of CPU,
+/// which on the main actor (this target's default isolation) stalls every
+/// main-actor test in the process past its time limit; serialized keeps the
+/// mutant cases from filling the cooperative pool at once.
+@Suite(.serialized) nonisolated struct FocusAfterCloseModelCheckTests {
+    typealias PaneRule = @Sendable (_ focused: Int?, _ before: [[Int]], _ after: [[Int]], _ history: [Int], _ policy: CloseFocusPolicy) -> Int?
 
     static let realPane: PaneRule = { FocusAfterClose.pane(focused: $0, before: $1, after: $2, history: $3, policy: $4) }
 
