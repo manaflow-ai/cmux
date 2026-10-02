@@ -266,6 +266,8 @@ fn bookmark_commands_refuse_bad_input() {
         json!({"cmd":"update-bookmark","bookmark":PAGE,"url":"not a url"}),
         json!({"cmd":"move-bookmark","bookmark":PAGE,"parent":PAGE,"index":0}),
         json!({"cmd":"move-bookmark","bookmark":PAGE,"parent":"nowhere","index":0}),
+        // source_key marks an imported folder; a URL never carries one.
+        json!({"cmd":"create-bookmark","browser_profile_id":"default","parent":"bar","kind":"url","title":"t","url":"https://a.example","source_key":"chrome/Default"}),
     ];
     for bad in invalid {
         assert_eq!(error_code(run(&mux, bad.clone())), "invalid_params", "{bad}");
