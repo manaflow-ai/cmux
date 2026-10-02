@@ -322,6 +322,8 @@ export class OwnerEngine<S, P = unknown> {
 
   /** Snapshot for one identity; `pending` narrows `decided` to the keys the client still holds. */
   snapshot(identity: string, pending?: ReadonlyArray<string>): SnapshotFrame<S> {
+    // No pending intents: no decided keys to report, so skip the ledger query.
+    if (pending && pending.length === 0) return { t: "snapshot", stream: this.stream, seq: this.seq, state: this.state, decided: [] }
     const rows = this.sql.exec<{ idempotency_key: string; ok: number; sequence: number }>(
       `SELECT idempotency_key, ok, sequence FROM own_ledger WHERE identity = ? ORDER BY created_at`,
       identity

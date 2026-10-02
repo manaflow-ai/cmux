@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers"
 import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EventFrame, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { drainOutbox } from "./projection.ts"
+import { SnapshotBatcher } from "./snapshot-batcher.ts"
 
 /** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
 const doSql = (storage: DurableObjectStorage): SqlStore => ({
@@ -21,6 +22,8 @@ export interface SubmitResult {
 export type ReadResult = { readonly ok: true; readonly value: unknown; readonly revision: string } | ({ readonly ok: false } & Reject)
 
 const MAX_BACKOFF_MS = 5 * 60_000
+/** How long hidden events coalesce before the filtered resync snapshot. */
+const RESYNC_BATCH_MS = 250
 const PRUNE_SLACK_MS = 60 * 60_000
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
@@ -89,12 +92,29 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       // A hidden event would leave the subscriber's mirror stale until its next
       // visible event (clients repair only on a seq gap): send it a filtered snapshot instead.
       if (frame.t === "event" && state !== undefined && this.engine && !this.mayReceive(state, frame, a.principal)) {
-        safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
+        this.resyncs.mark(ws, a.principal.identity)
         continue
       }
       safeSend(ws, text)
     }
   }
+
+  /**
+   * Hidden events become one filtered snapshot per socket per batch, sent
+   * after a short one-shot delay (not a poll), with one view per identity.
+   */
+  private readonly resyncs = new SnapshotBatcher<WebSocket>({
+    schedule: (flush) => void setTimeout(flush, RESYNC_BATCH_MS),
+    viewFor: (identity) => {
+      const socket = this.ctx.getWebSockets().find((ws) => (ws.deserializeAttachment() as Attachment | null)?.principal.identity === identity)
+      const principal = (socket?.deserializeAttachment() as Attachment | null)?.principal
+      return this.engine && principal ? this.snapshotFor(this.engine, principal, []) : ""
+    },
+    send: (ws, text) => {
+      const a = ws.deserializeAttachment() as Attachment | null
+      if (text && a?.subscribed) safeSend(ws, text)
+    }
+  })
 
   /** What a subscriber may see of the state in snapshots (default: all of it). */
   protected subscriberView(state: S, _principal: Principal): unknown {
