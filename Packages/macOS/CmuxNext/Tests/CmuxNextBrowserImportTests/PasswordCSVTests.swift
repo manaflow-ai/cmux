@@ -38,6 +38,38 @@ import Testing
         #expect(try read(bitwarden).logins.map(\.username) == ["u"])
     }
 
+    /// Username before email, per row: Proton Pass has both columns, email
+    /// first, and two accounts on one site stay two.
+    @Test func prefersTheUsernameColumnAndFallsBackPerRow() throws {
+        let csv = "type,name,url,email,username,password\n"
+            + "login,a,https://a.example/,me@mail.example,octo,\(Self.marker)-1\n"
+            + "login,b,https://a.example/,,second,\(Self.marker)-2\n"
+            + "login,c,https://a.example/,third@mail.example,,\(Self.marker)-3\n"
+        let (logins, skipped) = try read(csv)
+        #expect(logins.map(\.username) == ["octo", "second", "third@mail.example"])
+        #expect(skipped == LoginSkipCounts())
+    }
+
+    /// The stored page URL drops user, password, query and fragment; the
+    /// realm keys the host as Chromium does (punycode, IPv6 in brackets).
+    @Test func keysTheSiteAsChromiumDoes() {
+        let form = PasswordCSVReader.webForm("https://me:\(Self.marker)@a.example/login?next=1#top")
+        #expect(form?.url == "https://a.example/login")
+        #expect(form?.realm == "https://a.example/")
+        #expect(PasswordCSVReader.webForm("https://bücher.example/")?.realm == "https://xn--bcher-kva.example/")
+        #expect(PasswordCSVReader.webForm("https://[::1]:8443/x")?.realm == "https://[::1]:8443/")
+    }
+
+    /// Firefox's HTTP authentication rows (an `httpRealm`) are not web forms.
+    @Test func skipsHTTPAuthenticationRows() throws {
+        let csv = "url,username,password,httpRealm\n"
+            + "https://a.example,u,\(Self.marker),\n"
+            + "https://b.example,u,\(Self.marker),Staff only\n"
+        let (logins, skipped) = try read(csv)
+        #expect(logins.map(\.signonRealm) == ["https://a.example/"])
+        #expect(skipped.notWebForm == 1)
+    }
+
     /// Rows cmux cannot use are counted, never stored: no password, not a
     /// web page, not text, or the same site and username again.
     @Test func countsWhatItSkips() throws {

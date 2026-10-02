@@ -80,13 +80,16 @@ final class AppOnboardingServices: OnboardingServices {
         await services.cache?.cef.canImportPasswords() ?? false
     }
 
-    /// Touch ID, or the Mac's password where there is none. A Mac that can do
-    /// neither (no login password) goes on: the Keychain prompt that follows
-    /// still guards the key.
+    /// Touch ID, or the Mac's password where there is none. Only a Mac with
+    /// no login password at all goes on without it; any other failure stops
+    /// the import, since an "Always Allow" on the Keychain prompt means no
+    /// prompt follows.
     func authorizePasswordRead(reason: String) async -> Bool {
         let context = LAContext()
         var unavailable: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else { return true }
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else {
+            return unavailable?.domain == LAErrorDomain && unavailable?.code == LAError.Code.passcodeNotSet.rawValue
+        }
         return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
     }
 

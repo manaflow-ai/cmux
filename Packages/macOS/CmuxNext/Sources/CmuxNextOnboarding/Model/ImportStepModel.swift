@@ -193,6 +193,10 @@ public final class ImportStepModel {
     public private(set) var authorizing = false
     /// The last confirmation did not complete; nothing was read.
     public private(set) var authorizationDenied = false
+    /// Which Touch ID request may still start the import: Back, Import
+    /// Without Passwords, Cancel and a new request each move it on, so a late
+    /// answer to an earlier sheet never imports.
+    @ObservationIgnored private var authorizationRequest = 0
 
     public var isImporting: Bool {
         if case .importing = phase { return true }
@@ -216,12 +220,14 @@ public final class ImportStepModel {
         if isConfirmingPasswords, !passwordConsent.isEmpty {
             authorizing = true
             authorizationDenied = false
+            authorizationRequest += 1
+            let request = authorizationRequest
             task = Task { [weak self, services] in
                 let allowed = await services.authorizePasswordRead(reason: OnboardingStrings.passwordsAuthReason)
-                guard let self else { return }
+                // Back, Import Without Passwords or Cancel while the sheet was up: that choice stands.
+                guard let self, self.authorizationRequest == request else { return }
                 self.authorizing = false
-                // Back or Import Without Passwords while the sheet was up: that choice stands.
-                guard self.isConfirmingPasswords else { return }
+                guard !Task.isCancelled, self.isConfirmingPasswords else { return }
                 if allowed { self.beginImport() } else { self.authorizationDenied = true }
             }
             return
@@ -265,17 +271,24 @@ public final class ImportStepModel {
     /// On the consent screen: import everything else, no passwords.
     public func skipPasswords() {
         guard isConfirmingPasswords else { return }
+        endAuthorization()
         passwordConsent = []
-        authorizationDenied = false
         beginImport()
     }
 
     /// Leaves the consent screen for the list, nothing read.
     public func backFromConsent() {
         guard isConfirmingPasswords else { return }
+        endAuthorization()
         passwordConsent = []
-        authorizationDenied = false
         phase = .ready
+    }
+
+    /// Drops a pending Touch ID answer: whatever it says, it starts nothing.
+    private func endAuthorization() {
+        authorizationRequest += 1
+        authorizing = false
+        authorizationDenied = false
     }
 
     private func record(_ progress: ImportProgress) {
@@ -287,6 +300,7 @@ public final class ImportStepModel {
     }
 
     public func cancel() {
+        endAuthorization()
         guard let task else { return }
         task.cancel()
         self.task = nil

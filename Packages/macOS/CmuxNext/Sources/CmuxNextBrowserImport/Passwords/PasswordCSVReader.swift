@@ -14,7 +14,9 @@ public struct PasswordCSVReader: Sendable {
     }
 
     static let urlColumns: Set<String> = ["url", "login_uri", "website", "web site", "login url"]
-    static let usernameColumns: Set<String> = ["username", "login_username", "user name", "user", "email", "login"]
+    /// In order of preference: a row whose username is empty uses the next
+    /// one it has (Proton Pass exports both email and username).
+    static let usernameColumns = ["username", "login_username", "user name", "user", "login", "email"]
     static let passwordColumns: Set<String> = ["password", "login_password"]
 
     public init() {}
@@ -25,7 +27,9 @@ public struct PasswordCSVReader: Sendable {
         let header = records.removeFirst().map { Self.text($0, in: bytes).trimmingCharacters(in: .whitespaces).lowercased() }
         guard let urlColumn = header.firstIndex(where: Self.urlColumns.contains),
               let passwordColumn = header.firstIndex(where: Self.passwordColumns.contains) else { throw .noPasswordColumns }
-        let usernameColumn = header.firstIndex(where: Self.usernameColumns.contains)
+        let usernameColumns = Self.usernameColumns.compactMap(header.firstIndex(of:))
+        // Firefox lists HTTP authentication sign-ins with their realm; those are not web forms.
+        let httpRealmColumn = header.firstIndex(of: "httprealm")
 
         var logins: [ImportedLogin] = []
         var skipped = LoginSkipCounts()
@@ -41,11 +45,13 @@ public struct PasswordCSVReader: Sendable {
                 continue
             }
             let rawURL = urlColumn < record.count ? Self.text(record[urlColumn], in: bytes).trimmingCharacters(in: .whitespaces) : ""
-            guard let (url, realm) = Self.webForm(rawURL) else {
+            let httpRealm = httpRealmColumn.map { $0 < record.count && !record[$0].isEmpty } ?? false
+            guard !httpRealm, let (url, realm) = Self.webForm(rawURL) else {
                 skipped.notWebForm += 1
                 continue
             }
-            let username = usernameColumn.flatMap { $0 < record.count ? Self.text(record[$0], in: bytes) : nil } ?? ""
+            let username = usernameColumns.lazy.compactMap { $0 < record.count ? Self.text(record[$0], in: bytes) : nil }
+                .first { !$0.isEmpty } ?? ""
             // The first row for a site and username wins, as the export lists it.
             guard seen.insert(realm + "\u{0}" + username).inserted else {
                 skipped.duplicate += 1
@@ -56,12 +62,20 @@ public struct PasswordCSVReader: Sendable {
         return (logins, skipped)
     }
 
-    /// The page URL and Chromium's match key ("https://example.com/", with a
-    /// port only when it is not the scheme's own) for an http(s) sign-in.
+    /// The page URL (no user, password, query or fragment) and Chromium's
+    /// match key ("https://example.com/", the host in ASCII, with a port only
+    /// when it is not the scheme's own) for an http(s) sign-in.
     static func webForm(_ text: String) -> (url: String, realm: String)? {
-        guard let components = URLComponents(string: text), let scheme = components.scheme?.lowercased(),
-              scheme == "https" || scheme == "http", let host = components.host?.lowercased(), !host.isEmpty,
-              let url = components.url else { return nil }
+        guard var components = URLComponents(string: text), let scheme = components.scheme?.lowercased(),
+              scheme == "https" || scheme == "http", let encoded = components.encodedHost?.lowercased(), !encoded.isEmpty
+        else { return nil }
+        // IDN hosts as punycode, as Chromium keys them; IPv6 literals in brackets.
+        let host = encoded.contains(":") && !encoded.hasPrefix("[") ? "[\(encoded)]" : encoded
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        guard let url = components.url else { return nil }
         let defaultPort = scheme == "https" ? 443 : 80
         let port = components.port.flatMap { $0 == defaultPort ? nil : ":\($0)" } ?? ""
         return (url.absoluteString, "\(scheme)://\(host)\(port)/")

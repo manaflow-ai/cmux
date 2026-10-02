@@ -6,7 +6,8 @@ import UniformTypeIdentifiers
 
 /// Import Passwords from CSV… (`password.importCSV`): the person picks the
 /// file in an open panel, which is the confirmation; there is no path
-/// argument, so no script or agent can feed a file in. The passwords go into
+/// argument, and the action is person-only, so the control socket cannot
+/// open the panel for a file an agent staged. The passwords go into
 /// the browser profile's Chromium password store, counts only come back, and
 /// the alert offers to move the plaintext file to the Trash
 /// (plans/cmux-next/browser.md, "Browser import: passwords and security").

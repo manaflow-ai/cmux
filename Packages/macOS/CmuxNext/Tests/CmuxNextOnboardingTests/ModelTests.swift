@@ -204,6 +204,38 @@ import Testing
         #expect(services.authorizationReasons.count == 2, "one confirmation per import")
     }
 
+    /// A Touch ID answer that comes after Back, Cancel or Import Without
+    /// Passwords starts nothing, even once the consent screen is back.
+    @Test func aLateTouchIDAnswerImportsNothing() async {
+        let services = MockOnboardingServices()
+        services.passwordStore = true
+        services.holdsAuthorization = true
+        let work = profile("Profile 1", browser: .edge, kinds: [.bookmarks, .passwords])
+        services.sources = [BrowserSource(browser: .edge, appURL: nil, profiles: [work])]
+        let model = OnboardingModel(services: services, start: .importData)
+        model.stepDidAppear()
+        await settle { model.importer.phase == .ready }
+        model.importer.start()
+        model.importer.start()
+        await settle { services.authorizationReasons.count == 1 }
+        #expect(model.importer.authorizing)
+
+        model.importer.backFromConsent()
+        #expect(!model.importer.authorizing)
+        model.importer.start()
+        #expect(model.importer.isConfirmingPasswords)
+        services.answerAuthorizations()
+        for _ in 0..<20 { await Task.yield() }
+        #expect(model.importer.isConfirmingPasswords && services.plans.isEmpty, "the earlier sheet's answer is not this screen's Import")
+
+        model.importer.start()
+        await settle { services.authorizationReasons.count == 2 }
+        model.importer.cancel()
+        services.answerAuthorizations()
+        for _ in 0..<20 { await Task.yield() }
+        #expect(services.plans.isEmpty && !model.importer.authorizing)
+    }
+
     /// Without passwords there is nothing to confirm.
     @Test func importWithoutPasswordsNeedsNoTouchID() async {
         let services = MockOnboardingServices()
