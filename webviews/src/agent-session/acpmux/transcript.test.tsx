@@ -1397,6 +1397,8 @@ describe("acpmux turn diff", () => {
             },
           ],
         }),
+      // Picked again, Uncommitted loads afresh; this answer never comes.
+      () => new Promise(() => {}),
       () => Promise.resolve({ scope: "staged", files: [] }),
     ];
     host.cmuxAcpmuxActions = {
@@ -1513,6 +1515,15 @@ describe("acpmux turn diff", () => {
       expect(eye().getAttribute("aria-pressed")).toBe("false");
       expect(panel.querySelector(".acpmux-diff-file diffs-container")).not.toBeNull();
       expect(pill.querySelector(".acpmux-diff-add")?.textContent).toBe("+1");
+      // Back to Last turn and to Uncommitted again: it loads afresh, without its old files.
+      await click(pill);
+      await click(items()[0]!);
+      expect(paths()).toEqual(["/repo/src/main.ts"]);
+      await click(pill);
+      await click(items()[1]!);
+      expect(asked.length).toBe(3);
+      expect(paths()).toEqual([]);
+      expect(panel.querySelector("output")?.textContent).toBe("Loading changes…");
       // A scope with nothing in it says so. An arrow key opens the menu from the pill too.
       await key(pill, "ArrowDown");
       expect(document.activeElement?.textContent).toBe("Uncommitted");
@@ -1522,13 +1533,14 @@ describe("acpmux turn diff", () => {
       await key(document.activeElement!, "Enter");
       await settle();
       expect(asked.at(-1)).toEqual({ scope: "staged" });
+      expect(asked.length).toBe(4);
       expect(panel.querySelector("output strong")?.textContent).toBe("No changes");
       // Last turn is the transcript's own files again, without asking the host.
       await click(pill);
       await key(document.activeElement!, "Home");
       await key(document.activeElement!, "Enter");
       await settle();
-      expect(asked.length).toBe(3);
+      expect(asked.length).toBe(4);
       expect(paths()).toEqual(["/repo/src/main.ts"]);
       expect(pill.querySelector("strong")?.textContent).toBe("Last turn");
     } finally {

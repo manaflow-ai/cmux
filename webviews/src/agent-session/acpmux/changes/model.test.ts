@@ -18,6 +18,10 @@ describe("git scope patches", () => {
     expect(numbers("@@ -1,4 +1,4 @@\n a\n\n-b\n+c\n d\n")).toEqual([["c1:1 a", "c2:2 ", "d3: b", "a:3 c", "c4:4 d"]]);
   });
 
+  test("a hunk that claims more lines than the patch holds ends with the patch", () => {
+    expect(numbers("@@ -1,3 +1,3 @@\n-a\n+b\n c\n")).toEqual([["d1: a", "a:1 b", "c2:2 c"]]);
+  });
+
   test("a CRLF patch reads as lines without the carriage return", () => {
     expect(numbers("@@ -1,2 +1,2 @@\r\n a\r\n-b\r\n+c\r\n")).toEqual([["c1:1 a", "d2: b", "a:2 c"]]);
   });
