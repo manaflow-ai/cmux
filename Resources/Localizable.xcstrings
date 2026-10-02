@@ -261874,130 +261874,130 @@
       }
     },
     "mobile.pairing.error.teamUnavailable": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Could not load your cmux team. Check your internet connection, then try again."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load your cmux team. Check your internet connection, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće učitati vaš cmux tim. Provjerite internetsku vezu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din cmux-team kunne ikke indlæses. Kontrollér din internetforbindelse, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile caricare il tuo team cmux. Controlla la connessione Internet e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកក្រុម cmux របស់អ្នកបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិត ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke laste inn cmux-teamet ditt. Kontroller internettilkoblingen, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się załadować Twojego zespołu cmux. Sprawdź połączenie z internetem i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível carregar sua equipe cmux. Verifique sua conexão com a internet e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить вашу команду cmux. Проверьте подключение к интернету и попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถโหลดทีม cmux ของคุณได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ekibiniz yüklenemedi. İnternet bağlantınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завантажити вашу команду cmux. Перевірте підключення до інтернету й спробуйте ще раз."
+          }
+        }
       }
     },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux チームを読み込めませんでした。インターネット接続を確認してから、もう一度お試しください。"
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "无法加载你的 cmux 团队。请检查网络连接，然后重试。"
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Dein cmux-Team konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Impossible de charger votre équipe cmux. Vérifiez votre connexion Internet, puis réessayez."
-      }
-    },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "تعذّر تحميل فريق cmux الخاص بك. تحقّق من اتصالك بالإنترنت، ثم حاول مرة أخرى."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "No se pudo cargar tu equipo de cmux. Comprueba tu conexión a internet e inténtalo de nuevo."
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "無法載入你的 cmux 團隊。請檢查網路連線，然後再試一次。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux 팀을 불러올 수 없습니다. 인터넷 연결을 확인한 후 다시 시도하세요."
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Nije moguće učitati vaš cmux tim. Provjerite internetsku vezu i pokušajte ponovo."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Din cmux-team kunne ikke indlæses. Kontrollér din internetforbindelse, og prøv igen."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Impossibile caricare il tuo team cmux. Controlla la connessione Internet e riprova."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "មិនអាចផ្ទុកក្រុម cmux របស់អ្នកបានទេ។ សូមពិនិត្យការតភ្ជាប់អ៊ីនធឺណិត ហើយព្យាយាមម្ដងទៀត។"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Kunne ikke laste inn cmux-teamet ditt. Kontroller internettilkoblingen, og prøv igjen."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Nie udało się załadować Twojego zespołu cmux. Sprawdź połączenie z internetem i spróbuj ponownie."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Não foi possível carregar sua equipe cmux. Verifique sua conexão com a internet e tente novamente."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Не удалось загрузить вашу команду cmux. Проверьте подключение к интернету и попробуйте ещё раз."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "ไม่สามารถโหลดทีม cmux ของคุณได้ ตรวจสอบการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux ekibiniz yüklenemedi. İnternet bağlantınızı kontrol edip tekrar deneyin."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Не вдалося завантажити вашу команду cmux. Перевірте підключення до інтернету й спробуйте ще раз."
-      }
-    }
-  }
-},
     "mobile.pairing.error.noTicket": {
       "extractionState": "manual",
       "localizations": {
@@ -568727,70 +568727,70 @@
             "value": "cmux 重新開啟後仍在還原此終端機，並確認要恢復哪個代理工作階段。請幾秒後再試。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux još vraća terminal nakon ponovnog otvaranja i provjerava koju sesiju agenta treba nastaviti. Pokušajte ponovo za nekoliko sekundi."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux još vraća terminal nakon ponovnog otvaranja i provjerava koju sesiju agenta treba nastaviti. Pokušajte ponovo za nekoliko sekundi."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux gendanner stadig terminalen efter genåbning og tjekker, hvilken agentsession der skal genoptages. Prøv igen om et par sekunder."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux gendanner stadig terminalen efter genåbning og tjekker, hvilken agentsession der skal genoptages. Prøv igen om et par sekunder."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux sta ancora ripristinando il terminale dopo la riapertura e verifica quale sessione dell’agente riprendere. Riprova tra qualche secondo."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sta ancora ripristinando il terminale dopo la riapertura e verifica quale sessione dell’agente riprendere. Riprova tra qualche secondo."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux នៅតែកំពុងស្ដារទែមីណាល់ឡើងវិញ បន្ទាប់ពីបើកម្ដងទៀត ហើយកំពុងពិនិត្យមើលថាត្រូវបន្តវគ្គភ្នាក់ងារមួយណា។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux នៅតែកំពុងស្ដារទែមីណាល់ឡើងវិញ បន្ទាប់ពីបើកម្ដងទៀត ហើយកំពុងពិនិត្យមើលថាត្រូវបន្តវគ្គភ្នាក់ងារមួយណា។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux gjenoppretter fortsatt terminalen etter at den ble åpnet på nytt, og sjekker hvilken agentøkt som skal gjenopptas. Prøv igjen om noen sekunder."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux gjenoppretter fortsatt terminalen etter at den ble åpnet på nytt, og sjekker hvilken agentøkt som skal gjenopptas. Prøv igjen om noen sekunder."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux wciąż przywraca terminal po ponownym otwarciu i sprawdza, którą sesję agenta wznowić. Spróbuj ponownie za kilka sekund."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wciąż przywraca terminal po ponownym otwarciu i sprawdza, którą sesję agenta wznowić. Spróbuj ponownie za kilka sekund."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O cmux ainda está restaurando o terminal após ser reaberto e verificando qual sessão do agente retomar. Tente novamente em alguns segundos."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux ainda está restaurando o terminal após ser reaberto e verificando qual sessão do agente retomar. Tente novamente em alguns segundos."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux ещё восстанавливает терминал после повторного открытия и проверяет, какой сеанс агента возобновить. Повторите попытку через несколько секунд."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ещё восстанавливает терминал после повторного открытия и проверяет, какой сеанс агента возобновить. Повторите попытку через несколько секунд."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux ยังคงกู้คืนเทอร์มินัลหลังจากเปิดใหม่ และกำลังตรวจสอบว่าจะทำเซสชันเอเจนต์ใดต่อ ลองอีกครั้งในอีกไม่กี่วินาที"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ยังคงกู้คืนเทอร์มินัลหลังจากเปิดใหม่ และกำลังตรวจสอบว่าจะทำเซสชันเอเจนต์ใดต่อ ลองอีกครั้งในอีกไม่กี่วินาที"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux yeniden açıldıktan sonra terminali hâlâ geri yüklüyor ve hangi ajan oturumunun sürdürüleceğini denetliyor. Birkaç saniye sonra yeniden deneyin."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux yeniden açıldıktan sonra terminali hâlâ geri yüklüyor ve hangi ajan oturumunun sürdürüleceğini denetliyor. Birkaç saniye sonra yeniden deneyin."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux ще відновлює термінал після повторного відкриття та перевіряє, який сеанс агента відновити. Спробуйте ще раз за кілька секунд."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ще відновлює термінал після повторного відкриття та перевіряє, який сеанс агента відновити. Спробуйте ще раз за кілька секунд."
           }
         }
       }
@@ -568852,70 +568852,70 @@
             "value": "此終端機正在關閉，無法讀取。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal se zatvara i ne može se pročitati."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal se zatvara i ne može se pročitati."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen lukkes og kan ikke læses."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen lukkes og kan ikke læses."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale si sta chiudendo e non può essere letto."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale si sta chiudendo e non può essere letto."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់កំពុងបិទ ហើយមិនអាចអានបានទេ។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់កំពុងបិទ ហើយមិនអាចអានបានទេ។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen lukkes og kan ikke leses."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen lukkes og kan ikke leses."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jest zamykany i nie można go odczytać."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jest zamykany i nie można go odczytać."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal está sendo fechado e não pode ser lido."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal está sendo fechado e não pode ser lido."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал закрывается, и его нельзя прочитать."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал закрывается, и его нельзя прочитать."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลกำลังปิดและไม่สามารถอ่านได้"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลกำลังปิดและไม่สามารถอ่านได้"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal kapanıyor ve okunamıyor."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal kapanıyor ve okunamıyor."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал закривається, і його не можна прочитати."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал закривається, і його не можна прочитати."
           }
         }
       }
@@ -568977,70 +568977,70 @@
             "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。顯示它即可喚醒（這會將其視窗帶到最前面），然後再試一次：%@"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Probudite ga tako što ćete ga prikazati (njegov prozor prelazi u prvi plan), pa pokušajte ponovo: %@"
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Probudite ga tako što ćete ga prikazati (njegov prozor prelazi u prvi plan), pa pokušajte ponovo: %@"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Væk den ved at vise den (dens vindue kommer forrest), og prøv igen: %@"
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Væk den ved at vise den (dens vindue kommer forrest), og prøv igen: %@"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Riattivalo mostrandolo (la sua finestra passa in primo piano), quindi riprova: %@"
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Riattivalo mostrandolo (la sua finestra passa in primo piano), quindi riprova: %@"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ ដាស់វាដោយបង្ហាញវា (បង្អួចរបស់វានឹងមកខាងមុខ) រួចព្យាយាមម្ដងទៀត៖ %@"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ ដាស់វាដោយបង្ហាញវា (បង្អួចរបស់វានឹងមកខាងមុខ) រួចព្យាយាមម្ដងទៀត៖ %@"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vekk den ved å vise den (vinduet kommer i forgrunnen), og prøv igjen: %@"
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vekk den ved å vise den (vinduet kommer i forgrunnen), og prøv igjen: %@"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wybudź go, wyświetlając go (jego okno przejdzie na pierwszy plan), a potem spróbuj ponownie: %@"
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wybudź go, wyświetlając go (jego okno przejdzie na pierwszy plan), a potem spróbuj ponownie: %@"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Desperte-o exibindo-o (a janela vem para a frente) e tente novamente: %@"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Desperte-o exibindo-o (a janela vem para a frente) e tente novamente: %@"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Разбудите его, показав терминал (его окно выйдет на передний план), и повторите попытку: %@"
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Разбудите его, показав терминал (его окно выйдет на передний план), и повторите попытку: %@"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ ปลุกโดยแสดงเทอร์มินัล (หน้าต่างจะมาอยู่ด้านหน้า) แล้วลองอีกครั้ง: %@"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ ปลุกโดยแสดงเทอร์มินัล (หน้าต่างจะมาอยู่ด้านหน้า) แล้วลองอีกครั้ง: %@"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Onu göstererek uyandırın (penceresi öne gelir), ardından yeniden deneyin: %@"
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Onu göstererek uyandırın (penceresi öne gelir), ardından yeniden deneyin: %@"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Розбудіть його, показавши термінал (його вікно перейде на передній план), і спробуйте ще раз: %@"
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Розбудіть його, показавши термінал (його вікно перейде на передній план), і спробуйте ще раз: %@"
           }
         }
       }
@@ -569102,70 +569102,70 @@
             "value": "此終端機已休眠：cmux 暫停了其閒置的代理以節省記憶體。請在 cmux 中顯示此終端機以喚醒它，然後再試一次。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Prikažite terminal u cmuxu da ga probudite, pa pokušajte ponovo."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal je u hibernaciji: cmux je pauzirao njegovog neaktivnog agenta radi uštede memorije. Prikažite terminal u cmuxu da ga probudite, pa pokušajte ponovo."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Vis terminalen i cmux for at vække den, og prøv igen."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har sat dens inaktive agent på pause for at spare hukommelse. Vis terminalen i cmux for at vække den, og prøv igen."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Mostra il terminale in cmux per riattivarlo, quindi riprova."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale è ibernato: cmux ha sospeso il suo agente inattivo per risparmiare memoria. Mostra il terminale in cmux per riattivarlo, quindi riprova."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ បង្ហាញទែមីណាល់នៅក្នុង cmux ដើម្បីដាស់វា រួចព្យាយាមម្ដងទៀត។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់កំពុងសម្រាក៖ cmux បានផ្អាកភ្នាក់ងារដែលទំនេររបស់វា ដើម្បីសន្សំអង្គចងចាំ។ បង្ហាញទែមីណាល់នៅក្នុង cmux ដើម្បីដាស់វា រួចព្យាយាមម្ដងទៀត។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vis terminalen i cmux for å vekke den, og prøv igjen."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er i dvale: cmux har satt den inaktive agenten på pause for å spare minne. Vis terminalen i cmux for å vekke den, og prøv igjen."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wyświetl terminal w cmux, aby go wybudzić, a potem spróbuj ponownie."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jest uśpiony: cmux wstrzymał jego bezczynnego agenta, aby oszczędzić pamięć. Wyświetl terminal w cmux, aby go wybudzić, a potem spróbuj ponownie."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Mostre o terminal no cmux para despertá-lo e tente novamente."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal está hibernado: o cmux suspendeu o agente ocioso para economizar memória. Mostre o terminal no cmux para despertá-lo e tente novamente."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Покажите терминал в cmux, чтобы разбудить его, и повторите попытку."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал в спящем режиме: cmux приостановил неактивного агента, чтобы сэкономить память. Покажите терминал в cmux, чтобы разбудить его, и повторите попытку."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ แสดงเทอร์มินัลใน cmux เพื่อปลุก แล้วลองอีกครั้ง"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลอยู่ในโหมดพัก: cmux หยุดเอเจนต์ที่ไม่ได้ใช้งานชั่วคราวเพื่อประหยัดหน่วยความจำ แสดงเทอร์มินัลใน cmux เพื่อปลุก แล้วลองอีกครั้ง"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Uyandırmak için terminali cmux'ta gösterin, ardından yeniden deneyin."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal hazırda bekliyor: cmux bellek tasarrufu için boştaki ajanını askıya aldı. Uyandırmak için terminali cmux'ta gösterin, ardından yeniden deneyin."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Покажіть термінал у cmux, щоб розбудити його, і спробуйте ще раз."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал у режимі сну: cmux призупинив неактивного агента, щоб заощадити пам’ять. Покажіть термінал у cmux, щоб розбудити його, і спробуйте ще раз."
           }
         }
       }
@@ -569227,70 +569227,70 @@
             "value": "此終端機尚未啟動。請幾秒後再試。"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal se još nije pokrenuo. Pokušajte ponovo za nekoliko sekundi."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal se još nije pokrenuo. Pokušajte ponovo za nekoliko sekundi."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen er ikke startet endnu. Prøv igen om et par sekunder."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen er ikke startet endnu. Prøv igen om et par sekunder."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale non è ancora stato avviato. Riprova tra qualche secondo."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale non è ancora stato avviato. Riprova tra qualche secondo."
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ទែមីណាល់មិនទាន់បានចាប់ផ្តើមនៅឡើយទេ។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់មិនទាន់បានចាប់ផ្តើមនៅឡើយទេ។ សូមព្យាយាមម្ដងទៀតក្នុងរយៈពេលពីរបីវិនាទី។"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen har ikke startet ennå. Prøv igjen om noen sekunder."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalen har ikke startet ennå. Prøv igjen om noen sekunder."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal jeszcze się nie uruchomił. Spróbuj ponownie za kilka sekund."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal jeszcze się nie uruchomił. Spróbuj ponownie za kilka sekund."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal ainda não foi iniciado. Tente novamente em alguns segundos."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal ainda não foi iniciado. Tente novamente em alguns segundos."
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал ещё не запущен. Повторите попытку через несколько секунд."
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал ещё не запущен. Повторите попытку через несколько секунд."
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "เทอร์มินัลยังไม่ได้เริ่มทำงาน ลองอีกครั้งในอีกไม่กี่วินาที"
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลยังไม่ได้เริ่มทำงาน ลองอีกครั้งในอีกไม่กี่วินาที"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminal henüz başlamadı. Birkaç saniye sonra yeniden deneyin."
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal henüz başlamadı. Birkaç saniye sonra yeniden deneyin."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Термінал ще не запущено. Спробуйте ще раз за кілька секунд."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал ще не запущено. Спробуйте ще раз за кілька секунд."
           }
         }
       }
@@ -610844,2132 +610844,2257 @@
           }
         }
       }
-    }
-,
+    },
     "settings.cloudMachines.enable.title": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام Cloud Machines"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar Cloud Machines"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser Cloud Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines を使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 사용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 Cloud Machines"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 Cloud Machines"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "استخدام Cloud Machines"
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines verwenden"
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Usar Cloud Machines"
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Utiliser Cloud Machines"
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines を使用"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines 사용"
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "使用 Cloud Machines"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "使用 Cloud Machines"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Use Cloud Machines"
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.cancel": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "إلغاء"
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Abbrechen"
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancelar"
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Annuler"
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "キャンセル"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "취소"
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "取消"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "取消"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cancel"
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.loading": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ إعداد Cloud Machines…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines werden eingerichtet …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurando Cloud Machines…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration de Cloud Machines…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines を設定中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 설정 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在设置 Cloud Machines…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在設定 Cloud Machines…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "جارٍ إعداد Cloud Machines…"
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines werden eingerichtet …"
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Configurando Cloud Machines…"
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Configuration de Cloud Machines…"
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines を設定中…"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines 설정 중…"
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "正在设置 Cloud Machines…"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "正在設定 Cloud Machines…"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Setting up Cloud Machines…"
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.upgrade": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترقية إلى Pro"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Pro upgraden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mejorar a Pro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro にアップグレード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro로 업그레이드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级到 Pro"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級至 Pro"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "الترقية إلى Pro"
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Auf Pro upgraden"
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Mejorar a Pro"
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Passer à Pro"
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Pro にアップグレード"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Pro로 업그레이드"
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "升级到 Pro"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "升級至 Pro"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Upgrade to Pro"
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.signIn": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول لاستخدام Cloud Machines"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich an, um Cloud Machines zu verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión para usar Cloud Machines"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous pour utiliser Cloud Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインして Cloud Machines を使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인하여 Cloud Machines 사용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录以使用 Cloud Machines"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入以使用 Cloud Machines"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "سجّل الدخول لاستخدام Cloud Machines"
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Melde dich an, um Cloud Machines zu verwenden"
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Inicia sesión para usar Cloud Machines"
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Connectez-vous pour utiliser Cloud Machines"
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "サインインして Cloud Machines を使用"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "로그인하여 Cloud Machines 사용"
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "登录以使用 Cloud Machines"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "登入以使用 Cloud Machines"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to use Cloud Machines"
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.subtitle": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة كمبيوتر Linux دائمة في السحابة تُفتح كمساحات عمل cmux عادية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dauerhafte Linux-Computer in der Cloud, die sich als normale cmux-Workspaces öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenadores Linux persistentes en la nube que se abren como espacios de trabajo normales de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des ordinateurs Linux persistants dans le cloud qui s’ouvrent comme des espaces de travail cmux ordinaires."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常の cmux ワークスペースとして開く、クラウド上の永続的な Linux コンピュータです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반 cmux 워크스페이스로 열리는 클라우드의 영구 Linux 컴퓨터입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端的持久 Linux 电脑，会以普通的 cmux 工作区打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端上的持久 Linux 電腦，會以一般的 cmux 工作區開啟。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "أجهزة كمبيوتر Linux دائمة في السحابة تُفتح كمساحات عمل cmux عادية."
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Dauerhafte Linux-Computer in der Cloud, die sich als normale cmux-Workspaces öffnen."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Ordenadores Linux persistentes en la nube que se abren como espacios de trabajo normales de cmux."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Des ordinateurs Linux persistants dans le cloud qui s’ouvrent comme des espaces de travail cmux ordinaires."
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "通常の cmux ワークスペースとして開く、クラウド上の永続的な Linux コンピュータです。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "일반 cmux 워크스페이스로 열리는 클라우드의 영구 Linux 컴퓨터입니다."
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "云端的持久 Linux 电脑，会以普通的 cmux 工作区打开。"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "雲端上的持久 Linux 電腦，會以一般的 cmux 工作區開啟。"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Persistent Linux computers in the cloud that open as regular cmux workspaces."
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.loading.subtitle": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجهّز cmux اتصال Cloud المشترك. قد يستغرق ذلك لحظة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bereitet die gemeinsame Cloud-Verbindung vor. Das kann einen Moment dauern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux está preparando la conexión compartida de Cloud. Esto puede tardar un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux prépare la connexion Cloud partagée. Cela peut prendre un moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が共有 Cloud 接続を準備しています。少し時間がかかる場合があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 공유 Cloud 연결을 준비하고 있습니다. 잠시 걸릴 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正在准备共享 Cloud 连接。这可能需要一点时间。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正在準備共用的 Cloud 連線。這可能需要一些時間。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "يجهّز cmux اتصال Cloud المشترك. قد يستغرق ذلك لحظة."
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux bereitet die gemeinsame Cloud-Verbindung vor. Das kann einen Moment dauern."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux está preparando la conexión compartida de Cloud. Esto puede tardar un momento."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux prépare la connexion Cloud partagée. Cela peut prendre un moment."
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux が共有 Cloud 接続を準備しています。少し時間がかかる場合があります。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux가 공유 Cloud 연결을 준비하고 있습니다. 잠시 걸릴 수 있습니다."
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux 正在准备共享 Cloud 连接。这可能需要一点时间。"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux 正在準備共用的 Cloud 連線。這可能需要一些時間。"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux is preparing the shared Cloud connection. This can take a moment."
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.requiresPro.subtitle": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تتضمن خطة هذا الحساب الوصول إلى أجهزة Cloud."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Plan dieses Kontos umfasst keinen Zugriff auf Cloud-Maschinen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El plan de esta cuenta no incluye acceso a máquinas Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le forfait de ce compte n’inclut pas l’accès aux machines Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントのプランには Cloud マシンへのアクセスが含まれていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정의 요금제에는 Cloud 머신 액세스가 포함되어 있지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帐户的套餐不包含 Cloud 机器访问权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳戶的方案不包含 Cloud 機器存取權。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "لا تتضمن خطة هذا الحساب الوصول إلى أجهزة Cloud."
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Der Plan dieses Kontos umfasst keinen Zugriff auf Cloud-Maschinen."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "El plan de esta cuenta no incluye acceso a máquinas Cloud."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Le forfait de ce compte n’inclut pas l’accès aux machines Cloud."
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "このアカウントのプランには Cloud マシンへのアクセスが含まれていません。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "이 계정의 요금제에는 Cloud 머신 액세스가 포함되어 있지 않습니다."
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "此帐户的套餐不包含 Cloud 机器访问权限。"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "此帳戶的方案不包含 Cloud 機器存取權。"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "This account’s plan does not include Cloud machine access."
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.signIn.subtitle": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى حساب cmux ثم أعد محاولة إعداد Cloud."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich bei deinem cmux-Konto an und versuche die Cloud-Einrichtung erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en tu cuenta de cmux y vuelve a intentar la configuración de Cloud."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à votre compte cmux, puis réessayez la configuration Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux アカウントにサインインしてから Cloud の設定を再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 계정에 로그인한 후 Cloud 설정을 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 cmux 帐户后重试 Cloud 设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 cmux 帳戶後再試一次 Cloud 設定。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "سجّل الدخول إلى حساب cmux ثم أعد محاولة إعداد Cloud."
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Melde dich bei deinem cmux-Konto an und versuche die Cloud-Einrichtung erneut."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Inicia sesión en tu cuenta de cmux y vuelve a intentar la configuración de Cloud."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Connectez-vous à votre compte cmux, puis réessayez la configuration Cloud."
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux アカウントにサインインしてから Cloud の設定を再試行してください。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "cmux 계정에 로그인한 후 Cloud 설정을 다시 시도하세요."
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "登录 cmux 帐户后重试 Cloud 设置。"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "登入 cmux 帳戶後再試一次 Cloud 設定。"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Sign in to your cmux account, then retry Cloud setup."
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.failed.subtitle": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر الوصول إلى خدمة Cloud. تحقق من اتصالك وأعد المحاولة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Cloud-Dienst ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo acceder al servicio Cloud. Comprueba tu conexión y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service Cloud est inaccessible. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud サービスに接続できません。接続を確認して再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 서비스에 연결할 수 없습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法访问 Cloud 服务。请检查连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線至 Cloud 服務。請檢查連線後重試。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "تعذر الوصول إلى خدمة Cloud. تحقق من اتصالك وأعد المحاولة."
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Der Cloud-Dienst ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "No se pudo acceder al servicio Cloud. Comprueba tu conexión y vuelve a intentarlo."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Le service Cloud est inaccessible. Vérifiez votre connexion et réessayez."
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud サービスに接続できません。接続を確認して再試行してください。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud 서비스에 연결할 수 없습니다. 연결을 확인하고 다시 시도하세요."
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "无法访问 Cloud 服务。请检查连接后重试。"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "無法連線至 Cloud 服務。請檢查連線後重試。"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "The Cloud service could not be reached. Check your connection and retry."
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.unavailable.subtitle": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines غير متاحة على هذا الـMac حاليًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines sind auf diesem Mac derzeit nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines no están disponibles en este Mac ahora mismo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines ne sont pas disponibles sur ce Mac pour le moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac では現在 Cloud Machines を利用できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 이 Mac에서 Cloud Machines를 사용할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 目前在此 Mac 上不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 目前在此 Mac 上無法使用。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines غير متاحة على هذا الـMac حاليًا."
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines sind auf diesem Mac derzeit nicht verfügbar."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines no están disponibles en este Mac ahora mismo."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines ne sont pas disponibles sur ce Mac pour le moment."
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "この Mac では現在 Cloud Machines を利用できません。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "현재 이 Mac에서 Cloud Machines를 사용할 수 없습니다."
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines 目前在此 Mac 上不可用。"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines 目前在此 Mac 上無法使用。"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are unavailable on this Mac right now."
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.enabled.subtitle": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines are ready to use."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are ready to use."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines جاهزة للاستخدام."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines können verwendet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines están listas para usar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines sont prêtes à être utilisées."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines を利用できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines를 사용할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 已准备就绪。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines 已準備就緒。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines su spremne za upotrebu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines er klar til brug."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines sono pronte all’uso."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines រួចរាល់សម្រាប់ប្រើប្រាស់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines er klare til bruk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines są gotowe do użycia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines estão prontas para uso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines готовы к использованию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines พร้อมใช้งานแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines kullanıma hazır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines готові до використання."
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines جاهزة للاستخدام."
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines können verwendet werden."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines están listas para usar."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines sont prêtes à être utilisées."
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines を利用できます。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines를 사용할 수 있습니다."
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines 已准备就绪。"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines 已準備就緒。"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines su spremne za upotrebu."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines er klar til brug."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines sono pronte all’uso."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines រួចរាល់សម្រាប់ប្រើប្រាស់។"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines er klare til bruk."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines są gotowe do użycia."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines estão prontas para uso."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines готовы к использованию."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines พร้อมใช้งานแล้ว"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines kullanıma hazır."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines готові до використання."
-      }
-    }
-  }
-},
     "settings.cloudMachines.enable.unavailable": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud unavailable"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud unavailable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud غير متاح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud no disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud indisponible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud は利用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud를 사용할 수 없음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 無法使用"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud nije dostupan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud er ikke tilgængelig"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud non disponibile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud មិនអាចប្រើបាន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud er utilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud niedostępny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud indisponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud недоступен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ไม่พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud недоступний"
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud غير متاح"
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud nicht verfügbar"
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud no disponible"
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud indisponible"
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud は利用できません"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud를 사용할 수 없음"
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud 不可用"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud 無法使用"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud nije dostupan"
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud er ikke tilgængelig"
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud non disponibile"
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud មិនអាចប្រើបាន"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud er utilgjengelig"
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud niedostępny"
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud indisponível"
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud недоступен"
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud ไม่พร้อมใช้งาน"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud kullanılamıyor"
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud недоступний"
-      }
-    }
-  }
-},
     "settings.cloudMachines.plan.enableFirst": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Enable Cloud to view your plan."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud to view your plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل Cloud لعرض خطتك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere Cloud, um deinen Tarif anzuzeigen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa Cloud para ver tu plan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez Cloud pour voir votre forfait."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランを表示するには Cloud を有効にしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플랜을 보려면 Cloud를 활성화하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用 Cloud 以查看你的方案。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用 Cloud 以查看你的方案。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omogućite Cloud da biste vidjeli svoj plan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivér Cloud for at se din plan."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva Cloud per visualizzare il tuo piano."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក Cloud ដើម្បីមើលគម្រោងរបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiver Cloud for å se planen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz Cloud, aby wyświetlić swój plan."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ative o Cloud para ver seu plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включите Cloud, чтобы просмотреть свой план."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้ Cloud เพื่อดูแผนของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planınızı görmek için Cloud’u etkinleştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкніть Cloud, щоб переглянути свій план."
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "فعّل Cloud لعرض خطتك."
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Aktiviere Cloud, um deinen Tarif anzuzeigen."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Activa Cloud para ver tu plan."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Activez Cloud pour voir votre forfait."
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "プランを表示するには Cloud を有効にしてください。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "플랜을 보려면 Cloud를 활성화하세요."
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "启用 Cloud 以查看你的方案。"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "啟用 Cloud 以查看你的方案。"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Omogućite Cloud da biste vidjeli svoj plan."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Aktivér Cloud for at se din plan."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Attiva Cloud per visualizzare il tuo piano."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "បើក Cloud ដើម្បីមើលគម្រោងរបស់អ្នក។"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Aktiver Cloud for å se planen din."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Włącz Cloud, aby wyświetlić swój plan."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Ative o Cloud para ver seu plano."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Включите Cloud, чтобы просмотреть свой план."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "เปิดใช้ Cloud เพื่อดูแผนของคุณ"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Planınızı görmek için Cloud’u etkinleştirin."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Увімкніть Cloud, щоб переглянути свій план."
-      }
-    }
-  }
-},
     "settings.cloudMachines.plan.openMachines": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Open Machines"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Machines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الأجهزة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Machines"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines を開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开 Machines"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟 Machines"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori Machines"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn Machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Machines"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក Machines"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne Machines"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz Machines"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Machines"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть Machines"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด Machines"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines’i aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити Machines"
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "فتح الأجهزة"
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Machines öffnen"
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Abrir Machines"
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Ouvrir Machines"
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Machines を開く"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Machines 열기"
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "打开 Machines"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "開啟 Machines"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Otvori Machines"
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Åbn Machines"
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Apri Machines"
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "បើក Machines"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Åpne Machines"
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Otwórz Machines"
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Abrir Machines"
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Открыть Machines"
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "เปิด Machines"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Machines’i aç"
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Відкрити Machines"
-      }
-    }
-  }
-},
     "settings.cloudMachines.vpn.enableFirst": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Enable Cloud to set up VPN."
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud to set up VPN."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل Cloud لإعداد VPN."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere Cloud, um das VPN einzurichten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa Cloud para configurar la VPN."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez Cloud pour configurer le VPN."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN を設定するには Cloud を有効にしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN을 설정하려면 Cloud를 활성화하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用 Cloud 以设置 VPN。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用 Cloud 以設定 VPN。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omogućite Cloud da biste postavili VPN."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivér Cloud for at konfigurere VPN."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva Cloud per configurare la VPN."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក Cloud ដើម្បីរៀបចំ VPN។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiver Cloud for å konfigurere VPN."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz Cloud, aby skonfigurować VPN."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ative o Cloud para configurar a VPN."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включите Cloud, чтобы настроить VPN."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้ Cloud เพื่อตั้งค่า VPN"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN’i ayarlamak için Cloud’u etkinleştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкніть Cloud, щоб налаштувати VPN."
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "فعّل Cloud لإعداد VPN."
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Aktiviere Cloud, um das VPN einzurichten."
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Activa Cloud para configurar la VPN."
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Activez Cloud pour configurer le VPN."
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "VPN を設定するには Cloud を有効にしてください。"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "VPN을 설정하려면 Cloud를 활성화하세요."
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "启用 Cloud 以设置 VPN。"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "啟用 Cloud 以設定 VPN。"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Omogućite Cloud da biste postavili VPN."
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Aktivér Cloud for at konfigurere VPN."
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Attiva Cloud per configurare la VPN."
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "បើក Cloud ដើម្បីរៀបចំ VPN។"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Aktiver Cloud for å konfigurere VPN."
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Włącz Cloud, aby skonfigurować VPN."
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Ative o Cloud para configurar a VPN."
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Включите Cloud, чтобы настроить VPN."
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "เปิดใช้ Cloud เพื่อตั้งค่า VPN"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "VPN’i ayarlamak için Cloud’u etkinleştirin."
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Увімкніть Cloud, щоб налаштувати VPN."
-      }
-    }
-  }
-},
     "settings.cloudMachines.vpn.openMachines": {
-  "extractionState": "manual",
-  "localizations": {
-    "en": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Open Machines"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Machines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الأجهزة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Machines"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines を開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开 Machines"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟 Machines"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori Machines"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn Machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Machines"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក Machines"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne Machines"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz Machines"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Machines"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть Machines"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด Machines"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines’i aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити Machines"
+          }
+        }
       }
     },
-    "ar": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "فتح الأجهزة"
-      }
-    },
-    "de": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Machines öffnen"
-      }
-    },
-    "es": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Abrir Machines"
-      }
-    },
-    "fr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Ouvrir Machines"
-      }
-    },
-    "ja": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Machines を開く"
-      }
-    },
-    "ko": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Machines 열기"
-      }
-    },
-    "zh-Hans": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "打开 Machines"
-      }
-    },
-    "zh-Hant": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "開啟 Machines"
-      }
-    },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Otvori Machines"
-      }
-    },
-    "da": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Åbn Machines"
-      }
-    },
-    "it": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Apri Machines"
-      }
-    },
-    "km": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "បើក Machines"
-      }
-    },
-    "nb": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Åpne Machines"
-      }
-    },
-    "pl": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Otwórz Machines"
-      }
-    },
-    "pt-BR": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Abrir Machines"
-      }
-    },
-    "ru": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Открыть Machines"
-      }
-    },
-    "th": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "เปิด Machines"
-      }
-    },
-    "tr": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Machines’i aç"
-      }
-    },
-    "uk": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Відкрити Machines"
+    "commandPalette.kind.cloudWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Workspace"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Arbeitsbereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de travail cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل سحابية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacio de trabajo en la nube"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 워크스페이스"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドワークスペース"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radni prostor u oblaku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbejdsområde"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazio di lavoro cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការលើ Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skyarbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszar roboczy w chmurze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace na nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Облачная рабочая область"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซบนคลาวด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bulut çalışma alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хмарний робочий простір"
+          }
+        }
       }
     }
-  }
-}  },
+  },
   "version": "1.0"
 }

@@ -230,7 +230,6 @@ struct MachinesPanelView: View {
             isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
             onRefresh: refreshMachines,
             onNewMachine: requestNewMachine,
-            agentMenu: { cloudAgentMenu },
             status: { cloudStatus }
         )
     }
