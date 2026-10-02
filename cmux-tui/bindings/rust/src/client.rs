@@ -1162,4 +1162,40 @@ mod tests {
         assert_eq!(error.to_string(), "cannot connect to cmux session");
         assert!(format!("{error:?}").contains("/private/secret.sock"));
     }
+
+    #[cfg(not(feature = "socket-path-hash"))]
+    #[test]
+    fn long_session_path_without_the_hash_feature_is_an_error_not_a_guess() {
+        let error = try_default_socket_path(&format!("legacy-{}", "x".repeat(200))).unwrap_err();
+        assert!(
+            matches!(&error, CmuxError::InvalidArgument(message) if message.contains("socket-path-hash")),
+            "{error:?}"
+        );
+        assert!(try_default_socket_path("main").is_ok());
+        assert!(ClientConfig::try_from_env_or_default_session("main").is_ok());
+    }
+
+    #[cfg(not(feature = "socket-path-hash"))]
+    #[test]
+    fn invalid_session_compat_path_stays_isolated_without_the_hash_feature() {
+        let escaped = default_socket_path("../escape");
+        assert_eq!(escaped, default_socket_path("../escape"));
+        assert_ne!(escaped, default_socket_path("nested/escape"));
+        assert!(
+            escaped
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-invalid-"))
+        );
+        assert!(!escaped.to_string_lossy().contains("../"));
+    }
+
+    #[cfg(not(feature = "socket-path-hash"))]
+    #[test]
+    fn hashed_legacy_probe_is_disabled_without_the_hash_feature() {
+        let path = PathBuf::from("/tmp")
+            .join(format!("cmux-tui-hashed-{}", current_uid_component()))
+            .join(format!("{}.sock", "a".repeat(64)));
+        assert_eq!(hashed_socket_legacy_path(&path), None);
+    }
 }
