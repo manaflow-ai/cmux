@@ -51,6 +51,38 @@ struct ClaudeTranscriptForkSeederTests {
 
 extension ClaudeTranscriptForkSeederTests {
     @Test
+    func copiesFromFallbackConfigDirectoryIntoLaunchConfig() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-seeder-fallback-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceConfig = root.appendingPathComponent("source-config")
+        let launchConfig = root.appendingPathComponent("launch-config")
+        let source = root.appendingPathComponent("source")
+        let destination = root.appendingPathComponent("destination")
+        let sessionID = "fallback-session"
+        let sourceProject = sourceConfig.appendingPathComponent("projects")
+            .appendingPathComponent(ClaudeProjectSlug().slug(forWorkingDirectory: source.path))
+        try FileManager.default.createDirectory(at: sourceProject, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let sourceTranscript = sourceProject.appendingPathComponent("\(sessionID).jsonl")
+        try Data("{\"type\":\"user\"}\n".utf8).write(to: sourceTranscript)
+
+        try await ClaudeTranscriptForkSeeder().seed(ClaudeTranscriptForkSeedRequest(
+            sessionID: sessionID,
+            sourceWorkingDirectory: source.path,
+            targetWorkingDirectory: destination.path,
+            configDirectory: launchConfig.path,
+            sourceConfigDirectories: [sourceConfig.path]
+        ))
+
+        let targetTranscript = launchConfig.appendingPathComponent("projects")
+            .appendingPathComponent(ClaudeProjectSlug().slug(forWorkingDirectory: destination.path))
+            .appendingPathComponent("\(sessionID).jsonl")
+        #expect(try Data(contentsOf: targetTranscript) == Data(contentsOf: sourceTranscript))
+    }
+
+    @Test
     func findsNestedTranscriptWithClaudeSlugAndRejectsDirectoryCandidate() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-seeder-nested-\(UUID().uuidString)")

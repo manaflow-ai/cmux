@@ -319,7 +319,10 @@ extension CMUXCLI {
             sessionID: sessionID,
             sourceWorkingDirectory: record.launchCommand?.workingDirectory ?? record.workingDirectory,
             targetWorkingDirectory: targetWorkingDirectory,
-            configDirectory: configRoot
+            configDirectory: configRoot,
+            sourceConfigDirectories: [
+                ((NSHomeDirectory() as NSString).appendingPathComponent(".claude"))
+            ]
         )
         do {
             try await ClaudeTranscriptForkSeeder().seed(request)

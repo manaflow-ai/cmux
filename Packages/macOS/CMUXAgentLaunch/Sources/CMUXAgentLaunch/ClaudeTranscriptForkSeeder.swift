@@ -6,17 +6,20 @@ public struct ClaudeTranscriptForkSeedRequest: Sendable {
     public let sourceWorkingDirectory: String?
     public let targetWorkingDirectory: String
     public let configDirectory: String
+    public let sourceConfigDirectories: [String]
 
     public init(
         sessionID: String,
         sourceWorkingDirectory: String?,
         targetWorkingDirectory: String,
-        configDirectory: String
+        configDirectory: String,
+        sourceConfigDirectories: [String] = []
     ) {
         self.sessionID = sessionID
         self.sourceWorkingDirectory = sourceWorkingDirectory
         self.targetWorkingDirectory = targetWorkingDirectory
         self.configDirectory = configDirectory
+        self.sourceConfigDirectories = sourceConfigDirectories
     }
 }
 
@@ -40,12 +43,19 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
         let targetProject = (projectsRoot as NSString).appendingPathComponent(
             ClaudeProjectSlug().slug(forWorkingDirectory: request.targetWorkingDirectory)
         )
-        let sourceTranscript = findSourceTranscript(
-            sessionID: request.sessionID,
-            sourceWorkingDirectory: request.sourceWorkingDirectory,
-            projectsRoot: projectsRoot,
-            fileManager: fileManager
-        )
+        let sourceRoots = ([request.configDirectory] + request.sourceConfigDirectories)
+            .filter { $0.hasPrefix("/") }
+            .reduce(into: [String]()) { roots, root in
+                if !roots.contains(root) { roots.append(root) }
+            }
+        let sourceTranscript = sourceRoots.lazy.compactMap { root in
+            findSourceTranscript(
+                sessionID: request.sessionID,
+                sourceWorkingDirectory: request.sourceWorkingDirectory,
+                projectsRoot: (root as NSString).appendingPathComponent("projects"),
+                fileManager: fileManager
+            )
+        }.first
         guard let sourceTranscript else { return }
         let targetTranscript = (targetProject as NSString).appendingPathComponent(sourceTranscript.relativePath)
         let targetSidecar = (targetProject as NSString).appendingPathComponent(request.sessionID)
