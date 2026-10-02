@@ -83,8 +83,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
+    /// `appearance.borders`; "default" when unset or invalid.
+    public var borders: BorderMode = BordersSetting.fallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
+    /// `window.rail`; "off" when unset or invalid.
+    public var rail: WindowRailPlacement = WindowRailSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `history.terminalCommands` (opt-in terminal command history).
@@ -146,9 +150,15 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         ColumnLayoutSettings.parse(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
+        let (borders, bordersDiagnostic) = BordersSetting.parse(root)
+        snapshot.borders = borders
+        if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
+        let (rail, railDiagnostic) = WindowRailSetting.parse(root)
+        snapshot.rail = rail
+        if let railDiagnostic { snapshot.diagnostics.append(railDiagnostic) }
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }

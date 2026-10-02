@@ -1,0 +1,8 @@
+- text: Single
+- button "Single"
+- text: Many
+- button "Many"
+- button "Choose via button"
+- link "Download file":
+  - /url: /download.txt
+- paragraph: none

@@ -30,6 +30,11 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// True for a pane opened as a new chat: the page does not fall back to
     /// the most recent session and creates one on the first prompt.
     public var newSession: Bool?
+    /// A new chat's working directory, sent with `session/new` (#16620).
+    /// Pages that predate it ignore it, so the version stays the same.
+    public var cwd: String?
+    /// Text a new chat's composer starts with. Shown, never sent by itself.
+    public var draft: String?
 
     public init(transport: Transport, endpoint: String? = nil, token: String? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

@@ -73,6 +73,35 @@ import Testing
 
 @MainActor
 @Suite struct ApplierTests {
+    /// The per-kind new-tab chords (#16620) are the user's from the start:
+    /// cmux.json rebinds or unbinds each one like any other action.
+    @Test func eachKindsNewTabChordIsTheUsers() throws {
+        let registry = ActionRegistry.standard()
+        let applier = SettingsApplier(design: DesignSettings(), registry: registry)
+        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.command, .shift]))
+        #expect(registry.effectiveShortcut(for: "newSurface") == Shortcut("t", modifiers: [.control, .shift, .command]))
+        let root = try JSONC.parse("""
+        {"shortcuts": {"bindings": {"palette.newAgentChat": "cmd+opt+shift+y", "newSurface": null, "openBrowser": "ctrl+cmd+b"}}}
+        """)
+        _ = applier.apply(CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics))
+        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("y", modifiers: [.command, .option, .shift]))
+        #expect(registry.effectiveShortcut(for: "newSurface") == nil)
+        #expect(registry.effectiveShortcut(for: "openBrowser") == Shortcut("b", modifiers: [.control, .command]))
+    }
+
+    /// The Terminal.app base keymap renames tabs with Cmd-Shift-I, so New
+    /// Agent Chat moves to Ctrl-Cmd-Shift-I instead of losing the key (#16621).
+    @Test func theTerminalPresetMovesNewAgentChatAside() throws {
+        let registry = ActionRegistry.standard()
+        let applier = SettingsApplier(design: DesignSettings(), registry: registry)
+        let bindings = Dictionary(uniqueKeysWithValues: ShortcutKeymapPreset.terminal.overrides.map { ($0.key, $0.value) })
+        let root = JSONValue.object(["shortcuts": .object(["bindings": .object(bindings)])])
+        _ = applier.apply(CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics))
+        #expect(registry.effectiveShortcut(for: "renameTab") == Shortcut("i", modifiers: [.command, .shift]))
+        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.control, .command, .shift]))
+        #expect(!registry.shortcutConflicts().contains { $0.contains("palette.newAgentChat") || $0.contains("renameTab") })
+    }
+
     @Test func appliesAndRevertsFileSettings() throws {
         let design = DesignSettings()
         let registry = ActionRegistry.standard()

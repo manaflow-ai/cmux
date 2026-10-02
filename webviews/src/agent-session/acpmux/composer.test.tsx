@@ -326,3 +326,36 @@ describe("acpmux composer slash menu", () => {
     expect(textarea().value).toBe("");
   });
 });
+
+describe("acpmux composer draft", () => {
+  test("an inherited draft fills an empty prompt once and is not sent", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const sent: string[] = [];
+    const render = (draft?: string) =>
+      act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: snapshot(),
+            chips: () => null,
+            draft,
+            onSend: (text: string) => {
+              sent.push(text);
+            },
+            onStop: () => {},
+          }),
+        ),
+      );
+    await render();
+    const prompt = dom.window.document.querySelector("textarea")!;
+    expect(prompt.value).toBe("");
+    await render("> selected output\n\n");
+    expect(prompt.value).toBe("> selected output\n\n");
+    expect(prompt.selectionStart).toBe(prompt.value.length);
+    expect(sent).toEqual([]);
+    // What the user typed stays when another draft arrives.
+    await act(async () => typeInto(prompt, "mine"));
+    await render("another");
+    expect(prompt.value).toBe("mine");
+    await act(async () => root.unmount());
+  });
+});

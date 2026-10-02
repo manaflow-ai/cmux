@@ -1,0 +1,277 @@
+{
+  "oracle": {},
+  "cmux": {
+    "markdown": "[Home](PRIMARY/index.html) [Docs](PRIMARY/aria.html)\n\n## Related\n\n[States](PRIMARY/states.html)\n\n# Field notes\n\nPlain text with **bold**, *emphasis*, `code()` and a [relative link](PRIMARY/aria.html?from=notes).\n\nbut this span shows\n\n- Alpha\n- Beta\n  1. Beta one\n  2. Beta two\n\n| Name | Score |\n| --- | --- |\n| Ada | 9 |\n| Linus \\| Torvalds | 7 |\n\n```\nline one\n  indented line\n```\n\n> Quoted words.\n\nMore\n\n## Shadow heading\n\nShadow paragraph with slotted text.\n\n## Frame note\n\nText inside the cross-origin frame.\n\nFrame password Frame field\n\n### Lamp\n\n$19.00[View](PRIMARY/aria.html?p=lamp)\n\n- home\n- light\n\n### Desk\n\n$120.00[View](PRIMARY/aria.html?p=desk)\n\n- office\n\n### Chair\n\n$75.50[View](PRIMARY/aria.html?p=chair)\n\nUsername Password API key One-time code Sign in\n\nSigned out\n\nPlan `Pro`\n\nChoose fruit\n\nlog line 1\n\nlog line 2\n\nlog line 3\n\nlog line 4\n\nlog line 5\n\nlog line 6\n\nlog line 7\n\nlog line 8\n\nlog line 9\n\nlog line 10\n\nlog line 11\n\nlog line 12\n\nlog line 13\n\nlog line 14\n\nlog line 15\n\nlog line 16\n\nlog line 17\n\nlog line 18\n\nlog line 19\n\nlog line 20\n\nlog line 21\n\nlog line 22\n\nlog line 23\n\nlog line 24\n\nlog line 25\n\nlog line 26\n\nlog line 27\n\nlog line 28\n\nlog line 29\n\nlog line 30\n\nlog line 31\n\nlog line 32\n\nlog line 33\n\nlog line 34\n\nlog line 35\n\nlog line 36\n\nlog line 37\n\nlog line 38\n\nlog line 39\n\nlog line 40\n\nlog line 41\n\nlog line 42\n\nlog line 43\n\nlog line 44\n\nlog line 45\n\nlog line 46\n\nlog line 47\n\nlog line 48\n\nlog line 49\n\nlog line 50\n\nlog line 51\n\nlog line 52\n\nlog line 53\n\nlog line 54\n\nlog line 55\n\nlog line 56\n\nlog line 57\n\nlog line 58\n\nlog line 59\n\nlog line 60\n\n[Download the report](PRIMARY/download.txt)\n\n[Peer page](PEER/aria.html?linked) Go to peer by script\n\nDeep anchor text at the bottom.\n\nFooter words\n",
+    "markdown-main-chunk": "# Field notes\n\nPlain text with **bold**, *emphasis*, `code()` and a [relative link](PRIMARY/aria.html?from=notes).\n\nbut this span shows\n\n- Alpha\n- Beta\n  1. Beta one\n  2. Beta two\n\n| Name | Score |\n| --- | --- |\n| Ada | 9 |\n| Linus \\| Torvalds | 7 |\n\n```\nline one\n  indented line\n```\n\n<!-- characters 0 to 300 of 1,708; continue with page.markdown({ start: 300, maxChars: 300, main: true }) -->\n",
+    "markdown-main-next": [
+      "> Quoted words.",
+      "",
+      "More"
+    ],
+    "markdown-no-links": "Plain text with **bold**, *emphasis*, `code()` and a relative link.",
+    "extract": {
+      "title": "Field notes",
+      "products": [
+        {
+          "name": "Lamp",
+          "price": "$19.00",
+          "url": "PRIMARY/aria.html?p=lamp",
+          "sku": "A1",
+          "tags": [
+            "home",
+            "light"
+          ]
+        },
+        {
+          "name": "Desk",
+          "price": "$120.00",
+          "url": "PRIMARY/aria.html?p=desk",
+          "sku": "B2",
+          "tags": [
+            "office"
+          ]
+        },
+        {
+          "name": "Chair",
+          "price": "$75.50",
+          "url": "PRIMARY/aria.html?p=chair",
+          "sku": "C3",
+          "tags": []
+        }
+      ],
+      "scores": [
+        "Ada",
+        "9",
+        "Linus | Torvalds",
+        "7"
+      ]
+    },
+    "extract-scoped": {
+      "name": "Desk",
+      "missing": null
+    },
+    "search-text": {
+      "total": 3,
+      "matches": [
+        {
+          "match": "Beta",
+          "context": "…shows Alpha Beta  Beta one B…",
+          "ref": "string"
+        },
+        {
+          "match": "Beta",
+          "context": "…Alpha Beta  Beta one Beta tw…",
+          "ref": "string"
+        },
+        {
+          "match": "Beta",
+          "context": "…a  Beta one Beta two Name Sc…",
+          "ref": "string"
+        }
+      ]
+    },
+    "search-text-ref-works": "LI",
+    "search-text-regex": [
+      "log line 15",
+      "log line 25"
+    ],
+    "dropdown-select": [
+      {
+        "index": 0,
+        "label": "Free",
+        "value": "free",
+        "selected": false,
+        "disabled": false
+      },
+      {
+        "index": 1,
+        "label": "Pro",
+        "value": "pro",
+        "selected": true,
+        "disabled": false
+      },
+      {
+        "index": 2,
+        "label": "Team",
+        "value": "team",
+        "selected": false,
+        "disabled": true
+      }
+    ],
+    "dropdown-closed-aria": "page.dropdownOptions: the listbox of <target> shows no options; click it to open it, then call again",
+    "dropdown-aria": [
+      {
+        "index": 0,
+        "label": "Apple",
+        "value": "apple",
+        "selected": false,
+        "disabled": false,
+        "ref": "string"
+      },
+      {
+        "index": 1,
+        "label": "Pear",
+        "value": "pear",
+        "selected": true,
+        "disabled": false,
+        "ref": "string"
+      },
+      {
+        "index": 2,
+        "label": "Plum",
+        "value": "plum",
+        "selected": false,
+        "disabled": true,
+        "ref": "string"
+      }
+    ],
+    "dropdown-aria-ref-clicks": "Apple",
+    "scroll-to-text": [
+      "string",
+      true
+    ],
+    "scroll-page": [
+      0,
+      true,
+      true
+    ],
+    "scroll-element": [
+      120,
+      true,
+      true
+    ],
+    "highlight": 3,
+    "search-duckduckgo": [
+      {
+        "title": "cmux - terminal for agents",
+        "url": "https://example.com/cmux",
+        "snippet": "A Ghostty-based macOS terminal with vertical tabs."
+      },
+      {
+        "title": "Browser automation docs",
+        "url": "https://docs.example.org/browser",
+        "snippet": "Drive browser panes from scripts."
+      }
+    ],
+    "search-bing": [
+      {
+        "title": "cmux on Bing",
+        "url": "https://example.com/cmux",
+        "snippet": "Terminal with notifications for agents."
+      }
+    ],
+    "search-bad-engine": "search: engine: expected one of duckduckgo, bing, google, got \"altavista\"",
+    "tools-list": [
+      {
+        "name": "price",
+        "description": "Price of a product by SKU",
+        "params": {
+          "sku": "string"
+        },
+        "domains": null
+      },
+      {
+        "name": "onlyElsewhere",
+        "description": "",
+        "params": null,
+        "domains": [
+          "example.com"
+        ]
+      }
+    ],
+    "tools-call": [
+      "$120.00",
+      "$75.50"
+    ],
+    "tools-errors": [
+      "tools.price: sku: required (string)",
+      "tools.price: sku: expected string, got number",
+      "tools.price: unknown argument extra; expected sku",
+      "tools.onlyElsewhere: available only on example.com; the current tab is <url>"
+    ],
+    "downloads": [
+      {
+        "url": "PRIMARY/download.txt",
+        "suggestedFilename": "parity-download.txt",
+        "state": "finished",
+        "readable": "parity download body\n"
+      }
+    ],
+    "record": {
+      "frames": 3,
+      "steps": [
+        "tab.navigate",
+        "tab.navigate",
+        "after-action"
+      ],
+      "apng": [
+        "PNG",
+        "acTL"
+      ]
+    },
+    "secret-status": "Signed in as ada with key <secret:key> (password 13 chars, otp 0 digits)",
+    "secret-snapshot": [
+      "title: Agent Tools <secret:key>",
+      "url: PRIMARY/agent-tools.html?peer=PEER&key=<secret:key>",
+      "  - textbox \"API key\": \"<secret:key>\"",
+      "  - text: \"Signed in as ada with key <secret:key> (password 13 chars, otp 0 digits)\""
+    ],
+    "secret-evaluate": [
+      "<secret:key>",
+      "?peer=PEER&key=<secret:key>"
+    ],
+    "secret-console": [
+      "signing in ada <secret:key> <secret:pw>"
+    ],
+    "secret-value": [
+      "<secret:key>",
+      "{\"k\":{\"__secret\":\"key\"}}",
+      [
+        {
+          "name": "key",
+          "domains": [
+            "localhost"
+          ],
+          "totp": false,
+          "agentKnown": true
+        },
+        {
+          "name": "pw",
+          "domains": [
+            "localhost"
+          ],
+          "totp": false,
+          "agentKnown": true
+        }
+      ]
+    ],
+    "secret-frame-refused": "locator.fill: secret \"key\" may not be typed into PEER/agent-frame.html; its domains are localhost",
+    "secret-keyboard-refused": "keyboard.type: a secret is typed into an element, so its domain can be checked: use locator.fill(secret(name)) or locator.type(secret(name))",
+    "secret-fetch-text": false,
+    "output:10": "typed <secret:key> and <secret:pw>\nError: failed with <secret:key>",
+    "policy-goto": "page.goto: PEER/aria.html is blocked: not in session.allowedDomains (http://localhost)",
+    "policy-fetch": "fetch: PEER/api/data is blocked: not in session.allowedDomains (http://localhost)",
+    "policy-tabs-open": "tabs.open: PEER/aria.html is blocked: not in session.allowedDomains (http://localhost)",
+    "policy-subresources": [
+      "loaded",
+      "blocked"
+    ],
+    "policy-after-link": [
+      "PRIMARY/agent-tools.html?peer=PEER",
+      [
+        "before PEER/aria.html",
+        "before PEER/api/data",
+        "before PEER/aria.html?linked"
+      ]
+    ],
+    "policy-prohibited": "page.goto: PEER/aria.html is blocked: prohibited by http://127.0.0.1 (session.prohibitedDomains)",
+    "policy-ip": "page.goto: PEER/aria.html is blocked: IP addresses are blocked (session.blockIPAddresses)",
+    "policy-locked": "session.allowedDomains: the domain policy is locked for this session",
+    "secret-screenshot": {
+      "maskedLikeAnySecret": true,
+      "textHidden": true,
+      "restored": true
+    },
+    "secret-needs-domains": "secrets.set: x: domains: expected the domains it may be typed into, such as [\"example.com\"]; a secret without domains is not accepted"
+  }
+}

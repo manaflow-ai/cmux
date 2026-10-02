@@ -1,0 +1,46 @@
+{
+ "items": [
+  {
+   "role": "textbox",
+   "name": "Shadow input",
+   "tag": "input",
+   "reason": "native",
+   "shadow": "open",
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": null,
+   "href": null,
+   "frameDepth": 0,
+   "crossOrigin": false,
+   "srcdoc": false
+  },
+  {
+   "role": "button",
+   "name": "Shadow button",
+   "tag": "button",
+   "reason": "native",
+   "shadow": "open",
+   "visible": true,
+   "latent": false,
+   "ariaHidden": false,
+   "inViewport": true,
+   "id": null,
+   "href": null,
+   "frameDepth": 0,
+   "crossOrigin": false,
+   "srcdoc": false
+  }
+ ],
+ "hiddenTexts": [],
+ "frames": [
+  {
+   "url": "http://localhost:18765/shadow.html?peer=http%3A%2F%2F127.0.0.1%3A18766",
+   "depth": 0,
+   "visible": true,
+   "crossOrigin": false,
+   "srcdoc": false
+  }
+ ]
+}

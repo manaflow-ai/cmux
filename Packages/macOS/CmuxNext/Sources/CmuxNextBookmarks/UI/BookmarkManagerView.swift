@@ -13,11 +13,11 @@ struct BookmarkManagerView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-            Divider().overlay(colors.separator)
+            HairlineDivider(color: colors.separator)
             HStack(spacing: 0) {
                 folderList
                     .frame(width: Metrics.sidebarWidth)
-                Divider().overlay(colors.separator)
+                HairlineDivider(.vertical, color: colors.separator)
                 BookmarkManagerList(model: model)
             }
         }

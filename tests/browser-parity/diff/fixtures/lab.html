@@ -1,0 +1,56 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>Diff lab</title><script src="/diff/log.js"></script>
+<style>body{font:14px sans-serif;margin:8px} #menu{display:none} #hover-wrap.open #menu{display:block} #scroller{height:80px;width:200px;overflow:auto;border:1px solid} #inner-scroller{height:60px;overflow:auto} #drop{width:120px;height:40px;border:2px dashed}</style></head><body>
+<h1>Diff lab</h1>
+<label for="name">Name</label><input id="name" aria-label="Name" placeholder="Enter name" data-testid="name" value="initial">
+<input id="decoy" aria-label="Decoy" value="leave">
+<button id="action" data-testid="action" title="Action tip" onclick="document.getElementById('status').textContent='clicked'">Action</button>
+<p id="status" role="status">ready</p>
+<label><input id="check" type="checkbox"> Option</label>
+<label><input id="radio-a" type="radio" name="r" value="a"> Radio A</label><label><input id="radio-b" type="radio" name="r" value="b"> Radio B</label>
+<select id="choice" aria-label="Choice"><option value="a">Alpha</option><option value="b">Beta</option><option value="c">Gamma</option></select>
+<select id="multi" aria-label="Colors" multiple><option value="r">Red</option><option value="g">Green</option><option value="b">Blue</option></select>
+<ul id="items"><li data-testid="item">First</li><li data-testid="item">Second</li><li data-testid="item">Third</li></ul>
+<button id="disabled" disabled>Disabled</button><button id="hidden" style="display:none">Hidden</button>
+<input id="readonly" aria-label="Readonly" readonly value="fixed">
+<textarea id="area" aria-label="Notes">line1</textarea>
+<div id="rich" role="textbox" aria-label="Rich editor" contenteditable="true">alpha <b>beta</b> gamma</div>
+<img id="logo" alt="Logo image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/%3E">
+<div id="hover-wrap" style="display:inline-block"><button id="hover-btn">Menu</button><div id="menu" role="menu"><button id="menu-item" role="menuitem" onclick="document.getElementById('status').textContent='menu picked'">Menu item</button></div></div>
+<div id="drag" draggable="true" style="display:inline-block;padding:4px;border:1px solid">Drag me</div><div id="drop">Drop here</div>
+<div id="scroller" aria-label="Outer scroller"><div style="height:60px">top</div><div id="inner-scroller" aria-label="Inner scroller"><div style="height:200px">inner</div><button id="deep">Deep button</button></div><div style="height:200px">bottom</div><button id="scroll-end">Scroll end</button></div>
+<button id="counter" onclick="this.dataset.n=String(Number(this.dataset.n||0)+1);this.textContent='Count '+this.dataset.n">Count 0</button>
+<input id="keys" aria-label="Keys">
+<canvas id="canvas" width="120" height="60" style="border:1px solid"></canvas>
+<div id="late-slot"></div>
+<button id="make-late" onclick="setTimeout(()=>{document.getElementById('late-slot').innerHTML='<button id=late>Late button</button>'},400)">Make late</button>
+<button id="remove-self" onclick="this.remove()">Remove me</button>
+<a id="next" href="/diff/next.html">Next page</a>
+<button id="push" onclick="history.pushState({}, '', '/diff/lab.html?pushed=1');document.title='Diff lab pushed'">Push state</button>
+<button id="log-btn" onclick="console.log('lab log', 42);console.warn('lab warn');console.error('lab error')">Log</button>
+<button id="throw-btn" onclick="setTimeout(()=>{throw new Error('lab boom')})">Throw</button>
+<a id="popup-link" href="/diff/next.html" target="_blank">Popup link</a>
+<div id="shadow-host"></div>
+<iframe id="frame" title="Inner frame" srcdoc="<label for=inside>Frame label</label><input id=inside placeholder='Frame placeholder' data-testid=frame-input><button onclick=&quot;this.textContent='frame clicked'&quot;>Frame action</button>"></iframe>
+<div style="height:1500px"></div><button id="far" onclick="this.textContent='far clicked'">Far away</button>
+<script>
+const $ = (id) => document.getElementById(id);
+for (const id of ["action", "counter", "far", "menu-item", "deep"]) __watch($(id), ["mousedown", "mouseup", "click", "dblclick", "contextmenu", "auxclick"], (e) => [e.button, e.detail, e.altKey, e.ctrlKey, e.metaKey, e.shiftKey]);
+$("action").addEventListener("contextmenu", (e) => e.preventDefault());
+__watch($("name"), ["focus", "blur", "input", "change"]);
+__watch($("check"), ["click", "input", "change"]);
+__watch($("choice"), ["input", "change"]);
+__watch($("multi"), ["change"]);
+__watch($("keys"), ["keydown", "keyup", "keypress", "input"], (e) => (e.type === "input" ? [e.inputType, e.data] : [e.key, e.code, e.altKey, e.ctrlKey, e.metaKey, e.shiftKey, e.repeat]));
+__watch($("rich"), ["beforeinput", "input", "compositionstart", "compositionupdate", "compositionend"], (e) => [e.inputType || null, e.data === undefined ? null : e.data]);
+__watch($("hover-btn"), ["mouseenter", "mouseover"]);
+__watch($("drop"), ["dragenter", "dragover", "drop"], (e) => (e.type === "drop" ? [...(e.dataTransfer?.types || [])] : null));
+__watch($("drag"), ["dragstart", "dragend"]);
+__watch($("canvas"), ["mousedown", "mousemove", "mouseup", "click", "wheel"], (e) => [Math.round(e.offsetX), Math.round(e.offsetY), e.button, e.deltaY === undefined ? null : Math.round(e.deltaY)]);
+$("drop").addEventListener("dragover", (e) => e.preventDefault());
+$("drop").addEventListener("drop", (e) => { e.preventDefault(); $("drop").textContent = "dropped " + (e.dataTransfer.files.length ? [...e.dataTransfer.files].map((f) => f.name).join(",") : e.dataTransfer.getData("text/plain") || "?"); });
+$("drag").addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", "payload"));
+let hoverTimer;
+$("hover-wrap").addEventListener("mouseenter", () => { hoverTimer = setTimeout(() => $("hover-wrap").classList.add("open"), 300); });
+$("hover-wrap").addEventListener("mouseleave", () => { clearTimeout(hoverTimer); $("hover-wrap").classList.remove("open"); });
+$("shadow-host").attachShadow({ mode: "open" }).innerHTML = '<input aria-label="Shadow field"><button onclick="this.textContent=\'shadow clicked\'">Shadow action</button>';
+</script></body></html>

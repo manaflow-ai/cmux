@@ -128,6 +128,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                     let live = services.cache.incognitoDisplay(tab)
                     item.title = live.title ?? Strings.untitledBrowser
                     item.subtitle = live.url
+                    item.location = TabLocation(address: live.url)
                 } else {
                     item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID)
                 }
@@ -141,6 +142,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             var item = StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
                                     icon: .symbol("globe"))
             item.isDormant = services.cache.dormantTabs.contains(local.id)
+            item.location = TabLocation(page: page?.url)
             browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
             items.append(item)
         }
@@ -245,7 +247,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func content(for key: String) -> TabContent? {
-        if key.hasPrefix(LocalAgentTab.prefix) { return services.agentTabs.view(for: key).map(TabContent.agent) }
+        if key.hasPrefix(LocalAgentTab.prefix) { return agentContent(key) }
         if key.hasPrefix(LocalBrowserTab.prefix) {
             let local = state?.localBrowserTabs[paneKey]?.first { $0.id == key }
             // A local tab of an incognito window uses its off-the-record profile.

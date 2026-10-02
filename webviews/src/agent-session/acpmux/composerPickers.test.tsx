@@ -551,3 +551,66 @@ describe("acpmux composer context", () => {
     }
   });
 });
+
+describe("acpmux composer queue", () => {
+  test("queued prompts list above the bar in order, and the list goes away when empty", async () => {
+    const root = createRoot(doc.getElementById("root")!);
+    const render = async (queue: AcpmuxSnapshot["queue"]) =>
+      act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: { ...snapshot({}, true), queue },
+            chips: () => null,
+            onSend: () => {},
+            onStop: () => {},
+          }),
+        ),
+      );
+    try {
+      await render([
+        { id: "p1", prompt: "first" },
+        { id: "p2", prompt: "second\nline" },
+      ]);
+      const list = doc.querySelector("ol.acpmux-composer-queue")!;
+      expect(list.getAttribute("aria-label")).toBe("Queued prompts");
+      expect([...list.querySelectorAll(".acpmux-queued-text")].map((node) => node.textContent)).toEqual([
+        "first",
+        "second\nline",
+      ]);
+      expect(list.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+      // The slash menu anchors to the field, so the queue never pushes it up.
+      await act(async () => typeInto(doc.querySelector("textarea")!, "/"));
+      expect(doc.querySelector(".acpmux-composer-box > .acpmux-slash-menu")).not.toBeNull();
+      await act(async () => typeInto(doc.querySelector("textarea")!, ""));
+      await render([]);
+      expect(doc.querySelector(".acpmux-composer-queue")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  test("with a session's place shown, the queue sits on the context tray and the tray on the box", async () => {
+    const root = createRoot(doc.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: {
+              ...snapshot({ cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local", branch: "main" }, true),
+              queue: [{ id: "p1", prompt: "next" }],
+            },
+            chips: () => null,
+            onSend: () => {},
+            onStop: () => {},
+          }),
+        ),
+      );
+      const queue = doc.querySelector("ol.acpmux-composer-queue")!;
+      const tray = queue.nextElementSibling!;
+      expect(tray.classList.contains("acpmux-composer-context")).toBe(true);
+      expect(tray.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});

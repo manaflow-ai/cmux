@@ -1,0 +1,13 @@
+Browser tab: 1, Title: "Files Fixture", URL: "http://localhost:18765/files.html?peer=http%3A%2F%2F127.0.0.1%3A18766".
+0 AXWebArea Files Fixture, URL: localhost:18765/files.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+	1 container
+		2 text Single 
+		3 button Single, ID: one
+	4 container
+		5 text Many 
+		6 button Many, ID: many
+	7 button Choose via button, ID: picker
+	8 link Description: Download file, Value: localhost:18765/download.txt, ID: dl
+	9 text none
+
+The focused UI element is 0 AXWebArea Files Fixture, URL: localhost:18765/files.html?peer=http%3A%2F%2F127.0.0.1%3A18766
