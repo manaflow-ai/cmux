@@ -12,7 +12,7 @@ final class GroupHeaderRowView: SidebarRowView {
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let count = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private let chevron = NSImageView()
-    private let activity = ActivityIndicatorView()
+    private let activity = StatusIndicatorView()
     private let badge = UnreadBadgeView()
     private let pin = NSImageView()
     private var pinned = false
@@ -131,7 +131,7 @@ final class GroupHeaderRowView: SidebarRowView {
         } else {
             badge.isHidden = true
         }
-        if activity.activity != .idle {
+        if activity.showsGlyph {
             let ind = SidebarStyle.indicatorSize
             activity.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2

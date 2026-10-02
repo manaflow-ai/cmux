@@ -115,7 +115,7 @@ describe("acpmux composer pickers", () => {
     await act(async () => root.unmount());
   });
 
-  test("the model and the effort are two dropdowns, each with its current choice checked", async () => {
+  test("the model is a dropdown with its current choice checked; the effort is a stepped slider", async () => {
     await render(snapshot({ configOptions: [effort] }));
     expect(button("Model")!.textContent).toBe("6 Astra");
     expect(button("Effort")!.textContent).toBe("High");
@@ -130,7 +130,20 @@ describe("acpmux composer pickers", () => {
     expect(calls).toEqual(["model sol"]);
     expect(doc.querySelector("[role=listbox]")).toBeNull();
     await act(async () => button("Effort")!.click());
-    expect(options()).toEqual(["Medium", "High *"]);
+    // The popover names the effort and the model over one stop per level.
+    expect(doc.querySelector(".acpmux-effort-title")!.textContent).toBe("High");
+    expect(doc.querySelector(".acpmux-effort-model")!.textContent).toBe("6 Astra");
+    const range = doc.querySelector<HTMLInputElement>(".acpmux-effort-range")!;
+    expect([range.min, range.max, range.value]).toEqual(["0", "1", "1"]);
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(range, "0");
+      range.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    expect(calls).toEqual(["model sol", "effort reasoning_effort medium"]);
+    // Escape closes it back to the chip.
+    await key(range, "Escape");
+    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
   });
 
   test("arrows and Enter pick from the menu, and Escape closes it back to the button", async () => {
@@ -151,23 +164,33 @@ describe("acpmux composer pickers", () => {
   });
 
   test("Space picks on keyup without the button's click reopening the menu, and a shrunk list keeps a row highlighted", async () => {
-    await render(snapshot({ configOptions: [effort] }));
-    const level = button("Effort")!;
-    // The highlight opens on the current effort, the last one.
-    await key(level, "ArrowDown");
-    expect(doc.getElementById(level.getAttribute("aria-activedescendant")!)!.textContent).toBe("High");
+    const full = { ...modes, currentModeId: "bypassPermissions" };
+    await render(snapshot({ modes: full }));
+    const mode = button("Mode")!;
+    // The highlight opens on the current mode, the last one.
+    await key(mode, "ArrowDown");
+    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Full access");
     // A live update drops that option while it is highlighted.
-    await render(snapshot({ configOptions: [{ ...effort, options: [effort.options[0]!] }] }));
-    expect(doc.getElementById(level.getAttribute("aria-activedescendant")!)!.textContent).toBe("Medium");
-    await key(level, " ");
-    expect(level.getAttribute("aria-expanded")).toBe("true");
+    await render(snapshot({ modes: { ...full, availableModes: [full.availableModes[0]!] } }));
+    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Ask for approval");
+    await key(mode, " ");
+    expect(mode.getAttribute("aria-expanded")).toBe("true");
     const up = new dom.window.KeyboardEvent("keyup", { key: " ", bubbles: true, cancelable: true });
     await act(async () => {
-      level.dispatchEvent(up);
+      mode.dispatchEvent(up);
     });
     expect(up.defaultPrevented).toBe(true);
-    expect(calls).toEqual(["effort reasoning_effort medium"]);
-    expect(level.getAttribute("aria-expanded")).toBe("false");
+    expect(calls).toEqual(["mode ask"]);
+    expect(mode.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("the approval menu asks its question over the described modes", async () => {
+    await render(snapshot({ modes }));
+    await act(async () => button("Mode")!.click());
+    const menu = doc.querySelector("[role=listbox]")!;
+    expect(menu.getAttribute("aria-label")).toBe("How should the agent's actions be approved?");
+    expect(menu.querySelector(".acpmux-menu-heading")!.textContent).toBe("How should the agent's actions be approved?");
+    expect(menu.textContent).toContain("Always ask");
   });
 
   test("a model the catalog doesn't list still shows by the id the agent reported", async () => {

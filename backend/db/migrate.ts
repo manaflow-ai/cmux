@@ -169,7 +169,12 @@ if (import.meta.main) {
     const applied = new Map(rows.map((r) => [r.version, r.checksum]))
     // A row the repo lacks: another PR's migration (merge its base first) or an abandoned one (operator fix).
     const unknown = [...applied.keys()].filter((v) => !files.includes(v))
-    if (unknown.length) throw new Error(`${target} has migrations this tree lacks: ${unknown.join(", ")}; merge the base branch first`)
+    if (unknown.length) {
+      // Development is shared by every open PR's preview, so it may hold another PR's
+      // unmerged migration; staging and production must match the tree exactly.
+      if (envName === "development") console.warn(`${target} also has migrations this tree lacks: ${unknown.join(", ")} (other open PRs)`)
+      else throw new Error(`${target} has migrations this tree lacks: ${unknown.join(", ")}; merge the base branch first`)
+    }
     const pending: Array<string> = []
     for (const f of files) {
       const sql = readFileSync(join(dir, f), "utf8")

@@ -138,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.themes.start()
         services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
+        services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
@@ -151,7 +152,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerUpdateMethods(services.updater)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
-                if let router = control.service?.router { installCompat(on: router) }
+                if let router = control.service?.router {
+                    installCompat(on: router)
+                    services.apps.attach(router: router)
+                }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
