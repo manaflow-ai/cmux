@@ -172,6 +172,11 @@ pub trait Store: Send + Sync {
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
     }
+    /// Where handoff records live: `handoffs/` beside `sessions/`, or none
+    /// (in memory) for the memory store.
+    fn handoff_dir(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -411,6 +416,10 @@ impl Store for LocalStore {
 
     fn session_dir(&self, id: &str) -> Option<PathBuf> {
         Some(self.dir(id))
+    }
+
+    fn handoff_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("handoffs"))
     }
 }
 

@@ -139,6 +139,19 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
     if let Some(owner) = owner {
         fields.insert("owner".into(), json!(owner));
     }
+    // `conversation-tabs-v1`: the conversation a frontend tab shows.
+    let conversation = connection
+        .query_row(
+            "SELECT c.conversation, c.owner FROM resource_tabs AS t
+             JOIN conversation_tabs AS c ON c.browser_id = t.content_id
+             WHERE t.public_id = ?1",
+            [tab_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    if let Some((conversation, owner)) = conversation {
+        fields.insert("conversation".into(), json!({"conversation": conversation, "owner": owner}));
+    }
     // A keep-layout record (`end-terminals-keep-layout-v1`): restart a shell
     // in `cwd`. Absent (null) for every other tab, like the other extras.
     let relaunch = super::kept_tab_store::relaunch_value(connection, tab_id)?;
@@ -203,6 +216,11 @@ pub(crate) fn decorate_value(
         "screen" => screen_extra(connection, &id)?,
         _ => return Ok(()),
     };
+    // The canonical kind of a conversation tab; connections without
+    // `conversation-tabs-v1` see `browser` (server/conversation_tabs_wire.rs).
+    if resource == "tab" && fields.contains_key("conversation") {
+        value["content_kind"] = json!(super::conversation_tabs_store::CONVERSATION_KIND);
+    }
     merge_extra(value, fields);
     Ok(())
 }

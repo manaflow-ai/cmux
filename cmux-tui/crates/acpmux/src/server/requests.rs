@@ -42,6 +42,11 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_WATCH,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
+    method::MUX_HANDOFF_PREPARE,
+    method::MUX_HANDOFF_GET,
+    method::MUX_HANDOFF_DRAFT,
+    method::MUX_HANDOFF_START,
+    method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
     "_acpmux/models",
     "_acpmux/peer_add",
@@ -128,7 +133,8 @@ pub(super) async fn handle_request(
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
-                ], "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText"]}}
+                ], "operations": crate::hub::HANDOFF_OPERATIONS, "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText"]}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -155,10 +161,10 @@ pub(super) async fn handle_request(
                 }
                 return Ok(result);
             }
-            let cwd = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| {
-                dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
-            });
+            let cwd = str_param(&params, "cwd").map(PathBuf::from);
             let meta = mux_meta(&params);
+            let adopt =
+                crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
             let pick = |key: &str| {
                 meta.and_then(|m| m.get(key))
                     .and_then(Value::as_str)
@@ -176,6 +182,7 @@ pub(super) async fn handle_request(
                 policy,
                 model: pick("model"),
                 effort: pick("effort"),
+                adopt,
             };
             let s = hub.new_session(req).await?;
             attach(hub, conn, &s.id);
@@ -761,6 +768,11 @@ pub(super) async fn handle_request(
             hub.shutdown.notify_one();
             Ok(json!({}))
         }
+        method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params).await,
+        method::MUX_HANDOFF_GET => hub.handoff_get(&params),
+        method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
+        method::MUX_HANDOFF_START => hub.handoff_start(&params).await,
+        method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
         // Anything else that names a session goes to the agent untouched.
         other => {
             if let Ok(key) = session_key(&params) {

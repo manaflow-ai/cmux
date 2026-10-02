@@ -19,6 +19,7 @@
 //! The materialized table is authoritative for restoration, so a restore
 //! preview never counts these records as unsupported required state.
 
+use crate::state::conversation_tabs_store::{ConversationTabRecord, read_conversation_tabs};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Context;
@@ -155,8 +156,7 @@ fn migrate_workspace_presentation_add_marked_unread(
     Ok(())
 }
 
-/// One sidebar group. Groups are ordered by their index in
-/// [`PresentationSnapshot::groups`].
+/// One sidebar group. Groups are ordered by their index in [`PresentationSnapshot::groups`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkspaceGroupRecord {
     pub id: String,
@@ -255,6 +255,8 @@ pub struct PresentationSnapshot {
     /// (`browser_...`). Rows exist before their browser commits, so a
     /// pending creation is already known when its surface spawns.
     pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
+    /// `conversation-tabs-v1` records keyed by public browser id.
+    pub conversation_tabs: HashMap<String, ConversationTabRecord>,
     /// Chrome-style tab groups of every pane.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
@@ -600,8 +602,7 @@ pub fn validate_workspace_group_id(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A name or title: nonempty after trimming, bounded, and free of control
-/// characters.
+/// A name or title: nonempty after trimming, bounded, and free of control characters.
 pub fn validate_presentation_text(label: &str, value: &str) -> anyhow::Result<()> {
     anyhow::ensure!(!value.trim().is_empty(), "bad request: {label} cannot be empty");
     anyhow::ensure!(
@@ -718,8 +719,7 @@ fn transaction_session_id(transaction: &Transaction<'_>) -> anyhow::Result<Strin
         .context("read journal session id")
 }
 
-/// Append the immutable fact for one presentation mutation in the caller's
-/// transaction.
+/// Append the immutable fact for one presentation mutation in the caller's transaction.
 pub(crate) fn append_presentation_record(
     transaction: &Transaction<'_>,
     kind: &str,
@@ -966,11 +966,13 @@ impl WorkspaceRegistry {
         let screens = super::screen_store::read_screen_state(&self.connection)?;
         let saved_screen_groups = super::screen_store::read_saved_screen_groups(&self.connection)?;
         let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection)?;
+        let conversation_tabs = read_conversation_tabs(&self.connection)?;
         Ok(PresentationSnapshot {
             groups,
             workspaces,
             pinned_tabs,
             frontend_browsers,
+            conversation_tabs,
             tab_groups,
             saved_tab_groups,
             screens,
@@ -1069,8 +1071,7 @@ impl WorkspaceRegistry {
         Ok(group)
     }
 
-    /// Delete a group. Its workspaces stay in place and become ungrouped;
-    /// their keys are returned.
+    /// Delete a group. Its workspaces stay in place and become ungrouped; their keys are returned.
     pub fn delete_workspace_group(&mut self, id: &str) -> anyhow::Result<Vec<String>> {
         validate_workspace_group_id(id)?;
         let tx = self.connection.transaction()?;
@@ -1105,8 +1106,7 @@ impl WorkspaceRegistry {
     }
 
     /// Move a group to a zero-based insertion index among groups, with the
-    /// same insertion-point semantics as `move-workspace`. Returns the final
-    /// index.
+    /// same insertion-point semantics as `move-workspace`. Returns the final index.
     pub fn move_workspace_group(&mut self, id: &str, index: usize) -> anyhow::Result<usize> {
         validate_workspace_group_id(id)?;
         let tx = self.connection.transaction()?;
@@ -1133,8 +1133,7 @@ impl WorkspaceRegistry {
     }
 
     /// Store a tab placement's pinned flag, keyed by its public tab id.
-    /// Rows of closed tabs are pruned on the way. Returns whether the flag
-    /// changed.
+    /// Rows of closed tabs are pruned on the way. Returns whether the flag changed.
     pub fn set_tab_pinned(&mut self, tab_id: &str, pinned: bool) -> anyhow::Result<bool> {
         anyhow::ensure!(
             tab_id.starts_with("tab_") && tab_id.len() <= 64,
@@ -1186,12 +1185,12 @@ impl WorkspaceRegistry {
     }
 
     /// Register a frontend-rendered browser before its tab commits, so the
-    /// daemon never bootstraps a CDP target for it. The browser id must be
-    /// fresh.
+    /// daemon never bootstraps a CDP target for it. The browser id must be fresh.
     pub fn put_frontend_browser(
         &mut self,
         browser_id: &str,
         record: &FrontendBrowserRecord,
+        extra: Option<super::RegistryTransactionWrite<'_>>,
     ) -> anyhow::Result<()> {
         validate_browser_public_id(browser_id)?;
         record.validate()?;
@@ -1223,6 +1222,7 @@ impl WorkspaceRegistry {
             vec![browser_subject(browser_id)],
             &json!({"browser_id": browser_id, "browser": record}),
         )?;
+        extra.map_or(Ok(()), |extra| extra(&tx))?;
         tx.commit()?;
         Ok(())
     }
@@ -1274,9 +1274,10 @@ impl WorkspaceRegistry {
     /// Forget a frontend browser whose tab creation failed.
     pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
         validate_browser_public_id(browser_id)?;
-        self.connection
-            .execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
-        Ok(())
+        let tx = self.connection.transaction()?;
+        tx.execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
+        crate::state::conversation_tabs_store::delete_conversation_tab(&tx, browser_id)?;
+        Ok(tx.commit()?)
     }
 
     /// Notification ids acknowledged as read on the shared console. A
@@ -1336,8 +1337,7 @@ impl WorkspaceRegistry {
         Ok(added)
     }
 
-    /// Replace every tab group and membership (metadata-only changes that
-    /// leave tab order alone).
+    /// Replace every tab group and membership (metadata-only changes that leave tab order alone).
     pub fn replace_tab_groups(&mut self, state: &TabGroupState) -> anyhow::Result<()> {
         let tx = self.connection.transaction()?;
         write_tab_group_state(&tx, state)?;

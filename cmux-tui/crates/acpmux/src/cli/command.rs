@@ -72,6 +72,9 @@ pub enum Command {
         #[arg(long, short)]
         effort: Option<String>,
     },
+    /// Continue a session's work on another harness: prepare a reviewed
+    /// first message for a new session there, then start or discard it.
+    Continue(crate::cli::handoff::ContinueArgs),
     /// One turn per turn: prompt preview, status, tools, tokens, wall time.
     History {
         session: String,

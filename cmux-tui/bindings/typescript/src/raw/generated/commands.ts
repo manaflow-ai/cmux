@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 06426902f6b840fe5bda861cd89adf95557247009953da568266a7381b1a1f9c. */
+/* cmux-tui mux protocol 12, IR 68f320c61aea43c8086b6eb581a5d4f6411714c3749b5177b44c3806a2e34d87. */
 
 
 import type * as T from "./types.js";
@@ -927,6 +927,19 @@ export interface NewBrowserTabRequest extends CmuxRequestBase {
   "url": string;
 }
 export type NewBrowserTabResult = T.SurfaceResult;
+
+/** Protocol v12; authority: control. */
+export interface NewConversationTabRequest extends CmuxRequestBase {
+  cmd: "new-conversation-tab";
+  "cols"?: (number) | null;
+  "conversation": string;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
+  "owner": string;
+  "pane"?: (T.Id) | null;
+  "rows"?: (number) | null;
+}
+export type NewConversationTabResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
@@ -1933,6 +1946,7 @@ export type CmuxRequest =
   | MoveWorkspaceGroupRequest
   | MoveWorkspaceToGroupRequest
   | NewBrowserTabRequest
+  | NewConversationTabRequest
   | NewFrontendBrowserTabRequest
   | NewPaneRequest
   | NewPaneRightRequest
@@ -2823,6 +2837,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "new-conversation-tab": {
+    request: NewConversationTabRequest;
+    result: NewConversationTabResult;
+    authority: "control";
+    since: 12;
+    capability: "conversation-tabs-v1";
     stream: null;
   };
   "new-frontend-browser-tab": {

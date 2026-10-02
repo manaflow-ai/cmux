@@ -280,6 +280,7 @@
       "move-workspace-group",
       "move-workspace-to-group",
       "new-browser-tab",
+      "new-conversation-tab",
       "new-frontend-browser-tab",
       "new-pane",
       "new-pane-right",

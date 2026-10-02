@@ -1330,6 +1330,9 @@ async fn session_cancel_as_a_request_is_answered() {
 #[path = "hub_integration/transcript_events.rs"]
 mod transcript_events;
 
+#[path = "hub_integration/handoff.rs"]
+mod handoff;
+
 fn prompt_with_id(id: &str, text: &str, prompt_id: &str, resend: bool) -> Value {
     json!({
         "sessionId": id,
@@ -1425,3 +1428,6 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
     assert_eq!(user_messages(&hub2, &id), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[path = "hub_integration/adopt.rs"]
+mod adopt;
