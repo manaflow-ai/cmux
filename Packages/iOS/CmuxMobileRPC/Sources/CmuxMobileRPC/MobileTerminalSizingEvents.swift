@@ -63,12 +63,7 @@ public struct MobileTerminalDetachedEvent: Decodable, Sendable, Equatable {
     /// - Parameter raw: The wire timestamp.
     /// - Returns: The date, or `nil` when unparseable.
     public static func parseDate(_ raw: String) -> Date? {
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = withFraction.date(from: raw) { return date }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: raw)
+        MobileRPCISO8601Date.parse(raw)
     }
 
     /// Decodes the event payload.

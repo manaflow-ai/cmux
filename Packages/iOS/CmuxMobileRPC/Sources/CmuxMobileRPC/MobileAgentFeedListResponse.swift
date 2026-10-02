@@ -234,15 +234,15 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         replyText = try container.decodeIfPresent(String.self, forKey: .replyText)
     }
 
-    /// The wire carries ISO8601 timestamps (the Mac side encodes with
-    /// `ISO8601DateFormatter`); tolerate epoch seconds for forward
-    /// compatibility with hosts that switch to numeric dates.
+    /// The wire carries ISO8601 timestamps, with or without fractional
+    /// seconds; tolerate epoch seconds for forward compatibility with hosts
+    /// that switch to numeric dates.
     private static func date(
         from container: KeyedDecodingContainer<CodingKeys>,
         forKey key: CodingKeys
     ) throws -> Date {
         if let raw = try? container.decode(String.self, forKey: key) {
-            if let date = mobileAgentFeedISO8601Formatter.date(from: raw) {
+            if let date = MobileRPCISO8601Date.parse(raw) {
                 return date
             }
             throw DecodingError.dataCorruptedError(
@@ -255,10 +255,6 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         return Date(timeIntervalSince1970: seconds)
     }
 }
-
-/// `NSISO8601DateFormatter` is documented thread-safe; the annotation only
-/// silences the strict-concurrency diagnostic for this immutable global.
-nonisolated(unsafe) private let mobileAgentFeedISO8601Formatter = ISO8601DateFormatter()
 
 /// One question prompt attached to a question item.
 public struct MobileAgentFeedListQuestion: Decodable, Equatable, Sendable {

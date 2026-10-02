@@ -254,7 +254,7 @@ extension CMUXCLI {
         try reviewValidateBrief(brief, invalid: invalid)
 
         guard let createdAt = reviewNonemptyString(payload["created_at"]),
-              let createdAtDate = ISO8601DateFormatter().date(from: createdAt) else {
+              let createdAtDate = reviewISO8601Date(createdAt) else {
             throw invalid("created_at must be an ISO-8601 timestamp")
         }
 
@@ -645,6 +645,14 @@ extension CMUXCLI {
             return nil
         }
         return value
+    }
+
+    /// Parses an ISO-8601 timestamp with or without fractional seconds; a
+    /// bare `ISO8601DateFormatter` rejects `2026-09-30T22:44:53.481Z`.
+    private func reviewISO8601Date(_ value: String) -> Date? {
+        let fractionalSeconds = ISO8601DateFormatter()
+        fractionalSeconds.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractionalSeconds.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 
     private func reviewNonnegativeInt(_ value: Any?) -> Int? {
