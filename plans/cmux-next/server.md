@@ -1,6 +1,6 @@
 # cmux next: cmux server and VM software
 
-Status: draft 1, 2026-10-02 (server lead, lane 10). Spec owner: the coordinator (only the coordinator edits the spec repo; this file is the spec proposal "server"). Decided input: SV1 (soft self-hosting: "Make This Mac a Server" in the app, `cmux server up` on Linux and Windows, one install command, pairing over our WireGuard network, servers and the team VM share one design), SV2 (Postgres per server, unique port, local-only listener, per-app auth, no default passwords), SV3 (enforce power, sleep and lock where allowed; alert on battery, no internet, low disk, pending lock; one-click fixes, admin once), N10 to N13 (one feed, typed verbs, official apps with servers), D5 (install keys, tokens, device flow), D20 (agent classes), D3/D37 (WireGuard via Freestyle tunnels now, own control plane later), A14/A15/R7 (tier-2 automations host, default Postgres for apps). Related: spec/team-vm.md, spec/app-platform.md, spec/network-policy.md, spec/browser-use.md, plans/cmux-next/vm-image.md (lane 1, read at origin/feat-cmux-next-vm-image 216c3ff0738), plans/cmux-next/automations-runtime.md, plans/cmux-next/app-platform.md.
+Status: draft 1, 2026-10-02 (server lead, lane 10). Spec owner: the coordinator (only the coordinator edits the spec repo; this file is the spec proposal "server"). Decided input: SV1 (soft self-hosting: "Make This Mac a Server" in the app, `cmux server up` on Linux and Windows, one install command, pairing over our WireGuard network, servers and the team VM share one design), SV2 (Postgres per server, unique port, local-only listener, per-app auth, no default passwords), SV3 (enforce power, sleep and lock where allowed; alert on battery, no internet, low disk, pending lock; one-click fixes, admin once), N10 to N13 (one feed, typed verbs, official apps with servers), D5 (install keys, tokens, device flow), D20 (agent classes), D3/D37 (WireGuard via Freestyle tunnels now, own control plane later), A14/A15/R7 (tier-2 automations host, default Postgres for apps). Related: spec/team-vm.md, spec/app-platform.md, spec/network-policy.md, spec/browser-use.md, plans/cmux-next/vm-image.md (lane 1, PR 16815 at b1342a5fbbb; section 4.5 here), plans/cmux-next/automations-runtime.md, plans/cmux-next/app-platform.md.
 
 Binding: OWNERSHIP-PRINCIPLES.md, architecture.md (no polling, 0% idle CPU), skills/cmux-next-feature.
 
@@ -8,17 +8,17 @@ Binding: OWNERSHIP-PRINCIPLES.md, architecture.md (no polling, 0% idle CPU), ski
 
 Goals:
 - One software model, called **VM software**, that runs the same way on three kinds of machine: a Mac that the user makes a server, a Linux or Windows box that runs `cmux server up`, and the team VM (and any cmux Cloud machine with the `team` or `server` role).
-- A server hosts: terminals (session host), apps with persistent server processes (app manifest `services`), a browser (headless Chromium), automations (tier-2 host), a Postgres cluster for apps, and installed software from the signed cmux store.
+- A server hosts: terminals (session host), app servers (manifest `server` block, single writer per team), a browser (headless Chromium), automations (tier-2 host), a Postgres cluster for apps, and installed software from the signed cmux store.
 - One install command per platform that just works: verified before it runs anything, idempotent, no root unless the user asks for a system install, a user service (systemd, launchd, Windows), upgrade, rollback, uninstall, version pins.
 - Pairing from any signed-in device by short code or QR, with a written trust model.
 - Health: hold power assertions, prevent idle sleep and idle lock where the platform and policy allow, alert into the feed, one-click fixes that need admin rights once.
 - About 0 idle CPU: every probe is event-driven or a one-shot deadline.
 
 Non-goals (phase 1 to 3):
-- Public internet exposure of app services (later: an edge route per app, its own design).
-- A no-account mode with remote access. Without an account, a server is local only (plus SSH, which we never configure).
+- Public internet exposure of app servers or HTTP routes (later, its own design).
+- A new no-account remote mode. Without an account, a server is local only, plus the tailnet mode of D5 (the daemon checks the peer's tailnet identity against a local allowlist, `cmux tailnet allow`), plus SSH, which we never configure.
 - Changing the host's SSH, firewall or VPN configuration. The overlay is in-process userspace WireGuard.
-- Running untrusted third-party native code as app services in phase 1 (first-party and `local/` apps only, like the app host).
+- Native app servers from apps outside the first-party and Verified tiers.
 - GPU and remote desktop streaming (spec/computer-use.md owns the `streaming` host class).
 
 ## 2. Vocabulary
@@ -31,7 +31,7 @@ Non-goals (phase 1 to 3):
 | install mode | `user` (no root, runs as the installing user) or `system` (root once, dedicated service user and per-app OS users) |
 | store | lane 1's content-addressed package store (`store/<sha256>/`, `profiles/<generation>/`, `current`), updated by a signed channel manifest |
 | pairing | the device flow that binds a server's install key to a team and an owner |
-| service | one persistent app server process declared by an app (`contributes.services`, section 7) |
+| app server | the one process per team that runs an app's `server` block and owns its catalog ops (section 7) |
 
 ## 3. Architecture
 
@@ -58,6 +58,7 @@ Non-goals (phase 1 to 3):
 Rules:
 - All server logic is Rust (two crates: `cmux-server-core`, pure; `cmux-server`, I/O) mounted in the `cmux` binary as the `server` role set and `cmux server …` verbs. The macOS app renders a projection and registers the launchd agent and the privileged helper; it owns no server state.
 - The unit's command line is frozen as `cmux host run` (lane 1, vm-image.md 4.5). Roles come from the machine's config (`server.json`), so behavior moves with the binary in the store.
+- Split with lane 1 (VM image): lane 1 owns the `cmux host run` supervisor, instance bind, per-clone identity, the store and the updater; this lane owns the server roles (`apps`, `postgres`, `health`, the server parts of `link`), the installer, pairing and the `server.*` ops. The `browser` and `automations` roles belong to their leads; this lane only enables them.
 - One code path for the VM and servers: `cmux host run` with role `team` on the VM and role `server` on servers enables the same `apps`, `postgres`, `browser`, `automations` roles. Differences are listed in section 11.
 
 ## 4. Install
@@ -100,13 +101,22 @@ User mode on Linux needs `loginctl enable-linger` to run without a login session
 - `cmux server rollback [--generation G]` flips back (lane 1 measured 70 ms).
 - `cmux server uninstall` stops and removes the service, the shim and the store, and keeps state (keys, Postgres, app data, backups). `--purge` also deletes state after it takes a final Postgres base backup into the current directory unless `--no-backup` is given. Uninstall also unpairs (section 6.5).
 
+### 4.5 Alignment with lane 1 (vm-image.md, PR https://github.com/manaflow-ai/cmux/pull/16815 at b1342a5fbbb)
+
+- One store and one updater: servers use lane 1's content-addressed store (`store/<sha256>/`, `profiles/<generation>/`, `current`), the same signed channel manifest and the same updater role (`cmux host update`), so VM software is one package set with one SBOM. The store **root** depends on the install mode only because a user-mode install has no root: `--system` installs and the team VM use `/opt/cmux` exactly; user mode uses `~/.local/share/cmux` (Linux), `~/Library/Application Support/cmux` (macOS), `%LOCALAPPDATA%\cmux` (Windows). The updater takes the root as its only input. Forcing `/opt/cmux` for every server would make root mandatory, which SV1's "no root unless required" rules out.
+- Generation = the manifest sequence number; CI never signs two manifests with one sequence (the prototype refuses a known generation whose manifest changed).
+- Signature format: one format for both lanes, a raw Ed25519 detached signature over the exact manifest bytes (base64, with a key id), verified in Rust with the two baked keys; the Linux prototype verified the same format with `openssl pkeyutl -verify -rawin`. A minisign file is not needed (DECISION in the lane report).
+- Postgres: the image bakes PostgreSQL 17 binaries only; the `postgres` role creates the cluster, port, roles and `pg_hba` at first use after bind (section 8). On a VM the role stops the cluster before a snapshot (the bake and `vm.snapshot` call `cmux host prepare-snapshot`) and starts it after bind, because a running cluster in the snapshot slows `vms.create` to about 450 ms.
+- Listeners: Postgres and app servers listen only on Unix sockets, so the late private interface does not matter to them. The overlay and any team-network listener of the `link` role bind at start and again on each interface event (netlink on Linux, `nw_path_monitor` on macOS), never to an address frozen at bake.
+- Clone identity: on a VM, lane 1's bind agent (a role of `cmux`) regenerates `machine-id`, the random seed, SSH host keys and the WireGuard key per clone at bind. A server can also be cloned (a disk image, a migrated Mac, a copied VM): the `server` role records the platform machine identity (`/etc/machine-id`, the Mac's hardware UUID, the Windows MachineGuid) next to its install key; when it changes, the server discards its install and WireGuard keys, refuses to start the link, and asks for a new pairing (posted to the owner's feed from the old host record as "possible clone"). Two machines never share one install key.
+
 ## 5. Roles on a server
 
 | Role | What | Default on a server | On the team VM |
 | --- | --- | --- | --- |
 | `session` | cmux-tui daemon (terminals, agents, presence) | on | on |
-| `link` | HostDO link, overlay peer, local reverse proxy for app services | on after pairing | on |
-| `apps` | service supervisor (section 7) | on | on (Tasks and team apps) |
+| `link` | HostDO link, overlay peer, routing of app catalog ops to the local app server | on after pairing | on |
+| `apps` | app server supervisor and lease holder (section 7) | on | on (Tasks and team apps) |
 | `postgres` | one cluster (section 8) | on at first use (first app that declares a database) | on |
 | `browser` | `cmux browser host` + chrome-headless-shell | on at first use | on at first use |
 | `automations` | tier-2 automations host (workerd harness, plans/cmux-next/automations-runtime.md 4.3) | off; on when the owner targets the host | on |
@@ -146,8 +156,8 @@ Limits: `PairingDO` creation is rate-limited per source IP and per account; appr
 
 - A server is a **destination**. The default network policy has no rule with `src: tag:server`, so a server cannot open overlay connections to the owner's Macs, phones or other machines. It serves its own streams through `HostDO` and its overlay address.
 - As a principal, the server may: refresh its token by signed challenge; serve its session, apps and browser streams; report health; post feed items of kind `server.*` to its owner's feed (and to the team feed for team servers); read the channel manifest. It may not read team data, act as a user, mint grants, or request SSH certificates.
-- Who may use a server: the owner and team admins (everything); other team members only through network policy rules and grants (default none for a member's server; team servers: `autogroup:member` may reach app services the app exposes to `team`). Agents: the owner's mux has full reach (D20); ordinary agents only on the server they run on; runs per their automation grant.
-- App services are reachable only through the server's reverse proxy, which maps the overlay peer to a principal and checks the app's `expose` rule and the caller's grant before forwarding (section 7.3).
+- Who may use a server: the owner and team admins (everything); other team members only through network policy rules and grants (default none for a member's server; team servers: members reach app servers only through their catalog ops, which the app's owner checks per op). Agents: the owner's mux has full reach (D20); ordinary agents only on the server they run on; runs per their automation grant.
+- App servers are reachable only through `owner_for` routing of their catalog ops (section 7.1); the op carries the caller's authenticated principal, and the app server checks it per op. App servers never listen on a network address.
 
 ### 6.5 Keys, tokens, revocation
 
@@ -160,38 +170,131 @@ Limits: `PairingDO` creation is rate-limited per source IP and per account; appr
 
 "A short code lets an attacker trick a user into approving the attacker's machine into the user's team, which then sits inside the team network." Answer: the approver sees the server's facts and the four words; QR approvals bind the key fingerprint; a server is a destination with no default outbound reach; servers get `tag:server`, which no default rule grants as a source; approval is user-origin only; every enrollment posts a feed item to the owner and the team admins with "Revoke".
 
-## 7. Apps with persistent servers (N13)
+## 7. App servers (N13; coordinator decision 2026-10-02)
 
-### 7.1 Manifest proposal (to the app platform lead)
+### 7.1 The manifest `server` block
 
-Add `contributes.services` to `cmux-app.json` (spec/app-platform.md section 3, which lists server-side apps as a non-goal; N13 makes them a goal):
+Decided by the coordinator: `cmux-app.json` gets a public `server` block, and `contributes.paneKinds` gets renderer `native` (first-party and Verified apps only). First example: Tasks (`dev.cmux.tasks`, recommended rename `cmux/tasks` in 7.9, Rust `cmux-tasks serve`, plans/cmux-next/tasks.md on feat-cmux-next-tasks).
 
 ```jsonc
-"services": [{
-  "id": "web",
-  "runtime": "node@24" | "bun@1" | "workerd" | "exec",   // exec: a binary in the bundle (first-party and local/ only in phase 1)
-  "entry": "server/index.js",
-  "listen": "auto",                 // the supervisor allocates a port (or a Unix socket) and passes it as PORT / CMUX_SERVICE_SOCKET
-  "health": { "http": "/healthz", "timeoutMs": 2000 },
-  "database": { "engine": "postgres", "mode": "database" | "schema" },   // optional
-  "expose": "owner" | "team" | "none",                                  // who may reach it through the proxy
-  "restart": "always" | "on-failure",
-  "resources": { "memoryMiB": 512, "cpuPercent": 100 },
-  "scopes": { "workspace:read": "…" }                                   // catalog scopes for its cmux calls, like app JS
-}]
+"server": {
+  "kind": "native",                         // later: "node", "bun", "workerd" (the earlier `services` idea folds in here)
+  "binary": "bin/cmux-tasks",               // in the app bundle; see gap G3 for per-target binaries
+  "args": ["serve"],
+  "catalog": "catalog/tasks-catalog.json",  // ops this server owns; catalog owner = app:dev.cmux.tasks
+  "hosts": ["team-vm", "cmux-server", "local"],   // allowed host kinds, in preference order
+  "data": "durable"
+}
 ```
 
-### 7.2 Supervisor
+Rules this lane applies:
+- Exactly one host per tenancy key (team by default; user and machine in 7.8) runs an app's server: the **app server** is the single writer of every op in its catalog. `owner_for(op)` resolves `app:<id>` to the host that holds the app's lease (7.2) and routes the op there (over the link and `HostDO`, or the local socket when the caller is on that host).
+- `kind: native` runs a binary from the app bundle. This lane recommends first-party apps only (7.9 G13); Verified apps would need a sandboxed kind.
+- The server speaks the app's catalog over a Unix socket that the supervisor creates and passes as `CMUX_APP_SOCKET` (JSON lines or `cmux.wire/1`, the Tasks protocol shape: request, reply, `settled {tx, seq}`, events with `after_seq`).
 
-- System mode on Linux and the team VM: each service is a systemd unit from the template `cmux-app@<app>.<service>.service`, running as OS user `app-<app>` (no login), with `MemoryMax`, `CPUQuota`, `ProtectSystem=strict`, `PrivateTmp`, `NoNewPrivileges`, state in `/var/lib/cmux/apps/<app>/` (0700). Units survive a `cmux` restart.
-- User mode and macOS: the supervisor spawns each service as a child with an OS sandbox (macOS seatbelt profile: no file access outside the app's bundle and state directories, network only to loopback and granted hosts; Linux Landlock + seccomp; Windows job object with a restricted token), restarts with `Backoff`, and re-adopts running services after its own restart by pid files plus start-time checks.
-- Logs: journald (system mode) or a bounded ring file per service; `cmux server app logs <app> --follow`.
-- Deploy: the same contract as spec/team-vm.md "Self-modifying team software" (`cmux server app deploy <app> <ref>` runs the app's contract tests in a throwaway copy, switches, health-checks, rolls back on failure). Tasks on the team VM is one app with a `services` entry.
+### 7.2 Host election, failover, and no two writers
 
-### 7.3 Reverse proxy and identity
+Owner of the placement: `TeamDO` holds one **app server lease** per (team, app): `{app, host, epoch, state: active|draining|vacant, since, last_host_seen}`. Only `TeamDO` writes it; hosts and clients are projections.
 
-- Services listen on loopback ports from the install's port block (section 8.2) or on Unix sockets. Nothing listens on a public address.
-- The `link` role's reverse proxy serves `https://<app>.<host>.<team>.cmux.internal` on the overlay address. It maps the WireGuard peer to a principal (`TeamDO` peer map), checks `expose` and the caller's grant, and adds a short-lived signed identity assertion (`Cmux-Identity`, JWT, 60 s, audience = app id) that the service verifies with the server's local key set (`cmux` SDK helper). Services never see user tokens.
+Placement (who runs it):
+1. If a team admin pinned a host (`app.server.place {app, host}`, origin user), that host, if its kind is in `hosts`.
+2. Else the first kind in `hosts` order that the team has: the team VM if the team has one; else the team's designated default server (`servers.defaultAppHost`, set by an admin; the first paired team server when unset); `local` only for a team of one (the owner's own Mac), because a laptop that sleeps must not be the writer for other people.
+3. The chosen host must be paired, not revoked, run the `apps` role, and be able to reach the app's durable data (7.3).
+
+Lease protocol (event-driven, no renewal timer):
+- `TeamDO` grants the lease by sending `app.server.assign {app, epoch}` to the host over its link. The host starts the server only after it receives the assignment and after its storage fence for that epoch succeeds (7.3). Every op routed to the server carries the epoch; the server rejects a different epoch with `owner_moved`.
+- The lease is live while the host's link to `HostDO` is connected. `HostDO` reports link close to `TeamDO` as an event. `TeamDO` then sets a one-shot alarm at `close + lease_grace` (default 90 s, team setting `apps.failoverGraceSeconds`).
+- The host fences itself: when its link closes, it sets a one-shot deadline at `close + self_fence` (default 60 s, always less than `lease_grace` minus a 15 s clock-rate margin). If the link is not back by then, the supervisor stops the app server (drain, then SIGTERM, then SIGKILL after 10 s). A partitioned host therefore stops writing before any other host can start.
+- If the link returns before the alarm, nothing moves. If the alarm fires, `TeamDO` moves the lease: `epoch + 1`, the next eligible host by the placement rules, state `active` only after that host acknowledges the assignment and its storage fence succeeded. While no host holds the lease, `owner_for` returns `owner_unreachable` (U5: nothing queues).
+- Planned moves (`app.server.move {app, host}`, admin, origin user; or the old host shutting down cleanly): the old host drains (refuses new ops with `owner_moving`, finishes the group commit, flushes durable data, acknowledges `released {epoch}`), then `TeamDO` assigns `epoch + 1`. No grace wait.
+- Team VM: the team VM is a stable host identity. A dead team VM is replaced by `TeamVmDO` restore (spec/team-vm.md); the replacement mounts the same zero-loss tier and keeps the lease under a new epoch. Failover to a cmux server happens only if the app lists `cmux-server` and the admin turned on `apps.failoverToServers` (default off), because the team VM normally comes back in minutes.
+
+No two hosts run at once, three independent fences:
+1. One lease owner: `TeamDO` is the single writer of the lease and assigns a strictly increasing epoch.
+2. Time fence: the old host stops at `self_fence` after it loses the link; `TeamDO` waits `lease_grace` > `self_fence` + margin before it reassigns. This needs only bounded clock rate, not synchronized clocks.
+3. Storage fence (holds even if 1 and 2 fail): every durable write carries the epoch (7.3). A host with an old epoch cannot commit.
+
+Verification: a TLA+ model `formal/AppServerLease.tla` (hosts, link loss and return, partitions, slow clocks within the margin, crashes; invariant "at most one host commits under any epoch, and commits are totally ordered by epoch"), plus a mutant without the self-fence that must fail.
+
+### 7.3 `data: durable`: storage and backups
+
+The supervisor gives every app server two stores. Each is fenced by the lease epoch.
+
+| Store | Where | Durability | Fence |
+| --- | --- | --- | --- |
+| data directory `CMUX_APP_DATA` (files: the Tasks op log, snapshots) | team VM: `/srv/team/apps/<app>/data` on the zero-loss tier; cmux server: local disk `<state>/apps/<app>/data`, with each committed segment shipped to the team's R2 prefix `apps/<app>/epoch-<n>/` | team VM: zero loss (acknowledged writes are in R2); cmux server: zero loss only when the app commits through `cmux app data commit` (below), else bounded by its shipping lag | conditional create of `apps/<app>/lease/<epoch>` in R2 at start; segment objects are written with conditional create under the epoch prefix, so a stale host's writes land in a dead prefix that restore ignores |
+| Postgres schema `app_<app>` in the host's cluster (section 8), when the app asks for it (gap G1) | the lease host's cluster | WAL archived to R2 every 60 s at most (R7: up to 60 s loss); synchronous archive on commit is not offered | the archive prefix includes the epoch and the Postgres timeline; a new host restores from the newest epoch's base backup + WAL and starts a new timeline |
+
+- Zero-loss on a cmux server: `cmux app data commit <path>` (and the same op on the SDK) uploads the file or appended range to R2 with a conditional create keyed by `(epoch, seq)` before the app acknowledges its client. Tasks' group commit calls it once per batch (one R2 PUT per group commit, about 30 to 120 ms estimate), which is the same cost the Tasks plan accepted for the no-FUSE fallback. Apps that skip it get bounded loss and the manifest must say so (gap G1).
+- Failover restore: the new host fetches the newest snapshot and every segment of the newest epoch prefix (Postgres: base backup + WAL), verifies the hash chain, starts the server, then acknowledges the assignment. Measured restore time is the failover time; target under 60 s for 100k tasks (UNVERIFIED).
+- Backups: R2 object versioning on the prefix, daily base backups for Postgres (section 8.4), and for files a daily snapshot manifest; restore is `server.app.restore {app, at}` (admin, user origin), which takes a new epoch.
+- Postgres schema per app: in the host's cluster, role `app_<app>`, schema `app_<app>` in the shared database `apps` (`mode: schema`, the coordinator's default for app servers), owned by the role, `REVOKE ALL ON SCHEMA … FROM PUBLIC`, role `search_path = app_<app>`; auth as section 8.3. A second host never has the schema live: the schema exists only in the lease host's cluster and is restored on move.
+
+### 7.4 Supervision
+
+- System mode on Linux and the team VM: a systemd unit from the template `cmux-app-server@<app>.service`, OS user `app-<app>` (no login), `MemoryMax`, `CPUQuota`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `NoNewPrivileges`, `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6`, `ReadWritePaths=` only the app's data and run directories. The unit is started only by the supervisor after the lease assignment, never `WantedBy` a boot target (a reboot never starts a writer without a lease).
+- User mode and macOS: a child process with an OS sandbox (macOS seatbelt: files only in the bundle, data and run directories, network to loopback and granted hosts; Linux Landlock + seccomp; Windows job object + restricted token). After a supervisor restart it re-adopts the process by pid file plus process start time, and only if the lease epoch is unchanged.
+- Readiness: the server is ready when it answers the catalog's `ping` (gap G2) on `CMUX_APP_SOCKET`; only then does the host acknowledge the assignment. Liveness is the process and the socket (no periodic probe; a request deadline miss counts as a failure).
+- Restarts: `Backoff` (1 s doubling to 5 min). Five crashes in 10 minutes is a crash loop: the supervisor stops, posts a `server.app.crashloop` feed item to the team admins, and keeps the lease (a crash loop on one host usually repeats on the next; moving needs an admin `app.server.move`).
+- Environment: `CMUX_APP_ID`, `CMUX_APP_VERSION`, `CMUX_APP_EPOCH`, `CMUX_APP_SOCKET`, `CMUX_APP_DATA`, and for Postgres `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSFILE` (user mode). No secrets in env or args; integration calls go through the gateway.
+
+### 7.5 Upgrades
+
+- The app version comes from the team install (`TeamDO`, spec/app-platform.md); the supervisor downloads the bundle, checks SHA-256 and the attestation, and unpacks into the content-addressed cache.
+- Order: run `<binary> check-data --data $CMUX_APP_DATA` from the new version in a read-only sandbox (gap G4: data format version); drain the running server (refuse new ops with `owner_moving`, finish the group commit, flush); take a data snapshot (R2 snapshot manifest; Postgres: a restore point); start the new version under the same epoch; wait for `ping`; resume routing. Failure at any step restarts the old version on the old data.
+- Downgrade: refused when the data format version moved forward, unless the admin restores the pre-upgrade snapshot (`server.app.restore`).
+- Updates follow `apps.autoUpdate` (spec D49: `sameScopes`); a version whose catalog grows needs consent like scope growth.
+
+### 7.6 Logs
+
+- stdout and stderr: journald with `SYSLOG_IDENTIFIER=cmux-app-<app>` (system mode) or a bounded ring file per app, 16 MiB x 4 (user mode). JSON lines are parsed into the structured record of spec/automations-runtime.md section 6 (`ts, team, app, version, epoch, level, msg, attrs, trace_id`).
+- `cmux server app logs <app> [--follow] [--since T] --json`, the app's Logs view in the App Store window, and forwarding over the link to the team telemetry store when paired.
+- Every lease change, start, stop, crash, upgrade and restore is an audit record in `TeamDO` with actor and epoch.
+
+### 7.7 Gaps in the `server` block (recommendations)
+
+- G1. `data: durable` does not say what is stored or how much loss is allowed. RECOMMEND `data: {files: true, postgres: "schema" | "database" | false, durability: "zero-loss" | "bounded"}`; Tasks = `{files: true, postgres: false, durability: "zero-loss"}`. The supervisor refuses `zero-loss` on a host that cannot provide it (no `commit` path).
+- G2. No readiness or health contract. RECOMMEND a required catalog op `<app>.ping` (or a fixed `server.ping` every server implements) and `drain` / `released` handshakes for planned moves and upgrades.
+- G3. `binary` is one path, but servers run on x86_64 and aarch64 Linux, macOS and Windows. RECOMMEND `binaries: {"<target>": {path, sha256}}`, each covered by the bundle attestation; a host whose target is missing is not eligible.
+- G4. No data format version. RECOMMEND `dataVersion` (integer) plus `check-data` and `migrate-data` subcommands, so the supervisor can refuse downgrades and run migrations under a snapshot.
+- G5. `hosts` mixes placement preference and permission. RECOMMEND keeping it as the allowed list in preference order, and adding `failover: "auto" | "manual"` (Tasks: auto) so an app that cannot restore fast can opt out.
+- G6. `local` contradicts single writer for teams larger than one (a sleeping laptop would hold the lease). RECOMMEND `local` = eligible only for a team of one or an explicit admin pin.
+- G7. No resource or network declaration. RECOMMEND `resources {memoryMiB, cpuPercent}` and `net: ["host:port"]` (default none), enforced by the sandbox.
+- G8. Name: `cmux-server` as a host kind is spelled `server` in `TeamDO` host records. RECOMMEND `hosts: ["team-vm", "server", "local"]`.
+
+### 7.8 Tenancy: team, user and machine app servers
+
+Input from lane 3 (plans/cmux-next/first-party-apps.md section 10, PR https://github.com/manaflow-ai/cmux/pull/16786): Tasks is per team, notes is per user (`cmux-notes serve`), usage is per machine (`cmux-usage serve`); search, coderouter and inbox have no server. Proposed field: `server.instances: "team" | "user" | "machine"` (default `team`). This lane adopts it.
+
+Single-writer election is per **tenancy key**. Exactly one host runs the app server for each key, and the key's owner holds the lease:
+
+| `instances` | Tenancy key | Lease owner | Who may host | Election |
+| --- | --- | --- | --- | --- |
+| `team` | (team, app) | `TeamDO` | team VM, team servers, `local` only for a team of one (7.2) | 7.2 |
+| `user` | (user, app) | `UserDO` | the user's own hosts only: the user's paired servers (owner = user), the user's personal team VM (team of one), the user's Macs | below |
+| `machine` | (host, app) | that host's `apps` role | that host only | none: the host is the key; a local `flock` on the data directory stops a second process on the same machine |
+
+Per-user servers (notes) when the user has several devices:
+1. Placement order: a user pin (`app.server.place {app, host}` on `UserDO`, origin user); else the user's always-on host (a paired server the user owns, then their personal team VM); else the user's **home Mac** (setting `apps.userHomeHost`; default the first Mac the user made a server, else the Mac where the user installed the app). The server never follows the active device: moving the writer each time the user switches devices would thrash the lease and the data.
+2. Other devices (the iPhone, a second Mac, the web) are clients: `owner_for(note.*)` routes their ops through the link to the lease host, like any remote owner.
+3. When the lease host sleeps or is offline, the user's ops refuse with `owner_unreachable` (U5: nothing queues), and clients show the last read-only snapshot from `HostDO`'s cache (spec/sync-and-transport.md section 5). This is the same rule as D10 local conversations. The product consequence: a user who wants notes writable from the phone while the Mac sleeps needs an always-on host; the Notes app offers "Keep notes on <server>" when the user has one, and the menubar shows "Notes are on this Mac" while the home host is a Mac.
+4. Failover: automatic only between always-on hosts (same lease protocol as 7.2 with `UserDO` as lease owner, same three fences). A Mac never takes or loses a user lease automatically, because sleep is normal for a Mac; the move is `app.server.move` by the user, which drains the old host if it is awake or restores from the R2 copy (7.3) if it is not.
+5. Data for `user` apps ships to the user's R2 prefix (`users/<user>/apps/<app>/epoch-<n>/`), never the team prefix, so a team admin or the team VM cannot read it.
+
+Per-machine servers (usage): each machine that has the app installed runs its own server with `data: cache`; catalog ops carry a `host` target (default: the caller's machine), and `owner_for` routes to that host. No election and no failover, because each instance owns only its machine's data.
+
+### 7.9 Lane 3 gaps and this lane's recommendations
+
+These extend 7.7 (G1 to G8):
+- Tenancy: adopt `server.instances` as above (G9).
+- Catalog-only apps: adopt top-level `catalog` without `server` plus `requires: [op names]`; the supervisor runs nothing for them (G10).
+- Data classes: merge with G1 into one object: `data: {class: "durable" | "cache" | "none", files: bool, postgres: "schema" | "database" | false, durability: "zero-loss" | "bounded", sync: "none" | "user" | "team"}`. `cache` is local, lossy, never backed up and deleted on uninstall; `sync` names who may read projections, and the writer stays the lease host (G1).
+- Server principal: adopt `app:<id>/server`, acting on behalf of the tenancy key's owner (team, user or machine owner), with its own `server.scopes` shown at consent next to the client scopes; local file reads are listed paths that the OS sandbox of 7.4 enforces (G11).
+- Lifecycle: adopt `server.activation: "always" | "onDemand"`. `onDemand` starts the server on the first routed op or subscriber and stops it after the last subscriber leaves and a one-shot idle deadline passes (default 60 s); `always` runs while the host holds the lease. Crash policy, upgrades and logs are 7.4 to 7.6 (G12).
+- Per-platform binaries: same as G3.
+- Tier rule for native code: RECOMMEND `server.kind: native` for first-party apps only; Verified apps get a server only through a sandboxed kind (`workerd` or WASM, later), because a Verified publisher's native binary is third-party native code that the platform spec excludes. Native panes stay as the coordinator decided (G13; this narrows 7.1).
+- Id grammar: RECOMMEND renaming Tasks to `cmux/tasks`. The manifest grammar `<publisher>/<name>` is already implemented, validated and used by the store, the scope ids (`app:<id>`) and global contribution ids (`<app>#<id>`); `cmux` is the reserved first-party publisher; reverse-DNS ids would need a second grammar everywhere. Keep `dev.cmux.tasks` only if a platform bundle id needs it, as a derived value (G14).
+- Schema: the manifest schema rejects a `server` key today (unknown top-level keys are errors). The app platform lead adds `server`, `catalog`, `requires` and `data` to `cmux-app.schema.json` with the decisions above; until then lane 3 and Tasks keep their blocks in plans (G15).
 
 ## 8. Postgres (SV2)
 
@@ -199,21 +302,22 @@ Add `contributes.services` to `cmux-app.json` (spec/app-platform.md section 3, w
 
 - One cluster per install, created at first use, never in an image (lane 1, vm-image.md 5: the image bakes binaries only; a cluster in the snapshot slows `vms.create`).
 - Version: PostgreSQL 17 everywhere (lane 1 bakes PGDG 17 in L1 on VMs; the automations research verified 16, superseded). Servers get a relocatable PostgreSQL 17 build as a store package `postgresql-17` (our CI, per target); Windows uses the same package built for Windows.
-- Data directory on local disk: `<state>/postgres/17/data` (never on JuiceFS or a network filesystem). `initdb --data-checksums --encoding=UTF8 --locale=C.UTF-8 --auth-local=peer --auth-host=reject --username=cmux_admin` (Windows: `--auth-local=scram-sha-256` with a random admin secret in a DPAPI file, because Windows has no peer auth). No role has a password unless section 8.3 requires one, and every password is random and generated by the server.
+- Data directory on local disk: `<state>/postgres/17/data` (never on JuiceFS or a network filesystem). `initdb --data-checksums --encoding=UTF8 --locale=C --locale-provider=builtin --builtin-locale=C.UTF-8 --auth-local=peer --auth-host=reject --username=cmux_admin` (the built-in provider, because macOS and Windows may lack an OS `C.UTF-8` locale) (Windows: `--auth-local=scram-sha-256` with a random admin secret in a DPAPI file, because Windows has no peer auth). No role has a password unless section 8.3 requires one, and every password is random and generated by the server.
 
 ### 8.2 Unique port and local-only listener
 
-- Port: deterministic first candidate `15432 + (fnv1a(install_id) mod 10000)`, then the next free port in that range; never 5432 or any port in use; persisted in `server.json` (`postgres.port`) so it never changes. The install reserves a block of 32 ports starting there: `+0` Postgres, `+1..+31` app services. A user can set `postgres.port` explicitly.
-- Listener: `listen_addresses = ''` (Unix socket only). Socket directory `<state>/postgres/run`, mode 0700 (user mode) or `/run/cmux/postgres` 0750 group `cmux-db` with the app users as members (system mode). TCP on `127.0.0.1` is enabled only when a service declares that it cannot use a Unix socket (Windows always), with `host … 127.0.0.1/32 scram-sha-256` and nothing else. Remote access is never a listener change: `server.db.expose {app, to}` (admin, user origin) opens a proxied, authenticated overlay stream.
+- Port: deterministic first candidate `15432 + (fnv1a(install_id) mod 10000)`, then the next free port in that range; never 5432 or any port in use; persisted in `server.json` (`postgres.port`) so it never changes. The install reserves a block of 32 ports starting there: `+0` Postgres, `+1..+31` reserved for app servers that need a loopback port. A user can set `postgres.port` explicitly.
+- Listener: `listen_addresses = ''` (Unix socket only). Socket directory `<state>/postgres/run`, mode 0700 (user mode on Linux; on macOS `<state>` is too long for the 103-byte socket path limit, so the socket directory is `/tmp/cmux-<uid>/pg-<port>`, created 0700 and owner-checked at every start) or `/run/cmux/postgres` 0750 group `cmux-db` with the app users as members (system mode). TCP on `127.0.0.1` is enabled only when a service declares that it cannot use a Unix socket (Windows always), with `host … 127.0.0.1/32 scram-sha-256` and nothing else. Remote access is never a listener change: `server.db.expose {app, to}` (admin, user origin) opens a proxied, authenticated overlay stream.
 
 ### 8.3 Per-app auth and isolation
 
 | Mode | App process runs as | Auth | Secret |
 | --- | --- | --- | --- |
 | system (Linux, team VM) | OS user `app-<app>` | `local sameuser app_<app> peer map=cmuxapps` with `pg_ident` `cmuxapps app-<app> app_<app>` | none |
-| user (Linux, macOS, Windows) | the installing user, sandboxed per app | `local sameuser app_<app> scram-sha-256` | a random 32-byte password in `<state>/apps/<app>/pgpass` (0600), passed as `PGPASSFILE`; never in env, argv or logs |
+| user (Linux, macOS, Windows) | the installing user, sandboxed per app (Linux: bubblewrap mount namespace; macOS: seatbelt; Windows: restricted token) | `local sameuser app_<app> scram-sha-256` | a random 32-byte password in `<state>/apps/<app>/pgpass` (0600), passed as `PGPASSFILE`; the server stores only the SCRAM verifier; never in env, argv or logs |
 
-- `pg_hba.conf` is generated in full and owned by the server; the first rule is `local all cmux_admin peer` (system mode) so only the service user is superuser; the last rule is `reject`.
+- `pg_hba.conf` is generated in full and owned by the server; the last rule is `reject`. System mode: `local all cmux_admin peer map=cmuxadmin` (`pg_ident` `cmuxadmin cmux cmux_admin`, because the service OS user is `cmux`) plus `local replication cmux_admin peer map=cmuxadmin` for `pg_basebackup`, so only the service user is superuser. User mode: `local all cmux_admin scram-sha-256` with a random secret in `<state>/postgres/admin.pgpass` (0600), and every app process runs in a sandbox that cannot see `<state>/postgres` or any other app's directory. Reason (measured on Freestyle, 2026-10-02): peer auth in user mode gave every same-user app superuser access, because all apps run as one OS user; Landlock on kernel 6.1 cannot block a connect to the socket. So user mode has exactly one non-app secret, the admin secret, and its protection is the per-app sandbox; system mode has none.
+- App ids `<publisher>/<name>` map to Postgres names by replacing `/` with `_` (`cmux/tasks` becomes `app_cmux_tasks`); collisions are refused at install.
 - Per app: role `app_<app>` (`LOGIN`, `CONNECTION LIMIT 20`, `statement_timeout 30s`, `idle_in_transaction_session_timeout 60s`, `temp_file_limit 1GB`), database `app_<app>` owned by it (or schema `app_<app>` in a shared database when the manifest says `mode: schema`), `REVOKE ALL ON DATABASE … FROM PUBLIC`, `REVOKE CREATE ON SCHEMA public FROM PUBLIC`. App ids are validated (`[a-z][a-z0-9_]{0,40}`) before they become identifiers, and every identifier is quoted.
 - The service gets `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` and `DATABASE_URL` without a password.
 - Agents never get superuser. `cmux server db shell <app>` opens `psql` as the app role for the owner and their mux.
@@ -239,7 +343,7 @@ Add `contributes.services` to `cmux-app.json` (spec/app-platform.md section 3, w
 | Platform | What cmux holds | Notes |
 | --- | --- | --- |
 | macOS | `IOPMAssertionCreateWithName`: `PreventUserIdleSystemSleep` always; `PreventSystemSleep` on AC power (macOS ignores it on battery); `PreventUserIdleDisplaySleep` on AC unless `server.health.allowDisplaySleep` (prevents idle lock where MDM does not force it) | released when the role stops or the process exits |
-| Linux | logind inhibitor `sleep:idle:handle-lid-switch` (mode `block`) through D-Bus, held as a file descriptor | headless boxes rarely need it; laptops do |
+| Linux | one logind `Inhibit` file descriptor per kind (mode `block`): `idle` always; `sleep` and `handle-lid-switch` only with the one-time polkit rule (system mode installs it; user mode raises `inhibit.limited`), because logind refuses `sleep` to a lingering user without a session and refuses a combined request | measured on Freestyle 2026-10-02 |
 | Windows | `PowerCreateRequest` + `PowerSetRequest(SystemRequired, AwayModeRequired)` | |
 
 ### 9.2 Probes (event-driven, no polling)
@@ -268,7 +372,8 @@ A pure reducer in `cmux-server-core` turns facts into alerts: `(facts, previous 
 | `restart.noAutoRestart` | `autorestart` off | info | `pmset -a autorestart 1` (admin once) |
 | `restart.fileVaultWait` | FileVault on and auto login off | warning | none automatic; `fdesetup authrestart` is used for planned update restarts |
 | `restart.notLoggedIn` | macOS headless install: LaunchAgent and no login after boot | warning | install the system LaunchDaemon variant (admin once) |
-| `linger.off` | Linux user mode without linger | critical | `loginctl enable-linger` (sudo once) |
+| `linger.off` | Linux user mode without linger (for example no polkitd) | critical | `loginctl enable-linger` (sudo once) |
+| `inhibit.limited` | Linux user mode holds only the `idle` inhibitor | info | the polkit rule (sudo once) |
 | `encryption.off` | disk encryption off | info | open settings |
 | `postgres.quota` | an app at 80% of its quota | warning | raise quota |
 | `backup.stale` | no base backup in 48 h or WAL archive failing for 10 min | warning | run backup now |
@@ -296,7 +401,7 @@ Posting: every raise or change of an alert is `feed.notify` through the lane 9 f
 | identity | install key made at install; pairing binds it | instance binding by the control plane at create; per-clone keys after bind (lane 1 section 6) |
 | unit | `cmux host run` (user or system) | `cmux host run` (system) |
 | roles | `server` set (section 5) | `team` set = server set + reconciler, mailbox, memory, audit, JuiceFS mount |
-| app services | `contributes.services`, supervisor 7.2 | the same; Tasks is one app |
+| app servers | `server` block, lease 7.2, supervisor 7.4 | the same; preferred host; Tasks is the first |
 | Postgres | store package `postgresql-17`, user or system mode | PGDG 17 from L1, system mode; identical cluster code |
 | backups | local + optional team R2 | team R2 (lane 1 and R7) |
 | health | full section 9 | disk, memory, link, backup; power and lock checks inactive |
@@ -313,7 +418,8 @@ Posting: every raise or change of an alert is `feed.notify` through the lane 9 f
 | health facts and the alert set | the `health` role on that server (single writer) | the feed and the menubar are projections |
 | feed items | the feed owner (lane 9) | the server posts and resolves through its API |
 | Postgres cluster, app roles and databases, backups | the `postgres` role on that server | apps are clients |
-| app service processes | the `apps` role on that server | |
+| app server lease (host, epoch) | `TeamDO` (team apps), `UserDO` (user apps), the host itself (machine apps) | hosts and `owner_for` are projections |
+| app server process | the `apps` role on the lease host | |
 | app installs and app grants | `UserDO` / `TeamDO` (spec/app-platform.md) | the supervisor is a projection |
 | applied store generation | the `updater` role on that server | reported to the control plane |
 
@@ -335,7 +441,8 @@ All mutations are typed ops with idempotency keys to these owners; destructive o
 | `server.health.get` | local `health` | `cmux server health --json` | Server Health | menubar | default |
 | `server.health.fix`, `server.health.revert` | local `health` | `cmux server health fix <check>` | per alert | alert row | never (agents request via feed) |
 | `server.db.list|create|drop|url|limits.set|backup|restore|upgrade|expose` | local `postgres` | `cmux server db …` | Server Databases | db row | list/url default; create opt_in; others never |
-| `server.app.list|start|stop|restart|logs|deploy` | local `apps` | `cmux server app …` | per app | app row | list/logs default; others opt_in |
+| `server.app.list|restart|logs|restore` | local `apps` | `cmux server app …` | per app | app row | list/logs default; restart opt_in; restore never |
+| `app.server.place|move {app, host}` | `TeamDO` | `cmux apps server place|move` | Move App Server… | app row | never |
 | `server.software.list|install|remove|system_install` | local | `cmux server software …` | Install Software… | — | list default; others approval |
 
 Settings (cmux.json, Settings > Server, MDM-lockable): `server.enabled`, `server.roles`, `server.channel`, `server.autoUpdate`, `server.pinnedVersion`, `server.health.allowDisplaySleep`, `server.health.alerts.<check>` (on/off, thresholds), `postgres.port`, `postgres.backupWindow`, `postgres.backupRetention`, `postgres.appQuotaGiB`, `postgres.offsiteBackup`. Team policy: `servers.enabled`, `servers.memberEnroll`, `servers.allowedRoles`.
@@ -357,8 +464,8 @@ Screenshots and the recommendation are in the lane report.
 | # | Step | State |
 | --- | --- | --- |
 | 1 | This plan | draft |
-| 2 | `cmux-server-core` pure crate: layout, ports, Postgres plan (conf, hba, ident, per-app SQL), pairing code and words, health reducer, unit renderers, channel manifest verification; tests on the testbox | in progress |
-| 3 | Headless Linux prototype on a Freestyle VM: installer script with checksum and signature refusal, user systemd service running the real session host, idempotent rerun, upgrade, rollback, uninstall; Postgres plan applied for real; headless Chromium | in progress |
+| 2 | `cmux-server-core` pure crate: layout, ports, Postgres plan (conf, hba, ident, per-app SQL), pairing code and words, health reducer, unit renderers, channel manifest verification, op catalog (38 ops); 60 tests, clippy and fmt clean on a Blacksmith Testbox (PR https://github.com/manaflow-ai/cmux/pull/16814) | done |
+| 3 | Headless Linux prototype on a Freestyle VM (`server/prototype/linux/`, README has the numbers): installer with checksum, signature, expiry and downgrade refusal; user systemd service running the real pinned session host; idempotent rerun, upgrade with terminal adoption, rollback, uninstall, purge, reboot survival; Postgres 17 user and system mode with PITR; sandboxed chrome-headless-shell; logind inhibitors; idle 0.031 CPU-s/min | done (system mode end to end, aarch64, macOS, Windows UNVERIFIED) |
 | 4 | `CmuxNextServer` Swift prototypes (panel, pairing, health; three variants each) with screenshots | in progress |
 | 5 | `cmux-server` I/O crate: `cmux host run` roles, probes, assertions, supervisor, Postgres runner; mounted as `cmux server …` after #16174 | next |
 | 6 | `PairingDO`, `server.pair.*`, `host` kind `server` in `TeamDO`; network policy `tag:server` | next (backend) |
@@ -368,7 +475,9 @@ Screenshots and the recommendation are in the lane report.
 ## 16. Risks
 
 - Relocatable PostgreSQL builds per target are new CI work; a distro package fallback makes the server depend on root.
-- Unprivileged user namespaces for the Chromium sandbox vary by distribution.
+- Unprivileged user namespaces for the Chromium sandbox vary by distribution (Freestyle's kernel has no AppArmor, so the Ubuntu restriction was not tested); chrome-headless-shell needs its shared libraries bundled in the store package for user mode.
+- The session host needs `Type=notify` readiness and a `--state` root under the server state directory (today it uses `~/.local/share/cmux-tui`, which `--purge` misses); units keep `KillMode=process` so a restart keeps terminal hosts.
 - macOS LaunchAgents stop at logout; headless Macs need the LaunchDaemon variant (admin) to survive a reboot without login.
 - Freestyle tunnel and firewall propagation time bounds revocation latency (spec/network-policy.md).
-- The feed API (lane 9) and the app manifest `services` (app platform) are external dependencies.
+- The feed API (lane 9), the manifest `server` block gaps (7.7) and `TeamDO` leases (backend) are external dependencies.
+- Failover restore time for large apps is unmeasured; the lease grace adds 90 s by default.
