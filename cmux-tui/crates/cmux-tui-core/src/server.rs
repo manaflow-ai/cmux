@@ -2975,6 +2975,11 @@ impl ConnectionSurfaceScheduler {
                 if state.closed {
                     return Some(false);
                 }
+                if !writer.is_open() {
+                    drop(state);
+                    self.close();
+                    return Some(false);
+                }
                 continue;
             }
 
@@ -3009,6 +3014,11 @@ impl ConnectionSurfaceScheduler {
                     drop(next);
                     state = self.state.lock().unwrap();
                     if state.closed {
+                        return Some(false);
+                    }
+                    if !writer.is_open() {
+                        drop(state);
+                        self.close();
                         return Some(false);
                     }
                 }
@@ -3686,6 +3696,32 @@ impl BoundedOutbound {
                 return None;
             }
             state = self.changed.wait(state).unwrap();
+        }
+    }
+
+    /// Waits for one outbound item while allowing the owning connection to
+    /// probe its peer for a disconnect. `Err(())` means only that the deadline
+    /// elapsed; `Ok(None)` means the queue was closed.
+    fn recv_timeout(&self, timeout: Duration) -> Result<Option<OutboundItem>, ()> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(item) = Self::pop_locked(&mut state) {
+                drop(state);
+                self.changed.notify_all();
+                return Ok(Some(item));
+            }
+            if state.closed {
+                return Ok(None);
+            }
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return Err(());
+            };
+            let (next, timeout_result) = self.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if timeout_result.timed_out() {
+                return Err(());
+            }
         }
     }
 
@@ -5858,11 +5894,26 @@ fn handle_connection_with_permit(
     let writer_close = writer.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
-            while let Some(item) = writer_outbound.recv() {
-                if write_line_outbound_item(&mut *write_half, item).is_err() {
-                    writer_outbound.close();
-                    let _ = write_half.shutdown(Shutdown::Both);
-                    break;
+            loop {
+                match writer_outbound.recv_timeout(STREAM_DISCONNECT_POLL) {
+                    Ok(Some(item)) => {
+                        if write_line_outbound_item(&mut *write_half, item).is_err() {
+                            writer_outbound.close();
+                            let _ = write_half.shutdown(Shutdown::Both);
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(()) if write_half.peer_closed() => {
+                        // A blocked Unix reader may be waiting for scheduler
+                        // capacity while the peer has already disconnected.
+                        // Close the shared writer so that dispatch wakes and
+                        // releases the scheduler/connection permit.
+                        writer_outbound.close();
+                        let _ = write_half.shutdown(Shutdown::Both);
+                        break;
+                    }
+                    Err(()) => continue,
                 }
             }
             writer_close.close();
@@ -9785,7 +9836,13 @@ fn handle_connection_message(
         Err(error) => return send_request_error(writer, None, &format!("bad request: {error}")),
     };
     let mut pending = Some(request);
-    match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
+    match scheduler.dispatch(
+        mux.clone(),
+        client,
+        &mut pending,
+        json_line_payload_len(message),
+        writer.clone(),
+    ) {
         Some(keep_open) => keep_open,
         None => handle_request(mux, client, pending.take().unwrap(), writer),
     }
@@ -19684,6 +19741,36 @@ mod tests {
         let first = ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone());
         let second = ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone());
         assert!(Arc::ptr_eq(&first.admission, &second.admission));
+    }
+
+    #[test]
+    fn disconnected_writer_wakes_one_way_dispatch_waiting_for_capacity() {
+        let mux = test_mux();
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        scheduler.state.lock().unwrap().queued_bytes = CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
+        let (writer, _) = captured_writer();
+        let dispatch_writer = writer.clone();
+        let dispatch_scheduler = scheduler.clone();
+        let dispatch_mux = mux.clone();
+        let dispatch = std::thread::spawn(move || {
+            let mut request = Some(Request {
+                id: Some(json!(1)),
+                cmd: Command::Send {
+                    surface: 1,
+                    text: Some("x".to_string()),
+                    bytes: None,
+                    paste: false,
+                    no_reply: true,
+                },
+            });
+            dispatch_scheduler.dispatch(dispatch_mux, 0, &mut request, 1, dispatch_writer)
+        });
+
+        std::thread::sleep(STREAM_DISCONNECT_POLL + Duration::from_millis(20));
+        writer.close();
+        assert_eq!(dispatch.join().unwrap(), Some(false));
+        assert!(scheduler.state.lock().unwrap().closed);
     }
 
     #[test]
