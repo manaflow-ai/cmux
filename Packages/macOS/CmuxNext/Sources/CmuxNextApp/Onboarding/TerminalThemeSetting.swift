@@ -13,9 +13,9 @@ import Observation
 /// follow live. The Ghostty config file itself never changes.
 @MainActor
 final class TerminalThemeSetting {
-    static let path = ["appearance", "theme"]
-    static let fontFamilyPath = ["terminal", "fontFamily"]
-    static let fontSizePath = ["terminal", "fontSize"]
+    static let path = AppThemeSetting.configPath
+    static let fontFamilyPath = TerminalFontSetting.familyPath
+    static let fontSizePath = TerminalFontSetting.sizePath
 
     private struct State: Equatable {
         var theme: String?
@@ -29,11 +29,10 @@ final class TerminalThemeSetting {
     func follow(_ settings: SettingsController) {
         observation = Task { [weak self] in
             for await snapshot in Observations({ settings.snapshot }) {
-                let root = snapshot.root
-                let theme = root.value(at: Self.path)?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-                let font = GhosttyRuntime.FontOverride(family: root.value(at: Self.fontFamilyPath)?.stringValue,
-                                                       size: root.value(at: Self.fontSizePath)?.doubleValue)
-                self?.apply(State(theme: theme, font: font, background: snapshot.windowBackground))
+                // Parsed and validated in `CmuxConfigSnapshot` (a bad value is
+                // a diagnostic and keeps the Ghostty config's).
+                let font = GhosttyRuntime.FontOverride(family: snapshot.terminalFontFamily, size: snapshot.terminalFontSize)
+                self?.apply(State(theme: snapshot.appTheme, font: font, background: snapshot.windowBackground))
             }
         }
     }
