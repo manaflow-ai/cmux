@@ -423,6 +423,7 @@ export class AcpmuxDirectClient {
         const fallbackPromptId = promptId ?? (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, { ...msg, promptId: fallbackPromptId });
         if (fallbackPromptId) this.optimisticPromptTexts.delete(fallbackPromptId);
+        this.endAssistantSegment(); this.streamingActivity = undefined;
         this.rows.set(`user-${event.seq}`, { id: `user-${event.seq}`, version: 1, at: event.at, kind: "user", text: String(msg.text ?? "") }); this.turnOpen = true;
       }
       else if (event.kind === "turn_started") { this.turnOpen = true; this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" }); }
