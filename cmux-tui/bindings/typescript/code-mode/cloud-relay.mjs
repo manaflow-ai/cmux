@@ -60,11 +60,11 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
       const isMutation = descriptor.class === "mutation";
       method = isMutation ? "POST" : "POST";
       path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "code_mode" } : { op: operation, params };
+      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
     } else {
       // Network policy operations are owner-routed through the Cloud API catalog.
       const isMutation = MUTATIONS.has(operation); method = "POST"; path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "code_mode" } : { op: operation, params };
+      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
     }
     const response = await fetchImpl(`${apiUrl.replace(/\/$/, "")}${path}${query}`, {
       method,
