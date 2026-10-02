@@ -433,9 +433,53 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "team.device.compliance": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.device.enroll": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.device.policy": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.device.release": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.device.report_status": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
     "team.directory": {
       "scope": "team:read",
       "class": "read"
+    },
+    "team.enrollment_token.create": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.enrollment_token.list": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.policy.get": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.policy.history": {
+      "scope": "team:read",
+      "class": "read"
+    },
+    "team.policy.rollback": {
+      "scope": "team:write",
+      "class": "mutation"
+    },
+    "team.policy.update": {
+      "scope": "team:write",
+      "class": "mutation"
     },
     "terminal.attach": {
       "scope": "terminal:execute",
@@ -578,6 +622,7 @@
     "sidebar_view.attach",
     "stream.cancel",
     "tab.close",
+    "team.enrollment_token.revoke",
     "terminal.close",
     "terminal.history.clear",
     "terminal.renderer_grant.create",

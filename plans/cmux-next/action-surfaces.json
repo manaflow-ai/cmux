@@ -7766,6 +7766,28 @@
       "id" : "appStore.showInstalled",
       "mcp" : "guiOnly",
       "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "apps hide",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "app.hide",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "apps unhide",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "app.unhide",
+      "mcp" : "offered",
+      "palette" : "offered"
     }
   ],
   "version" : 1
