@@ -56,27 +56,32 @@ export function SessionSidebar({
   const labelled = pinned.length > 0 && groups.length > 0;
   // Escape clears a query first; with the field empty it reaches the overlay, which closes.
   const onSearchKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape" && query) {
-      event.stopPropagation();
-      event.nativeEvent.stopImmediatePropagation();
-      setQuery("");
-    }
+    if (event.key !== "Escape") return;
+    // During IME composition Escape cancels the composition, and closes nothing.
+    const composing = event.nativeEvent.isComposing;
+    if (!composing && !query) return;
+    event.stopPropagation();
+    if (!composing) setQuery("");
   };
   return (
     <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">
-      <label className="acpmux-sidebar-search">
-        <SearchIcon />
-        <input
-          type="search"
-          aria-label="Search sessions"
-          placeholder="Search"
-          spellCheck={false}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={onSearchKey}
-        />
-      </label>
-      {pinned.length === 0 && groups.length === 0 && <div className="acpmux-sidebar-empty">No matching sessions</div>}
+      <search className="acpmux-sidebar-search">
+        <label>
+          <SearchIcon />
+          <input
+            type="search"
+            aria-label="Search sessions"
+            placeholder="Search"
+            spellCheck={false}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={onSearchKey}
+          />
+        </label>
+      </search>
+      <output className="acpmux-sidebar-empty" hidden={pinned.length > 0 || groups.length > 0}>
+        {pinned.length === 0 && groups.length === 0 ? "No matching sessions" : ""}
+      </output>
       {pinned.length > 0 && (
         <section className="acpmux-sidebar-pinned" aria-label="Pinned">
           {labelled && (

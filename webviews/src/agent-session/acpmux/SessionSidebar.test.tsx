@@ -177,7 +177,10 @@ test("search narrows the list, shows every match, and Escape clears it before cl
   await type("older");
   expect(titles()).toEqual(Array.from({ length: 8 }, (_, index) => `Older ${index}`));
   expect(container.querySelector(".acpmux-sidebar-more")).toBeNull();
-  await type("src/web checkout");
+  // Folder names match, path prefixes don't.
+  await type("src");
+  expect(container.querySelector(".acpmux-sidebar-empty")?.textContent).toBe("No matching sessions");
+  await type("web checkout");
   expect(titles()).toEqual(["Fix the checkout page"]);
   await type("nothing like this");
   expect(container.querySelector(".acpmux-sidebar-empty")?.textContent).toBe("No matching sessions");
@@ -189,6 +192,11 @@ test("search narrows the list, shows every match, and Escape clears it before cl
     act(async () => {
       field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
+  // Escape during IME composition belongs to the composition.
+  await act(async () => {
+    field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, isComposing: true }));
+  });
+  expect(field.value).toBe("nothing like this");
   await escape();
   expect(field.value).toBe("");
   expect(reached).toBe(0);

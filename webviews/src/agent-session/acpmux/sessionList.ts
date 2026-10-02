@@ -178,9 +178,10 @@ export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): A
       session.displayTitle,
       session.title,
       session.name,
-      session.cwd,
+      // Folder names, not full paths: a path prefix like `/Users/me` would match every session.
+      session.cwd && projectLabel(session.cwd),
       session.branch,
-      session.worktree,
+      session.worktree && projectLabel(session.worktree),
       cloudHost(session),
     ]
       .filter(Boolean)

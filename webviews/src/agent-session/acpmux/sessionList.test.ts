@@ -249,6 +249,8 @@ describe("sections", () => {
     expect(ids("CI  KEYS")).toEqual(["b"]);
     expect(ids("elk")).toEqual(["e"]);
     expect(ids("this mac")).toEqual([]);
+    expect(ids("src")).toEqual([]);
+    expect(ids("docs")).toEqual(["m"]);
     expect(ids("  ")).toEqual(["l", "e", "b", "m"]);
     // The local session that anchors /src/web is filtered out, but the cloud matches stay in its project.
     expect(sidebarSections(list, "ci").groups.map((group) => [group.label, group.host])).toEqual([["web", undefined]]);

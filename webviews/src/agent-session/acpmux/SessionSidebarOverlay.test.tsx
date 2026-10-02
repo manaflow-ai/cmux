@@ -156,3 +156,43 @@ test("a resize across the threshold resets the list and keeps the toggle in step
     delete host.cmuxAcpmuxActions;
   }
 });
+
+test("reopening the overlay with a leftover search that hides every row focuses the search field", async () => {
+  const host = dom.window as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void };
+  };
+  host.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "test" }) };
+  media.matches = false;
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const toggle = () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-toggle")!;
+  try {
+    await act(async () => root.render(createElement(AcpmuxApp)));
+    await act(async () =>
+      host.cmuxAcpmuxBridge!.receive({
+        type: "snapshot",
+        protocolVersion: 1,
+        rows: [],
+        connection: "connected",
+        isWorking: false,
+        queue: [],
+        catalog: [],
+        canLoadOlder: false,
+        sessions: [{ sessionId: "a", displayTitle: "First", cwd: "/src/web", updatedAt: 2 }],
+      }),
+    );
+    await act(async () => toggle().click());
+    const field = container.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, "zzz");
+      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-scrim")!.click());
+    await act(async () => toggle().click());
+    expect(dom.window.document.activeElement).toBe(field);
+  } finally {
+    await act(async () => root.unmount());
+    delete host.cmuxAcpmuxActions;
+  }
+});
