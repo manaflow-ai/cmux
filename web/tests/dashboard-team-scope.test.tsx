@@ -265,7 +265,12 @@ describe("dashboard team scope", () => {
 
   test("does not keep the team switch pending while the route refreshes", async () => {
     let resolveRefresh: (() => void) | undefined;
+    let signalRefreshStarted: (() => void) | undefined;
+    const refreshStarted = new Promise<void>((resolve) => {
+      signalRefreshStarted = resolve;
+    });
     routerRefresh.mockImplementation(() => new Promise<undefined>((resolve) => {
+      signalRefreshStarted!();
       resolveRefresh = () => resolve(undefined);
     }));
     const originalFetch = globalThis.fetch;
@@ -274,7 +279,8 @@ describe("dashboard team scope", () => {
       const scope = renderReadyScope();
       const switching = scope.switchTeam(twoTeams.teams[0]!);
 
-      await waitFor(() => resolveRefresh !== undefined);
+      await refreshStarted;
+      expect(resolveRefresh).toBeDefined();
       let completed = false;
       void switching.then(() => { completed = true; });
       await new Promise<void>((resolve) => queueMicrotask(resolve));
