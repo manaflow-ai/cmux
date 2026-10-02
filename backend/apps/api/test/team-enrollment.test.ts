@@ -43,6 +43,10 @@ const ok = (r: ReturnType<typeof teamDomain.reduce>) => {
 }
 
 describe("enrollment and audit reducer (TeamDO)", () => {
+  it("hashes tokens like the app (shared vector with CmuxNextSettings ManagedPreferencesTests)", async () => {
+    expect(await tokenHash("cmxe_shared_vector_v1")).toBe("gBhFw31wF2LFrvU2l8Xgno2GFgrlOQQkj_hhy9_5fvw")
+  })
+
   it("creates a token without exposing its hash, enrolls a member's install with it, and refuses bad tokens", async () => {
     const h = await tokenHash("cmxe_secret_one")
     let s = baseState()
