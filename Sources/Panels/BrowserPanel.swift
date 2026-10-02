@@ -5737,7 +5737,12 @@ final class BrowserPanel: Panel, ObservableObject {
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
-        let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
+        var effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
+        // Headers a browser REPL session added (`session.configure`) go on the
+        // load itself, so the navigation policy has nothing to restart.
+        for (name, value) in webView.automationHeadersMissing(from: effectiveRequest) {
+            effectiveRequest.setValue(value, forHTTPHeaderField: name)
+        }
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         navigationDelegate?.recordAttemptedRequest(effectiveRequest, displayURL: originalURL)
         refreshBackgroundAppearance()

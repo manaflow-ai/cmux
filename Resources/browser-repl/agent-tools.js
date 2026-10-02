@@ -996,9 +996,11 @@
       const result = await session.driver.call("session.configure", params);
       for (const [k, v] of Object.entries(params)) {
         if (v === null || (Array.isArray(v) && !v.length) || (k === "extraHTTPHeaders" && !Object.keys(v).length)) delete contextConfig[k];
-        else contextConfig[k] = k === "proxy" ? { server: v.server, username: v.username, bypass: v.bypass } : v;
+        else contextConfig[k] = k === "proxy" ? Object.fromEntries(["server", "username", "bypass"].filter((f) => v[f] !== undefined).map((f) => [f, v[f]])) : v;
       }
-      return { ...contextConfig, proxyAppliesTo: result && result.proxy ? "tabs opened from now on" : undefined };
+      const out = { ...contextConfig };
+      if (result && result.proxy) out.proxyAppliesTo = "tabs opened from now on";
+      return out;
     }
 
     // ---- downloads -------------------------------------------------------------

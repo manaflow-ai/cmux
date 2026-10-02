@@ -836,8 +836,10 @@ await $P.keyboard.type("ab");
 await $P.keyboard.press("ControlOrMeta+a");
 await $P.keyboard.press("ControlOrMeta+c");
 const copied = await page.clipboard.readText();
-return { paste: paste === "untrusted" ? paste : JSON.parse(paste || "null"), committed: await $P.locator("#value").innerText(), copied };`,
+// WebKit sanitizes pasted HTML (inline styles on the <b>); the bold text survives.
+const p = paste === "untrusted" || !paste ? paste : JSON.parse(paste);
+return { paste: p && typeof p === "object" ? { text: p.text, bold: /<b\b[^>]*>beta<\/b>/.test(p.html), types: p.types } : p, committed: await $P.locator("#value").innerText(), copied };`,
     scope: { aside: "Aside's paste reads the system clipboard, which these tests do not touch", chatgpt: "ChatGPT's real paste reads the system clipboard, which these tests do not touch" },
-    expect: { paste: { text: "beta", html: "<b>beta</b>", types: ["text/html", "text/plain"] }, committed: "beta", copied: "ab" },
+    expect: { paste: { text: "beta", bold: true, types: ["text/html", "text/plain"] }, committed: "beta", copied: "ab" },
   },
 ];

@@ -23,7 +23,8 @@ function fakeSocket(file, calls) {
     lines.on("line", (line) => {
       let req;
       try {
-        req = JSON.parse(line);
+        // A CLI run inside cmux prefixes the request with its capability token.
+        req = JSON.parse(line.slice(Math.max(0, line.indexOf("{"))));
       } catch {
         conn.write("OK\n");
         return;
