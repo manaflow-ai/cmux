@@ -23,14 +23,18 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var location: String?
     /// What the location bar suggests besides the typed text.
     public var omnibar: AgentPaneOmnibar
+    /// What Cmd-T opens (`tabs.newTabKind`: "same-kind", "terminal",
+    /// "browser", "agent", "page" or "auto"), for the "default: X" toggle.
+    public var defaultKind: String?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
-                location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar()) {
+                location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), defaultKind: String? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
         self.location = location
         self.omnibar = omnibar
+        self.defaultKind = defaultKind
     }
 
     /// The `newTab` value of the handshake reply.
@@ -38,6 +42,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         var value: [String: Any] = ["kind": kind.rawValue, "hotkeys": hotkeys, "omnibar": omnibar.reply]
         if let cwd { value["cwd"] = cwd }
         if let location { value["location"] = location }
+        if let defaultKind { value["defaultKind"] = defaultKind }
         return value
     }
 }

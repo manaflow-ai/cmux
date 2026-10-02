@@ -26,6 +26,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
+    /// The new tab page's "default: X" toggle (`tab.setDefaultKind`).
+    @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
 
@@ -75,6 +77,10 @@ public final class AgentPaneModel {
         case .jump(let target, let id):
             guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }
             onJump(target, id)
+            return AgentPaneReply.success()
+        case .setDefaultKind(let kind):
+            guard newTab != nil, let onSetDefaultKind else { return Self.unsupported("tab.setDefaultKind") }
+            onSetDefaultKind(kind)
             return AgentPaneReply.success()
         case .editShortcut(let kind):
             guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }

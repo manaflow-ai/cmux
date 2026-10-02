@@ -77,6 +77,23 @@ import Testing
         #expect(request("tab.jump", ["target": "tab", "id": ""]) == .unsupported("tab.jump"))
         #expect(request("shortcut.edit", ["kind": "agent"]) == .editShortcut(.agent))
         #expect(request("shortcut.edit", [:]) == .unsupported("shortcut.edit"))
+        #expect(request("tab.setDefaultKind", ["kind": "auto"]) == .setDefaultKind("auto"))
+        #expect(request("tab.setDefaultKind", ["kind": ""]) == .unsupported("tab.setDefaultKind"))
+        #expect(request("tab.setDefaultKind", ["kind": String(repeating: "a", count: 40)]) == .unsupported("tab.setDefaultKind"))
+    }
+
+    /// The "default: X" toggle: the handshake says what Cmd-T opens, and a
+    /// pick reaches the App only while the tab is still the page.
+    @Test func theDefaultToggleReachesTheAppWhileThePageIsShown() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: AgentPaneNewTab(kind: .terminal, defaultKind: "same-kind"))
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect((value["newTab"] as? [String: Any])?["defaultKind"] as? String == "same-kind")
+        var picked: [String] = []
+        model.onSetDefaultKind = { picked.append($0) }
+        #expect(await model.respond(to: .setDefaultKind("agent"))["ok"] as? Bool == true)
+        _ = await model.respond(to: .persistSession("s-1"))
+        #expect(await model.respond(to: .setDefaultKind("page"))["ok"] as? Bool == false)
+        #expect(picked == ["agent"])
     }
 
     @Test func theHandshakeCarriesTheLocationAndCappedSuggestions() throws {

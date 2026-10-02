@@ -4,8 +4,10 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextSettings
 import CmuxNextTabs
 import Foundation
+import os
 
 /// What a new tab page does with the user's choice. The page is an agent
 /// tab (it shows recent acpmux sessions and becomes a chat in place); a
@@ -17,6 +19,8 @@ struct NewTabPageHandler {
     /// The location bar picked an open tab or workspace.
     var jump: (AgentPaneJumpTarget, String) -> Void
     var editShortcut: (AgentPaneTabKind) -> Void
+    /// The page's "default: X" toggle wrote `tabs.newTabKind`.
+    var setDefaultKind: (String) -> Void
 }
 
 enum NewTabPage {
@@ -37,9 +41,6 @@ enum NewTabPage {
         return .terminal
     }
 
-    /// The command line a terminal choice types: nil for an empty field,
-    /// else the text run with a newline. The page's field is one line, so
-    /// text with a line break is refused rather than run as several commands.
     /// `~/code/app` for a folder under the home folder, as the bar shows it.
     static func abbreviated(_ path: String) -> String {
         let home = NSHomeDirectory()
@@ -88,6 +89,9 @@ enum NewTabPage {
         return text
     }
 
+    /// The command line a terminal choice types: nil for an empty field,
+    /// else the text run with a newline. The page's field is one line, so
+    /// text with a line break is refused rather than run as several commands.
     static func command(_ text: String) -> String?? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.contains(where: \.isNewline) { return .none }
@@ -106,14 +110,16 @@ extension PaneController {
             kind: NewTabPage.kind(selectedID: selectedID, selectedKind: selectedTab?.kind),
             hotkeys: hotkeys, cwd: cwd,
             location: selectedTab.flatMap { $0.kind == .browser ? $0.url : $0.cwd.map(NewTabPage.abbreviated) },
-            omnibar: NewTabPage.omnibar(services, excluding: selectedID)
+            omnibar: NewTabPage.omnibar(services, excluding: selectedID),
+            defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabKindSetting.fallback).rawValue
         )
         let handler = NewTabPageHandler(
             open: { [weak self] key, kind, text, folder in
                 self?.replaceNewTabPage(key, with: kind, text: text, cwd: folder ?? cwd)
             },
             jump: { [weak self] target, id in self?.jumpFromNewTabPage(target, id: id) },
-            editShortcut: { [weak self] kind in self?.editNewTabShortcut(kind) }
+            editShortcut: { [weak self] kind in self?.editNewTabShortcut(kind) },
+            setDefaultKind: { [weak self] kind in self?.setNewTabDefaultKind(kind) }
         )
         let after = selectedID?.hasPrefix(LocalAgentTab.prefix) == true ? selectedID : nil
         showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, after: after, newTab: (page, handler)))
@@ -138,6 +144,7 @@ extension PaneController {
     /// leaves it, and what was typed, in place.
     private func replaceNewTabPage(_ key: String, with kind: AgentPaneTabKind, text: String, cwd: String?) {
         let closePage: @MainActor (SurfaceID) -> Void = { [weak self] _ in self?.close([StripTabID(key)]) }
+        services.newTabKinds.record(kind == .terminal ? .terminal : kind == .browser ? .browser(engine: nil) : .agent, folder: cwd)
         switch kind {
         case .terminal:
             guard let command = NewTabPage.command(text) else { return }
@@ -162,6 +169,19 @@ extension PaneController {
         switch target {
         case .tab: PaletteSourcesBridge.TabSource(services: services).selectTab(id: id)
         case .workspace: PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: id)
+        }
+    }
+
+    /// Through the schema, as the Settings window writes it; an unknown
+    /// value from the page is ignored.
+    private func setNewTabDefaultKind(_ value: String) {
+        guard let kind = NewTabDefaultKind(rawValue: value), let settings = services.settings,
+              let descriptor = SettingsSchema.descriptor(for: NewTabKindSetting.configPath) else { return }
+        Task {
+            do { try await settings.setSetting(descriptor, to: .string(kind.rawValue)) } catch {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
+                    .error("new tab kind write failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 

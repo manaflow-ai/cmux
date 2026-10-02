@@ -24,6 +24,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
+    /// The new tab page's "default: X" toggle: what Cmd-T opens
+    /// (`tabs.newTabKind`; the App checks the value).
+    case setDefaultKind(String)
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// or `dictation.openSettings` with `{permission}`.
     case dictation(AgentPaneDictationCommand)
@@ -69,6 +72,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             if let target = (params?["target"] as? String).flatMap(AgentPaneJumpTarget.init(rawValue:)),
                let id = params?["id"] as? String, !id.isEmpty, id.count <= 256 {
                 self = .jump(target, id: id)
+            } else {
+                self = .unsupported(method)
+            }
+        case "tab.setDefaultKind":
+            if let kind = params?["kind"] as? String, !kind.isEmpty, kind.count <= 32 {
+                self = .setDefaultKind(kind)
             } else {
                 self = .unsupported(method)
             }

@@ -265,3 +265,31 @@ test("the bar suggests open tabs to jump to, moves with the arrows, and asks the
   expect(submitted).toEqual(["agent:vite"]);
   await act(async () => root.unmount());
 });
+
+test("the default toggle shows what Cmd-T opens and cycles through the choices", async () => {
+  expect(newTabHost({ newTab: { kind: "terminal", defaultKind: "auto" } })?.defaultKind).toBe("auto");
+  expect(newTabHost({ newTab: { kind: "terminal", defaultKind: "spreadsheet" } })?.defaultKind).toBeUndefined();
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const picked: string[] = [];
+  await act(async () =>
+    root.render(
+      createElement(NewTabPage, {
+        snapshot,
+        initialKind: "terminal",
+        defaultKind: "same-kind",
+        onSetDefaultKind: (kind: string) => picked.push(kind),
+        onSubmit: () => {},
+        onOpenSession: () => {},
+        onShowAll: () => {},
+      }),
+    ),
+  );
+  const toggle = () => container.querySelector<HTMLButtonElement>(".acpmux-newtab-default")!;
+  expect(toggle().textContent).toBe("default: same kind");
+  await act(async () => toggle().click());
+  await act(async () => toggle().click());
+  expect(toggle().textContent).toBe("default: browser");
+  expect(picked).toEqual(["terminal", "browser"]);
+  await act(async () => root.unmount());
+});

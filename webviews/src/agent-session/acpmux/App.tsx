@@ -947,6 +947,8 @@ function AcpmuxPane() {
             cwd={newTab.cwd}
             host={newTab.host}
             location={newTab.location}
+            defaultKind={newTab.defaultKind}
+            onSetDefaultKind={(kind) => void callNative("tab.setDefaultKind", { kind })}
             omnibar={newTab.omnibar}
             chips={ComposerChips}
             onSubmit={openFromNewTab}

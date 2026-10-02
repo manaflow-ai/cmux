@@ -87,6 +87,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
+    /// `tabs.newTabKind`; "same-kind" when unset or invalid.
+    public var newTabKind: NewTabDefaultKind = NewTabKindSetting.fallback
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
@@ -152,6 +154,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
+        let (newTabKind, newTabKindDiagnostic) = NewTabKindSetting.parse(root)
+        snapshot.newTabKind = newTabKind
+        if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }

@@ -46,6 +46,7 @@ public nonisolated enum SettingsSchema {
         let columns = SettingsText.text("settings.group.columns", "Columns")
         let quitting = SettingsText.text("settings.group.quit", "Quitting")
         let history = SettingsText.text("settings.group.history", "History")
+        let tabs = SettingsText.text("settings.group.tabs", "Tabs")
         return [
             SettingDescriptor(
                 TerminalCommandHistorySetting.configPath, section: .general, group: history,
@@ -64,6 +65,22 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(TitlebarStyle.standard.rawValue, SettingsText.text("settings.choice.standard", "Standard")),
                 ]),
                 default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
+            ),
+            SettingDescriptor(
+                NewTabKindSetting.configPath, section: .general, group: tabs,
+                title: SettingsText.text("settings.tabs.newTabKind", "New Tab Opens"),
+                help: SettingsText.text("settings.tabs.newTabKind.help",
+                                        "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder."),
+                kind: .choice([
+                    SettingChoice(NewTabDefaultKind.sameKind.rawValue, SettingsText.text("settings.choice.newTabSameKind", "Same Kind as Current Tab")),
+                    SettingChoice(NewTabDefaultKind.terminal.rawValue, SettingsText.text("settings.choice.newTabTerminal", "Terminal")),
+                    SettingChoice(NewTabDefaultKind.browser.rawValue, SettingsText.text("settings.choice.newTabBrowser", "Browser")),
+                    SettingChoice(NewTabDefaultKind.agent.rawValue, SettingsText.text("settings.choice.newTabAgent", "Agent")),
+                    SettingChoice(NewTabDefaultKind.page.rawValue, SettingsText.text("settings.choice.newTabPage", "New Tab Page")),
+                    SettingChoice(NewTabDefaultKind.auto.rawValue, SettingsText.text("settings.choice.newTabAuto", "Auto")),
+                ]),
+                default: .string(NewTabKindSetting.fallback.rawValue),
+                keywords: ["new tab", "cmd-t", "terminal", "browser", "agent", "kind", "default"]
             ),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,

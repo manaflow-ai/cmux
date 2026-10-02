@@ -127,6 +127,7 @@ final class AgentTabStore {
         model.onOpenTab = { [weak self] kind, text, cwd in self?.newTabPages[key]?.handler.open(key, kind, text, cwd) }
         model.onJump = { [weak self] target, id in self?.newTabPages[key]?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
+        model.onSetDefaultKind = { [weak self] kind in self?.newTabPages[key]?.handler.setDefaultKind(kind) }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         views[key] = view
@@ -204,6 +205,7 @@ final class AgentTabStore {
 extension PaneController {
     /// New Agent Chat: a new agent tab in this pane, selected.
     func newAgentTab() {
+        services.newTabKinds.record(.agent, folder: selectedTab?.cwd)
         showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store))
     }
 

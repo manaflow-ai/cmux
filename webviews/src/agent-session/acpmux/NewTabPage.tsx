@@ -16,6 +16,10 @@ import { projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
 export type TabKind = (typeof TAB_KINDS)[number];
 
+/// What Cmd-T and + open (`tabs.newTabKind`), in the order the "default" toggle cycles.
+export const DEFAULT_KINDS = ["same-kind", "terminal", "browser", "agent", "page", "auto"] as const;
+export type DefaultKind = (typeof DEFAULT_KINDS)[number];
+
 /// New tab page copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const NEW_TAB_LABELS = {
   kinds: { terminal: "Terminal", browser: "Browser", agent: "Agent" } satisfies Record<TabKind, string>,
@@ -39,6 +43,16 @@ export const NEW_TAB_LABELS = {
     open: "Open",
   } satisfies Record<Exclude<OmnibarRow["type"], "ask">, string>,
   ask: (agent: string) => `Ask ${agent}`,
+  defaultKind: (kind: string) => `default: ${kind}`,
+  defaultKinds: {
+    "same-kind": "same kind",
+    terminal: "terminal",
+    browser: "browser",
+    agent: "agent",
+    page: "this page",
+    auto: "auto",
+  } satisfies Record<DefaultKind, string>,
+  defaultKindHint: "What ⌘T and + open. Click to change.",
   recent: "Recent",
   allSessions: "All sessions",
   thisMac: "This Mac",
@@ -57,6 +71,7 @@ export type NewTabHost = {
   host?: string;
   location?: string;
   omnibar?: OmnibarContext;
+  defaultKind?: DefaultKind;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -81,6 +96,9 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.host === "string" ? { host: object.host } : {}),
     ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
     ...(omnibar ? { omnibar } : {}),
+    ...(DEFAULT_KINDS.includes(object.defaultKind as DefaultKind)
+      ? { defaultKind: object.defaultKind as DefaultKind }
+      : {}),
   };
 }
 
@@ -140,6 +158,10 @@ type Props = {
   /// The current tab's URL or folder: in the field and selected when the page opens,
   /// so typing replaces it.
   location?: string;
+  /// What Cmd-T opens; the "default" toggle shows it when the host sends it.
+  defaultKind?: DefaultKind;
+  /// The toggle picked the next default.
+  onSetDefaultKind?(kind: DefaultKind): void;
   /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it.
   onSubmit(kind: TabKind, text: string, cwd?: string): void;
   /// Go to an open tab or workspace instead of opening a duplicate.
@@ -162,6 +184,8 @@ export function NewTabPage({
   chips: Chips,
   omnibar = EMPTY_OMNIBAR,
   location,
+  defaultKind: initialDefault,
+  onSetDefaultKind,
   onSubmit,
   onJump,
   onOpenSession,
@@ -169,6 +193,7 @@ export function NewTabPage({
   onEditShortcut,
 }: Props) {
   const [kind, setKind] = useState<TabKind>(initialKind);
+  const [defaultKind, setDefaultKind] = useState(initialDefault);
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: the rows are the empty bar's.
   const [touched, setTouched] = useState(false);
@@ -354,6 +379,20 @@ export function NewTabPage({
             )}
             {kind === "agent" && Chips && <Chips snapshot={snapshot} />}
           </span>
+          {defaultKind && onSetDefaultKind && (
+            <button
+              type="button"
+              className="acpmux-newtab-default"
+              title={NEW_TAB_LABELS.defaultKindHint}
+              onClick={() => {
+                const next = DEFAULT_KINDS[(DEFAULT_KINDS.indexOf(defaultKind) + 1) % DEFAULT_KINDS.length]!;
+                setDefaultKind(next);
+                onSetDefaultKind(next);
+              }}
+            >
+              {NEW_TAB_LABELS.defaultKind(NEW_TAB_LABELS.defaultKinds[defaultKind])}
+            </button>
+          )}
           <button
             type="submit"
             className={`acpmux-send${text.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
