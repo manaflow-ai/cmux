@@ -2318,6 +2318,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "tab new-page",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "newTab"
+      ],
+      "id" : "newTab.page",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "tab new-terminal",
       "context_menu" : "offered",
       "context_menus" : [
@@ -2550,20 +2561,9 @@
       "palette" : "offered"
     },
     {
-      "cli" : "focusMove",
-      "cli_name" : "tab go-to",
-      "context_menu" : "focusMove",
-      "context_menus" : [
-
-      ],
-      "id" : "palette.goToTab",
-      "mcp" : "focusMove",
-      "palette" : "offered"
-    },
-    {
       "cli" : "offered",
       "cli_name" : "tab search",
-      "context_menu" : "noObject",
+      "context_menu" : "focusMove",
       "context_menus" : [
 
       ],
