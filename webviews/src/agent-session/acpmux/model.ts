@@ -1,3 +1,5 @@
+import type { SlashCommand } from "./slashCommands";
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -43,6 +45,8 @@ export type AcpmuxSnapshot = {
   permission?: AcpmuxPermission;
   catalog: { id: string; name: string; models: { id: string; name?: string }[] }[];
   canLoadOlder: boolean;
+  /** The agent's slash commands, for the composer's `/` menu. */
+  commands?: SlashCommand[];
 };
 
 export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };

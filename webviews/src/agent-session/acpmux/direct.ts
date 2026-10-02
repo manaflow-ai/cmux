@@ -1,4 +1,5 @@
 import type { AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -15,6 +16,9 @@ type Session = Record<string, any> & { sessionId: string };
 type Reply = { id: number; result?: any; error?: { message?: string } };
 type Notification = { method: string; params?: any };
 type Listener = (snapshot: AcpmuxSnapshot) => void;
+
+/// The slash commands are not transcript, so the pane asks for their updates by kind.
+const COMMANDS_KIND = "available_commands_update";
 
 export function permissionFromMessage(message: any, selectedSessionId: string): AcpmuxPermission | undefined {
   const envelope = message ?? {};
@@ -86,6 +90,7 @@ export class AcpmuxDirectClient {
   private catalog: any[] = [];
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
+  private commands: SlashCommand[] = [];
   private optimisticPromptRows = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
   private firstSeq?: number;
@@ -195,6 +200,7 @@ export class AcpmuxDirectClient {
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.pendingPermission = undefined;
+    this.commands = [];
   }
 
   private scheduleReconnect(): void {
@@ -298,9 +304,11 @@ export class AcpmuxDirectClient {
   /// Returns the attach page's events, or none when the selection moved on.
   private async attach(sessionId: string, generation = this.selectionGeneration): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
-    const result = await this.request("_acpmux/attach", { sessionId, limit: 400, kinds: ["transcript"], eventStream: true });
+    const result = await this.request("_acpmux/attach", { sessionId, limit: 400, kinds: ["transcript", COMMANDS_KIND], eventStream: true });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const page: EventRecord[] = result?.events ?? [];
+    // An agent usually lists its commands once, at start, which is older than the page.
+    if (!page.some((event) => event.kind === COMMANDS_KIND) && typeof result?.lastSeq === "number" && result.lastSeq > 0) void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
     const detail = result?.session ?? {};
     this.summary = detail;
     this.queue = (detail.queue ?? []).map((entry: any) => ({ id: String(entry.promptId), prompt: String(entry.prompt ?? "") }));
@@ -309,6 +317,17 @@ export class AcpmuxDirectClient {
     this.attachedGeneration = generation;
     this.emit("attached");
     return page;
+  }
+
+  /// The newest command list at or before `lastSeq`, unless a live update already arrived.
+  private async fetchCommands(sessionId: string, generation: number, lastSeq: number): Promise<void> {
+    const result = await this.request("_acpmux/events", { sessionId, beforeSeq: lastSeq + 1, limit: 1, kinds: [COMMANDS_KIND] });
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId || this.commands.length > 0) return;
+    const event: EventRecord | undefined = result?.events?.at(-1);
+    const commands = event ? commandsFromUpdate(sessionUpdate(event)) : undefined;
+    if (!commands) return;
+    this.commands = commands;
+    this.emit("commands");
   }
 
   private sessionChanged(params: any): void {
@@ -402,6 +421,8 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!update) return;
+    const commands = commandsFromUpdate(update);
+    if (commands) { this.commands = commands; return; }
     const text = textFromContent(update.content);
     if (event.kind === "agent_message_chunk" && text) {
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
@@ -423,7 +444,7 @@ export class AcpmuxDirectClient {
   private emit(connection = "connected"): void {
     const summary = this.summary;
     const effort = (summary?.configOptions ?? []).find((option: any) => option.category === "thought_level" || option.id === "reasoning_effort");
-    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => ({ sessionId: session.sessionId, displayTitle: session.title ?? session.name, title: session.title, name: session.name, status: session.status, model: session.model })), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: this.catalog, canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
+    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => ({ sessionId: session.sessionId, displayTitle: session.title ?? session.name, title: session.title, name: session.name, status: session.status, model: session.model })), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: this.catalog, commands: this.commands, canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
   }
 
   snapshot(): void { this.emit(); }
