@@ -187,6 +187,9 @@ if [[ -n "$IROH_RELEASE_GATE_MODE" || "$RESTORE_PAIRING" -eq 1 ]]; then
   READINESS_MODE="mac-rpc"
 elif [[ "$READINESS_REQUEST" != "auto" ]]; then
   READINESS_MODE="$READINESS_REQUEST"
+elif [[ "$CHECK_AUTH_CONTRACT" -eq 1 ]]; then
+  # The credential contract check never inspects an app.
+  READINESS_MODE="mac-rpc"
 elif [[ -n "${CMUX_INSTALLED_APP_PATH:-}" && -f "${CMUX_INSTALLED_APP_PATH}/Info.plist" ]]; then
   READINESS_MODE="$(cmux_attach_app_readiness_mode "$CMUX_INSTALLED_APP_PATH")" || exit 2
 elif [[ "$TARGET" == "device" ]]; then
@@ -367,7 +370,7 @@ if [[ -z "$READINESS_MODE" ]]; then
 fi
 if [[ "$READINESS_MODE" == "app-receipt" ]]; then
   if [[ "$ATTACH" -eq 1 ]]; then
-    echo "==> app-receipt readiness: the app proves its own sign-in; skipping tagged Mac pairing"
+    echo "==> app-receipt readiness: this app has no tagged Mac pairing; --attach/--ensure-mac ignored, the app's own signed-in receipt is the gate"
   fi
   ATTACH=0
   ENSURE_MAC=0
@@ -488,7 +491,9 @@ if [[ "$TARGET" == "simulator" ]]; then
     cmux_attach_seed_simulator_device_id "$SIM_UDID" "$BUNDLE_ID"
   )"
   launch_args=(launch)
-  if [[ "$DETACH" -ne 1 ]]; then
+  # The app-receipt gate runs after launch returns, so it never attaches the
+  # console (an attached console would block until the app exits).
+  if [[ "$DETACH" -ne 1 && "${READINESS_MODE:-}" != "app-receipt" ]]; then
     launch_args+=(--console-pty)
   fi
   SIMULATOR_LAUNCH_UPTIME_NS=""

@@ -492,7 +492,6 @@ drain_entry() {
   credentials_file="$(meta_field "$meta" credentials_file 2>/dev/null || true)"
   # Entries written before the readiness field existed are mac-rpc.
   readiness="$(meta_field "$meta" readiness 2>/dev/null || true)"
-  DRAIN_ENTRY_READINESS="$readiness"
   case "$readiness" in
     ""|mac-rpc|app-receipt) ;;
     *)
@@ -641,7 +640,11 @@ drain_entry() {
     [[ "$allow_unauthenticated" == "1" ]] && mdl_env=(CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1)
   elif [[ "$readiness" == "app-receipt" ]]; then
     args+=(--readiness app-receipt)
+  elif [[ "$readiness" == "mac-rpc" ]]; then
+    # Pin the recorded mode so the launcher cannot re-detect another one.
+    args+=(--ensure-mac --readiness mac-rpc)
   else
+    # Legacy entry (no recorded mode): the launcher detects it from the app.
     args+=(--ensure-mac)
   fi
   if [[ "$allow_unauthenticated" != "1" ]]; then
@@ -707,6 +710,12 @@ drain_entry() {
     return $?
   fi
 
+  # Report the mode the launcher actually verified, from its own receipt.
+  if [[ "$(meta_field "$receipt" readiness 2>/dev/null || true)" == "app-receipt" ]]; then
+    DRAIN_ENTRY_READINESS="app-receipt"
+  else
+    DRAIN_ENTRY_READINESS="mac-rpc"
+  fi
   log "installed + launched $bundle_id (tag $tag) on $device_id; auth gate PASS (receipt: $receipt)"
   finish_installed 0
   return $?

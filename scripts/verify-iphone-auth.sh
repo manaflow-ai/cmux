@@ -117,6 +117,7 @@ RECEIPT_PATH="$RECEIPT_DIR/${SLUG}-$(cmux_attach__slug "$DEVICE_ID").json"
 
 # --- readiness mode -------------------------------------------------------------
 READINESS_MODE="$READINESS_REQUEST"
+READINESS_HINT=""
 if [[ "$READINESS_MODE" == "auto" ]]; then
   if [[ -n "${CMUX_INSTALLED_APP_PATH:-}" && -f "${CMUX_INSTALLED_APP_PATH}/Info.plist" ]]; then
     READINESS_MODE="$(cmux_attach_app_readiness_mode "$CMUX_INSTALLED_APP_PATH")" || exit 2
@@ -135,6 +136,7 @@ PY
     READINESS_MODE="$RECORDED_MODE"
   else
     READINESS_MODE="mac-rpc"
+    READINESS_HINT="readiness mode guessed as mac-rpc (no installed app path or launcher receipt); for a build that declares CMUXDogfoodReadiness, rerun with --readiness app-receipt"
   fi
 fi
 if [[ "$READINESS_MODE" == "app-receipt" && "$TIMEOUT_EXPLICIT" -eq 0 ]]; then
@@ -158,6 +160,7 @@ fail() {
   local reason="$1"
   printf 'FAIL: %s on %s is NOT verified %s\n' "$BUNDLE_ID" "$DEVICE_ID" "$VERIFIED_STATE"
   printf 'reason: %s\n' "$reason"
+  [[ -z "$READINESS_HINT" ]] || printf 'hint: %s\n' "$READINESS_HINT"
   printf 'retry: %s\n' "$RETRY_CMD"
   exit 1
 }
@@ -199,6 +202,7 @@ if [[ "$READINESS_MODE" == "app-receipt" ]]; then
           -u DEVICECTL_CHILD_CMUX_DEV_AUTH_REPLACE_SESSION \
           DEVICECTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$EXPECTED_CLIENT_ID" \
           DEVICECTL_CHILD_CMUX_DOGFOOD_READINESS_NONCE="$READINESS_NONCE" \
+          DEVICECTL_CHILD_CMUX_UITEST_MOCK_DATA=0 \
           xcrun devicectl device process launch --terminate-existing \
           --device "$DEVICE_ID" "$BUNDLE_ID" >/dev/null 2>&1; then
     fail "could not relaunch $BUNDLE_ID (device locked? unlock the iPhone and rerun)"

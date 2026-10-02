@@ -68,6 +68,7 @@ if [[ "$1 $2 $3 $4" == "devicectl device process launch" ]]; then
     printf 'email_set=%s\n' "${DEVICECTL_CHILD_CMUX_UITEST_STACK_EMAIL:+1}"
     printf 'password_set=%s\n' "${DEVICECTL_CHILD_CMUX_UITEST_STACK_PASSWORD:+1}"
     printf 'replace=%s\n' "${DEVICECTL_CHILD_CMUX_DEV_AUTH_REPLACE_SESSION:-}"
+    printf 'mock=%s\n' "${DEVICECTL_CHILD_CMUX_UITEST_MOCK_DATA:-}"
   } > "$state/launch.env"
   exit 0
 fi
@@ -333,7 +334,7 @@ class LauncherTest(unittest.TestCase):
     def test_app_receipt_ignores_ensure_mac(self) -> None:
         result = self.box.launch("--readiness", "app-receipt", "--ensure-mac")
         self.assert_app_receipt_pass(result)
-        self.assertIn("skipping tagged Mac pairing", result.stdout)
+        self.assertIn("--attach/--ensure-mac ignored", result.stdout)
 
     def test_auto_reads_the_installed_app_contract(self) -> None:
         app = write_app(self.box.root / "cmux.app", "app-receipt-v1")
@@ -373,6 +374,18 @@ class LauncherTest(unittest.TestCase):
                 self.assertEqual(self.box.log("copy-from.log"), "")
                 self.assertEqual(self.box.launch_env(), {})
 
+    def test_contract_check_ignores_an_ambient_app_path(self) -> None:
+        app = write_app(self.box.root / "future.app", "app-receipt-v9")
+        result = subprocess.run(
+            ["bash", str(LAUNCHER), "--check-auth-contract", "--auth-profile", "personal",
+             "--credentials-file", str(self.box.credentials)],
+            env=self.box.env(CMUX_INSTALLED_APP_PATH=str(app)), cwd=REPO_ROOT,
+            text=True, capture_output=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"CMUX_DEV_AUTH_ACCOUNT={ACCOUNT}", result.stdout)
+        self.assertNotIn(PASSWORD, result.stdout + result.stderr)
+
     def test_invalid_mode_and_release_gate_combination_are_refused(self) -> None:
         result = self.box.launch("--readiness", "pairing")
         self.assertEqual(result.returncode, 2)
@@ -400,6 +413,7 @@ class VerifierTest(unittest.TestCase):
         self.assertEqual(launched["password_set"], "", "relaunch must not inject credentials")
         self.assertEqual(launched["email_set"], "")
         self.assertEqual(launched["replace"], "")
+        self.assertEqual(launched["mock"], "0")
         self.assertRegex(launched["nonce"], r"^[0-9a-f]{32}$")
         self.assertEqual(self.box.receipt()["session_source"], "restored")
         self.assertEqual(self.box.log("cmux.log"), "")
@@ -423,6 +437,7 @@ class VerifierTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("NOT verified signed in + paired", result.stdout)
         self.assertIn("is not running and no local build exists", result.stdout)
+        self.assertIn("rerun with --readiness app-receipt", result.stdout)
         self.assertEqual(self.box.log("copy-from.log"), "")
 
 
