@@ -72,15 +72,17 @@ impl Supervisor {
         };
         let mutation = class == OpClass::Mutation;
         let token = options.get("gesture").and_then(Value::as_str);
-        let gesture = inner.gestures.present(&key.app, token, mutation, Instant::now());
+        // One token allows one view-state change: a focus op, or any op asked
+        // to move focus. Other calls run as the user while it is live.
+        let changes_view = needs_gesture(&op) || params.get("focus") == Some(&Value::Bool(true));
+        let gesture = inner.gestures.present(&key.app, token, changes_view, Instant::now());
         if needs_gesture(&op) && gesture != GestureCheck::User {
             return reject(error(
                 "gesture.required",
                 format!("{op} changes focus and needs a user gesture"),
             ));
         }
-        let origin =
-            if mutation && gesture == GestureCheck::User { Origin::User } else { Origin::Script };
+        let origin = if gesture == GestureCheck::User { Origin::User } else { Origin::Script };
         // Without a spent gesture an app never asks an owner to move focus.
         if origin != Origin::User
             && let Some(fields) = params.as_object_mut()
