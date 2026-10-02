@@ -476,7 +476,11 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
     private func handle(signal: CmxWebRTCSignalMessage) async throws {
         switch signal {
         case let .offer(sdp):
-            guard clientHost == nil, let peerConnection else {
+            // Only the host receives an offer. A relay client has no direct
+            // `clientHost`, so include the relay endpoint in this role check;
+            // otherwise the client's answer is rejected as an unexpected
+            // signal before the data channel can open.
+            guard clientHost == nil, clientRelayURL == nil, let peerConnection else {
                 throw CmxWebRTCByteTransportError.unexpectedSignal
             }
             try await setRemoteDescription(
@@ -491,7 +495,9 @@ public actor CmxWebRTCByteTransport: CmxByteTransport {
             try await signaling?.send(.answer(sdp: answer.value.sdp))
             _ = peerConnection
         case let .answer(sdp):
-            guard clientHost != nil else { throw CmxWebRTCByteTransportError.unexpectedSignal }
+            guard clientHost != nil || clientRelayURL != nil else {
+                throw CmxWebRTCByteTransportError.unexpectedSignal
+            }
             try await setRemoteDescription(
                 CmxWebRTCSessionDescriptionBox(
                     RTCSessionDescription(type: .answer, sdp: sdp)
