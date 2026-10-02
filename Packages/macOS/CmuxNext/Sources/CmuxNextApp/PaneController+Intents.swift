@@ -84,8 +84,10 @@ extension PaneController {
     /// New terminal tab in this pane. `typing` is sent to the new shell
     /// once the tab exists (config command actions). `keep` makes the
     /// terminal outlive the tab; by default the daemon ends it after the
-    /// reap grace period once its last tab closes.
-    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil) {
+    /// reap grace period once its last tab closes. `then` runs once the new
+    /// tab is selected.
+    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil,
+                        then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let handle = pane.handle
         let cwd = cwd ?? selectedTab?.cwd
         let workspace = services.workspaceKey(of: pane)
@@ -98,6 +100,7 @@ extension PaneController {
                 pendingSelectSurface = created.surface
                 apply(snapshot())
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
+                then?(created.surface)
                 return nil
             } catch {
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")

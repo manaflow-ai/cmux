@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextPalette
@@ -33,18 +34,12 @@ enum NewTabPage {
     }
 
     /// The command line a terminal choice types: nil for an empty field,
-    /// else the text run with a newline.
-    static func command(_ text: String) -> String? {
+    /// else the text run with a newline. The page's field is one line, so
+    /// text with a line break is refused rather than run as several commands.
+    static func command(_ text: String) -> String?? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed + "\n"
-    }
-
-    /// `~/…` for a folder under `home`, as the page shows it.
-    static func displayPath(_ path: String?, home: String = NSHomeDirectory()) -> String? {
-        guard let path, !path.isEmpty else { return nil }
-        if path == home { return "~" }
-        if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
-        return path
+        if trimmed.contains(where: \.isNewline) { return .none }
+        return .some(trimmed.isEmpty ? nil : trimmed + "\n")
     }
 }
 
@@ -57,7 +52,7 @@ extension PaneController {
         let hotkeys = NewTabPage.newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
         let page = AgentPaneNewTab(
             kind: NewTabPage.kind(selectedID: selectedID, selectedKind: selectedTab?.kind),
-            hotkeys: hotkeys, cwd: NewTabPage.displayPath(cwd)
+            hotkeys: hotkeys, cwd: cwd
         )
         let handler = NewTabPageHandler(
             open: { [weak self] key, kind, text in self?.replaceNewTabPage(key, with: kind, text: text, cwd: cwd) },
@@ -68,18 +63,27 @@ extension PaneController {
     }
 
     /// The page chose a terminal or browser: open it, then close the page,
-    /// which held nothing yet (the open-beside rule's one replace case).
+    /// which held nothing yet (the open-beside rule's one replace case). The
+    /// page closes only once the new tab exists, so a refused or failed open
+    /// leaves it, and what was typed, in place.
     private func replaceNewTabPage(_ key: String, with kind: AgentPaneTabKind, text: String, cwd: String?) {
+        let closePage: @MainActor (SurfaceID) -> Void = { [weak self] _ in self?.close([StripTabID(key)]) }
         switch kind {
         case .terminal:
-            newTerminalTab(cwd: cwd, typing: NewTabPage.command(text))
+            guard let command = NewTabPage.command(text) else { return }
+            newTerminalTab(cwd: cwd, typing: command, then: closePage)
         case .browser:
             let url = services.cache.suggestionEngine.resolver.destination(for: text)?.url
-            newBrowserTab(url: url)
+            // A session-local browser tab is made and selected right away.
+            if services.cache.browserTabs?.isAvailable() == true {
+                newBrowserTab(url: url, then: closePage)
+            } else {
+                newBrowserTab(url: url)
+                close([StripTabID(key)])
+            }
         case .agent:
             return
         }
-        close([StripTabID(key)])
     }
 
     private func editNewTabShortcut(_ kind: AgentPaneTabKind) {

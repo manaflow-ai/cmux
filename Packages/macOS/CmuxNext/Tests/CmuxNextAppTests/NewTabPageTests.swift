@@ -15,17 +15,13 @@ import Testing
         #expect(NewTabPage.kind(selectedID: nil, selectedKind: nil) == .terminal)
     }
 
-    @Test func aTerminalChoiceRunsTheTrimmedCommandOrNothing() {
-        #expect(NewTabPage.command("  bun dev ") == "bun dev\n")
-        #expect(NewTabPage.command(" \n") == nil)
-        #expect(NewTabPage.command("") == nil)
-    }
-
-    @Test func foldersUnderHomeShowWithATilde() {
-        #expect(NewTabPage.displayPath("/Users/a/code/cmux", home: "/Users/a") == "~/code/cmux")
-        #expect(NewTabPage.displayPath("/Users/a", home: "/Users/a") == "~")
-        #expect(NewTabPage.displayPath("/Users/ab", home: "/Users/a") == "/Users/ab")
-        #expect(NewTabPage.displayPath(nil, home: "/Users/a") == nil)
+    @Test func aTerminalChoiceRunsOneTrimmedCommandOrNothing() {
+        #expect(NewTabPage.command("  bun dev ") == .some("bun dev\n"))
+        #expect(NewTabPage.command(" \n") == .some(nil))
+        #expect(NewTabPage.command("") == .some(nil))
+        // The field is one line; a forged multi-line text runs nothing.
+        #expect(NewTabPage.command("ls\nrm -rf x") == .none)
+        #expect(NewTabPage.command("ls\rpwd") == .none)
     }
 
     /// Each kind's chord on the page is its New action's, so editing one
