@@ -33,7 +33,7 @@ struct SettingsSectionView: View {
     /// and the font on Terminal.
     static func leads(_ group: SettingsGroup, in section: SettingsSection) -> Bool {
         switch section {
-        case .appearance: group.settings.contains { $0.path == AppThemeSetting.configPath }
+        case .appearance: group.settings.contains { $0.path == AppThemeSetting().configPath }
         case .terminal: true
         default: false
         }

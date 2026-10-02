@@ -38,7 +38,7 @@ bun x esbuild "$SRC/acpmux/main.tsx" \
 # the pane needs just its variables and rules, so drop @import lines.
 grep -v '^@import ' "$SRC/shared/styles.css" > "$WORK/styles.css"
 cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/changes/changes.css" \
-  "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
+  "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" >> "$WORK/styles.css"
 
 # Inline script and style, loopback WebSocket only. No remote loads, no eval.

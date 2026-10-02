@@ -9,13 +9,14 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case role, defaultBrowser, importData, theme, accounts
+        case role, firstTask, defaultBrowser, importData, theme, accounts
     }
 
     public private(set) var step: Step
-    /// The steps of this flow (`accounts` only when the App supplies it).
+    /// The steps of this flow (`firstTask` and `accounts` only when the App supplies them).
     public let steps: [Step]
     public let role: RoleStepModel
+    public let firstTask: FirstTaskStepModel
     public let theme: ThemeStepModel
     public let importer: ImportStepModel
     public let defaults: DefaultAppsStepModel
@@ -27,10 +28,17 @@ public final class OnboardingModel {
 
     public init(services: any OnboardingServices, start: Step? = nil) {
         self.services = services
-        let steps = Step.allCases.filter { $0 != .accounts || services.hasAccountsStep }
+        let steps = Step.allCases.filter { step in
+            switch step {
+            case .firstTask: services.canRunFirstTask
+            case .accounts: services.hasAccountsStep
+            default: true
+            }
+        }
         self.steps = steps
         step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
         role = RoleStepModel(services: services)
+        firstTask = FirstTaskStepModel(services: services)
         theme = ThemeStepModel(services: services)
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
@@ -90,6 +98,7 @@ public final class OnboardingModel {
         case .defaultBrowser: defaults.refresh()
         case .importData: importer.detect()
         case .theme: theme.load()
+        case .firstTask: firstTask.refreshOutputs()
         case .role, .accounts: break
         }
     }
@@ -100,6 +109,7 @@ public final class OnboardingModel {
         guard !ended else { return }
         ended = true
         if !completed, !theme.isCommitted { theme.revert() }
+        firstTask.stop()
         services.onboardingDidEnd(completed: completed)
         onEnd?(completed)
     }
