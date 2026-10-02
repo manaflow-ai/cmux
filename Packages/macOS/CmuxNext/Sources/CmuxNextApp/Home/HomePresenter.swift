@@ -16,8 +16,7 @@ final class HomePresenter {
         self.state = state
     }
 
-    /// Shows Home in `root`. The composer takes the keyboard only when the
-    /// window is key: a no-activate test window never takes it.
+    /// Shows Home in `root` and makes the composer the window's first responder.
     func show(in root: WindowRootView) {
         if isShown, let view, view.superview != nil { return }
         let view = view ?? HomeHostView(services: services, state: state)
@@ -26,7 +25,8 @@ final class HomePresenter {
         root.titlebar.title = HomeStrings.title
         isShown = true
         services.home.homeDidOpen()
-        if let window = view.window, window.isKeyWindow { view.focusComposer() }
+        // First responder only: a never-key test window still never takes the keyboard.
+        view.focusComposer()
     }
 
     /// Home left the window; the caller shows the workspace.
