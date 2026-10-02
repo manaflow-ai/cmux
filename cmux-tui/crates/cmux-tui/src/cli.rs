@@ -5,6 +5,7 @@
 //! accidentally fall back to the private command protocol.
 
 mod command;
+mod docs;
 mod lifecycle;
 mod raw;
 mod shorthand;
@@ -34,6 +35,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "projection",
     "provider",
     "raw",
+    "docs",
 ];
 
 const REMOTE_COMMANDS: &[&str] = &[
@@ -163,6 +165,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             0
         }
+        Ok(ParsedCommand::Docs(plan)) => docs::run(plan),
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
@@ -234,6 +237,9 @@ fn parse_command(
             }
             Some(scope) => Err(unknown_scope(scope)),
         };
+    }
+    if let Some(command) = docs::command(&command_args, global.clone())? {
+        return Ok(command);
     }
     if has_help_option(&command_args) {
         let words = command_args
@@ -449,8 +455,9 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
-    match scope {
+    let text = match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
+        "docs" => Cow::Borrowed(docs::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
@@ -475,26 +482,22 @@ fn scope_help_for(
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
-    }
+    };
+    docs::append_scope_help(scope, text)
 }
-
 const ROOT_HELP_PROCESS_PREFIX: &str = "\
 cmux - terminal multiplexer and resource client
-
 USAGE
   cmux [START OPTIONS]
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
   cmux wg hub --config <wg-quick file> --socket <unix socket>
 ";
-
 const ROOT_HELP_PROCESS_SUFFIX: &str = "\
   cmux machine-agent [OPTIONS]
 ";
-
 const ROOT_HELP_GLOBALS: &str = "\
   cmux [GLOBAL OPTIONS] <scope> <action>
-
 GLOBAL OPTIONS
   --socket <path>    Connect to an exact local session socket
   --session <name>   Route through a named local session
@@ -503,7 +506,6 @@ GLOBAL OPTIONS
   --jsonl            Print one JSON value per result or event
   --quiet            Suppress successful output
   -h, --help         Show command help
-
 PROCESS HELP
   cmux help start
   cmux help shorthands
@@ -511,10 +513,8 @@ PROCESS HELP
   cmux relay --help
   cmux wg hub --help
   cmux machine-agent --help
-
 RESOURCE SCOPES
 ";
-
 const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   machine       Inspect the local machine and session route
   session       Inspect and control a session
@@ -532,10 +532,8 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   projection    Read and update frontend projections
   provider      Install private provider authority
   raw           Send an explicit low-level operation
-
 Run `cmux <scope> --help` for scope-specific paths.
 ";
-
 fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
     format!(
         "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}",
