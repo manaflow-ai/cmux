@@ -742,7 +742,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         const reason = driver.blockReason && c.url ? driver.blockReason(c.url) : null;
         if (reason) throw new DriverError("blocked", `cookies.set: ${c.url} is blocked: ${reason}`);
         const domain = c.domain || (c.url ? new URL(c.url).hostname : "");
-        const cookieReason = driver.cookieBlockReason && driver.cookieBlockReason(domain);
+        const check = driver.cookieSetBlockReason || driver.cookieBlockReason;
+        const cookieReason = check && check(domain);
         if (cookieReason) throw new DriverError("blocked", `cookies.set: a cookie on ${domain} is blocked: ${cookieReason}`);
       }
       return context.addCookies(cookies);
@@ -851,7 +852,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       // Called by the native-boundary emulation, never by the runtime. As
       // WebKit does, rules with a non-ASCII url-filter do not compile; then
       // every call fails until a policy that compiles replaces them.
-      async setDomainPolicy(policy, blockReason, cookieBlockReason) {
+      async setDomainPolicy(policy, blockReason, cookieBlockReason, cookieSetBlockReason) {
+        driver.cookieSetBlockReason = policy.allowed || policy.prohibited.length || policy.blockIPs ? cookieSetBlockReason || null : null;
         const rules = loadRuntime().agentTools.policyContentRules(policy);
         const bad = rules.find((r) => /[^\x00-\x7f]/.test(r.trigger["url-filter"]));
         if (bad) {

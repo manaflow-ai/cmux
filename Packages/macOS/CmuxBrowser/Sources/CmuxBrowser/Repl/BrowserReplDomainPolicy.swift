@@ -204,6 +204,21 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
         return named.hasSuffix("." + domain)
     }
 
+    /// Whether every host under `domain` (it and all its subdomains) matches.
+    func coversSubdomains(of domain: String) -> Bool {
+        if host == "*" { return true }
+        guard host.hasPrefix("*.") else { return false }
+        let base = String(host.dropFirst(2))
+        return domain == base || domain.hasSuffix("." + base)
+    }
+
+    /// Whether a host this pattern names is `domain` or one of its subdomains.
+    func namesSubdomain(of domain: String) -> Bool {
+        if host == "*" { return true }
+        let named = host.hasPrefix("*.") ? String(host.dropFirst(2)) : host
+        return named == domain || named.hasSuffix("." + domain) || domain.hasSuffix("." + named)
+    }
+
     private static func glob(_ pattern: String, matches text: String) -> Bool {
         let escaped = NSRegularExpression.escapedPattern(for: pattern).replacingOccurrences(of: "\\*", with: ".*")
         return text.range(of: "^" + escaped + "$", options: .regularExpression) != nil
@@ -283,6 +298,33 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         }
         if let hit = prohibited.first(where: { $0.hostMatches(host) }) {
             return "prohibited by \(hit.raw) (session.prohibitedDomains)"
+        }
+        return nil
+    }
+
+    /// Why the session may not set a cookie on `domain`, or nil. Stricter
+    /// than reading: a cookie set with a Domain attribute (`.example.com`)
+    /// reaches every subdomain, so it is refused unless an allowed pattern
+    /// covers all of them (`*` or `*.example.com`), and refused when a
+    /// prohibited host is among them. A host-only cookie (no leading dot)
+    /// reaches only its host.
+    public func cookieSetBlockReason(domain: String) -> String? {
+        if let reason = cookieBlockReason(domain: domain) { return reason }
+        guard isActive else { return nil }
+        let trimmed = domain.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix(".") else {
+            let host = BrowserReplHostName.normalize(trimmed)
+            if let allowed, !allowed.contains(where: { $0.hostMatches(host) }) {
+                return "not in session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", ")))"
+            }
+            return nil
+        }
+        let host = BrowserReplHostName.normalize(String(trimmed.drop(while: { $0 == "." })))
+        if let allowed, !allowed.contains(where: { $0.coversSubdomains(of: host) }) {
+            return "a cookie on \(host) reaches its other subdomains, which session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", "))) does not all allow; set it on the allowed host itself"
+        }
+        if let hit = prohibited.first(where: { $0.namesSubdomain(of: host) }) {
+            return "a cookie on \(host) reaches \(hit.raw) (session.prohibitedDomains)"
         }
         return nil
     }

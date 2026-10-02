@@ -192,6 +192,31 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     if (hit) return `prohibited by ${hit.raw} (session.prohibitedDomains)`;
     return null;
   }
+  // BrowserReplDomainPolicy.cookieSetBlockReason: a cookie with a Domain
+  // attribute (leading dot) reaches every subdomain, so an allowed pattern
+  // must cover all of them and no prohibited host may be among them.
+  function cookieSetBlockReason(domain) {
+    const base = cookieBlockReason(domain);
+    if (base || !active()) return base;
+    const raw = String(domain || "").trim();
+    if (!raw.startsWith(".")) {
+      const host = T.normalizeHost(raw);
+      const hostOnly = (p) => ({ ...p, scheme: null, port: null });
+      if (policy.allowed && !policy.allowed.some((p) => T.urlMatches(`http://${host}/`, hostOnly(p), false))) return `not in session.allowedDomains (${policy.allowed.map((p) => p.raw).join(", ")})`;
+      return null;
+    }
+    const host = T.normalizeHost(raw.replace(/^\.+/, ""));
+    const covers = (p) => p.host === "*" || (p.host.startsWith("*.") && (host === p.host.slice(2) || host.endsWith("." + p.host.slice(2))));
+    if (policy.allowed && !policy.allowed.some(covers)) return `a cookie on ${host} reaches its other subdomains, which session.allowedDomains (${policy.allowed.map((p) => p.raw).join(", ")}) does not all allow; set it on the allowed host itself`;
+    const under = (p) => {
+      if (p.host === "*") return true;
+      const named = String(p.host).replace(/^\*\./, "");
+      return named === host || named.endsWith("." + host) || host.endsWith("." + named);
+    };
+    const hit = policy.prohibited.find(under);
+    if (hit) return `a cookie on ${host} reaches ${hit.raw} (session.prohibitedDomains)`;
+    return null;
+  }
   const policyJSON = () => ({ allowed: policy.allowed ? policy.allowed.map((p) => p.raw) : null, prohibited: policy.prohibited.map((p) => p.raw), blockIPs: policy.blockIPs, locked: policy.locked });
   function policyOp(op, args = {}) {
     if (op === "get") return policyJSON();
@@ -251,7 +276,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
   // Wraps a dev driver the way the native session sits in front of the app's.
   function wrapDriver(driver) {
     if (typeof driver.setDomainPolicy === "function") {
-      policyListeners.add((p, reason) => driver.setDomainPolicy(p, reason, cookieBlockReason));
+      policyListeners.add((p, reason) => driver.setDomainPolicy(p, reason, cookieBlockReason, cookieSetBlockReason));
     }
     const redactError = (e) => {
       if (e && typeof e.message === "string" && matchers.length) e.message = redact(e.message);

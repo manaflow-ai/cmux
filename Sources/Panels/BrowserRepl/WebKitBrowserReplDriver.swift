@@ -1936,8 +1936,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 throw Self.error("invalid", "Invalid cookie \(json["name"] as? String ?? "")")
             }
             if let url = json["url"] as? String { try checkCookieURLs([url], method: "cookies.set") }
-            if let reason = policy.cookieBlockReason(domain: cookie.domain) {
-                throw Self.error("blocked", "cookies.set: a cookie on \(cookie.domain) is blocked: \(reason)")
+            // The domain as the caller wrote it: a leading dot (or none) decides
+            // whether the cookie reaches subdomains.
+            let written = json["domain"] as? String ?? cookie.domain
+            if let reason = policy.cookieSetBlockReason(domain: written) {
+                throw Self.error("blocked", "cookies.set: a cookie on \(written) is blocked: \(reason)")
             }
             cookies.append(cookie)
         }

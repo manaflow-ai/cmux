@@ -13,6 +13,20 @@ struct BrowserReplDomainPolicyTests {
         return policy
     }
 
+    @Test("Setting a cookie on a parent domain needs every subdomain allowed and none prohibited")
+    func cookieSetScope() throws {
+        let one = try policy(allowed: ["https://www.parent.test"])
+        #expect(one.cookieSetBlockReason(domain: ".parent.test") != nil)
+        #expect(one.cookieSetBlockReason(domain: "www.parent.test") == nil)
+        #expect(one.cookieSetBlockReason(domain: "api.parent.test") != nil)
+        let all = try policy(allowed: ["*.parent.test"])
+        #expect(all.cookieSetBlockReason(domain: ".parent.test") == nil)
+        let banned = try policy(prohibited: ["api.parent.test"])
+        #expect(banned.cookieSetBlockReason(domain: ".parent.test") != nil)
+        #expect(banned.cookieSetBlockReason(domain: "www.parent.test") == nil)
+        #expect(BrowserReplDomainPolicy().cookieSetBlockReason(domain: ".anything.test") == nil)
+    }
+
     @Test("Hosts are normalized: case, trailing dots and internationalized names")
     func hostNormalization() {
         #expect(BrowserReplHostName.normalize("EXAMPLE.com.") == "example.com")
