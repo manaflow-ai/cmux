@@ -9,7 +9,14 @@ const SYN: u8 = 0x02;
 const ACK: u8 = 0x10;
 
 /// An IPv4 TCP packet from `src` to `dst` (checksums are not checked).
-fn tcp(src: (Ipv4Addr, u16), dst: (Ipv4Addr, u16), seq: u32, ack: u32, flags: u8, payload: usize) -> Vec<u8> {
+fn tcp(
+    src: (Ipv4Addr, u16),
+    dst: (Ipv4Addr, u16),
+    seq: u32,
+    ack: u32,
+    flags: u8,
+    payload: usize,
+) -> Vec<u8> {
     let total = 20 + 20 + payload;
     let mut packet = vec![0u8; total];
     packet[0] = 0x45;

@@ -39,10 +39,10 @@ use crate::device::VirtualDevice;
 pub use crate::error::WgError;
 use crate::pacing::Pacer;
 use crate::probing;
-use crate::wire::{ip_address, packet_source, socket_addr};
 use crate::stream::{Outbound, WgStream};
 use crate::timers::{SESSION_FRESH, TimerSchedule};
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
+use crate::wire::{ip_address, packet_source, socket_addr};
 
 /// Per-socket receive and transmit buffers. Terminal traffic is small; the
 /// bulk lane (screen replay) benefits from a full window.

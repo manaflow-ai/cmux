@@ -10,8 +10,8 @@
 //! its TCP streams.
 
 use std::collections::VecDeque;
-use std::io;
 use std::future::Future;
+use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};

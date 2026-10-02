@@ -91,9 +91,7 @@ async fn upload(sim: &SimNet, client_socket: SimSocket) -> Duration {
     let started = Instant::now();
     let (dialed, accepted) = connect(&pair, 4100).await;
     let (progress, _) = watch::channel(0);
-    tokio::time::timeout(LIMIT, bulk(dialed, accepted, progress))
-        .await
-        .expect("upload finished");
+    tokio::time::timeout(LIMIT, bulk(dialed, accepted, progress)).await.expect("upload finished");
     let elapsed = started.elapsed();
     pair.client.shutdown().await;
     pair.server.shutdown().await;

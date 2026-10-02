@@ -202,7 +202,8 @@ impl Pacer {
             self.other.push_back(packet);
             return;
         };
-        let flow = (segment.source.0, segment.source.1, segment.destination.0, segment.destination.1);
+        let flow =
+            (segment.source.0, segment.source.1, segment.destination.0, segment.destination.1);
         if !self.connections.contains_key(&flow) {
             self.connections.retain(|_, connection| {
                 !connection.queue.is_empty() || now - connection.last_seen < FORGET_AFTER
@@ -217,7 +218,8 @@ impl Pacer {
     pub(crate) fn received(&mut self, packet: &[u8], now: Instant) {
         let Some(segment) = segment(packet) else { return };
         let Some(ack) = segment.ack else { return };
-        let flow = (segment.destination.0, segment.destination.1, segment.source.0, segment.source.1);
+        let flow =
+            (segment.destination.0, segment.destination.1, segment.source.0, segment.source.1);
         if let Some(connection) = self.connections.get_mut(&flow) {
             connection.acked(ack, now);
         }
@@ -238,7 +240,8 @@ impl Pacer {
                 continue;
             }
             if connection.next_free > now {
-                earliest = Some(earliest.map_or(connection.next_free, |e| e.min(connection.next_free)));
+                earliest =
+                    Some(earliest.map_or(connection.next_free, |e| e.min(connection.next_free)));
                 continue;
             }
             if chosen.is_none_or(|(_, len)| connection.queue.len() < len) {
