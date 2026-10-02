@@ -5,6 +5,7 @@
 //! accidentally fall back to the private command protocol.
 
 mod command;
+mod docs;
 mod lifecycle;
 mod raw;
 mod shorthand;
@@ -163,6 +164,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             0
         }
+        Ok(ParsedCommand::Docs(plan)) => docs::run(plan),
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
@@ -234,6 +236,9 @@ fn parse_command(
             }
             Some(scope) => Err(unknown_scope(scope)),
         };
+    }
+    if command_args[0] == "docs" {
+        return Ok(ParsedCommand::Docs(docs::parse(&command_args[1..], global.output)?));
     }
     if has_help_option(&command_args) {
         let words = command_args
@@ -449,7 +454,7 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
-    match scope {
+    let text = match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
@@ -475,6 +480,11 @@ fn scope_help_for(
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
+    };
+    if docs::has_scope_operations(scope) {
+        Cow::Owned(format!("{}\n{}", text, docs::scope_help(scope)))
+    } else {
+        text
     }
 }
 
@@ -503,6 +513,9 @@ GLOBAL OPTIONS
   --jsonl            Print one JSON value per result or event
   --quiet            Suppress successful output
   -h, --help         Show command help
+
+PROGRESSIVE HELP
+  cmux docs search <query>
 
 PROCESS HELP
   cmux help start
@@ -911,6 +924,17 @@ mod tests {
         };
         assert_eq!(topic, "server stats");
         assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
+    }
+
+    #[test]
+    fn docs_search_is_local_and_preserves_json_output_mode() {
+        let ParsedCommand::Docs(plan) =
+            parse(&strings(&["--json", "docs", "search", "browser", "navigate"])).unwrap()
+        else {
+            panic!("docs search must stay local");
+        };
+        assert_eq!(plan.query, "browser navigate");
+        assert_eq!(plan.output, OutputMode::Json);
     }
 
     #[test]
