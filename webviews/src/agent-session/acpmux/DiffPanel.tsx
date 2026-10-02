@@ -12,7 +12,10 @@ import { Counts } from "./changes/Counts";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
 import type { FileActions } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
+import { applyCommand } from "./changes/applyCommand";
+import { copyText } from "./conversation/clipboard";
 import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
+import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
 import { ScopeMenu } from "./changes/ScopeMenu";
 import { useScopeChanges } from "./changes/useScopeChanges";
 
@@ -189,6 +192,20 @@ export function DiffPanel({
     { id: "split", label: "Split view", icon: <SplitView />, pressed: layout === "split" },
     { id: "tree", label: "File tree", icon: <Panels />, pressed: showTree },
   ];
+  // Last turn's files come from the transcript, so it neither refreshes nor has git's patches.
+  const command = scope !== "lastTurn" && load.state === "loaded" ? applyCommand(load.changeSet) : undefined;
+  const options: OptionsRow[] = [
+    { label: "Refresh", disabled: scope === "lastTurn", run: retry },
+    { label: wrap ? "Disable word wrap" : "Word wrap", run: () => press("wrap") },
+    { label: layout === "split" ? "Switch to unified diff" : "Switch to split diff", run: () => press("split") },
+    {
+      label: allCollapsed ? "Expand all diffs" : "Collapse all diffs",
+      disabled: files.length === 0,
+      run: () => press("collapse"),
+    },
+    null,
+    { label: "Copy git apply command", disabled: !command, run: () => command && copyText(command) },
+  ];
   return (
     <section ref={panel} className="acpmux-diff-panel" aria-label="Changes">
       <header className="acpmux-diff-header">
@@ -210,6 +227,7 @@ export function DiffPanel({
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
         </ScopeMenu>
         <div className="acpmux-diff-tools" role="toolbar" aria-label="Changes view">
+          <OptionsMenu rows={options} />
           {tools.map((tool) => (
             <button
               key={tool.id}

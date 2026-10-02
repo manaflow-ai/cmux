@@ -19,3 +19,6 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-changes-retry{margin-top:10px;height:28px;padding:0 12px;border:0;border-radius:8px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default}
 .acpmux-changes-retry:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-changes-retry:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
+/* The toolbar's options button reads pressed while its menu is open; disabled rows are muted. */
+.acpmux-diff-tool[aria-expanded="true"]{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)));color:var(--agent-text)}
+.acpmux-file-menu-item:disabled{color:var(--agent-muted);background:none}
