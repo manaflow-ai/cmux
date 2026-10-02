@@ -59,6 +59,19 @@ public enum SettingsSearchIndex {
         return entries.filter { entry in words.allSatisfy { entry.haystack.localizedStandardContains($0) } }
     }
 
+    /// The entry Return opens: a title that starts with the query, then a
+    /// title holding every word, then the rest, each in page order.
+    public static func best(_ words: [String], in entries: [SettingsSearchEntry]) -> SettingsSearchEntry? {
+        let matches = matching(words, in: entries)
+        let phrase = words.joined(separator: " ")
+        func rank(_ entry: SettingsSearchEntry) -> Int {
+            let title = entry.title.lowercased()
+            if title.hasPrefix(phrase.lowercased()) { return 0 }
+            return words.allSatisfy { entry.title.localizedStandardContains($0) } ? 1 : 2
+        }
+        return matches.enumerated().min { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }?.element
+    }
+
     /// The anchor `key` names: a cmux.json key path (`tabs.newTabKind`), a
     /// card (`theme` or `card.theme`), a section header (`section.keyboard`),
     /// or an action button (`importFromBrowser`, or its anchor id). Nil when

@@ -45,11 +45,13 @@ extension SettingsWindowModel {
         highlighted = highlight ? anchor.id : nil
     }
 
-    /// Return in the search field: opens the first result. False when
-    /// nothing but shortcuts (or nothing) matches.
+    /// Return in the search field: opens the best result
+    /// (`SettingsSearchIndex.best`). False when nothing but shortcuts (or
+    /// nothing) matches.
     @discardableResult
     public func openFirstResult() -> Bool {
-        guard let first = searchEntries().first else { return false }
+        let entries = SettingsSearchIndex.entries(registry: registry)
+        guard let first = SettingsSearchIndex.best(Self.words(query), in: entries) else { return false }
         open(first.anchor)
         return true
     }
