@@ -55,6 +55,11 @@ final class AgentTabStore {
     private var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
     private let linkScheme: String?
+    /// Tabs a `cmux://session/<id>` link opened: their page refuses a
+    /// session the daemon does not have instead of falling back.
+    private var linkedSessions: Set<String> = []
+    /// A link's turn for a tab whose view is not made yet.
+    private var pendingTurns: [String: String] = [:]
 
     init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
          linkScheme: String? = nil) {
@@ -149,6 +154,28 @@ final class AgentTabStore {
         return nil
     }
 
+    /// The acpmux session agent tab `key` shows; nil for a new chat.
+    func session(of key: String) -> String? { sessions[key] }
+
+    /// A `cmux://session/<id>` link no tab shows: a new tab in `paneKey` on
+    /// that session, whose page refuses it when the daemon does not have it.
+    func openLinked(session: String, in paneKey: String, of store: DaemonStore) -> String {
+        let key = open(in: paneKey, of: store, session: session)
+        linkedSessions.insert(key)
+        return key
+    }
+
+    /// Scrolls tab `key`'s transcript to `turn` (a `#turn-<turnId>` link):
+    /// through its page, or with the handshake of a page not made yet.
+    func revealTurn(_ turn: String, in key: String) {
+        if let view = views[key] { view.revealTurn(turn) } else { pendingTurns[key] = turn }
+    }
+
+    /// The link turn tab `key`'s page has not been handed yet.
+    func pendingTurn(in key: String) -> String? {
+        views[key]?.model.pendingRevealTurn ?? pendingTurns[key]
+    }
+
     /// The pane (`PaneModel.id`) whose strip lists agent tab `key`.
     func paneKey(listing key: String) -> String? {
         tabsByPane.first { $0.value.contains(key) }?.key
@@ -170,6 +197,8 @@ final class AgentTabStore {
             newTab: newTabPages[key]?.page
         )
         model.linkScheme = linkScheme
+        model.sessionMustExist = linkedSessions.contains(key)
+        model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.onSessionChange = { [weak self] session in
             self?.sessions[key] = session
             self?.newTabPages[key] = nil
@@ -225,6 +254,8 @@ final class AgentTabStore {
         sessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil
+        linkedSessions.remove(key)
+        pendingTurns[key] = nil
         forgetUnusedStores()
         stopCustomizationWhenUnused()
     }
@@ -236,6 +267,8 @@ final class AgentTabStore {
             sessions[key] = nil
             newTabPages[key] = nil
             seeds[key] = nil
+            linkedSessions.remove(key)
+            pendingTurns[key] = nil
         }
         forgetUnusedStores()
         stopCustomizationWhenUnused()
@@ -289,11 +322,11 @@ extension PaneController {
     }
 
     /// A `cmux://session/<id>` link no tab shows: a new agent tab in this
-    /// pane on that session, selected, as Duplicate Tab opens one. Returns
-    /// its id.
+    /// pane on that session, selected, as Duplicate Tab opens one; its page
+    /// refuses a session the daemon does not have. Returns its id.
     @discardableResult
     func openAgentSession(_ session: String) -> String {
-        let key = services.agentTabs.open(in: paneKey, of: daemon.store, session: session)
+        let key = services.agentTabs.openLinked(session: session, in: paneKey, of: daemon.store)
         showAgentTab(key)
         return key
     }

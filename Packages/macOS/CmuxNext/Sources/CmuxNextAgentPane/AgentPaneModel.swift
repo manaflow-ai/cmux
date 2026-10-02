@@ -34,6 +34,16 @@ public final class AgentPaneModel {
     /// This build's URL scheme, handed to the page with every handshake so
     /// the links it copies open in this build; nil leaves it out.
     @ObservationIgnored public var linkScheme: String?
+    /// Set for a tab a `cmux://session/<id>` link opened: the handshake asks
+    /// the page to refuse a session the daemon does not have rather than
+    /// show the most recent one. Cleared once the page reports a session.
+    @ObservationIgnored public var sessionMustExist = false
+    /// A `#turn-<turnId>` link's turn the page has not been handed yet; the
+    /// next handshake carries it (`revealTurn`) and clears it.
+    @ObservationIgnored public var pendingRevealTurn: String?
+    /// Whether the page has asked for a handshake, so its bridge is up and
+    /// a turn can be revealed through it directly.
+    @ObservationIgnored public private(set) var hasHandshake = false
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
@@ -73,6 +83,10 @@ public final class AgentPaneModel {
                     handshake.newSession = true
                 }
                 handshake.linkScheme = linkScheme
+                if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
+                handshake.revealTurn = pendingRevealTurn
+                pendingRevealTurn = nil
+                hasHandshake = true
                 lastError = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {
@@ -81,6 +95,7 @@ public final class AgentPaneModel {
                 return AgentPaneReply.failure(code: "host_unavailable", message: message)
             }
         case .persistSession(let id):
+            sessionMustExist = false
             if id != sessionId {
                 sessionId = id
                 newTab = nil

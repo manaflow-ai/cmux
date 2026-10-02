@@ -142,3 +142,11 @@ export const SearchIcon = () => (
     <path d="m10.25 10.25 3 3" />
   </Glyph>
 );
+
+/** Two chain links: Copy chat link. */
+export const LinkIcon = () => (
+  <Glyph>
+    <path d="M6.9 9.1a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.8.8" />
+    <path d="M9.1 6.9a2.6 2.6 0 0 0-3.7 0L3.2 9.1a2.6 2.6 0 0 0 3.7 3.7l.8-.8" />
+  </Glyph>
+);

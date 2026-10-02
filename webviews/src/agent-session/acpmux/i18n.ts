@@ -48,6 +48,8 @@ const en = {
   "project.choose": "Choose project",
   "project.search": "Search projects",
   "project.none": "No matching projects",
+  "link.copyChat": "Copy chat link",
+  "link.sessionMissing": "This chat isn't available. It was deleted, or it's on a machine that isn't connected.",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -98,6 +100,8 @@ const ja: Record<StringKey, string> = {
   "project.choose": "プロジェクトを選択",
   "project.search": "プロジェクトを検索",
   "project.none": "一致するプロジェクトはありません",
+  "link.copyChat": "チャットのリンクをコピー",
+  "link.sessionMissing": "このチャットは利用できません。削除されたか、接続されていないマシン上にあります。",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

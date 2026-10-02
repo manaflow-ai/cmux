@@ -525,6 +525,137 @@
         }
       }
     },
+    "handlers.refusal.agentTabHasNoSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this chat has no link yet: send it a message first"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dieser Chat hat noch keinen Link: sende zuerst eine Nachricht"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cette conversation n'a pas encore de lien : envoyez-lui d'abord un message"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد رابط لهذه الدردشة بعد: أرسل إليها رسالة أولًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "este chat aún no tiene enlace: envíale un mensaje primero"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天尚無連結:請先傳送一則訊息"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天还没有链接:请先发送一条消息"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅에는 아직 링크가 없음: 먼저 메시지를 보내세요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットにはまだリンクがありません: まずメッセージを送信してください"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ovaj chat još nema link: prvo mu pošaljite poruku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne chat har intet link endnu: send den en besked først"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "questa chat non ha ancora un link: invia prima un messaggio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះមិនទាន់មានតំណនៅឡើយទេ៖ ផ្ញើសារជាមុនសិន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne chatten har ingen lenke ennå: send den en melding først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ten czat nie ma jeszcze linku: najpierw wyślij wiadomość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "este chat ainda não tem link: envie uma mensagem primeiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "у этого чата ещё нет ссылки: сначала отправьте сообщение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้ยังไม่มีลิงก์: ส่งข้อความก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu sohbetin henüz bir bağlantısı yok: önce bir mesaj gönderin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "цей чат ще не має посилання: спершу надішліть повідомлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cuộc trò chuyện này chưa có liên kết: hãy gửi tin nhắn trước"
+          }
+        }
+      }
+    },
     "handlers.refusal.audioMuteUnported": {
       "extractionState": "manual",
       "localizations": {
@@ -1962,137 +2093,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法開啟 %@"
-          }
-        }
-      }
-    },
-    "handlers.refusal.deepLinksUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs cmux-next deep link navigation (cmux:// handler)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next のディープリンク移動(cmux:// ハンドラー)が必要です"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب التنقل بالروابط العميقة في cmux-next (معالج cmux://)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potrebna je navigacija dubokim linkovima u cmux-next (cmux:// rukovalac)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver dybe links i cmux-next (cmux://-handler)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert Deep-Link-Navigation in cmux-next (cmux://-Handler)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere navegación por enlaces profundos en cmux-next (controlador cmux://)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite la navigation par lien profond de cmux-next (gestionnaire cmux://)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede la navigazione tramite deep link di cmux-next (gestore cmux://)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការការរុករកតំណជ្រៅ cmux-next (កម្មវិធីដោះស្រាយ cmux://)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 딥 링크 탐색(cmux:// 핸들러)이 필요함"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever dyplenkenavigering i cmux-next (cmux://-behandler)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga nawigacji przez deep linki w cmux-next (obsługa cmux://)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer navegação por deep link no cmux-next (handler cmux://)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна навигация по глубоким ссылкам cmux-next (обработчик cmux://)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้การนำทางด้วยดีปลิงก์ของ cmux-next (ตัวจัดการ cmux://)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next derin bağlantı gezinmesi gerekiyor (cmux:// işleyicisi)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна навігація за глибокими посиланнями cmux-next (обробник cmux://)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần điều hướng deep link của cmux-next (trình xử lý cmux://)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 cmux-next 深层链接导航（cmux:// 处理程序）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 cmux-next 深層連結導覽（cmux:// 處理程式）"
           }
         }
       }

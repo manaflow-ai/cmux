@@ -28,8 +28,27 @@ enum LinkHandlers {
             context.copy(try services.link(pane: pane))
         })
         registry.bind("palette.copySurfaceLink", run: { invocation in
+            // An agent tab's link is its chat's: `cmux://session/<id>`.
+            if let key = agentTab(invocation, services: services) {
+                context.copy(try services.link(agentTab: key))
+                return
+            }
             guard let (tab, _) = context.daemonTab(invocation) else { return }
             context.copy(try services.link(tab: tab))
         })
+    }
+
+    /// The agent tab an invocation names: an explicit `local-agent:` tab
+    /// target, else the focused pane's selected tab when it is one. Nil
+    /// for anything else, which the daemon tab path resolves or refuses.
+    static func agentTab(_ invocation: ActionInvocation, services: AppServices) -> String? {
+        let explicit = [invocation.target, invocation["tab"]?.targetValue, invocation["pane"]?.targetValue]
+            .compactMap { $0 }.first { $0.kind == .tab || $0.kind == .pane }
+        if let explicit {
+            return explicit.kind == .tab && explicit.id.hasPrefix(LocalAgentTab.prefix) ? explicit.id : nil
+        }
+        guard let selected = services.windows.active?.focusedPane?.stripModel.selectedID?.rawValue,
+              selected.hasPrefix(LocalAgentTab.prefix) else { return nil }
+        return selected
     }
 }

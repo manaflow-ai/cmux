@@ -6,6 +6,8 @@ export const SHORTCUT_ACTIONS = {
   searchChats: "agentPane.searchChats",
   newAgentChat: "palette.newAgentChat",
   toggleDictation: "palette.toggleDictation",
+  /// Copy Tab Link: on an agent tab it copies the chat's link, as the header's Copy chat link does.
+  copyTabLink: "palette.copySurfaceLink",
 } as const;
 
 /// Keycaps by action id, such as `{"agentPane.searchChats": "⌘K"}`. An action without a

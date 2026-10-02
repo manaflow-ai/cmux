@@ -216,13 +216,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for url in urls { routeOpenedURL(url) }
     }
 
-    /// One route for every URL macOS hands cmux: `ExternalOpenRouter` first
-    /// (it leaves the sign-in callback alone), then Cloud auth.
+    /// One route for every URL macOS hands cmux (`OpenedURLRouting`): the
+    /// sign-in callback to Cloud auth first, in every form auth accepts,
+    /// then `ExternalOpenRouter`.
     private func routeOpenedURL(_ url: URL) {
-        if services?.externalOpen.open(url) == true { return }
-        guard !url.isFileURL else { return }
-        let cloud = services?.cloud
-        Task { _ = await cloud?.auth.handleCallback(url) }
+        guard let services else { return }
+        let auth = services.cloud.auth
+        let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
+        guard destination == .auth else { return }
+        Task { _ = await auth.handleCallback(url) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -35,6 +35,14 @@ extension AppServices {
         try link(tab.snapshot.tabResourceID.map { DeepLink(.tab($0.rawValue)) })
     }
 
+    /// Copy Tab Link's text on an agent tab: its chat's
+    /// `cmux://session/<id>` link.
+    /// - Throws: `ActionFailure` while the tab is a new chat with no session.
+    func link(agentTab key: String) throws -> String {
+        guard let session = agentTabs.session(of: key) else { throw ActionFailure(message: RefusalStrings.agentTabHasNoSession) }
+        return try link(DeepLink(.session(session, turn: nil)))
+    }
+
     private func link(_ link: DeepLink?) throws -> String {
         guard let text = link.flatMap(linkText) else { throw ActionFailure(message: RefusalStrings.noLinkID) }
         return text

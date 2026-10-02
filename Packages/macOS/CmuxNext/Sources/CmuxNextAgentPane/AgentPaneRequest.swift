@@ -131,6 +131,8 @@ public nonisolated enum AgentPaneReply {
         if let draft = handshake.draft { value["draft"] = draft }
         if let prompt = handshake.prompt { value["prompt"] = prompt }
         if let linkScheme = handshake.linkScheme { value["linkScheme"] = linkScheme }
+        if let sessionMustExist = handshake.sessionMustExist { value["sessionMustExist"] = sessionMustExist }
+        if let revealTurn = handshake.revealTurn { value["revealTurn"] = revealTurn }
         value["handoffStrings"] = AgentPaneHandoffStrings().values
         value["checkpointStrings"] = AgentPaneCheckpointStrings().values
         return success(value)

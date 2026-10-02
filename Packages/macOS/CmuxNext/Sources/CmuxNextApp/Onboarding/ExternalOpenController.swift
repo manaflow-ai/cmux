@@ -16,7 +16,10 @@ final class ExternalOpenController {
 
     init(services: AppServices) {
         self.services = services
-        router = ExternalOpenRouter(linkScheme: services.linkScheme)
+        // Cloud auth's own matcher, so every callback form it accepts
+        // (host or path) reaches sign-in, never `link.open`.
+        let auth = services.cloud.auth
+        router = ExternalOpenRouter(linkScheme: services.linkScheme, isAuthCallback: { auth.isCallback($0) })
     }
 
     /// Returns false for a URL cmux does not open (the caller refuses it).
@@ -81,6 +84,26 @@ final class ExternalOpenController {
         case .terminal(let cwd, let command): pane.newTerminalTab(cwd: cwd, typing: command.map { $0 + "\n" })
         case .deepLink, .unsupported: return
         }
+    }
+}
+
+/// Where `AppDelegate` sends a URL macOS hands cmux: the sign-in callback
+/// goes to Cloud auth first (`<scheme>://auth-callback` and the path forms
+/// auth accepts), so it never reaches `link.open`; everything else goes to
+/// `ExternalOpenController`, which refuses what it does not open.
+enum OpenedURLRouting {
+    enum Destination: Equatable {
+        /// Cloud auth's `handleCallback`.
+        case auth
+        /// `ExternalOpenController` opened it (a tab, or `link.open`).
+        case opened
+        /// Nothing cmux opens.
+        case ignored
+    }
+
+    static func route(_ url: URL, isAuthCallback: (URL) -> Bool, open: (URL) -> Bool) -> Destination {
+        if isAuthCallback(url) { return .auth }
+        return open(url) ? .opened : .ignored
     }
 }
 

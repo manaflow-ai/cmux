@@ -236,6 +236,39 @@ describe("direct client session state", () => {
     client.close();
   });
 
+  test("a linked session the daemon lacks is refused, not replaced by the latest chat, and marks nothing seen", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a", unread: true }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: "bogus", sessionMustExist: true },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    await settle();
+    expect(latest().sessionId).toBeUndefined();
+    expect(latest().missingSession).toBe("bogus");
+    expect(latest().rows).toEqual([]);
+    expect(ScriptedSocket.current.sent.map((request) => request.method)).not.toContain("_acpmux/attach");
+    expect(latest().sessions.find((session) => session.sessionId === "a")?.unread).toBe(true);
+    // Choosing a chat afterwards clears the notice.
+    await client.select("b");
+    await settle();
+    expect(latest().missingSession).toBeUndefined();
+    client.close();
+  });
+
+  test("without the link's strictness a missing session still falls back to the latest chat", async () => {
+    const client = await AcpmuxDirectClient.connect({ ...host, sessionId: "bogus" }, (snapshot) =>
+      snapshots.push(snapshot),
+    );
+    await settle();
+    expect(latest().sessionId).toBe("a");
+    expect(latest().missingSession).toBeUndefined();
+    client.close();
+  });
+
   test("a new chat opens in the chosen project's folder, and without one leaves the folder to the daemon", async () => {
     const client = await connect();
     await client.create("codex", "/Users/me/code/notes");

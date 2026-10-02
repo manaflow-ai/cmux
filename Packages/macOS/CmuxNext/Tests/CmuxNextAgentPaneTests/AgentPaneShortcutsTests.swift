@@ -14,6 +14,9 @@ import Testing
         registry.setShortcutOverride(Shortcut("p", modifiers: [.command, .option]), for: "agentPane.searchChats")
         registry.setShortcutOverride(nil, for: "palette.toggleDictation")
         #expect(AgentPaneShortcuts.read(registry).labels == ["agentPane.searchChats": "⌥⌘P", "palette.newAgentChat": "⇧⌘I"])
+        // Copy chat link shows Copy Tab Link's key once the user binds one.
+        registry.setShortcutOverride(Shortcut("l", modifiers: [.command, .option]), for: "palette.copySurfaceLink")
+        #expect(AgentPaneShortcuts.read(registry).labels["palette.copySurfaceLink"] == "⌥⌘L")
     }
 
     @Test func handsTheLabelsToThePageBridge() throws {

@@ -107,6 +107,77 @@ import Testing
         #expect(Coverage.run(services, "palette.copyPaneLink", target: tabRef) == .refused(RefusalStrings.noLinkID))
     }
 
+    /// The link text in a refusal comes from another app, a page or a
+    /// script, so it is capped at 200 characters with an ellipsis.
+    @Test func anUnrecognizedLinksTextIsTruncated() {
+        let long = String(repeating: "x", count: 500)
+        let shown = RefusalStrings.truncatedLinkText(long)
+        #expect(shown == String(repeating: "x", count: 200) + "…")
+        #expect(RefusalStrings.linkNotRecognized(long).contains(shown))
+        #expect(!RefusalStrings.linkNotRecognized(long).contains(String(repeating: "x", count: 201)))
+        let exact = String(repeating: "y", count: 200)
+        #expect(RefusalStrings.truncatedLinkText(exact) == exact)
+        #expect(RefusalStrings.truncatedLinkText("cmux://bogus") == "cmux://bogus")
+        let services = Coverage.boundServices()
+        #expect(Self.open(services, long) == .refused(RefusalStrings.linkNotRecognized(long)))
+    }
+
+    /// Copy Tab Link on an agent tab copies its chat's session link; a new
+    /// chat with no session yet is refused with a reason.
+    @Test func copyTabLinkOnAnAgentTabIsItsChatsLink() throws {
+        let services = Coverage.boundServices()
+        let store = services.daemon.store
+        let chat = services.agentTabs.open(in: "pane_x", of: store, session: "sess-01.ab_c")
+        let fresh = services.agentTabs.open(in: "pane_x", of: store)
+        defer { services.agentTabs.closePane("pane_x") }
+        #expect(try services.link(agentTab: chat) == "\(services.linkScheme)://session/sess-01.ab_c")
+        #expect(throws: ActionFailure(message: RefusalStrings.agentTabHasNoSession)) { try services.link(agentTab: fresh) }
+        let freshRef = ActionTargetRef(kind: .tab, id: fresh)
+        #expect(Coverage.run(services, "palette.copySurfaceLink", target: freshRef) == .refused(RefusalStrings.agentTabHasNoSession))
+        #expect(LinkHandlers.agentTab(ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat)), services: services) == chat)
+        #expect(LinkHandlers.agentTab(ActionInvocation(target: ActionTargetRef(kind: .tab, id: "tab_\(Self.hex)")), services: services) == nil)
+        #expect(LinkHandlers.agentTab(ActionInvocation(), services: services) == nil, "no window, no focused agent tab")
+    }
+
+    /// The sign-in callback goes to auth before anything else, in every form
+    /// auth accepts, so it never reaches `link.open`; other URLs go to the
+    /// external open router.
+    @Test func openedURLsSendTheSignInCallbackToAuthFirst() throws {
+        let services = Coverage.boundServices()
+        let auth = services.cloud.auth
+        let scheme = services.linkScheme
+        var opened: [URL] = []
+        let route = { (text: String) -> OpenedURLRouting.Destination in
+            OpenedURLRouting.route(URL(string: text)!, isAuthCallback: { auth.isCallback($0) },
+                                   open: { opened.append($0); return true })
+        }
+        for text in ["\(scheme)://auth-callback?code=1", "\(scheme):auth-callback?code=1", "\(scheme):///auth-callback?code=1"] {
+            #expect(route(text) == .auth, "\(text)")
+        }
+        #expect(opened.isEmpty)
+        #expect(route("\(scheme)://tab/tab_\(Self.hex)") == .opened)
+        #expect(opened.count == 1)
+        #expect(OpenedURLRouting.route(URL(fileURLWithPath: "/tmp/x.txt"), isAuthCallback: { _ in false }, open: { _ in false }) == .ignored)
+        // The App's router leaves every callback form to auth too.
+        for text in ["\(scheme):auth-callback", "\(scheme):///auth-callback", "\(scheme)://auth-callback"] {
+            #expect(services.externalOpen.router.route(try #require(URL(string: text))) == .unsupported, "\(text)")
+        }
+    }
+
+    /// A link that arrives before a window has content (a cold launch by a
+    /// link) waits as a `.deepLink` route, and runs nothing yet.
+    @Test func aLinkBeforeAnyWindowWaitsForOne() throws {
+        let services = Coverage.boundServices()
+        var ran: [String] = []
+        services.registry.bind("link.open", run: { invocation in ran.append(invocation["url"]?.stringValue ?? "") })
+        let url = try #require(URL(string: "\(services.linkScheme)://tab/tab_\(Self.hex)"))
+        #expect(services.externalOpen.open(url))
+        #expect(services.externalOpen.pending == [.deepLink(url)])
+        services.externalOpen.flush()
+        #expect(ran.isEmpty, "no window has content yet")
+        #expect(services.externalOpen.pending == [.deepLink(url)])
+    }
+
     @Test func copyLinkWithoutATargetIsRefused() {
         let services = Coverage.boundServices()
         #expect(Coverage.run(services, "palette.copyWorkspaceLink") == .refused(RefusalStrings.noWorkspaceToActOn))

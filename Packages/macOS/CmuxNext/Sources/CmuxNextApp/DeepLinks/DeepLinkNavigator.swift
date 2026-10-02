@@ -36,12 +36,12 @@ struct DeepLinkNavigator {
         case .workspace(let id):
             let workspace = services.machines.allWorkspaces.map(\.0).first { $0.resourceID?.rawValue == id }
             guard let workspace else { throw Self.gone }
-            reveal(workspace: workspace.id, intent)
+            try reveal(workspace: workspace.id, intent)
         case .session(let id, let turn):
             try openSession(id, turn: turn, intent)
         case .legacyWorkspace(let key, let fallback):
             guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw Self.gone }
-            reveal(workspace: workspace.id, intent)
+            try reveal(workspace: workspace.id, intent)
         case .legacyPane(let key, _):
             try revealLegacyItem(in: key, fallback: nil, intent)
         case .legacySurface(let key, _, let fallbackWorkspace, _):
@@ -55,7 +55,7 @@ struct DeepLinkNavigator {
     private func reveal(_ pane: PaneModel, _ intent: WindowActivation.Intent) throws {
         if let tab = selectedTab(of: pane), services.revealTab(tab, intent: intent) { return }
         guard let workspace = services.daemon(for: pane).store.workspace(containing: pane.handle) else { throw Self.gone }
-        reveal(workspace: workspace.id, intent)
+        try reveal(workspace: workspace.id, intent)
     }
 
     /// The tab the pane shows: its controller's selection when a window
@@ -67,14 +67,17 @@ struct DeepLinkNavigator {
     }
 
     /// The palette workspace switcher's path: the window that lists the
-    /// workspace shows it, and comes forward.
-    private func reveal(workspace id: String, _ intent: WindowActivation.Intent) {
-        guard let window = services.windows.reveal(workspaceID: id), let nsWindow = window.window else { return }
-        WindowActivation.show(nsWindow, intent)
+    /// workspace shows it, and comes forward. Refused when no window could
+    /// show it, never a silent success.
+    private func reveal(workspace id: String, _ intent: WindowActivation.Intent) throws {
+        guard let window = services.windows.reveal(workspaceID: id), let nsWindow = window.window else { throw Self.gone }
+        services.showJumpWindow(nsWindow, intent)
     }
 
     /// Selects the tab that shows the session, else opens it in a new agent
-    /// tab in the focused pane; then asks the page to scroll to the turn.
+    /// tab in the focused pane, whose page refuses a session the daemon does
+    /// not have (native cannot list acpmux sessions synchronously). Then the
+    /// page scrolls to the turn, a page not loaded yet once its row renders.
     private func openSession(_ id: String, turn: String?, _ intent: WindowActivation.Intent) throws {
         let tabs = services.agentTabs
         let key: String
@@ -84,7 +87,7 @@ struct DeepLinkNavigator {
             guard let pane = services.windows.active?.focusedPane else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
             key = pane.openAgentSession(id)
         }
-        if let turn { tabs.existingView(key)?.revealTurn(turn) }
+        if let turn { tabs.revealTurn(turn, in: key) }
     }
 
     /// Nightly's durable workspace UUID is `WorkspaceModel.id` (the
@@ -100,7 +103,7 @@ struct DeepLinkNavigator {
     /// workspace opens and the refusal says the item itself wasn't found.
     private func revealLegacyItem(in key: UUID, fallback: UUID?, _ intent: WindowActivation.Intent) throws {
         guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw Self.gone }
-        reveal(workspace: workspace.id, intent)
+        try reveal(workspace: workspace.id, intent)
         throw ActionFailure(message: RefusalStrings.linkItemNotFound)
     }
 }

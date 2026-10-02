@@ -91,6 +91,13 @@ public final class CloudAuth {
 
     public func selectTeam(_ id: String) { coordinator.selectedTeamID = id }
 
+    /// Whether `url` is a sign-in callback this build accepts, in any form
+    /// (`<scheme>://auth-callback`, `<scheme>:auth-callback`), so URL
+    /// routing leaves it to ``handleCallback(_:)``.
+    public nonisolated func isCallback(_ url: URL) -> Bool {
+        callbackRouter.isAuthCallbackURL(url)
+    }
+
     /// Routes a `<scheme>://auth-callback` URL (browser fallback) to the flow.
     public func handleCallback(_ url: URL) async -> Bool {
         guard callbackRouter.isAuthCallbackURL(url) else { return false }

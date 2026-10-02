@@ -16,6 +16,9 @@ export type AcpmuxHostConfig = {
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
+  /** A tab a `cmux://session/<id>` link opened: `sessionId` must exist. When the daemon has no such
+   * session the pane says so rather than falling back to the most recent one, and marks nothing seen. */
+  sessionMustExist?: boolean;
   /** A new chat's working directory, inherited from the tab it was opened from. */
   cwd?: string;
   /** Text the composer starts with. Shown, never sent by itself. */
@@ -230,6 +233,8 @@ export class AcpmuxDirectClient {
   /// user has seen, so the pane keeps this until the session is selected.
   private unseen = new Set<string>();
   private selectedSessionId?: string;
+  /** The session a link named that the daemon does not have (`sessionMustExist`). */
+  private missingSession?: string;
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
@@ -343,11 +348,17 @@ export class AcpmuxDirectClient {
       const watched = await this.request("_acpmux/watch", { enabled: true });
       this.sessions = this.reread(watched?.sessions);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
-        this.selectedSessionId = this.sessions[0]?.sessionId;
+        // A linked session the daemon lacks is refused, never replaced by the most recent chat.
+        if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
+        this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
         this.selectionGeneration += 1;
         this.resetSessionState();
       }
-      this.selectedSessionId = initialSession(this.selectedSessionId, this.sessions, this.host.newSession);
+      this.selectedSessionId = initialSession(
+        this.selectedSessionId,
+        this.sessions,
+        this.host.newSession || this.missingSession !== undefined,
+      );
       if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
       // A reconnect to the same session keeps its transcript; the attach page holds only the newest events.
       const resumeAfter = this.lastSeq;
@@ -946,6 +957,7 @@ export class AcpmuxDirectClient {
       catalog: [],
       commands: this.commands,
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
+      missingSession: this.selectedSessionId ? undefined : this.missingSession,
     });
   }
 
@@ -1038,6 +1050,7 @@ export class AcpmuxDirectClient {
     const previousSessionId = this.selectedSessionId;
     const generation = ++this.selectionGeneration;
     this.selectedSessionId = sessionId;
+    this.missingSession = undefined;
     this.markSeen(sessionId);
     this.resetSessionState();
     if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
