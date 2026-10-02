@@ -1,0 +1,143 @@
+{
+  "grant": [
+    "machine:read",
+    "memory:read",
+    "document:read",
+    "document:write",
+    "fs:write"
+  ],
+  "scopes": {
+    "memory.roots": {
+      "scope": "memory:read",
+      "class": "read"
+    },
+    "memory.list": {
+      "scope": "memory:read",
+      "class": "read"
+    },
+    "memory.search": {
+      "scope": "memory:read",
+      "class": "read"
+    },
+    "document.open": {
+      "scope": "document:read",
+      "class": "read"
+    },
+    "document.read": {
+      "scope": "document:read",
+      "class": "read"
+    },
+    "document.edit": {
+      "scope": "document:write",
+      "class": "mutation"
+    },
+    "document.propose": {
+      "scope": "document:read",
+      "class": "mutation"
+    },
+    "fs.trash": {
+      "scope": "fs:write",
+      "class": "mutation"
+    },
+    "ui.open": {
+      "scope": "memory:read",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "memory:read",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "machine.list": [
+      {
+        "id": "machine_mac01",
+        "name": "MacBook Pro",
+        "origin": "local",
+        "status": "running",
+        "connectable": true,
+        "deleted": false,
+        "recoverable": false
+      },
+      {
+        "id": "machine_srv01",
+        "name": "build-server",
+        "origin": "server",
+        "status": "running",
+        "connectable": true,
+        "deleted": false,
+        "recoverable": false
+      }
+    ],
+    "memory.roots": {
+      "$sequence": [
+        {
+          "machine": "machine_mac01",
+          "roots": [
+            {
+              "root": "root_api01",
+              "kind": "project",
+              "label": "api-server",
+              "workspace": "workspace_2"
+            },
+            {
+              "root": "root_home01",
+              "kind": "user",
+              "label": "Home"
+            }
+          ]
+        },
+        {
+          "machine": "machine_srv01",
+          "roots": [
+            {
+              "root": "root_srvhome",
+              "kind": "user",
+              "label": "Home"
+            }
+          ]
+        }
+      ]
+    },
+    "memory.list": {
+      "files": []
+    },
+    "document.open": {
+      "doc": "doc_01",
+      "revision": "rev_7"
+    },
+    "document.read": {
+      "text": "# api-server agent notes\n\n## Build\n- Run `make test` before every commit; the suite takes about 40 s.\n- Never edit files under `generated/`; run `make gen` instead.\n\n## Conventions\n- Errors use the `ApiError` type with a stable code.\n- Database access goes through `store/`, never raw SQL in handlers.\n- Feature flags live in `config/flags.yaml`.\n",
+      "revision": "rev_7"
+    },
+    "document.edit": {
+      "revision": "rev_8"
+    },
+    "document.propose": {
+      "diff": "diff_mem01"
+    },
+    "fs.trash": {
+      "trashed": [
+        "AGENTS.md"
+      ]
+    },
+    "memory.search": {
+      "hits": [
+        {
+          "root": "root_api01",
+          "path": "AGENTS.md",
+          "line": 9,
+          "text": "Database access goes through `store/`, never raw SQL in handlers."
+        },
+        {
+          "root": "root_home01",
+          "path": ".claude/projects/-work-api-server/memory/MEMORY.md",
+          "line": 2,
+          "text": "The staging deploy needs the VPN."
+        }
+      ]
+    },
+    "ui.open": {},
+    "app.pane.open": {}
+  }
+}
