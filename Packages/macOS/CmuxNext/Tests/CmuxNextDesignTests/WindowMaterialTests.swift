@@ -6,7 +6,7 @@ import Testing
 /// from the resolved opacity, blur and Reduce Transparency, and the panes
 /// stay clear over every material.
 struct WindowMaterialTests {
-    struct Case: Sendable, CustomTestStringConvertible {
+    nonisolated struct Case: Sendable, CustomTestStringConvertible {
         let opacity: Double
         let blur: Int
         let reduceTransparency: Bool
@@ -14,7 +14,7 @@ struct WindowMaterialTests {
         var testDescription: String { "opacity \(opacity), blur \(blur), reduce transparency \(reduceTransparency)" }
     }
 
-    static let cases: [Case] = [
+    nonisolated static let cases: [Case] = [
         Case(opacity: 1, blur: 0, reduceTransparency: false, material: .opaque),
         Case(opacity: 1, blur: 20, reduceTransparency: false, material: .opaque),
         Case(opacity: 0.8, blur: 0, reduceTransparency: false, material: .frosted),
