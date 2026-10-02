@@ -117163,55 +117163,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ link %@: %@"
+            "value": "⚠ %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ リンク %@: %@"
+            "value": "⚠ リンク %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ 链路 %@: %@"
+            "value": "⚠ 链路 %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ Link %@: %@"
+            "value": "⚠ Link %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ lien %@ : %@"
+            "value": "⚠ lien %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ رابط %@: %@"
+            "value": "⚠ رابط %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ enlace %@: %@"
+            "value": "⚠ enlace %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ 連結 %@: %@"
+            "value": "⚠ 連結 %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "⚠ 링크 %@: %@"
+            "value": "⚠ 링크 %@"
           }
         }
       }
@@ -608187,6 +608187,631 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定未變更：cmux 無法將它儲存到訊息日誌。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.alertMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder, simulator, local browser creation, directory search, and diff commands are available after selecting a local workspace. Cloud VM commands may be unavailable here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner-, Simulator-, lokale Browser-, Verzeichnis-Such- und Diff-Befehle sind nach Auswahl eines lokalen Arbeitsbereichs verfügbar. Cloud-VM-Befehle sind hier möglicherweise nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les commandes de dossier, de simulateur, de création de navigateur local, de recherche dans les répertoires et de comparaison sont disponibles après la sélection d’un espace de travail local. Les commandes de VM Cloud peuvent être indisponibles ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتوفر أوامر المجلد والمحاكي وإنشاء المتصفح المحلي والبحث في الدليل والمقارنة بعد اختيار مساحة عمل محلية. قد لا تتوفر أوامر أجهزة Cloud الافتراضية هنا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los comandos de carpetas, simulador, creación de navegadores locales, búsqueda en directorios y diferencias están disponibles después de seleccionar un espacio de trabajo local. Es posible que los comandos de VM de Cloud no estén disponibles aquí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取本機工作區後，即可使用資料夾、模擬器、本機瀏覽器建立、目錄搜尋和差異檢視指令。Cloud VM 指令可能無法在此使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择本地工作区后即可使用文件夹、模拟器、本地浏览器创建、目录搜索和差异查看命令。Cloud VM 命令可能无法在此使用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 작업 공간을 선택하면 폴더, 시뮬레이터, 로컬 브라우저 생성, 디렉터리 검색 및 diff 명령을 사용할 수 있습니다. Cloud VM 명령은 여기서 사용하지 못할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルワークスペースを選択すると、フォルダ、シミュレータ、ローカルブラウザの作成、ディレクトリ検索、差分表示のコマンドを利用できます。Cloud VM コマンドはここでは利用できない場合があります。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naredbe za fascikle, simulator, kreiranje lokalnog preglednika, pretragu direktorija i razlike dostupne su nakon odabira lokalnog radnog prostora. Cloud VM naredbe ovdje možda neće biti dostupne."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommandoer til mapper, simulator, lokal oprettelse af browsere, katalogsøgning og diff er tilgængelige, når du vælger et lokalt arbejdsområde. Cloud VM-kommandoer er muligvis ikke tilgængelige her."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I comandi per cartelle, simulatore, creazione di browser locali, ricerca nelle directory e differenze sono disponibili dopo aver selezionato uno spazio di lavoro locale. I comandi VM Cloud potrebbero non essere disponibili qui."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ជាថត ស៊ីម្យូឡាទ័រ ការបង្កើតកម្មវិធីរុករកមូលដ្ឋាន ការស្វែងរកថត និងការប្រៀបធៀប នឹងអាចប្រើបានបន្ទាប់ពីជ្រើសរើសកន្លែងធ្វើការមូលដ្ឋាន។ ការបញ្ជា Cloud VM អាចមិនអាចប្រើបាននៅទីនេះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappe-, simulator-, lokal nettleseroppretting-, katalogsøk- og diff-kommandoer er tilgjengelige etter at du har valgt et lokalt arbeidsområde. Cloud VM-kommandoer er kanskje ikke tilgjengelige her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polecenia dotyczące folderów, symulatora, tworzenia lokalnej przeglądarki, wyszukiwania w katalogach i porównywania są dostępne po wybraniu lokalnego obszaru roboczego. Polecenia Cloud VM mogą być tutaj niedostępne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os comandos de pasta, simulador, criação de navegador local, pesquisa em diretórios e diferenças ficam disponíveis depois que você seleciona um espaço de trabalho local. Os comandos de VM do Cloud podem não estar disponíveis aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команды для папок, симулятора, создания локального браузера, поиска в каталогах и сравнения доступны после выбора локального рабочего пространства. Команды Cloud VM могут быть недоступны здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งโฟลเดอร์ โปรแกรมจำลอง การสร้างเบราว์เซอร์ภายในเครื่อง การค้นหาไดเรกทอรี และการเปรียบเทียบ จะใช้งานได้หลังจากเลือกพื้นที่ทำงานภายในเครื่อง คำสั่ง Cloud VM อาจไม่พร้อมใช้งานที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasör, simülatör, yerel tarayıcı oluşturma, dizin arama ve fark komutları, yerel bir çalışma alanı seçildikten sonra kullanılabilir. Cloud VM komutları burada kullanılamayabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команди для папок, симулятора, створення локального браузера, пошуку в каталогах і порівняння доступні після вибору локального робочого простору. Команди Cloud VM можуть бути тут недоступні."
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.alertTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some commands are local-only"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Befehle sind nur lokal verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certaines commandes sont uniquement locales"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعض الأوامر محلية فقط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algunos comandos solo están disponibles localmente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分指令僅限本機使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分命令仅限本地使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 명령어는 로컬에서만 사용 가능"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のコマンドはローカル専用です"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neke naredbe su dostupne samo lokalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nogle kommandoer er kun lokale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alcuni comandi sono solo locali"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ជាមួយចំនួនមានសម្រាប់មូលដ្ឋានប៉ុណ្ណោះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noen kommandoer er bare lokale"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niektóre polecenia są dostępne tylko lokalnie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguns comandos são apenas locais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Некоторые команды доступны только локально"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งบางรายการใช้ได้เฉพาะในเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bazı komutlar yalnızca yereldir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деякі команди доступні лише локально"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.keywords": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cloud, workspace, availability, local, unavailable, actions"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, Arbeitsbereich, Verfügbarkeit, lokal, nicht verfügbar, Aktionen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, espace de travail, disponibilité, local, indisponible, actions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السحابة, مساحة العمل, التوفر, محلي, غير متاح, إجراءات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, espacio de trabajo, disponibilidad, local, no disponible, acciones"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, 工作區, 可用性, 本機, 無法使用, 動作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, 工作区, 可用性, 本地, 不可用, 操作"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, 작업 공간, 사용 가능 여부, 로컬, 사용할 수 없음, 동작"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, ワークスペース, 利用可能性, ローカル, 利用不可, アクション"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, radni prostor, dostupnost, lokalno, nedostupno, radnje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, arbejdsområde, tilgængelighed, lokal, utilgængelig, handlinger"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, spazio di lavoro, disponibilità, locale, non disponibile, azioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, កន្លែងធ្វើការ, ភាពអាចប្រើបាន, មូលដ្ឋាន, មិនអាចប្រើបាន, សកម្មភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, arbeidsområde, tilgjengelighet, lokal, utilgjengelig, handlinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, obszar roboczy, dostępność, lokalne, niedostępne, działania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, espaço de trabalho, disponibilidade, local, indisponível, ações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, рабочее пространство, доступность, локальный, недоступно, действия"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, พื้นที่ทำงาน, ความพร้อมใช้งาน, ในเครื่อง, ไม่พร้อมใช้งาน, การทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, çalışma alanı, kullanılabilirlik, yerel, kullanılamıyor, işlemler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud, робочий простір, доступність, локальний, недоступно, дії"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud workspace"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Arbeitsbereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de travail Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل سحابية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacio de trabajo de Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 작업 공간"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ワークスペース"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbejdsområde"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazio di lavoro Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការ Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszar roboczy Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espaço de trabalho Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочее пространство Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงาน Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud çalışma alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочий простір Cloud"
+          }
+        }
+      }
+    },
+    "command.cloudVM.availabilityInfo.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Cloud command availability"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verfügbarkeit von Cloud-Befehlen anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la disponibilité des commandes Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار مدى توفر أوامر السحابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar disponibilidad de comandos de Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 Cloud 指令可用性"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 Cloud 命令可用性"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 명령어 사용 가능 여부 보기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud コマンドの利用状況を表示"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži dostupnost Cloud naredbi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis tilgængelighed af Cloud-kommandoer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra disponibilità dei comandi Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញភាពអាចប្រើបាននៃការបញ្ជា Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis tilgjengelighet for Cloud-kommandoer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż dostępność poleceń Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar disponibilidade dos comandos Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать доступность команд Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงความพร้อมใช้งานของคำสั่ง Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud komutlarının kullanılabilirliğini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати доступність команд Cloud"
           }
         }
       }
