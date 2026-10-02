@@ -6362,6 +6362,670 @@
         "sidebar_layout"
       ]
     },
+    "SidebarRegion": {
+      "kind": "enum",
+      "values": [
+        "top",
+        "middle",
+        "bottom"
+      ]
+    },
+    "SidebarSectionLook": {
+      "kind": "enum",
+      "values": [
+        "built_in",
+        "list"
+      ]
+    },
+    "SidebarSectionContent": {
+      "kind": "enum",
+      "values": [
+        "items",
+        "workspaces"
+      ]
+    },
+    "SidebarArrangementLayout": {
+      "kind": "enum",
+      "values": [
+        "list",
+        "inline",
+        "grid"
+      ]
+    },
+    "SidebarArrangementAlign": {
+      "kind": "enum",
+      "values": [
+        "leading",
+        "center",
+        "trailing",
+        "fill"
+      ]
+    },
+    "SidebarSectionArrangement": {
+      "kind": "object",
+      "fields": {
+        "layout": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarArrangementLayout"
+          },
+          "description": "Default list."
+        },
+        "align": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarArrangementAlign"
+          },
+          "description": "Default leading."
+        },
+        "gap": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "maximum": 32
+          },
+          "description": "Points between items on a line."
+        },
+        "columns": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1,
+            "maximum": 12
+          },
+          "description": "Grid columns; absent = as many as fit."
+        }
+      },
+      "extra": false
+    },
+    "SidebarItemRef": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "built_in, workspace, tab, room, saved_group, url, app; unknown kinds are kept."
+        },
+        "value": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 4096
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutItem": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          },
+          "description": "itm_...; unique across sections and items."
+        },
+        "ref": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarItemRef"
+          }
+        },
+        "shows_label": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Default true; false shows the icon only on an inline line."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutSection": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          },
+          "description": "sec_...; unique across sections and items."
+        },
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 320
+          },
+          "description": "At most 80 Unicode scalars."
+        },
+        "shows_title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Default true."
+        },
+        "region": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarRegion"
+          }
+        },
+        "look": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarSectionLook"
+          }
+        },
+        "arrangement": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarSectionArrangement"
+          }
+        },
+        "room": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          },
+          "description": "The room the section shows in; absent = every room."
+        },
+        "max_rows": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "content": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarSectionContent"
+          },
+          "description": "Exactly one section has workspaces; it holds no items and shows in every room."
+        },
+        "items": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "SidebarLayoutItem"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarSectionPatch": {
+      "kind": "object",
+      "fields": {
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 320
+            }
+          },
+          "description": "Null clears."
+        },
+        "look": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarSectionLook"
+          }
+        },
+        "room": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 200
+            }
+          },
+          "description": "Null shows the section in every room."
+        },
+        "max_rows": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 50
+            }
+          }
+        },
+        "shows_title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "layout": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarArrangementLayout"
+          }
+        },
+        "align": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarArrangementAlign"
+          }
+        },
+        "gap": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32",
+              "maximum": 32
+            }
+          }
+        },
+        "columns": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 12
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionAdd": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.add"
+            ]
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarLayoutSection"
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int32"
+          },
+          "description": "Among the region's sections; clamped."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionUpdate": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.update"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          }
+        },
+        "patch": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarSectionPatch"
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionMove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.move"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          }
+        },
+        "region": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarRegion"
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int32"
+          },
+          "description": "Excludes the section itself; clamped."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpSectionRemove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "section.remove"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemAdd": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.add"
+            ]
+          }
+        },
+        "item": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarLayoutItem"
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int32"
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemMove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.move"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int32"
+          },
+          "description": "Excludes the item itself; clamped."
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemRemove": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.remove"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemRemoveRef": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.remove_ref"
+            ]
+          }
+        },
+        "ref": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SidebarItemRef"
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpItemUpdate": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "item.update"
+            ]
+          }
+        },
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 200
+          }
+        },
+        "shows_label": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOpReset": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "layout.reset"
+            ]
+          }
+        }
+      },
+      "extra": false
+    },
+    "SidebarLayoutOp": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionAdd"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionUpdate"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionMove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpSectionRemove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemAdd"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemMove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemRemove"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemRemoveRef"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpItemUpdate"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutOpReset"
+        }
+      ],
+      "discriminator": "kind"
+    },
     "SidebarLayoutSnapshot": {
       "kind": "object",
       "fields": {
@@ -6379,10 +7043,10 @@
             "kind": "array",
             "items": {
               "kind": "ref",
-              "name": "JsonValue"
+              "name": "SidebarLayoutSection"
             }
           },
-          "description": "The sections in order: {id, title?, shows_title, region top|middle|bottom, look built_in|list, arrangement {layout list|inline|grid, align leading|center|trailing|fill, gap?, columns?}, room?, max_rows?, content items|workspaces, items [{id, ref {kind, value}, shows_label}]} (plans/cmux-next/sidebar-sections.md 4). Validated by the owner's reducer; unknown item ref kinds are kept."
+          "description": "In order; regions top, middle, bottom (plans/cmux-next/sidebar-sections.md 4)."
         }
       },
       "extra": false
@@ -12716,7 +13380,7 @@
             "required": true,
             "type": {
               "kind": "ref",
-              "name": "JsonValue"
+              "name": "SidebarLayoutOp"
             },
             "description": "One layout op tagged by kind: section.add {section, index}, section.update {id, patch {title?, look?, room?, max_rows?, shows_title?, layout?, align?, gap?, columns?}; null clears}, section.move {id, region, index}, section.remove {id}, item.add {item, section, index}, item.move {id, section, index}, item.remove {id}, item.remove_ref {ref} (every copy), item.update {id, shows_label}, layout.reset {}. Indexes clamp; a move's index excludes the moved entry."
           }

@@ -1054,11 +1054,6 @@ def _validate_catalog_type(
                 # frontend projection (OWNERSHIP-PRINCIPLES window records).
                 "types.WindowRecordSnapshot.fields.record",
                 "operations.window_record.put.params.fields.record",
-                # The sidebar layout's sections and ops: validated by the
-                # owner's reducer, the shape is plans/cmux-next/sidebar-sections.md
-                # section 4 and the shared fixture sidebar-layout-cases.json.
-                "types.SidebarLayoutSnapshot.fields.sections.items",
-                "operations.sidebar_layout.update.params.fields.op",
             }
             is_explicit_extra = (
                 context.startswith("types.")
