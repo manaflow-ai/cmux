@@ -109,17 +109,7 @@ nonisolated extension ActionSurfaceCatalog {
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
     static let cliExemption: [ActionID: SurfaceExemption] = byReason(cliExemptionsByReason)
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
-        // `cmux room create` is the daemon's room.create (rooms are personal
-        // state the home session owns); the Rust CLI parses it before the
-        // app fallback, so this verb could never reach room.new.
-        // The daemon owns layout and daemon browsers: `cmux workspace new|close`,
-        // `tab close`, `screen new|close`, `pane close` and `browser back|forward`
-        // are its operations and parse before the app fallback; an app
-        // browser tab's history runs as `cmux browser tab_… back|forward`.
-        .ownerVerb: [
-            "room.new", "newTab", "closeWorkspace", "closeTab", "screen.new", "screen.close", "closePane",
-            "browserBack", "browserForward",
-        ],
+        .ownerVerb: ownerVerbActions,
         .unimplemented: [
             "palette.openDirectoryDiffViewer",
             "openDiffViewer",
