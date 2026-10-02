@@ -26,6 +26,7 @@ import {
   rememberedSignInProvider,
   serializePendingOAuth,
   signInEntry,
+  signInIsForApp,
   signUpPendingHref,
   withContinueMarker,
   withoutContinueMarker,
@@ -107,6 +108,7 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
   // stays: the entry would otherwise turn to "continue" and redirect a
   // second time, ahead of the switch's own account check.
   const [switching, setSwitching] = useState(false);
+  const [openedSignedIn] = useState(() => user !== null);
   const remembered = otherAccounts(useAccountHistory(), user?.id ?? "");
   const entry = signInEntry({
     hasUser: user !== null,
@@ -114,6 +116,8 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
     prompt: params.get("prompt"),
     returningFromOAuth: isReturningFromOAuth(params),
     hasRememberedAccounts: mode === "sign-in" && remembered.length > 0,
+    signedInHere: user !== null && !openedSignedIn,
+    forApp: signInIsForApp(returnTo),
   });
 
   // Always in this slot (null when signed out), so the screen next to it
