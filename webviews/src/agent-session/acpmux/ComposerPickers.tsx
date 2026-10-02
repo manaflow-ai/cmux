@@ -46,11 +46,14 @@ export function loadRecents(): Combo[] {
 }
 
 /// Puts `combo` first, once, and keeps the list short. Saving is best effort.
+/// It builds on what is stored now, so another pane's newer combos aren't written over.
 export function rememberCombo(recents: Combo[], combo: Combo): Combo[] {
-  const same = (other: Combo) =>
-    other.harness === combo.harness && other.model === combo.model && other.effort === combo.effort;
-  if (recents[0] && same(recents[0])) return recents;
-  const next = [combo, ...recents.filter((other) => !same(other))].slice(0, 12);
+  const key = (other: Combo) => `${other.harness}\u0000${other.model}\u0000${other.effort ?? ""}`;
+  const same = (other: Combo) => key(other) === key(combo);
+  const known = new Set<string>();
+  const merged = [...loadRecents(), ...recents].filter((other) => !known.has(key(other)) && known.add(key(other)));
+  if (merged[0] && same(merged[0])) return merged;
+  const next = [combo, ...merged.filter((other) => !same(other))].slice(0, 12);
   try {
     localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
   } catch {
@@ -161,6 +164,8 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
     onCombo: (id) => {
       const [pickedModel, pickedEffort] = id.split("\u0000");
       if (!pickedModel) return;
+      // Any new pick replaces a combo still waiting on its effort.
+      pending.current = undefined;
       if (pickedModel !== current) {
         pending.current = pickedEffort
           ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
@@ -243,7 +248,17 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
               <ChevronIcon />
             </>
           }
-          sections={[{ choices: efforts, current: effort.currentValue, onPick: (value) => onEffort(effort.id, value) }]}
+          sections={[
+            {
+              choices: efforts,
+              current: effort.currentValue,
+              onPick: (value) => {
+                // An effort picked by hand wins over one a combo is still waiting to send.
+                pending.current = undefined;
+                onEffort(effort.id, value);
+              },
+            },
+          ]}
           align="end"
         />
       )}

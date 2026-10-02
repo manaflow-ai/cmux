@@ -79,12 +79,14 @@ function typeInto(node: HTMLTextAreaElement, value: string) {
 describe("acpmux composer pickers", () => {
   let root: ReturnType<typeof createRoot>;
   let calls: string[];
+  // Recents record after the selection settles; tests that read recents settle at once.
+  let settleMs = 60_000;
   const render = async (value: AcpmuxSnapshot) =>
     act(async () =>
       root.render(
         createElement(ComposerPickers, {
           snapshot: value,
-          settleMs: 0,
+          settleMs,
           onModel: (id: string) => {
             calls.push(`model ${id}`);
           },
@@ -110,6 +112,7 @@ describe("acpmux composer pickers", () => {
 
   beforeEach(() => {
     calls = [];
+    settleMs = 60_000;
     root = createRoot(doc.getElementById("root")!);
   });
   afterEach(async () => {
@@ -186,6 +189,7 @@ describe("acpmux composer pickers", () => {
       },
     ];
     const long = (summary: Parameters<typeof snapshot>[0]) => ({ ...snapshot(summary), catalog });
+    settleMs = 0;
     const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
     // The session runs Astra on High, then Sol on Medium: both become recents.
     await render(long({ configOptions: [effort] }));
@@ -241,6 +245,7 @@ describe("acpmux composer pickers", () => {
     await render(long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
     expect(calls.filter((call) => call.startsWith("effort"))).toEqual(["effort reasoning_effort high"]);
     await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
     calls.length = 0;
     // More models opens the full list in place; typing filters it and Enter picks.
     await key(model, "ArrowDown");
@@ -284,6 +289,31 @@ describe("acpmux composer pickers", () => {
     // Closing folds the list again.
     await act(async () => model.click());
     expect(options()).toEqual(["6.1 Sol · Medium *", "6 Astra · High", "More models"]);
+    const pickNamed = (name: string) =>
+      act(async () => {
+        [...doc.querySelectorAll("[role=option]")]
+          .find((option) => option.textContent?.replace(" *", "") === name)!
+          .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      });
+    // An effort picked by hand while a combo waits wins: the combo's effort never follows.
+    calls.length = 0;
+    await pickNamed("6 Astra · High");
+    await render(
+      long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium", options: [effort.options[0]!] }] }),
+    );
+    await act(async () => button("Effort")!.click());
+    await pickNamed("Medium");
+    await render(long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    expect(calls).toEqual(["model astra", "effort reasoning_effort medium"]);
+    // A combo for the current model drops one still waiting for another model.
+    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    await act(async () => model.click());
+    calls.length = 0;
+    await pickNamed("6 Astra · High");
+    await act(async () => model.click());
+    await pickNamed("6.1 Sol · Medium");
+    await render(long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    expect(calls).toEqual(["model astra"]);
   });
 
   test("recents persist per viewer, newest first and once each, and survive bad or blocked storage", () => {
@@ -316,6 +346,14 @@ describe("acpmux composer pickers", () => {
       };
       expect(loadRecents()).toEqual([]);
       expect(rememberCombo([], { harness: "codex", model: "sol" })).toEqual([{ harness: "codex", model: "sol" }]);
+      // Another pane's newer combo, already stored, survives this pane's older list.
+      globals.localStorage = {
+        getItem: (name: string) => store.get(name) ?? null,
+        setItem: (name: string, value: string) => store.set(name, value),
+      };
+      store.set("cmux.acpmux.recentModels", JSON.stringify([{ harness: "codex", model: "luna" }]));
+      rememberCombo([{ harness: "codex", model: "sol" }], { harness: "codex", model: "astra" });
+      expect(loadRecents().map((combo) => combo.model)).toEqual(["astra", "luna", "sol"]);
     } finally {
       globals.localStorage = saved;
     }
