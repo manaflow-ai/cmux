@@ -713,6 +713,15 @@ def test_shared_vite_plus_check_config_runs_web_only() -> None:
     assert_areas(["config/vite-plus/check.ts"], macos=False, web=True)
 
 
+def test_generated_agent_pane_page_runs_its_web_check_and_the_app_build() -> None:
+    # The page ships in the app and is built from webviews, so both lanes see it.
+    assert_areas(
+        ["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"],
+        macos=True,
+        web=True,
+    )
+
+
 def test_bundled_root_markdown_still_runs_macos() -> None:
     # THIRD_PARTY_LICENSES.md is root Markdown like the files above, but it
     # ships in Resources/ and AboutLicenseContent.swift reads it, so it is a
@@ -4665,6 +4674,8 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         (["Native/DiffSidecar/src/server.rs"], (False, True, False, False, False, False, False)),
         (["Resources/markdown-viewer/webviews-app/main.mjs"], (False, False, False, False, True, False, False)),
         (["config/vite-plus/check.ts"], (False, False, False, False, True, False, False)),
+        (["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"], (False, False, False, False, True, False, False)),
+        ([".gitattributes"], (False, False, False, False, True, False, False)),
         (["web/public/logo.png"], (False, False, False, True, False, False, True)),
         (["web/tests/account-route.test.ts"], (False, False, False, False, False, True, True)),
         (["web/tests/notifications-push-route.test.ts"], (True, False, False, False, False, True, True)),

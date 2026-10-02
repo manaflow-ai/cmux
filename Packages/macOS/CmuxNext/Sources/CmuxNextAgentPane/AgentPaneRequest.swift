@@ -1,3 +1,4 @@
+import CmuxNextDictation
 public import Foundation
 
 /// A request the page posts to `window.webkit.messageHandlers.agentSession`:
@@ -15,6 +16,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; the pane picks its rendering rate from them.
     case framePacing([Double])
+    /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
+    /// or `dictation.openSettings` with `{permission}`.
+    case dictation(AgentPaneDictationCommand)
     case unsupported(String)
 
     public static let maximumPacingFrames = 640
@@ -40,6 +44,16 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "pane.framePacing":
             if let intervals = params?["intervals"] as? [Double], !intervals.isEmpty {
                 self = .framePacing(Array(intervals.prefix(Self.maximumPacingFrames)))
+            } else {
+                self = .unsupported(method)
+            }
+        case "dictation.toggle": self = .dictation(.toggle)
+        case "dictation.start": self = .dictation(.start)
+        case "dictation.stop": self = .dictation(.stop)
+        case "dictation.cancel": self = .dictation(.cancel)
+        case "dictation.openSettings":
+            if let raw = params?["permission"] as? String, let permission = DictationPermission(rawValue: raw) {
+                self = .dictation(.openSettings(permission))
             } else {
                 self = .unsupported(method)
             }
