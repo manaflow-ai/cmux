@@ -34,6 +34,7 @@ mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
 mod kept_tab_store;
+mod owner_shutdown_store;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 mod personal_mutations;
