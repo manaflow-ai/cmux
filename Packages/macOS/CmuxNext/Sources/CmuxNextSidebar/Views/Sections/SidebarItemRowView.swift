@@ -12,6 +12,10 @@ final class SidebarItemRowView: NSView {
         case list
         /// Glyph only, centered, on a faint tile (tray look).
         case tile
+        /// Glyph only, centered, no fill at rest (lines-icons look).
+        case icon
+
+        var isIconOnly: Bool { self == .tile || self == .icon }
     }
 
     var onPress: (() -> Void)?
@@ -54,10 +58,10 @@ final class SidebarItemRowView: NSView {
         self.info = info
         self.style = style
         title.stringValue = info.title
-        title.isHidden = style == .tile
+        title.isHidden = style.isIconOnly
         badge.configure(info.badge.map(UnreadState.count) ?? .none)
-        if style == .tile { badge.isHidden = true }
-        toolTip = style == .tile ? info.title : nil
+        if style.isIconOnly { badge.isHidden = true }
+        toolTip = style.isIconOnly ? info.title : nil
         setAccessibilityLabel(info.title)
         setAccessibilitySelected(info.isActive)
         alphaValue = info.isMissing ? 0.5 : 1
@@ -82,12 +86,12 @@ final class SidebarItemRowView: NSView {
         let inset = SidebarStyle.horizontalInset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let pillFrame = style == .tile ? b : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
+        let pillFrame = style.isIconOnly ? b : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
         pill.frame = pillFrame
         pill.cornerRadius = SidebarStyle.rowCornerRadius
         let side = SidebarStyle.iconBox
         // The glyph lines up with the text of workspace rows (their inset plus the pill inset).
-        let iconFrame = style == .tile
+        let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: inset * 2, y: (b.height - side) / 2, width: side, height: side)
         chip.frame = style == .list ? iconFrame : .zero

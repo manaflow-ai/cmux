@@ -157,6 +157,14 @@ import Testing
         #expect(try reduce(defaults, .reset) == defaults)
     }
 
+    @Test func showsTitleRoundTripsAndDefaultsToTrue() throws {
+        let doc = try reduce(defaults, .sectionUpdate(SidebarLayoutDocument.bottomSectionID, SectionPatch(title: .set("Tools"), showsTitle: false)))
+        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.headerTitle == nil)
+        let json = #"{"id":"sec_x","region":"top","look":"list","content":"items"}"#
+        let section = try JSONDecoder().decode(LayoutSection.self, from: Data(json.utf8))
+        #expect(section.showsTitle && section.items.isEmpty)
+    }
+
     @Test func emptyPatchIsANoOp() throws {
         #expect(try reduce(defaults, .sectionUpdate(SidebarLayoutDocument.topSectionID, SectionPatch())) == defaults)
     }
