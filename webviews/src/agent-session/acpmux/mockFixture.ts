@@ -296,7 +296,7 @@ export const mockSessions: MockSession[] = [
     harness: "codex",
     model: "gpt-6-astra",
     status: "waiting",
-    pendingPermissions: 2,
+    pendingPermissions: 1,
     cwd: "~/code/atlas-web",
     ago: 15,
     host: LOCAL_HOST,
@@ -304,7 +304,7 @@ export const mockSessions: MockSession[] = [
     branch: "home-screen",
     worktree: "~/code/atlas-web-worktrees/home-screen",
     permission: { title: "Install @pierre/trees", kind: "execute" },
-    reply: "I need to install `@pierre/trees` and write to package.json. Approve both?",
+    reply: "I need to install `@pierre/trees`, which also updates package.json. Approve?",
   },
   {
     sessionId: "mock-light-theme",
