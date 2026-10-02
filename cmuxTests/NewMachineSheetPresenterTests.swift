@@ -34,7 +34,43 @@ struct NewMachineSheetPresenterTests {
         let page = await model.fleetPageForPresentation()
 
         #expect(page?.limits?.memoryOptionsMb == [4096, 8192, 16384])
-        #expect(attempts == 1)
+        #expect(attempts == 2)
         #expect(model.fleetPage?.limits?.memoryOptionsMb == [4096, 8192, 16384])
+    }
+
+    @Test("exhausted retries release presentation without an incomplete page")
+    func exhaustedRetries() async {
+        var attempts = 0
+        let model = CloudMenuModel(
+            listMachines: {
+                attempts += 1
+                throw URLError(.networkConnectionLost)
+            },
+            isAvailable: { true },
+            isFeatureEnabled: { true },
+            mainMenu: { nil }
+        )
+        let page = await model.fleetPageForPresentation()
+        #expect(page == nil)
+        #expect(attempts == 3)
+    }
+
+    @Test("already cancelled presentation starts no fleet request")
+    func cancelledPresentation() async {
+        var attempts = 0
+        let model = CloudMenuModel(
+            listMachines: {
+                attempts += 1
+                return VMListPage(vms: [])
+            },
+            isAvailable: { true },
+            isFeatureEnabled: { true },
+            mainMenu: { nil }
+        )
+        let request = Task { await model.fleetPageForPresentation() }
+        request.cancel()
+        let page = await request.value
+        #expect(page == nil)
+        #expect(attempts == 0)
     }
 }

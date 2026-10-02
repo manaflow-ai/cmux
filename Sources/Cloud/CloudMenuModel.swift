@@ -32,6 +32,7 @@ final class CloudMenuModel {
     static let freshness: Duration = .seconds(20)
     private static let refreshRetryDelays: [Duration] = [.milliseconds(100), .milliseconds(250)]
     @ObservationIgnored private let listMachines: @MainActor () async throws -> VMListPage
+    @ObservationIgnored private let retryClock: any Clock<Duration>
     @ObservationIgnored private let isAvailable: @MainActor () -> Bool
     @ObservationIgnored private let pinStore: @MainActor () -> CloudMachinePinStore?
     /// The account and team a read belongs to; the pin store's scope by default.
@@ -47,6 +48,7 @@ final class CloudMenuModel {
     init(
         center: NotificationCenter = .default,
         listMachines: (@MainActor () async throws -> VMListPage)? = nil,
+        retryClock: any Clock<Duration> = ContinuousClock(),
         isAvailable: @escaping @MainActor () -> Bool = {
             CloudMachinesFeature.isEnabled && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true
         },
@@ -55,6 +57,7 @@ final class CloudMenuModel {
         isFeatureEnabled: @escaping @MainActor () -> Bool = { CloudMachinesFeature.isEnabled },
         mainMenu: @escaping @MainActor () -> NSMenu? = { NSApp?.mainMenu }
     ) {
+        self.retryClock = retryClock
         self.listMachines = listMachines ?? {
             guard let client = VMClient.shared as VMClient? else { throw VMClientError.notSignedIn }
             return try await client.listPage()
@@ -92,6 +95,7 @@ final class CloudMenuModel {
     /// Callers wait on the shared refresh owner instead of inventing a second
     /// readiness or retry policy in their presenter.
     func fleetPageForPresentation() async -> VMListPage? {
+        guard !Task.isCancelled else { return nil }
         if let fleetPage { return fleetPage }
         guard isAvailable() else { return nil }
         let waiterID = UUID()
@@ -101,7 +105,7 @@ final class CloudMenuModel {
                 if let fleetPage {
                     pageWaiters.removeValue(forKey: waiterID)?.resume(returning: fleetPage)
                 } else {
-                    refresh()
+                    if task == nil { refresh() }
                 }
             }
         }, onCancel: {
@@ -126,7 +130,7 @@ final class CloudMenuModel {
         let requested = generation
         let scope = self.scope()
         if machines.isEmpty || loadState != .loaded { publish(loadState: .loading) }
-        task = Task { [weak self, listMachines] in
+        task = Task { [weak self, listMachines, retryClock] in
             var result: Result<VMListPage, Error> = .failure(CancellationError())
             for attempt in 0...Self.refreshRetryDelays.count {
                 do {
@@ -134,8 +138,9 @@ final class CloudMenuModel {
                     break
                 } catch {
                     result = .failure(error)
+                    if let error = error as? VMClientError, case .notSignedIn = error { break }
                     guard attempt < Self.refreshRetryDelays.count, !Task.isCancelled else { break }
-                    do { try await ContinuousClock().sleep(for: Self.refreshRetryDelays[attempt]) }
+                    do { try await retryClock.sleep(for: Self.refreshRetryDelays[attempt]) }
                     catch { return }
                 }
             }
@@ -162,15 +167,15 @@ final class CloudMenuModel {
             publish(machines: ordered(snapshots), loadState: .loaded)
         case .failure(let error as VMClientError):
             if case .notSignedIn = error { reset(); return }
-            finishPageWaitersIfRetryExhausted()
+            finishPageWaiters()
             publish(loadState: .failed(MachinesPanelViewModel.classifyListFailure(error)))
         case .failure:
-            finishPageWaitersIfRetryExhausted()
+            finishPageWaiters()
             publish(loadState: .failed(.unreachable))
         }
     }
 
-    private func finishPageWaitersIfRetryExhausted() {
+    private func finishPageWaiters() {
         let waiters = pageWaiters
         pageWaiters.removeAll()
         for waiter in waiters.values { waiter.resume(returning: nil) }
