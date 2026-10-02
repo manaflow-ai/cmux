@@ -2,7 +2,7 @@ import React, { memo, useMemo, useState } from "react";
 import { groupByProject, sessionMark, visibleSessions, type AcpmuxSessionEntry, type SessionMark } from "./sessionList";
 
 const MARK_LABELS: Record<Exclude<SessionMark, undefined>, string> = { input: "Needs input", running: "Working", error: "Disconnected", unread: "New activity" };
-const MARK_GLYPHS: Record<Exclude<SessionMark, undefined>, string> = { input: "", running: "", error: "!", unread: "" };
+const MARK_GLYPHS: Record<Exclude<SessionMark, undefined>, string> = { input: "?", running: "", error: "!", unread: "" };
 
 /** The pane's session list: every acpmux session, grouped by folder, newest first. */
 export function SessionSidebar({ sessions, selectedId, onSelect }: { sessions: AcpmuxSessionEntry[]; selectedId?: string; onSelect: (sessionId: string) => void }) {
