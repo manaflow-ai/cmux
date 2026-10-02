@@ -101,6 +101,7 @@ struct CloudWorkspaceSidebarPresentation {
             guard resource?.kind == .terminal || workspace.terminalPanel(for: panelID) != nil else { continue }
             let directory = workspace.reportedPanelDirectory(panelId: panelID)
                 ?? (panelID == workspace.focusedPanelId ? workspace.presentedCurrentDirectory : nil)
+                ?? workspace.panelDirectories[panelID]
             guard seen.insert(machineID + "\n" + (directory ?? "")).inserted else { continue }
             entries.append((machineID, directory))
         }
