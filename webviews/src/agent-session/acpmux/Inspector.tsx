@@ -2,7 +2,7 @@
 // wire log, wire.ts) and the selected session's ACP event journal as acpmux
 // recorded it, with the connection and session state above them. It opens
 // over the transcript like the diff panel and reads nothing while closed.
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { EventRecord } from "./direct";
 import type { AcpmuxSnapshot } from "./model";
 import { acpWire, type AcpWireLog, type WireEntry } from "./wire";
@@ -94,9 +94,9 @@ export function Inspector({ snapshot, sessionEvents, onClose, onExport, wire = a
   const [notice, setNotice] = useState<string>();
   const entries = useWireEntries(wire);
   const stats = wire.stats();
-  // The client's events change with each snapshot; read them again then.
-  const events = useMemo(() => (view === "session" ? sessionEvents() : []), [view, snapshot, sessionEvents]);
-  const rows = useMemo(() => visibleRows(view === "wire" ? entries.map(wireRow) : events.map(sessionRow), filter), [view, entries, events, filter]);
+  // The client's journal grows with each snapshot, which renders this again.
+  const events = view === "session" ? sessionEvents() : [];
+  const rows = visibleRows(view === "wire" ? entries.map(wireRow) : events.map(sessionRow), filter);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
@@ -110,11 +110,11 @@ export function Inspector({ snapshot, sessionEvents, onClose, onExport, wire = a
     setNotice(saved ? "Saved" : copyText(text) ? "Copied as JSON Lines" : "Could not copy");
   };
 
-  return <div className="acpmux-inspector" role="dialog" aria-label="ACP inspector">
+  return <section className="acpmux-inspector" aria-label="ACP inspector">
     <div className="acpmux-diff-header">
       <button type="button" className="acpmux-diff-back" aria-label="Back" onClick={onClose}>‹</button>
       <strong>ACP Inspector</strong>
-      <div className="acpmux-diff-layout" role="group" aria-label="View">
+      <div className="acpmux-diff-layout" aria-label="View">
         <button type="button" aria-pressed={view === "wire"} onClick={() => setView("wire")}>Wire</button>
         <button type="button" aria-pressed={view === "session"} onClick={() => setView("session")}>Session</button>
       </div>
@@ -131,7 +131,7 @@ export function Inspector({ snapshot, sessionEvents, onClose, onExport, wire = a
     <div className="acpmux-inspector-tools">
       <input type="search" aria-label="Filter" placeholder="Filter" value={filter} onChange={(event) => setFilter(event.target.value)} />
       <span className="acpmux-inspector-count">{rows.length < (view === "wire" ? entries.length : events.length) ? `${rows.length} of ${view === "wire" ? entries.length : events.length}` : rows.length}{view === "wire" && stats.dropped ? ` · ${stats.dropped} older dropped` : ""}</span>
-      {notice && <span className="acpmux-inspector-count" role="status">{notice}</span>}
+      {notice && <output className="acpmux-inspector-count">{notice}</output>}
       <button type="button" onClick={() => void exportLog()}>Export</button>
       {view === "wire" && <button type="button" onClick={() => { wire.clear(); setOpen(undefined); }}>Clear</button>}
     </div>
@@ -148,7 +148,7 @@ export function Inspector({ snapshot, sessionEvents, onClose, onExport, wire = a
         {open === row.key && <pre>{row.body}</pre>}
       </li>)}
     </ol>
-  </div>;
+  </section>;
 }
 
 /** The header button that opens the inspector: a quiet 28×28 icon. */
