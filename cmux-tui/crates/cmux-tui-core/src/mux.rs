@@ -28932,7 +28932,12 @@ mod tests {
                 panic!("test layout should have two stack branches");
             };
             screen.layout_columns = vec![
-                LayoutColumn { id: mux.next_id(), width: 1.0, root: *a, creation_order_auto_layout: None },
+                LayoutColumn {
+                    id: mux.next_id(),
+                    width: 1.0,
+                    root: *a,
+                    creation_order_auto_layout: None,
+                },
                 LayoutColumn { id, width: 0.5, root: *b, creation_order_auto_layout: None },
             ];
             screen.sync_layout_column_projection();
@@ -30124,10 +30129,15 @@ mod tests {
     fn unchanged_ratio_commands_preserve_undo_metadata_revision_and_events() {
         let mux = test_mux();
         let (p1, _, _, root_split, inner_split) = seed_split_ratio_tree(&mux);
-        mux.state.lock().unwrap().workspaces[0].screens[0].creation_order_auto_layout = Some(vec![1, 2, 3]);
+        mux.state.lock().unwrap().workspaces[0].screens[0].creation_order_auto_layout =
+            Some(vec![1, 2, 3]);
         let before = mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            (screen.layout_revision, screen.layout_undo.len(), screen.creation_order_auto_layout.clone())
+            (
+                screen.layout_revision,
+                screen.layout_undo.len(),
+                screen.creation_order_auto_layout.clone(),
+            )
         });
         let events = mux.subscribe();
 
@@ -30154,7 +30164,8 @@ mod tests {
     fn set_split_ratio_updates_only_the_exact_split_and_clamps() {
         let mux = test_mux();
         let (_, _, _, root_split, inner_split) = seed_split_ratio_tree(&mux);
-        mux.state.lock().unwrap().workspaces[0].screens[0].creation_order_auto_layout = Some(vec![1, 2, 3]);
+        mux.state.lock().unwrap().workspaces[0].screens[0].creation_order_auto_layout =
+            Some(vec![1, 2, 3]);
         let events = mux.subscribe();
 
         assert!(mux.set_split_ratio_checked(root_split, 2.0).is_ok());
