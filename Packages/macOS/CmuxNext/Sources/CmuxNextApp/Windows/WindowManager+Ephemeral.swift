@@ -36,7 +36,7 @@ extension WindowManager {
             }
             guard let connection = daemon.connection else { return }
             do {
-                let created = try await connection.createWorkspace(name: nil, ephemeral: true, terminal: true)
+                let created = try await connection.state.createWorkspace(name: nil, ephemeral: true, terminal: true)
                 await daemon.store.applied(through: await connection.eventSequence())
                 guard let workspace = daemon.store.workspace(resourceID: created.workspaceID) else { return }
                 claimNew(workspaceID: workspace.id, window: windowID)

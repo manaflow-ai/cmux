@@ -26,6 +26,6 @@ extension TabContentCache {
               let tab = daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == key }),
               let resource = tab.resourceID, tab.zoom != scale else { return }
         let zoom: FieldUpdate<Double> = scale.map(FieldUpdate.set) ?? .clear
-        daemon.send("tab.update") { try await $0.updateTabRecord(resource, zoom: zoom) }
+        daemon.send("tab.update") { try await $0.state.updateTabRecord(resource, zoom: zoom) }
     }
 }

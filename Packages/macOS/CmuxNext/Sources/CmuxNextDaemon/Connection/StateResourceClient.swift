@@ -1,14 +1,31 @@
 import Foundation
 
 /// The daemon's state resources over `cmux.protocol/2`
-/// (cmux-tui/spec/resource-api-v2.md "State resources"). Callers check
+/// (cmux-tui/spec/resource-api-v2.md "State resources"), the workspace-store
+/// side of the daemon (OWNERSHIP-PRINCIPLES.md): closed history, workspaces,
+/// tab records, tab groups, screen metadata and groups, personal workspace
+/// groups. `DaemonConnection.state`. Callers check
 /// `DaemonStore.servesStateResources` first; a daemon that predates them
-/// rejects these with `validation.invalid`.
+/// rejects these with `validation.invalid`. Its own type, not a
+/// `DaemonConnection` extension (that type's line budget is frozen).
 ///
 /// Every mutation carries an idempotency key. Inside an app action with a
 /// key (`DaemonCommandScope`) it derives from that key and the mutation's
 /// ordinal, like the raw `mutation_id`, so a retried action replays.
+public struct StateResourceClient: Sendable {
+    public let connection: DaemonConnection
+
+    public init(connection: DaemonConnection) {
+        self.connection = connection
+    }
+}
+
 extension DaemonConnection {
+    /// The v2 state operations on this connection.
+    public nonisolated var state: StateResourceClient { StateResourceClient(connection: self) }
+}
+
+extension StateResourceClient {
     /// The idempotency key for the next state mutation.
     static func stateKey() -> String {
         "cmux-next-" + (DaemonCommandScope.current?.nextMutationID() ?? UUID().uuidString.lowercased())
@@ -19,7 +36,7 @@ extension DaemonConnection {
     func stateMutation<R: Decodable & Sendable>(_ operation: String, _ params: [String: JSONValue],
                                                  as type: R.Type = JSONValue.self) async throws -> R {
         let key = Self.stateKey()
-        return try await resourceRequest({ id in
+        return try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: operation, params: params, idempotencyKey: key)
         }, as: ResourceMutationResult<R>.self).value
     }
@@ -36,13 +53,6 @@ extension DaemonConnection {
     }
 
     // MARK: Closed history
-
-    /// Recently closed tabs, screens, and workspaces, newest first.
-    public func closedItems() async throws -> [ClosedItem] {
-        try await resourceRequest({ id in
-            ResourceRequestEnvelope(id: id, operation: "closed.list", params: [:], idempotencyKey: nil)
-        }, as: [ClosedItem].self)
-    }
 
     /// What `closed.reopen` recreated.
     public struct ReopenedItem: Decodable, Sendable, Equatable {
@@ -105,7 +115,7 @@ extension DaemonConnection {
     public func setWorkspaceIdentity(_ key: WorkspaceKey, resource: ResourceID?, title: FieldUpdate<String> = .unchanged,
                                      color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged) async throws {
         if let resource { return try await updateWorkspace(resource, title: title, color: color, icon: icon) }
-        _ = try await setWorkspaceMetadata(key, color: color, icon: icon, title: title)
+        _ = try await connection.setWorkspaceMetadata(key, color: color, icon: icon, title: title)
     }
 
     // MARK: Tabs

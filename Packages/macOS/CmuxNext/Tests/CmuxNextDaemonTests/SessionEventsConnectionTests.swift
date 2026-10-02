@@ -75,7 +75,7 @@ import Testing
         let connection = try await Self.connect(server)
         // A later request on the same connection: the stream would have been
         // opened before it (right after the handshake).
-        try await connection.setTabPinned(ResourceID(rawValue: "tab_a"), true)
+        try await connection.state.setTabPinned(ResourceID(rawValue: "tab_a"), true)
         #expect(log.all.compactMap { $0["operation"]?.stringValue } == ["tab.pin"])
         await connection.close()
     }
@@ -88,14 +88,14 @@ import Testing
         try await connection.start()
         let scope = DaemonCommandScope(idempotencyKey: "retry-me")
         let created = try await DaemonCommandScope.$current.withValue(scope) {
-            try await connection.createTabGroup(tabs: [ResourceID(rawValue: "tab_a")], name: "g", color: "blue")
+            try await connection.state.createTabGroup(tabs: [ResourceID(rawValue: "tab_a")], name: "g", color: "blue")
         }
         #expect(created.id == "tgrp_new")
         let again = DaemonCommandScope(idempotencyKey: "retry-me")
         _ = try await DaemonCommandScope.$current.withValue(again) {
-            try await connection.createTabGroup(tabs: [ResourceID(rawValue: "tab_a")], name: "g", color: "blue")
+            try await connection.state.createTabGroup(tabs: [ResourceID(rawValue: "tab_a")], name: "g", color: "blue")
         }
-        try await connection.setTabPinned(ResourceID(rawValue: "tab_a"), true)
+        try await connection.state.setTabPinned(ResourceID(rawValue: "tab_a"), true)
         let sent = log.all
         #expect(sent.map { $0["operation"]?.stringValue } == ["tab_group.create", "tab_group.create", "tab.pin"])
         let keys = sent.compactMap { $0["idempotency_key"]?.stringValue }

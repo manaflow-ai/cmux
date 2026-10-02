@@ -61,7 +61,7 @@ extension SidebarBridge {
             for (daemon, key) in keys(ids) {
                 let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
                 let resource = daemon.store.stateResourceID(workspace: key)
-                command("set-workspace-metadata", on: daemon) { c in try await c.setWorkspaceIdentity(key, resource: resource, color: update) }
+                command("set-workspace-metadata", on: daemon) { c in try await c.state.setWorkspaceIdentity(key, resource: resource, color: update) }
             }
         case .toggleCollapse, .createGroup, .move, .renameGroup, .setGroupColor, .ungroup, .reorderGroup:
             // Workspace groups are personal (the home session's

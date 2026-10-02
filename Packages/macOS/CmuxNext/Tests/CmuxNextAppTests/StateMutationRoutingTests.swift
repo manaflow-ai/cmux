@@ -43,7 +43,7 @@ import Testing
         let key = try #require(workspace.key)
         let resource = services.daemon.store.stateResourceID(workspace: key)
         #expect(resource == ResourceID(rawValue: "ws_w"))
-        services.daemon.send("set-workspace-metadata") { try await $0.setWorkspaceIdentity(key, resource: resource, color: .set("red")) }
+        services.daemon.send("set-workspace-metadata") { try await $0.state.setWorkspaceIdentity(key, resource: resource, color: .set("red")) }
         try await waitFor(daemon, "workspace.update")
         #expect(daemon.params(of: "workspace.update")?["color"] == .string("red"))
         #expect(daemon.requests.allSatisfy { $0["operation"]?.stringValue == "session.events" || $0["idempotency_key"] != nil })

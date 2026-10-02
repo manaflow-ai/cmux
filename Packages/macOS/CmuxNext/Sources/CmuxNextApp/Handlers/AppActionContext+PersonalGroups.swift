@@ -42,7 +42,7 @@ extension AppActionContext {
         let home = services.machines.local, key = WorkspaceKey(rawValue: qualified.key)
         let resource = home.store.personalStateID(session: qualified.session, key: key)
         home.send("set-personal-workspace") {
-            try await $0.placePersonalWorkspace(session: qualified.session, key: key, resource: resource, group: .clear)
+            try await $0.state.placePersonalWorkspace(session: qualified.session, key: key, resource: resource, group: .clear)
         }
     }
 

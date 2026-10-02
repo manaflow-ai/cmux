@@ -4,7 +4,7 @@ import Foundation
 /// v2 state mutations (`tab_group.*`, `screen.update`, `screen.move`,
 /// `screen_group.*`, `workspace_group.*`, `workspace.place`). Group ids
 /// are the daemon's state ids (`tgrp_…`, `sgrp_…`, `grp_…`).
-extension DaemonConnection {
+extension StateResourceClient {
     /// The `id` of a group snapshot a create returns.
     public struct CreatedGroup: Decodable, Sendable, Equatable {
         public var id: String
@@ -81,26 +81,6 @@ extension DaemonConnection {
         return try await stateMutation("screen_group.create", params, as: CreatedGroup.self)
     }
 
-    public func updateScreenGroup(_ group: String, name: String? = nil, color: String? = nil, collapsed: Bool? = nil) async throws {
-        var params: [String: JSONValue] = ["screen_group": .string(group)]
-        if let name { params["name"] = .string(name) }
-        if let color { params["color"] = .string(color) }
-        if let collapsed { params["collapsed"] = .bool(collapsed) }
-        try await stateMutation("screen_group.update", params)
-    }
-
-    public func addScreens(_ screens: [ResourceID], toScreenGroup group: String) async throws {
-        try await stateMutation("screen_group.add_screens", ["screen_group": .string(group), "screens": Self.ids(screens)])
-    }
-
-    public func removeScreensFromScreenGroup(_ screens: [ResourceID]) async throws {
-        try await stateMutation("screen_group.remove_screens", ["screens": Self.ids(screens)])
-    }
-
-    public func ungroupScreenGroup(_ group: String) async throws {
-        try await stateMutation("screen_group.ungroup", ["screen_group": .string(group)])
-    }
-
     // MARK: Personal workspace groups (home session)
 
     @discardableResult
@@ -152,6 +132,6 @@ extension DaemonConnection {
             }
             return try await placeWorkspace(resource, group: state, index: index)
         }
-        try await setPersonalWorkspace(SetPersonalWorkspaceRequest(sessionID: session, workspaceKey: key, index: index, group: group))
+        try await connection.setPersonalWorkspace(SetPersonalWorkspaceRequest(sessionID: session, workspaceKey: key, index: index, group: group))
     }
 }

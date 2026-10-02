@@ -255,7 +255,7 @@ extension PaneController {
         }
         services.registry.track(Task {
             let ok = await daemon.intend("set-tab-pinned", .setTabPinned(surface: surface, pinned: pinned)) { connection in
-                if let resource { return try await connection.setTabPinned(resource, pinned) }
+                if let resource { return try await connection.state.setTabPinned(resource, pinned) }
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }

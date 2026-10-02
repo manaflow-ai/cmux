@@ -20,7 +20,7 @@ extension AppActions {
         let key = WorkspaceKey(rawValue: moved.key)
         let resource = machines.local.store.personalStateID(session: moved.session, key: key)
         machines.local.send("set-personal-workspace") {
-            try await $0.placePersonalWorkspace(session: moved.session, key: key, resource: resource, index: index)
+            try await $0.state.placePersonalWorkspace(session: moved.session, key: key, resource: resource, index: index)
         }
     }
 }

@@ -24,8 +24,8 @@ struct BranchDaemonTests {
             try await h.store.waitUntil("state resources") { h.store.servesStateResources }
             let a = try await h.connection.createWorkspace(name: "a")
             let b = try await h.connection.createWorkspace(name: "b")
-            let agents = try await h.connection.createWorkspaceGroup(name: "Agents", room: nil, color: "blue")
-            let infra = try await h.connection.createWorkspaceGroup(name: "Infra", room: nil, color: nil)
+            let agents = try await h.connection.state.createWorkspaceGroup(name: "Agents", room: nil, color: "blue")
+            let infra = try await h.connection.state.createWorkspaceGroup(name: "Infra", room: nil, color: nil)
             try await h.store.waitUntil("workspaces mirrored") {
                 h.store.workspace(key: a.key)?.resourceID != nil && h.store.workspace(key: b.key)?.resourceID != nil
             }
@@ -33,18 +33,18 @@ struct BranchDaemonTests {
             for key in [b.key, a.key] {
                 let resource = await h.store.personalStateID(session: session, key: key)
                 #expect(resource != nil)
-                try await h.connection.placePersonalWorkspace(session: session, key: key, resource: resource,
+                try await h.connection.state.placePersonalWorkspace(session: session, key: key, resource: resource,
                                                               group: .set(WorkspaceGroupID(rawValue: agents.id)), index: 0)
             }
-            try await h.connection.updateWorkspaceGroup(agents.id, collapsed: true)
-            try await h.connection.moveWorkspaceGroup(infra.id, to: 0)
+            try await h.connection.state.updateWorkspaceGroup(agents.id, collapsed: true)
+            try await h.connection.state.moveWorkspaceGroup(infra.id, to: 0)
             try await h.store.waitUntil("personal groups mirrored") {
                 let groups = h.store.personal.groups
                 let members = h.store.personal.workspaces.filter { $0.group?.rawValue == agents.id }.map(\.workspaceKey)
                 return groups.first { $0.id.rawValue == agents.id }?.collapsed == true
                     && Set(members) == [a.key, b.key]
             }
-            try await h.connection.deleteWorkspaceGroup(agents.id)
+            try await h.connection.state.deleteWorkspaceGroup(agents.id)
             try await h.store.waitUntil("group deleted") { h.store.personal.group(WorkspaceGroupID(rawValue: agents.id)) == nil }
         }
     }
