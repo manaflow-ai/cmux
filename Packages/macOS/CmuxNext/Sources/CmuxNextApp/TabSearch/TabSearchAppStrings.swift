@@ -1,7 +1,7 @@
 import Foundation
 
 /// App strings for Search Tabs (table TabSearch.xcstrings).
-enum TabSearchAppStrings {
+nonisolated enum TabSearchAppStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "TabSearch", bundle: .module)
     }
