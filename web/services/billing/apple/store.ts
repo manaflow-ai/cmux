@@ -1,7 +1,7 @@
 // Postgres persistence for iOS in-app purchases. Every write is idempotent:
 // account tokens are minted once per user, transactions and notifications
 // are keyed by Apple's ids, and subscription state only moves forward in
-// Apple `signedDate` order. Ownership follows the newest transaction's
+// Apple `signedDate` order and never back to an older transaction. Ownership follows the newest transaction's
 // `appAccountToken` (planAppleSubscriptionWrite).
 
 import { randomUUID } from "node:crypto";
@@ -67,6 +67,21 @@ function isNewerTransaction(state: AppleSubscriptionState, previous: OwnedSubscr
 }
 
 /**
+ * A different transaction purchased before the stored one, such as a refund
+ * or refund decision about last month's renewal. It describes history, not
+ * the subscription's current period.
+ */
+export function isOlderAppleTransaction(
+  state: Pick<AppleSubscriptionState, "lastTransactionId" | "purchaseDate">,
+  previous: Pick<AppleSubscriptionRow, "lastTransactionId" | "purchaseDate">,
+): boolean {
+  if (state.lastTransactionId === previous.lastTransactionId || !state.purchaseDate || !previous.purchaseDate) {
+    return false;
+  }
+  return state.purchaseDate.getTime() < previous.purchaseDate.getTime();
+}
+
+/**
  * Decides one subscription write under the per-subscription lock. Both stores
  * share it so the in-memory test store keeps the database contract.
  *
@@ -87,7 +102,10 @@ export function planAppleSubscriptionWrite(
     }
     return { kind: "write", userId: owner, transferredFrom: null };
   }
-  const fresh = previous.stateSignedAt.getTime() <= state.stateSignedAt.getTime();
+  // The row describes the latest transaction: an older signed date or an
+  // older transaction (a refund of a past period) leaves it alone.
+  const fresh = previous.stateSignedAt.getTime() <= state.stateSignedAt.getTime() &&
+    !isOlderAppleTransaction(state, previous);
   const moves = fresh &&
     claim.tokenOwner !== null &&
     claim.tokenOwner !== previous.userId &&

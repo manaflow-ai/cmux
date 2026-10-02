@@ -24,8 +24,10 @@ import {
 import {
   AppleOwnershipError,
   databaseAppleIapStore,
+  isOlderAppleTransaction,
   type AppleIapStore,
   type AppleNotificationRow,
+  type AppleSubscriptionRow,
   type AppleSubscriptionWrite,
 } from "./store";
 import { appleSignedDataVerifier, AppleVerificationError, type AppleSignedDataVerifier } from "./verifier";
@@ -312,9 +314,8 @@ async function applyNotification(
     return { kind: "skip", reason: "not_subscription" };
   }
   const owner = await tokenOwner(transaction.appAccountToken, deps.store);
-  if (!owner && !(await deps.store.subscription(transaction.originalTransactionId))) {
-    return { kind: "skip", reason: "unlinked_account" };
-  }
+  const existing = await deps.store.subscription(transaction.originalTransactionId);
+  if (!owner && !existing) return { kind: "skip", reason: "unlinked_account" };
   let state: AppleSubscriptionState;
   try {
     state = appleSubscriptionStateFrom({
@@ -331,14 +332,46 @@ async function applyNotification(
     throw error;
   }
   // An older notification still records its transaction; the state write
-  // ignores it when the stored state is newer. A newer purchase whose token
-  // maps to another user moves the subscription to that user.
-  const write = await deps.store.writeSubscriptionState(state, { tokenOwner: owner });
+  // ignores it when the stored state is newer or describes a newer
+  // transaction. A newer purchase whose token maps to another user moves the
+  // subscription to that user.
+  const current = await currentSubscriptionState(state, transaction, existing, deps);
+  const write = await deps.store.writeSubscriptionState(current.state, {
+    tokenOwner: current.transaction === transaction ? owner : await tokenOwner(current.state.appAccountToken, deps.store),
+  });
   const userId = write.current.userId;
   // The ledger row belongs to whoever bought that transaction.
   await deps.store.recordTransaction(appleTransactionRowFrom(transaction, owner ?? userId));
+  if (current.transaction !== transaction) {
+    await deps.store.recordTransaction(appleTransactionRowFrom(current.transaction, userId));
+  }
   await applyEntitlements(write, deps);
   return { kind: "applied", userId, state };
+}
+
+/**
+ * The state to write for a notification. A notification about an older
+ * transaction than the stored one (a refund or refund decision about a past
+ * period) says nothing about the current period, so Apple's current status
+ * is fetched when the Server API is configured. Without it, the notification's
+ * own state goes to the store, which keeps the newer row.
+ */
+async function currentSubscriptionState(
+  notified: AppleSubscriptionState,
+  transaction: JWSTransactionDecodedPayload,
+  existing: AppleSubscriptionRow | null,
+  deps: AppleIapDependencies,
+): Promise<{ readonly state: AppleSubscriptionState; readonly transaction: JWSTransactionDecodedPayload }> {
+  const unchanged = { state: notified, transaction };
+  if (!existing || !deps.serverApi || !isOlderAppleTransaction(notified, existing)) return unchanged;
+  const fresh = await freshAppleState(transaction, deps);
+  if (fresh.transaction === transaction) return unchanged;
+  try {
+    return { state: appleSubscriptionStateFrom({ ...fresh, now: deps.now() }), transaction: fresh.transaction };
+  } catch (error) {
+    if (error instanceof AppleStateError) return unchanged;
+    throw error;
+  }
 }
 
 /** Applies one ledger row; shared by the webhook and the retry job. */
