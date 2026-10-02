@@ -2,6 +2,24 @@
 
 use super::*;
 
+/// What limits a session's agent as far as acpmux can tell: the harness's
+/// own mode, else acpmux's permission policy. Host isolation is never
+/// claimed, and no sandbox is inferred from a mode name.
+pub(super) fn enforcement(m: &SessionMeta) -> Value {
+    let mode = m.modes.as_ref().and_then(|x| x.get("currentModeId")).and_then(Value::as_str);
+    let policy = m.permission_policy.as_deref();
+    json!({
+        "policy": mode.or(policy).unwrap_or("default"),
+        "label": "native_policy",
+        "isolation": "unverified",
+        "detail": format!(
+            "harness mode {}; acpmux permission policy {}; host isolation unverified",
+            mode.unwrap_or("unknown"),
+            policy.unwrap_or("the daemon default")
+        ),
+    })
+}
+
 impl Hub {
     // ------------------------------------------------------------- views
 
@@ -32,6 +50,7 @@ impl Hub {
             "currentModeId": m.modes.as_ref().and_then(|x| x.get("currentModeId")).cloned(),
             "model": current_model(&m),
             "policy": m.permission_policy,
+            "enforcement": enforcement(&m),
             "rules": m.permission_rules.is_some(),
             "tags": live_tags(&m),
             "stateSeq": session.state_seq.load(Ordering::SeqCst),
