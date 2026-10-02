@@ -14,6 +14,16 @@ import Testing
         #expect(t.contentBackground == input.background)
     }
 
+    /// The tab strips along the top are a shade darker than the window in
+    /// every theme, light ones included (Leo: the top is always a darker
+    /// tone), and text on them stays readable.
+    @Test(arguments: ThemeFixtures.all.map(\.0))
+    func theStripIsDarkerThanTheWindow(_ name: String) {
+        let t = ThemeTokens.derive(from: theme(name))
+        #expect(t.stripBackground.relativeLuminance < t.windowBackground.relativeLuminance, "\(name)")
+        #expect(t.textPrimary.contrast(with: t.stripBackground.withAlpha(1)) >= 4.5, "\(name)")
+    }
+
     @Test func lightnessFollowsTheBackground() {
         #expect(ThemeTokens.derive(from: ThemeFixtures.monokaiClassic).isDark)
         #expect(ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha).isDark)

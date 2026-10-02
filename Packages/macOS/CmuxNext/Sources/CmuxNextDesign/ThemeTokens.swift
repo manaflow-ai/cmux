@@ -24,6 +24,9 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
     public var chromeBackground: ThemeRGB
     /// Floating cards (palette, hover card, editors) under or instead of glass.
     public var elevatedBackground: ThemeRGB
+    /// The tab strips along the top: a shade darker than the window in
+    /// light themes too, so the top reads as one quiet band.
+    public var stripBackground: ThemeRGB
 
     // Text
     public var textPrimary: ThemeRGB
@@ -92,6 +95,7 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
             contentBackground: surface,
             chromeBackground: bg.mixed(toward: fg, isDark ? 0.05 : 0.035),
             elevatedBackground: bg.mixed(toward: fg, isDark ? 0.07 : 0.02),
+            stripBackground: bg.mixed(toward: .black, isDark ? 0.22 : 0.05).withAlpha(input.backgroundOpacity),
             textPrimary: primary,
             textSecondary: secondary,
             textTertiary: tertiary,
