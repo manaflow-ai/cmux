@@ -24,6 +24,8 @@ struct DeviceTreeView: View {
     /// Open a workspace (forwarded from the shell). Unused by the management list
     /// today; kept so a future "show this computer's workspaces" tap can use it.
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
+    /// Creates a workspace on a visible, connected Cloud computer.
+    var createWorkspaceOnCloudMachine: ((String) -> Void)? = nil
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
@@ -59,9 +61,21 @@ struct DeviceTreeView: View {
     /// membership only, so the 10s presence refresh (same rows, new status
     /// text) doesn't animate.
     private var rowMembership: [String] {
-        MacComputerListSection.sections(from: computers).flatMap { section in
+        let macIDs = MacComputerListSection.sections(from: computers).flatMap { section in
             [section.id] + section.computers.map(\.id)
-        } + ["hidden"] + store.hiddenComputers.map(\.id)
+        }
+        let hiddenIDs = ["hidden"] + store.hiddenComputers.map(\.id)
+        let cloudIDs = ["cloud"] + cloudHosts.map(\.hostID)
+        return macIDs + hiddenIDs + cloudIDs
+    }
+
+    private var cloudHosts: [MobileExternalHostSummary] {
+        store.externalHostSummaries.sorted { lhs, rhs in
+            if lhs.isHidden != rhs.isHidden {
+                return !lhs.isHidden
+            }
+            return (lhs.displayName ?? lhs.hostID) < (rhs.displayName ?? rhs.hostID)
+        }
     }
 
     var body: some View {
@@ -69,7 +83,9 @@ struct DeviceTreeView: View {
             List {
                 if !macPairingAvailable {
                     EmptyView()
-                } else if computers.isEmpty && store.hiddenComputers.isEmpty {
+                } else if computers.isEmpty
+                    && store.hiddenComputers.isEmpty
+                    && store.externalHostSummaries.isEmpty {
                     emptySection
                 } else {
                     // One row per Computer, grouped under the connection
@@ -106,6 +122,27 @@ struct DeviceTreeView: View {
                                 "mobile.connections.hidden.title",
                                 defaultValue: "Hidden Computers"
                             ))
+                        }
+                    }
+                    if !store.externalHostSummaries.isEmpty {
+                        // Cloud machines are computers too. Their switch hides
+                        // a machine's workspaces on this phone exactly as a
+                        // Mac's does; managing the machine itself lives in
+                        // the Cloud tab.
+                        Section {
+                            ForEach(cloudHosts) { host in
+                                CloudComputerRow(
+                                    host: host,
+                                    setVisible: { visible in
+                                        store.setExternalHost(host.hostID, hidden: !visible)
+                                    },
+                                    createWorkspace: createWorkspaceOnCloudMachine.map { action in
+                                        { action(host.hostID) }
+                                    }
+                                )
+                            }
+                        } header: {
+                            Text(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
                         }
                     }
                     Section {

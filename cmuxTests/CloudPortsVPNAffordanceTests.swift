@@ -40,11 +40,14 @@ struct CloudPortsVPNAffordanceTests {
         defer { window.contentView = nil }
         host.layoutSubtreeIfNeeded()
         let outline = try #require(descendants(of: host).compactMap { $0 as? NSOutlineView }.first)
+        let coordinator = try #require(outline.delegate as? CloudTreeOutlineView.Coordinator)
+        // Ports is a tab on the machine's detail row (`CloudTreeMachineDetailLayout`):
+        // opening it lists the Ports group's rows under that row.
+        coordinator.toggleMachineDetailTab(.ports, machine: machine)
         outline.expandItem(nil, expandChildren: true)
         let group = try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CloudTreeNode }
-            .first { if case .portsGroup = $0.kind { true } else { false } })
+            .first { if case .machineDetailTabs(let tabs) = $0.kind { tabs.selected == .ports } else { false } })
         #expect(group.children.contains { if case .port(let value, _, _) = $0.kind { value.id == port.id } else { false } })
-        let coordinator = try #require(outline.delegate as? CloudTreeOutlineView.Coordinator)
         let controls = group.children.compactMap {
             coordinator.outlineView(outline, viewFor: outline.tableColumns.first, item: $0)
         }.flatMap { descendants(of: $0) }
@@ -98,7 +101,7 @@ struct CloudPortsVPNAffordanceTests {
         #expect(!children.contains { $0.id.hasSuffix("/ports/vpn-guidance") })
     }
 
-    @Test("Loopback ports open in cmux without VPN onboarding or an explanatory paragraph")
+    @Test("Loopback ports show without VPN onboarding or an explanatory paragraph")
     func loopbackPortsWithoutVPN() throws {
         let machine = SurfaceMachineID.cloud("no-vpn-needed")
         let scan = try #require(CloudPortScanResult(socketListing: "LISTEN 0 128 127.0.0.1:33015 0.0.0.0:*"))
@@ -117,8 +120,10 @@ struct CloudPortsVPNAffordanceTests {
         #expect(row.searchableTitle == ":33015")
         let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
         cell.configure(node: row, machineActions: machineActions(), nodeActions: nodeActions())
-        #expect(cell.toolTip == "Open in cmux. No VPN setup needed.")
-        #expect(cell.accessibilityLabel()?.contains("Open in cmux") == true)
+        // Port rows carry no inline open action: a port with no process name
+        // has no hover text and is labelled by its number.
+        #expect(cell.toolTip == nil)
+        #expect(cell.accessibilityLabel() == "Port 33015")
     }
 
     /// Each status row explains the whole Ports group, so a second one contradicts it:
@@ -194,6 +199,15 @@ struct CloudPortsVPNAffordanceTests {
             .isExpandedByDefault == false)
     }
 
+    @Test("Workspaces and Displays start closed, so an opened machine shows only its summary")
+    func workspacesAndDisplaysStartCollapsed() {
+        let machine = SurfaceMachineID.cloud("default-collapsed")
+        let workspace = SurfaceRemoteWorkspace(id: "ws", name: "Build", index: 0, focused: false)
+        #expect(CloudTreeNode.Kind.workspace(machine: machine, workspace, terminalCount: 1, hiddenTabCount: 0, openIn: nil)
+            .isExpandedByDefault == false)
+        #expect(CloudTreeNode.Kind.displaysPool(machine: machine, count: 1).isExpandedByDefault == false)
+    }
+
     @Test("Status actions hit-test in AppKit coordinates and fit narrow rows", arguments: [140.0, 260.0])
     func nativeActionLayout(width: Double) throws {
         let status = CloudPortsStatusPresentation(state: .unavailable(.transport))
@@ -229,8 +243,9 @@ struct CloudPortsVPNAffordanceTests {
             content.layoutSubtreeIfNeeded()
             // Only the row's own labels: on macOS 15 a titled NSButton has an extra
             // NSTextField descendant that AppKit sizes, not this row.
-            let labels = content.subviews.compactMap { $0 as? NSTextField }
-            #expect(labels.count == 2)
+            let labels = content.subviews.compactMap { $0 as? NSTextField }.filter { !$0.isHidden }
+            let expectedLabelCount = status.state == .loading ? 1 : 2
+            #expect(labels.count == expectedLabelCount)
             for label in labels {
                 let cell = try #require(label.cell)
                 let needed = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.frame.width,
@@ -241,7 +256,7 @@ struct CloudPortsVPNAffordanceTests {
         }
     }
 
-    @Test("Opening Ports requests discovery once; closed Ports and collapsed machines do not scan")
+    @Test("Opening the Ports tab requests discovery once; closed Ports and collapsed machines do not scan")
     func openedPortsDemand() throws {
         let suite = "ports-demand-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -259,8 +274,10 @@ struct CloudPortsVPNAffordanceTests {
         let opened = machineNode(id: "opened")
         let closed = machineNode(id: "closed")
         let collapsed = machineNode(id: "collapsed")
-        store.setExpanded(true, node: opened.children[0])
-        store.setExpanded(true, node: collapsed.children[0])
+        // Ports is a tab on the machine's tab row: open it on two machines,
+        // one of which is collapsed so its rows are not on screen.
+        coordinator.machineDetailLayout.toggle(.ports, machine: .cloud("opened"))
+        coordinator.machineDetailLayout.toggle(.ports, machine: .cloud("collapsed"))
         store.setExpanded(false, node: collapsed)
         coordinator.apply(nodes: [opened, closed, collapsed])
         coordinator.portsDemand.reconcile(coordinator: coordinator)

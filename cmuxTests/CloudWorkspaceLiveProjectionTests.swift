@@ -450,11 +450,11 @@ struct CloudWorkspaceLiveProjectionTests {
         let state = try graph(["first": "a"], revision: 1)
         var budget = CloudWorkspaceReconcileBudget()
         for version in 0..<UInt64(CloudWorkspaceReconcileBudget.maxPassesPerState) {
-            #expect(budget.admit(.init(state: state, projectionVersion: version, bindings: [:])))
+            if !budget.admit(.init(state: state, projectionVersion: version, bindings: [:])) { Issue.record("progressing pass was unexpectedly rejected") }
         }
-        #expect(!budget.admit(.init(state: state, projectionVersion: 1_000, bindings: [:])))
+        if budget.admit(.init(state: state, projectionVersion: 1_000, bindings: [:])) { Issue.record("exhausted pass was unexpectedly admitted") }
         let next = try graph(["first": "a"], revision: 2)
-        #expect(budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:])), "A new graph starts a new budget")
+        if !budget.admit(.init(state: next, projectionVersion: 1_000, bindings: [:])) { Issue.record("a new graph did not start a new budget") }
     }
 
     @Test("Lifecycle cancellation is not retained as a projection failure")

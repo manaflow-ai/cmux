@@ -40,6 +40,7 @@ public final class CustomSidebarModel {
     private let directoryURL: URL
     private let sidebarName: String
     private let fileManager: FileManager
+    private let sourceOverride: String?
 
     private var watchTask: Task<Void, Never>?
     private var watcher: FileWatcher?
@@ -64,12 +65,14 @@ public final class CustomSidebarModel {
     /// Creates a model for `fileURL` rendering through `interpreter`.
     public init(
         fileURL: URL,
+        sourceOverride: String? = nil,
         interpreter: any SidebarInterpreting = InProcessSidebarInterpreter(),
         fileManager: FileManager = .default
     ) {
         self.fileURL = fileURL
         directoryURL = fileURL.deletingLastPathComponent()
         sidebarName = fileURL.deletingPathExtension().lastPathComponent
+        self.sourceOverride = sourceOverride
         self.interpreter = interpreter
         self.fileManager = fileManager
     }
@@ -137,6 +140,7 @@ public final class CustomSidebarModel {
     private var watchedPath: String?
 
     private func startWatcher() {
+        guard sourceOverride == nil else { return }
         let path = fileURL.path
         guard watchedPath != path else { return }
         stopWatcher()
@@ -165,6 +169,13 @@ public final class CustomSidebarModel {
 
     /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.
     public func reload() {
+        if let sourceOverride {
+            state = fileURL.pathExtension.lowercased() == "js"
+                ? .jsSource(sourceOverride)
+                : .swiftSource(sourceOverride)
+            sourceRevision += 1
+            return
+        }
         defer {
             sourceRevision += 1 // re-fire the view's render trigger
             // Follow extension flips with the watcher; no-op when unchanged.

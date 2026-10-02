@@ -458,7 +458,7 @@ class DetachTests(unittest.TestCase):
 
     def test_detach_imports_only_matching_resolved_binary_framework_slices(self) -> None:
         with tempfile.TemporaryDirectory(prefix="rerun products ") as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             debug = root / "Build" / "Products" / "Debug"
             (debug / "PackageFrameworks" / "Pkg_1_PackageProduct.framework").mkdir(parents=True)
             host = debug / "Host App.app" / "Contents"
@@ -779,6 +779,7 @@ class CanonicalRootTests(unittest.TestCase):
     def test_compiled_file_paths_are_independent_of_the_producer_root(self) -> None:
         compile_script = COMPILE_PRODUCT.read_text()
         restore_script = RESTORE_PRODUCT.read_text()
+        run_script = (ROOT / "scripts" / "ci" / "run-app-host-xcodebuild.sh").read_text()
         self.assertIn("FILE_PATH_ROOT=/private/tmp/cmux-test-source", compile_script)
         self.assertIn("-file-prefix-map", compile_script)
         self.assertIn("-debug-prefix-map", compile_script)
@@ -790,6 +791,8 @@ class CanonicalRootTests(unittest.TestCase):
         source_text = "\n".join(path.read_text() for path in source_helpers)
         self.assertIn("static func sourceURL", helper_text)
         self.assertIn("appendingPathComponent(fileID)", helper_text)
+        self.assertIn("TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT", run_script)
+        self.assertIn("TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT", helper_text)
         self.assertNotIn("URL(fileURLWithPath: #filePath)", source_text)
         self.assertIn("CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source", restore_script)
         self.assertNotIn("glaeda-canonical-root", restore_script)

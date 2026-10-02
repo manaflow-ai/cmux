@@ -47,6 +47,12 @@ struct CloudWorkspaceSidebarPresentation {
     init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool) {
         let state = workspace.cloudBindingState
 
+        func machineMetadata(for id: String) -> String? {
+            if let name = state.machineNames[id] { return name }
+            if let name = state.machineNames[SurfaceMachineID.cloud(id).rawValue] { return name }
+            return SurfaceCatalog.shared.machineInfo(for: .cloud(id))?.name
+        }
+
         var cloudMachineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
         if let id = workspace.cloudVMID { cloudMachineIDs.insert(id) }
         let deviceMachines = Self.deviceMachines(for: workspace)
@@ -57,9 +63,21 @@ struct CloudWorkspaceSidebarPresentation {
         guard !machineIDs.isEmpty else { return nil }
         deviceLabel = Self.deviceLabel(workspace: workspace, machines: deviceMachines)
         let names = Dictionary(uniqueKeysWithValues: machineIDs.map { id in
-            let name = state.machineNames[id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
+            let name = machineMetadata(for: id)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
             return (id, name.isEmpty ? id : name)
         })
+        // A restored Cloud terminal can publish its projection before the
+        // catalog has finished loading machine metadata. Do not turn that
+        // transient state into user-visible identity or directory copy: the
+        // raw VM id and "Directory unavailable" are loading placeholders, not
+        // the values the sidebar is meant to present.
+        let projectedCloudMachineIDs = Set(state.projectedResources.values.compactMap { resource in
+            resource.machine.cloudMachineID
+        })
+        guard projectedCloudMachineIDs.allSatisfy({ id in
+            guard machineMetadata(for: id) != nil else { return false }
+            return true
+        }) else { return nil }
         // Keep stable IDs in badge help/accessibility; width-dependent rows use
         // them only when friendly names collide across machines.
         let identities = machineIDs.sorted().map { id -> String in

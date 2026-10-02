@@ -798,6 +798,29 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertEqual(completedText, "/tmp/cmux-drop-123.png")
     }
 
+    func testRemoteImagePasteFailureDoesNotInsertTheLocalClipboardPath() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-failure.png")
+        try make1x1PNG(color: .orange).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var insertedText: String?
+        var failure: Error?
+        TerminalImageTransferPlanner.executeForTesting(
+            plan: .uploadFiles([url], .workspaceRemote),
+            uploadWorkspaceRemote: { _, _, finish in
+                finish(.failure(NSError(domain: "cmux.remote.paste", code: 1)))
+            },
+            uploadDetectedSSH: { _, _, _, finish in
+                finish(.failure(NSError(domain: "unused", code: 0)))
+            },
+            insertText: { insertedText = $0 },
+            onFailure: { failure = $0 }
+        )
+
+        XCTAssertNil(insertedText)
+        XCTAssertNotNil(failure)
+    }
+
     func testCancelledRemoteImagePasteExecutionSuppressesCompletionHandlers() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-cancel-test.png")
         try make1x1PNG(color: .brown).write(to: url)
@@ -3147,6 +3170,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         TmuxOverlayExperimentSettings.enabledKey,
         TmuxOverlayExperimentSettings.targetKey,
         NotificationPaneFlashSettings.enabledKey,
+        NotificationPaneFlashSettings.onTypingKey,
     ]
     private var originalFlashDefaults: [String: Any] = [:]
 
@@ -3162,6 +3186,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         defaults.set(false, forKey: TmuxOverlayExperimentSettings.enabledKey)
         defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
         defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
+        defaults.removeObject(forKey: NotificationPaneFlashSettings.onTypingKey)
     }
 
     override func tearDown() {
@@ -3313,9 +3338,13 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        GhosttySurfaceScrollView.resetFlashCounts()
         AppFocusState.overrideIsFocused = true
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        // Let the runtime surface come up and the workspace's startup focus pass
+        // run first, so only the interaction below can clear the notification.
+        waitForRuntimeSurface(terminalPanel.surface)
+        drainMainQueue()
+        GhosttySurfaceScrollView.resetFlashCounts()
 
         store.addNotification(
             tabId: workspace.id,
@@ -3384,9 +3413,16 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        GhosttySurfaceScrollView.resetFlashCounts()
+        // `notifications.paneFlashOnTyping` defaults to on (the legacy flash);
+        // this test covers the calmer opt-out where typing never flashes.
+        UserDefaults.standard.set(false, forKey: NotificationPaneFlashSettings.onTypingKey)
         AppFocusState.overrideIsFocused = true
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        // Let the runtime surface come up and the workspace's startup focus pass
+        // run first, so only the interaction below can clear the notification.
+        waitForRuntimeSurface(terminalPanel.surface)
+        drainMainQueue()
+        GhosttySurfaceScrollView.resetFlashCounts()
 
         store.addNotification(
             tabId: workspace.id,
@@ -3397,12 +3433,13 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         )
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
 
-        let event = makeKeyEvent(characters: "", keyCode: 122, window: window)
+        let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
         surfaceView.keyDown(with: event)
         drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
+        // With Flash While Typing off, typing is the acknowledgement; no flash.
+        XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 0)
     }
 
     func testKeyDownRecoversReleasedSurfaceWhileHostedViewIsDetached() throws {

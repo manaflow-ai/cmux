@@ -220,4 +220,73 @@ struct CloudTeamPickerMenuTests {
         )
         #expect(item(plain, CloudTeamPickerMenu.invitedHeaderIdentifier) == nil)
     }
+
+    @Test func endsWithTheSignedInAccountAndSignOut() throws {
+        var signOuts = 0
+        let menu = CloudTeamPickerMenu.make(
+            teams: teams, selectedTeamID: "team-alpha", isSwitching: false, pendingCreate: nil,
+            onSelect: { _ in }, onCreate: {},
+            accountEmail: "lucas@cmux.com",
+            onSignOut: { signOuts += 1 }
+        )
+        let account = try #require(item(menu, CloudTeamPickerMenu.signedInAsIdentifier))
+        #expect(account.title == "Signed in as lucas@cmux.com")
+        #expect(!account.isEnabled)
+        let signOut = try #require(menu.items.last)
+        #expect(signOut.identifier?.rawValue == CloudTeamPickerMenu.signOutIdentifier)
+        #expect(signOut.isEnabled)
+        let createIndex = menu.items.firstIndex { $0.identifier?.rawValue == CloudTeamPickerMenu.createTeamIdentifier }!
+        #expect(createIndex < menu.items.firstIndex(of: account)!)
+        _ = signOut.target?.perform(signOut.action, with: signOut)
+        #expect(signOuts == 1)
+    }
+
+    @Test func signOutWaitsForAPendingSwitch() throws {
+        let menu = CloudTeamPickerMenu.make(
+            teams: teams, selectedTeamID: "team-alpha", isSwitching: true, pendingCreate: nil,
+            onSelect: { _ in }, onCreate: {},
+            accountEmail: "lucas@cmux.com",
+            onSignOut: {}
+        )
+        #expect(item(menu, CloudTeamPickerMenu.signOutIdentifier)?.isEnabled == false)
+        #expect(menu.items.filter(\.isEnabled).isEmpty)
+    }
+
+    @Test func offersSwitchAccountJustAboveSignOut() throws {
+        var switches = 0
+        let menu = CloudTeamPickerMenu.make(
+            teams: teams, selectedTeamID: "team-alpha", isSwitching: false, pendingCreate: nil,
+            onSelect: { _ in }, onCreate: {},
+            accountEmail: "lucas@cmux.com",
+            onSwitchAccount: { switches += 1 },
+            onSignOut: {}
+        )
+        let switchAccount = try #require(item(menu, CloudTeamPickerMenu.switchAccountIdentifier))
+        #expect(switchAccount.title == "Switch Account…")
+        #expect(switchAccount.isEnabled)
+        #expect(menu.items.firstIndex(of: switchAccount) == menu.items.count - 2)
+        #expect(menu.items.last?.identifier?.rawValue == CloudTeamPickerMenu.signOutIdentifier)
+        _ = switchAccount.target?.perform(switchAccount.action, with: switchAccount)
+        #expect(switches == 1)
+
+        let busy = CloudTeamPickerMenu.make(
+            teams: teams, selectedTeamID: "team-alpha", isSwitching: true, pendingCreate: nil,
+            onSelect: { _ in }, onCreate: {},
+            accountEmail: "lucas@cmux.com",
+            onSwitchAccount: {},
+            onSignOut: {}
+        )
+        #expect(item(busy, CloudTeamPickerMenu.switchAccountIdentifier)?.isEnabled == false)
+    }
+
+    @Test func omitsTheAccountLineWithoutAnEmail() throws {
+        let menu = CloudTeamPickerMenu.make(
+            teams: teams, selectedTeamID: "team-alpha", isSwitching: false, pendingCreate: nil,
+            onSelect: { _ in }, onCreate: {},
+            accountEmail: nil,
+            onSignOut: {}
+        )
+        #expect(item(menu, CloudTeamPickerMenu.signedInAsIdentifier) == nil)
+        #expect(menu.items.last?.identifier?.rawValue == CloudTeamPickerMenu.signOutIdentifier)
+    }
 }
