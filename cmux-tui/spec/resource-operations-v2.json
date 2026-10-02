@@ -12718,7 +12718,7 @@
               "kind": "ref",
               "name": "JsonValue"
             },
-            "description": "One layout op tagged by kind: section.add {section, index}, section.update {id, patch {title?, look?, room?, max_rows?, shows_title?, layout?, align?, gap?, columns?}; null clears}, section.move {id, region, index}, section.remove {id}, item.add {item, section, index}, item.move {id, section, index}, item.remove {id}, item.update {id, shows_label}, layout.reset {}. Indexes clamp; a move's index excludes the moved entry."
+            "description": "One layout op tagged by kind: section.add {section, index}, section.update {id, patch {title?, look?, room?, max_rows?, shows_title?, layout?, align?, gap?, columns?}; null clears}, section.move {id, region, index}, section.remove {id}, item.add {item, section, index}, item.move {id, section, index}, item.remove {id}, item.remove_ref {ref} (every copy), item.update {id, shows_label}, layout.reset {}. Indexes clamp; a move's index excludes the moved entry."
           }
         },
         "extra": false,

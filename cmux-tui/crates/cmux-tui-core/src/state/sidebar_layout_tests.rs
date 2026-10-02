@@ -45,15 +45,20 @@ fn defaults_match_the_app() {
 #[test]
 fn remove_home_and_revision() {
     let doc = ok(&defaults(), json!({"kind": "item.remove", "id": "itm_home"}));
-    assert!(find(&doc, "sec_top").items.is_empty());
+    assert_eq!(find(&doc, "sec_top").items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["itm_app_store"]);
     assert_eq!(doc.revision, 1);
+    let copy = json!({"id": "itm_h2", "ref": {"kind": "built_in", "value": "home"}});
+    let two = ok(&defaults(), json!({"kind": "item.add", "item": copy, "section": "sec_bottom", "index": 0}));
+    let none = ok(&two, json!({"kind": "item.remove_ref", "ref": {"kind": "built_in", "value": "home"}}));
+    assert!(none.sections.iter().all(|s| s.items.iter().all(|i| i.reference.value != "home")));
+    assert_eq!(err(&none, json!({"kind": "item.remove_ref", "ref": {"kind": "built_in", "value": "home"}})), Reject::UnknownItem);
 }
 
 #[test]
 fn add_clamps_and_dedupes() {
     let item = json!({"id": "itm_ws", "ref": {"kind": "workspace", "value": "local:ws_1"}});
     let doc = ok(&defaults(), json!({"kind": "item.add", "item": item, "section": "sec_top", "index": 99}));
-    assert_eq!(find(&doc, "sec_top").items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["itm_home", "itm_ws"]);
+    assert_eq!(find(&doc, "sec_top").items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["itm_home", "itm_app_store", "itm_ws"]);
     let front = ok(&defaults(), json!({"kind": "item.add", "item": item, "section": "sec_top", "index": -3}));
     assert_eq!(find(&front, "sec_top").items[0].id, "itm_ws");
     let again = json!({"id": "itm_home2", "ref": {"kind": "built_in", "value": "home"}});
@@ -220,7 +225,8 @@ fn random_op(rng: &mut Rng, step: usize) -> Op {
             index,
         },
         6 => Op::ItemMove { id: item, section, index },
-        7 => Op::ItemRemove { id: item },
+        7 if flag => Op::ItemRemove { id: item },
+        7 => Op::ItemRemoveRef { reference: ItemRef { kind: "built_in".into(), value: reference } },
         _ if rows == 0 => Op::Reset,
         _ => Op::ItemUpdate { id: item, shows_label: flag },
     }

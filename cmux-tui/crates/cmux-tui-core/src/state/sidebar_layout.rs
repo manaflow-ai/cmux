@@ -220,6 +220,12 @@ pub enum Op {
     ItemMove { id: String, section: String, index: i64 },
     #[serde(rename = "item.remove")]
     ItemRemove { id: String },
+    /// Remove every item with this ref ("Remove from Sidebar").
+    #[serde(rename = "item.remove_ref")]
+    ItemRemoveRef {
+        #[serde(rename = "ref")]
+        reference: ItemRef,
+    },
     #[serde(rename = "item.update")]
     ItemUpdate { id: String, shows_label: bool },
     #[serde(rename = "layout.reset")]
@@ -261,7 +267,7 @@ fn builtin(id: &str, value: &str, shows_label: bool) -> Item {
     Item { id: id.into(), reference: ItemRef { kind: "built_in".into(), value: value.into() }, shows_label }
 }
 
-/// Top: Home. Middle: workspaces. Bottom: Settings with its label at the
+/// Top: Home, then the App Store. Middle: workspaces. Bottom: Settings with its label at the
 /// leading edge and the account avatar at the trailing edge, one line.
 /// Fixed ids, so a never-written layout is identical on every device.
 pub fn defaults() -> Document {
@@ -280,7 +286,12 @@ pub fn defaults() -> Document {
     Document {
         revision: 0,
         sections: vec![
-            sticky("sec_top", Region::Top, Arrangement::default(), vec![builtin("itm_home", "home", true)]),
+            sticky(
+                "sec_top",
+                Region::Top,
+                Arrangement::default(),
+                vec![builtin("itm_home", "home", true), builtin("itm_app_store", "app_store", true)],
+            ),
             Section {
                 id: "sec_workspaces".into(),
                 title: None,
@@ -329,6 +340,14 @@ pub fn reduce(document: &Document, op: &Op) -> Result<Document, Reject> {
         Op::ItemRemove { id } => {
             let (s, i) = locate(id, &sections).ok_or(Reject::UnknownItem)?;
             sections[s].items.remove(i);
+        }
+        Op::ItemRemoveRef { reference } => {
+            if !sections.iter().any(|section| section.items.iter().any(|item| &item.reference == reference)) {
+                return Err(Reject::UnknownItem);
+            }
+            for section in &mut sections {
+                section.items.retain(|item| &item.reference != reference);
+            }
         }
         Op::ItemUpdate { id, shows_label } => {
             let (s, i) = locate(id, &sections).ok_or(Reject::UnknownItem)?;

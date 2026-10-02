@@ -1394,7 +1394,7 @@ fn sidebar_layout_ops_commit_replay_and_reject() {
     let removed = update("s-1", json!({"kind": "item.remove", "id": "itm_home"})).unwrap();
     assert_eq!(removed["replayed"], false);
     assert_eq!(removed["value"]["revision"], "1");
-    assert_eq!(removed["value"]["sections"][0]["items"], json!([]));
+    assert_eq!(removed["value"]["sections"][0]["items"][0]["id"], "itm_app_store");
     let replay = update("s-1", json!({"kind": "item.remove", "id": "itm_home"})).unwrap();
     assert_eq!(replay["replayed"], true);
     assert_eq!(error_code(update("s-2", json!({"kind": "section.remove", "id": "sec_workspaces"}))), "validation.invalid");
