@@ -390,7 +390,6 @@ public final class TabStripView: NSView {
 
     /// Tabs are vertically centered in whatever height the strip gets.
     var tabTop: CGFloat {
-        let scale = window?.backingScaleFactor ?? 2
-        return (max(0, (bounds.height - metrics.tabHeight) / 2) * scale).rounded() / scale
+        metrics.tabTop(stripHeight: bounds.height, scale: window?.backingScaleFactor ?? 2)
     }
 }

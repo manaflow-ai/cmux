@@ -265,10 +265,13 @@ final class TabCell {
     }
 
     func layoutLayers() {
-        let bounds = bounds
+        let slot = bounds
         let m = metrics
+        // The pill leaves the gap to the next tab at its trailing side (the
+        // first pill starts on the border's line); content lays out in it.
+        let bounds = m.pillFrame(slotWidth: slot.width, height: slot.height)
         visibility = TabChromeVisibility.resolve(
-            width: bounds.width,
+            width: slot.width,
             isPinned: item.isPinned,
             isSelected: isSelected,
             isHovered: isHovered,
@@ -280,11 +283,12 @@ final class TabCell {
         defer { CATransaction.commit() }
 
         let hairline = 1 / scale
-        backgroundLayer.frame = bounds.insetBy(dx: m.tabBackgroundInset, dy: 0)
+        backgroundLayer.frame = bounds
         backgroundLayer.cornerRadius = m.cornerRadius
+        // The separator sits in the middle of the gap after the pill.
         separatorLayer.frame = CGRect(
-            x: pixel(bounds.width) - hairline,
-            y: pixel((bounds.height - m.separatorHeight) / 2),
+            x: pixel(bounds.maxX + (slot.width - bounds.maxX - hairline) / 2),
+            y: pixel((slot.height - m.separatorHeight) / 2),
             width: hairline,
             height: m.separatorHeight
         )

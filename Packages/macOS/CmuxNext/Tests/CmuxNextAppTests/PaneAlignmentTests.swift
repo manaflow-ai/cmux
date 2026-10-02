@@ -49,11 +49,26 @@ struct PaneAlignmentTests {
         #expect(pill.minX == 0, "the pill starts on the content border's left edge")
     }
 
-    /// "weird left padding inside each terminal": the first cell sits at
-    /// most 4 pt from the content border (Ghostty's padding included).
-    @Test func theFirstTerminalCellIsNearTheBorder() {
-        let surface = TerminalHostView.surfaceFrame(in: CGRect(x: 0, y: 0, width: 600, height: 400), contentInset: Metrics.paneContentInset)
-        #expect(surface.minX + TerminalPadding.ghosttyDefault.leading <= Metrics.space2)
+    /// "weird left padding inside each terminal": the host fills the
+    /// content border and Ghostty's padding (cmux default 4 pt, loaded
+    /// before the user's files) is the only inset.
+    @Test func theFirstTerminalCellIsNearTheBorder() throws {
+        _ = GhosttyRuntime.shared
+        let plain = try #require(GhosttyRuntime.terminalPadding(configText: ""))
+        #expect(plain == .cmuxDefault)
+        #expect(plain.leading == PaneChromeMetrics.terminalTextInset && plain.top == PaneChromeMetrics.terminalTextInset)
+        #expect(!plain.balanced, "the grid's leftover goes right and bottom")
+        let host = TerminalHostView()
+        host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        // The host adds nothing to the (machine's) Ghostty padding.
+        #expect(host.firstCellOrigin.x == GhosttyRuntime.shared.terminalPadding.leading)
+    }
+
+    /// A user's own window-padding wins over cmux's default, as written.
+    @Test func theUsersPaddingWins() throws {
+        _ = GhosttyRuntime.shared
+        let none = try #require(GhosttyRuntime.terminalPadding(configText: "window-padding-x = 0\nwindow-padding-y = 0\n"))
+        #expect(none.leading == 0 && none.top == 0)
     }
 
     /// The user's window-padding-x comes from libghostty's config API
@@ -63,22 +78,5 @@ struct PaneAlignmentTests {
         let padding = try #require(GhosttyRuntime.terminalPadding(
             configText: "window-padding-x = 6,4\nwindow-padding-y = 3\nwindow-padding-balance = true\n"))
         #expect(padding == TerminalPadding(leading: 6, trailing: 4, top: 3, bottom: 3, balanced: true))
-        let plain = try #require(GhosttyRuntime.terminalPadding(configText: ""))
-        #expect(plain == .ghosttyDefault)
-    }
-
-    @Test func eachSideSubtractsItsOwnPadding() {
-        let padding = TerminalPadding(leading: 6, trailing: 4, top: 2, bottom: 2, balanced: false)
-        let surface = TerminalHostView.surfaceFrame(in: CGRect(x: 0, y: 0, width: 400, height: 40), contentInset: 10, padding: padding)
-        #expect(surface.minX + padding.leading == 10)
-        #expect(400 - surface.maxX + padding.trailing == 10)
-        let wide = TerminalPadding(leading: 20, trailing: 20, top: 2, bottom: 2, balanced: false)
-        #expect(TerminalHostView.surfaceFrame(in: CGRect(x: 0, y: 0, width: 400, height: 40), contentInset: 10, padding: wide).minX == 0)
-    }
-
-    @Test func aNarrowHostKeepsItsWidth() {
-        let bounds = CGRect(x: 0, y: 0, width: 20, height: 40)
-        #expect(TerminalHostView.surfaceFrame(in: bounds, contentInset: 10) == bounds)
-        #expect(TerminalHostView.surfaceFrame(in: CGRect(x: 0, y: 0, width: 400, height: 40), contentInset: 1).minX == 0)
     }
 }
