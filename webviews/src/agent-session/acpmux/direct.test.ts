@@ -1009,3 +1009,87 @@ describe("direct client session state", () => {
     expect(latest().rows.filter((row) => row.kind === "assistant")).toEqual([]);
   });
 });
+
+/// acpmux serves no git methods, so the changes view's reads go to the native host, which runs
+/// them on the session host in the selected session's folder.
+describe("direct client git reads", () => {
+  const realSocket = globalThis.WebSocket;
+  const host = {
+    protocolVersion: 1,
+    transport: "acpmux-websocket",
+    endpoint: "ws://127.0.0.1:4100/acp",
+    token: "t",
+    sessionId: "a",
+  } as const;
+  let posted: { method: string; params: Record<string, unknown> }[];
+  let answer: (method: string) => unknown;
+  const folders: Record<string, string | undefined> = { a: "/work/a", b: "/work/b" };
+
+  beforeEach(() => {
+    posted = [];
+    answer = (method) => ({ ok: true, value: { method } });
+    ScriptedSocket.held = new Set();
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b", cwd: folders.b }] };
+      if (method === "_acpmux/attach")
+        return { session: { sessionId: params.sessionId, status: "idle", cwd: folders[params.sessionId] }, events: [] };
+      return {};
+    };
+    (globalThis as any).WebSocket = ScriptedSocket;
+    (globalThis as any).window ??= globalThis;
+    (globalThis as any).webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string; params: Record<string, unknown> }) {
+            posted.push({ method: message.method, params: message.params });
+            return Promise.resolve(answer(message.method));
+          },
+        },
+      },
+    };
+  });
+  afterEach(() => {
+    (globalThis as any).WebSocket = realSocket;
+    delete (globalThis as any).webkit;
+    folders.a = "/work/a";
+  });
+
+  const connect = () => AcpmuxDirectClient.connect(host, () => {});
+  const gitSent = () => ScriptedSocket.current.sent.filter((request) => request.method.startsWith("git."));
+
+  test("a scope and the status go to the native host with the selected session's folder", async () => {
+    const client = await connect();
+    await settle();
+    expect(await client.gitDiff("staged")).toEqual({ method: "git.diff" });
+    expect(await client.gitStatus()).toEqual({ method: "git.status" });
+    await client.select("b");
+    await settle();
+    await client.gitDiff("branch");
+    expect(posted).toEqual([
+      { method: "git.diff", params: { cwd: "/work/a", scope: "staged", include_patch: true } },
+      { method: "git.status", params: { cwd: "/work/a" } },
+      { method: "git.diff", params: { cwd: "/work/b", scope: "branch", include_patch: true } },
+    ]);
+    expect(gitSent()).toEqual([]);
+    client.close();
+  });
+
+  test("the host's refusal rejects with its message", async () => {
+    answer = () => ({ ok: false, error: { code: "git_failed", userMessage: "The changes could not be read." } });
+    const client = await connect();
+    await settle();
+    await expect(client.gitDiff("uncommitted")).rejects.toThrow("The changes could not be read.");
+    client.close();
+  });
+
+  test("a session with no known folder rejects without asking anyone", async () => {
+    folders.a = undefined;
+    const client = await connect();
+    await settle();
+    await expect(client.gitDiff("uncommitted")).rejects.toThrow("no working folder");
+    await expect(client.gitStatus()).rejects.toThrow("no working folder");
+    expect(posted).toEqual([]);
+    expect(gitSent()).toEqual([]);
+    client.close();
+  });
+});

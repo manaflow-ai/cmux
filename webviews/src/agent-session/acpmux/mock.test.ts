@@ -344,6 +344,31 @@ describe("mock transport", () => {
     expect(rows.find((row) => row.kind === "turnSummary")!.at - user.at).toBeGreaterThanOrEqual(15_000);
     client.close();
   });
+
+  /// Mock mode keeps its git answers in the in-page daemon; nothing reaches a native host.
+  test("mock mode reads git scopes and the status from the in-page daemon", async () => {
+    const posted: unknown[] = [];
+    (globalThis as any).window ??= globalThis;
+    (globalThis as any).webkit = {
+      messageHandlers: { agentSession: { postMessage: (message: unknown) => posted.push(message) } },
+    };
+    try {
+      const client = await AcpmuxDirectClient.connect(
+        mockHost,
+        () => {},
+        undefined,
+        () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
+        "daemon",
+      );
+      const staged = (await client.gitDiff("staged")) as { files: { path: string }[] };
+      expect(staged.files.map((file) => file.path)).toEqual(["Sources/Fleet/retry.ts"]);
+      expect(await client.gitStatus()).toMatchObject({ branch: "feat-upload-retry", ahead: 1 });
+      expect(posted).toEqual([]);
+      client.close();
+    } finally {
+      delete (globalThis as any).webkit;
+    }
+  });
 });
 
 describe("mock daemon", () => {

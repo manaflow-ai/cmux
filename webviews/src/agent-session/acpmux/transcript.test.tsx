@@ -913,6 +913,74 @@ describe("acpmux host handshake", () => {
       delete host.cmuxAcpmuxRegistry;
     }
   });
+
+  /// acpmux serves no git methods: the changes view's reads reach Swift with the session's folder.
+  test("the changes view reads git from the native host in the selected session's folder", async () => {
+    class FolderSocket extends FakeSocket {
+      static git: string[] = [];
+      override send(raw: string) {
+        const { id, method } = JSON.parse(raw) as { id: number; method: string };
+        if (method.startsWith("git.")) FolderSocket.git.push(method);
+        const session = { sessionId: "s", cwd: "/work/app" };
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [session] }
+            : method === "_acpmux/attach"
+              ? { session, events: [] }
+              : method.startsWith("git.")
+                ? { files: [] }
+                : {};
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    FakeSocket.made = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    const asked: { method: string; params: Record<string, unknown> }[] = [];
+    globals.WebSocket = FolderSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string; params: Record<string, unknown> }) {
+            if (message.method !== "ready") {
+              asked.push({ method: message.method, params: message.params });
+              return Promise.resolve({ ok: true, value: { scope: "staged", files: [] } });
+            }
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                sessionId: "s",
+              },
+            });
+          },
+        },
+      },
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      for (let tries = 0; tries < 100 && !host.cmuxAcpmuxActions; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      for (let tries = 0; tries < 10; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(await host.cmuxAcpmuxActions!["git.diff"]!({ scope: "staged" })).toEqual({ scope: "staged", files: [] });
+      await host.cmuxAcpmuxActions!["git.status"]!({});
+      expect(asked.filter((entry) => entry.method.startsWith("git."))).toEqual([
+        { method: "git.diff", params: { cwd: "/work/app", scope: "staged", include_patch: true } },
+        { method: "git.status", params: { cwd: "/work/app" } },
+      ]);
+      expect(FolderSocket.git).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+      FakeSocket.made = [];
+    }
+  });
 });
 
 describe("acpmux turn diff", () => {
