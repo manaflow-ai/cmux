@@ -91,6 +91,27 @@ describe("postNative", () => {
     });
   });
 
+  test("a partial error keeps the fields it has", async () => {
+    answerWith({ ok: false, error: { origin: "native" } });
+    expect(fields(await rejection(postNative("git.status", { cwd: "/repo" })))).toEqual({
+      name: "NativeError",
+      message: "Request failed",
+      code: undefined,
+      details: undefined,
+      retryable: undefined,
+      origin: "native",
+    });
+    answerWith({ ok: false, error: { code: "operation.failed" } });
+    expect(fields(await rejection(postNative("git.status", { cwd: "/repo" })))).toEqual({
+      name: "NativeError",
+      message: "Request failed",
+      code: "operation.failed",
+      details: undefined,
+      retryable: undefined,
+      origin: undefined,
+    });
+  });
+
   test("fields of the wrong type are left out", async () => {
     answerWith({ ok: false, error: { code: 7, userMessage: 3, retryable: "yes", origin: "elsewhere" } });
     expect(fields(await rejection(postNative("git.status", { cwd: "/repo" })))).toEqual({
