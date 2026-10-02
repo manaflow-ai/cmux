@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import {
   CLOUD_MCP_TOOLS,
   callCloudMcpTool,
+  CloudMcpToolError,
   cmuxTuiArgs,
   handleCloudMcpBody,
   handleCloudMcpMessage,
@@ -14,6 +15,7 @@ import {
   type CloudMcpGateway,
 } from "../services/mcp/cloudMcp";
 import { cloudMcpGatewayFor, type CloudMcpCaller } from "../services/mcp/cloudMcpGateway";
+import { cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { noOpVmBillingGateway, VmBillingGateway } from "../services/vms/billingGateway";
 import { isVmWorkflowError } from "../services/vms/errors";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
@@ -92,6 +94,8 @@ describe("cloud MCP protocol", () => {
       { jsonrpc: "2.0", id: "b", error: { code: -32603, message: "Internal error" } },
     ]);
     expect(defects).toHaveLength(1);
+    const tooMany = Array.from({ length: 9 }, (_, i) => ({ jsonrpc: "2.0", id: i, method: "ping" }));
+    expect(await handleCloudMcpBody(gateway, tooMany, () => {})).toMatchObject({ error: { code: -32600 } });
     expect(await handleCloudMcpBody(gateway, { jsonrpc: "2.0", method: "notifications/initialized" }, () => {})).toBeNull();
   });
 
@@ -169,11 +173,16 @@ describe("cloud MCP tool arguments", () => {
     expect(shellWords(calls[2].args).slice(3)).toEqual(["workspace", WORKSPACE, "close"]);
   });
 
-  test("a prompt that would exceed the exec command cap once quoted is refused", async () => {
+  test("every guest command stays under the 64 KiB exec cap", async () => {
     const { gateway, calls } = fakeGateway();
-    const result = await callCloudMcpTool(gateway, "run_agent", { machine_id: "vm-a", agent: "claude", prompt: "'".repeat(16 * 1024) });
+    // ~10 KiB of quotes is under the 16 KiB argument cap but over 64 KiB once quoted and run.
+    const result = await callCloudMcpTool(gateway, "run_agent", { machine_id: "vm-a", agent: "claude", prompt: "'".repeat(10 * 1024) });
     expect(result.structuredContent).toMatchObject({ error: "invalid_arguments" });
     expect(calls).toHaveLength(0);
+    const accepted = fakeGateway([ok({ value: {} })]);
+    await callCloudMcpTool(accepted.gateway, "send_input", { machine_id: "vm-a", terminal_id: TERMINAL, text: "x".repeat(16 * 1024) });
+    expect(accepted.calls).toHaveLength(1);
+    expect(Buffer.byteLength(cmuxTuiRunCommand(accepted.calls[0].args))).toBeLessThanOrEqual(64 * 1024);
   });
 
   test("send_input is one write, with Enter as a carriage return only when asked", async () => {
@@ -317,6 +326,21 @@ describe("cloud MCP scoping", () => {
     expect(await handleCloudMcpMessage(gateway, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).toMatchObject({ result: {} });
     expect(await handleCloudMcpMessage(gateway, { jsonrpc: "2.0", id: 2, method: "tools/list" })).toMatchObject({ result: {} });
     expect(resolved).toBe(0);
+  });
+
+  test("a scope that cannot resolve is a tool error, and nothing runs", async () => {
+    let programs = 0;
+    const gateway = cloudMcpGatewayFor({
+      userId: OWNER,
+      teamIds: [],
+      listScope: async () => { throw new CloudMcpToolError("vm_billing_team_required", "Pick a team."); },
+      accessScope: async () => { throw new CloudMcpToolError("vm_billing_team_required", "Pick a team."); },
+    }, async () => { programs += 1; throw new Error("no program should run"); });
+    for (const [tool, args] of [["list_machines", {}], ["list_terminals", { machine_id: "vm-personal" }]] as const) {
+      const result = await callCloudMcpTool(gateway, tool, args);
+      expect(result.structuredContent).toEqual({ error: "vm_billing_team_required", message: "Pick a team." });
+    }
+    expect(programs).toBe(0);
   });
 
   test("list_machines returns only the caller's scope", async () => {

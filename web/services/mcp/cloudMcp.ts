@@ -7,7 +7,7 @@
 // plan gates and usage accounting are the same as `/api/vm`. On the machine, the
 // tools speak the cmux-tui resource CLI to the session the Mac app attaches to.
 
-import { CMUX_TUI_SESSION, shellQuote } from "../vms/drivers/cmuxTuiDaemon";
+import { CMUX_TUI_SESSION, cmuxTuiRunCommand, shellQuote } from "../vms/drivers/cmuxTuiDaemon";
 
 export const CLOUD_MCP_SERVER_NAME = "cmux-cloud";
 export const CLOUD_MCP_SERVER_VERSION = "0.1.0";
@@ -20,9 +20,12 @@ export type CloudMcpAgent = (typeof CLOUD_MCP_AGENTS)[number];
 const MAX_TEXT_BYTES = 16 * 1024;
 const MAX_OUTPUT_BYTES = 64 * 1024;
 const CMUX_TUI_TIMEOUT_MS = 30_000;
-// POST /api/vm/:id/exec caps a guest command at 64 KiB; quoting can triple a
-// prompt, and the layout selector adds about 1 KiB around the arguments.
-const MAX_GUEST_ARGS_BYTES = 60 * 1024;
+// POST /api/vm/:id/exec caps a guest command at 64 KiB. execVm itself does not,
+// so the check is on the full command: cmuxTuiRunCommand repeats the arguments
+// once per layout branch, and quoting can triple a prompt.
+const MAX_GUEST_COMMAND_BYTES = 64 * 1024;
+// A batch runs its requests one after another inside one function invocation.
+const MAX_BATCH_LENGTH = 8;
 const MACHINE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const TERMINAL_ID_PATTERN = /^term_[A-Za-z0-9]{1,64}$/;
 const WORKSPACE_ID_PATTERN = /^ws_[A-Za-z0-9]{1,64}$/;
@@ -240,7 +243,7 @@ export function agentArgv(agent: CloudMcpAgent, prompt: string): string[] {
 
 function guestArgsFor(words: readonly string[]): string {
   const args = cmuxTuiArgs(words);
-  if (Buffer.byteLength(args, "utf8") > MAX_GUEST_ARGS_BYTES) {
+  if (Buffer.byteLength(cmuxTuiRunCommand(args), "utf8") > MAX_GUEST_COMMAND_BYTES) {
     throw new CloudMcpToolError("invalid_arguments", "The request is too large once quoted for the machine. Shorten the prompt or text.");
   }
   return args;
@@ -405,7 +408,7 @@ export async function handleCloudMcpMessage(gateway: CloudMcpGateway, message: u
   const request = message as JsonObject;
   const id = request.id;
   const hasId = typeof id === "string" || typeof id === "number";
-  if (request.jsonrpc !== "2.0") return rpcError(hasId ? id : null, -32600, "Expected jsonrpc 2.0.");
+  if (request.jsonrpc !== "2.0") return hasId ? rpcError(id, -32600, "Expected jsonrpc 2.0.") : null;
   if (typeof request.method !== "string") return null; // a client response; nothing to answer
   if (!hasId) return null; // notifications (initialized, cancelled) need no reply
   const params = request.params && typeof request.params === "object" ? request.params as JsonObject : {};
@@ -465,6 +468,7 @@ export async function handleCloudMcpBody(
   };
   if (!Array.isArray(body)) return one(body);
   if (body.length === 0) return rpcError(null, -32600, "Empty batch.");
+  if (body.length > MAX_BATCH_LENGTH) return rpcError(null, -32600, `A batch holds at most ${MAX_BATCH_LENGTH} messages.`);
   const replies: JsonRpcResponse[] = [];
   for (const message of body) {
     const reply = await one(message);

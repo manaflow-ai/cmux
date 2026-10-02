@@ -19,6 +19,7 @@ import {
   vmBillingTeamErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../services/vms/routeHelpers";
+import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
 import { runVmRoute } from "../../../services/vms/routeWorkflow";
 
 // run_agent makes up to three guest calls of at most 30s each; leave room for auth and resume.
@@ -44,7 +45,9 @@ async function listScopeFor(user: AuthedUser, request: Request): Promise<string 
   const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
   if (!requestedBillingTeamId && user.billingCustomerType !== "team") return null;
   try {
-    return resolveVmEntitlements(user, process.env, { requestedBillingTeamId }).billingTeamId;
+    const entitlements = resolveVmEntitlements(user, process.env, { requestedBillingTeamId });
+    annotateVmRequestBilling(entitlements);
+    return entitlements.billingTeamId;
   } catch (err) {
     if (isVmBillingTeamResolutionError(err)) throw await toolErrorFromResponse(vmBillingTeamErrorResponse(err));
     throw err;
