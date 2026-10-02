@@ -4,7 +4,7 @@ import Synchronization
 import Testing
 
 final class CloudFileStubProtocol: URLProtocol, @unchecked Sendable {
-    struct Seen: Sendable { var method: String; var path: String; var query: String?; var body: [String: Any] }
+    struct Seen: Sendable { var method: String; var path: String; var query: String?; var body: [String: String] }
     static let seen = Mutex<[Seen]>([])
     static let reply = Mutex(Data("{}".utf8))
 
@@ -13,7 +13,8 @@ final class CloudFileStubProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         let bodyData = request.httpBody ?? Data()
-        let body = (try? JSONSerialization.jsonObject(with: bodyData)) as? [String: Any] ?? [:]
+        let body = ((try? JSONSerialization.jsonObject(with: bodyData)) as? [String: Any] ?? [:])
+            .compactMapValues { $0 as? String }
         Self.seen.withLock { $0.append(Seen(method: request.httpMethod ?? "", path: request.url?.path ?? "", query: request.url?.query, body: body)) }
         let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
