@@ -70,8 +70,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             return
         }
 #endif
-        // Never show Sparkle's permission UI. cmux always enables scheduled checks and keeps
-        // automatic downloads disabled so installs remain user-driven.
+        // Never show Sparkle's permission UI. The host controls whether downloads are staged in
+        // the background; relaunch remains an explicit user action.
         log.append("auto-allow update permission (no UI)")
         Task { @MainActor in reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false)) }
     }

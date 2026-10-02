@@ -3,10 +3,10 @@ public import Foundation
 import Observation
 
 /// cmux-next's updater. Release builds (stable, NIGHTLY, RC) run the shared
-/// Sparkle driver (`CmuxUpdater.UpdateController`: automatic checks from
-/// the existing `SU*` defaults, launch probe, install watchdog, re-resolve
-/// before install). DEV/staging builds never run Sparkle; their checks are
-/// a read-only probe of the same feed.
+/// Sparkle driver (`CmuxUpdater.UpdateController`: scheduled checks, launch
+/// background staging, install watchdog, and re-resolve before install).
+/// DEV/staging builds never run Sparkle; their checks are a read-only probe of
+/// the same feed.
 ///
 /// One per process, owned by the App. Action handlers call ``checkForUpdates()``,
 /// ``installAvailableUpdate()`` and ``switchChannel(to:)``; the update sheet
@@ -53,7 +53,15 @@ public final class UpdaterService {
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
-            controller = UpdateController(log: log, defaults: defaults, isDisabledByPolicy: { policy.disablesUpdates })
+            // cmux-next stages the newest release in Sparkle's installation cache as soon as the
+            // app launches. The user still chooses when to relaunch, but Install Available Update
+            // can now finish from the already-downloaded payload.
+            controller = UpdateController(
+                log: log,
+                settings: UpdateSettings(automaticallyDownloadsByDefault: true),
+                defaults: defaults,
+                isDisabledByPolicy: { policy.disablesUpdates }
+            )
         } else {
             controller = nil
         }
@@ -67,7 +75,7 @@ public final class UpdaterService {
         return policy.disablesUpdates ? .managedPolicy : nil
     }
 
-    /// Starts Sparkle (scheduled checks and the launch probe honor
+    /// Starts Sparkle (scheduled checks and launch staging honor
     /// `SUEnableAutomaticChecks`). Idempotent; no-op without a driver.
     public func start() {
         guard !started else { return }

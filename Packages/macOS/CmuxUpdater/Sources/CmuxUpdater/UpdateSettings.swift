@@ -1,8 +1,8 @@
 public import Foundation
 
-/// Registers cmux's Sparkle preference defaults and performs the one-time migration that
-/// repairs older installs whose automatic-check defaults predate the Info.plist-embedded
-/// values.
+/// Registers cmux's Sparkle preference defaults and repairs older installs whose automatic-check
+/// defaults predate the Info.plist-embedded values. Hosts that opt into background downloads
+/// reassert that setting when they start so the latest release stays staged.
 ///
 /// The `SU…` keys are the standard Sparkle `UserDefaults` keys. The check intervals are
 /// configuration, so this is a value type constructed with them (defaulting to cmux's
@@ -18,11 +18,19 @@ public struct UpdateSettings: Sendable {
     public static let sendProfileInfoKey = "SUSendProfileInfo"
     /// cmux's marker that the v2 automatic-checks migration already ran.
     public static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
+    /// cmux-next's marker that background downloads have been enabled.
+    public static let backgroundDownloadsMigrationKey = "cmux.sparkle.backgroundDownloadsMigration.v1"
 
     /// The previous default scheduled-check interval (24h) that the migration upgrades from.
     public let previousDefaultScheduledCheckInterval: TimeInterval
     /// The scheduled-check interval cmux registers (1h by default).
     public let scheduledCheckInterval: TimeInterval
+    /// Whether this app should keep Sparkle's automatic download setting enabled.
+    ///
+    /// cmux-next sets this to `true` so the latest release is staged before the user asks to
+    /// install it. The shared updater keeps the default `false` for hosts that still own the
+    /// setting themselves.
+    public let automaticallyDownloadsByDefault: Bool
 
     /// Creates the settings with cmux's defaults.
     ///
@@ -30,13 +38,17 @@ public struct UpdateSettings: Sendable {
     ///   Defaults to one hour.
     /// - Parameter previousDefaultScheduledCheckInterval: The legacy interval the migration
     ///   upgrades away from when it sees it persisted. Defaults to 24 hours.
+    /// - Parameter automaticallyDownloadsByDefault: Whether to keep Sparkle's background
+    ///   download setting enabled. Defaults to `false` for compatibility with existing hosts.
     public init(scheduledCheckInterval: TimeInterval = 60 * 60,
-                previousDefaultScheduledCheckInterval: TimeInterval = 60 * 60 * 24) {
+                previousDefaultScheduledCheckInterval: TimeInterval = 60 * 60 * 24,
+                automaticallyDownloadsByDefault: Bool = false) {
         self.scheduledCheckInterval = scheduledCheckInterval
         self.previousDefaultScheduledCheckInterval = previousDefaultScheduledCheckInterval
+        self.automaticallyDownloadsByDefault = automaticallyDownloadsByDefault
     }
 
-    /// Registers the update defaults on `defaults` and runs the one-time migration.
+    /// Registers the update defaults on `defaults` and runs the required migrations.
     ///
     /// Registration is idempotent. The migration (guarded by ``migrationKey``) re-enables
     /// automatic checks and upgrades the legacy 24h interval to ``scheduledCheckInterval`` for
@@ -44,34 +56,41 @@ public struct UpdateSettings: Sendable {
     public func apply(to defaults: UserDefaults) {
         defaults.register(defaults: [
             Self.automaticChecksKey: true,
-            Self.automaticallyUpdateKey: false,
+            Self.automaticallyUpdateKey: automaticallyDownloadsByDefault,
             Self.scheduledCheckIntervalKey: scheduledCheckInterval,
             Self.sendProfileInfoKey: false,
         ])
 
-        guard !defaults.bool(forKey: Self.migrationKey) else { return }
+        if !defaults.bool(forKey: Self.migrationKey) {
+            // Repair older installs that may have ended up with automatic checks disabled
+            // before the updater defaults were embedded in Info.plist.
+            defaults.set(true, forKey: Self.automaticChecksKey)
 
-        // Repair older installs that may have ended up with automatic checks disabled
-        // before the updater defaults were embedded in Info.plist.
-        defaults.set(true, forKey: Self.automaticChecksKey)
-
-        if let interval = defaults.object(forKey: Self.scheduledCheckIntervalKey) as? NSNumber {
-            let currentInterval = interval.doubleValue
-            if currentInterval <= 0 ||
-                abs(currentInterval - previousDefaultScheduledCheckInterval) < 1 {
+            if let interval = defaults.object(forKey: Self.scheduledCheckIntervalKey) as? NSNumber {
+                let currentInterval = interval.doubleValue
+                if currentInterval <= 0 ||
+                    abs(currentInterval - previousDefaultScheduledCheckInterval) < 1 {
+                    defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
+                }
+            } else {
                 defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
             }
-        } else {
-            defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
+
+            if defaults.object(forKey: Self.automaticallyUpdateKey) == nil {
+                defaults.set(automaticallyDownloadsByDefault, forKey: Self.automaticallyUpdateKey)
+            }
+            if defaults.object(forKey: Self.sendProfileInfoKey) == nil {
+                defaults.set(false, forKey: Self.sendProfileInfoKey)
+            }
+
+            defaults.set(true, forKey: Self.migrationKey)
         }
 
-        if defaults.object(forKey: Self.automaticallyUpdateKey) == nil {
-            defaults.set(false, forKey: Self.automaticallyUpdateKey)
+        if automaticallyDownloadsByDefault {
+            // cmux-next has no separate automatic-download preference. Reassert this on every
+            // launch so an older `false` value cannot leave the app waiting for a manual fetch.
+            defaults.set(true, forKey: Self.automaticallyUpdateKey)
+            defaults.set(true, forKey: Self.backgroundDownloadsMigrationKey)
         }
-        if defaults.object(forKey: Self.sendProfileInfoKey) == nil {
-            defaults.set(false, forKey: Self.sendProfileInfoKey)
-        }
-
-        defaults.set(true, forKey: Self.migrationKey)
     }
 }

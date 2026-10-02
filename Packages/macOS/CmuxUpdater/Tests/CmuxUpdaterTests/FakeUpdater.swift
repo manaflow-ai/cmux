@@ -4,6 +4,8 @@ import Foundation
 @MainActor
 final class FakeUpdater: UpdaterHandle {
     private(set) var checkForUpdatesCallCount = 0
+    private(set) var checkForUpdatesInBackgroundCallCount = 0
+    private(set) var checkForUpdateInformationCallCount = 0
     private var canCheckForUpdatesValue = true
     var scriptedCanCheckForUpdates: [Bool] = []
     var canCheckForUpdates: Bool {
@@ -34,5 +36,13 @@ final class FakeUpdater: UpdaterHandle {
         checkForUpdatesCallCount += 1
     }
 
-    func checkForUpdateInformation() {}
+    func checkForUpdatesInBackground() {
+        sessionInProgress = true
+        checkForUpdatesInBackgroundCallCount += 1
+    }
+
+    func checkForUpdateInformation() {
+        sessionInProgress = true
+        checkForUpdateInformationCallCount += 1
+    }
 }
