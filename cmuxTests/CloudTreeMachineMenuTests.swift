@@ -580,6 +580,39 @@ struct CloudTreeMachineMenuTests {
         #expect(!portMenu.items.map(\.title).contains(rename))
     }
 
+    @Test("Cloud port sharing is offered only for a resolved Cloud URL")
+    func cloudPortSharingIsCloudOnlyAndVisible() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-port-sharing-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+
+        let cloudResource = Self.portResource(machine: .cloud(Self.machineID))
+        coordinator.apply(nodes: [CloudTreeNode(
+            id: "cloud-port-row",
+            kind: .port(cloudResource, url: "https://cloud.example/3000", openIn: nil)
+        )])
+
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        #expect(titles.contains(Self.title("cloudTree.menu.share", "Share")))
+        #expect(titles.contains(Self.title("cloudTree.menu.shareInNewWorkspace", "Share in New Workspace")))
+        #expect(CloudTreeRowHoverButtons.hasButtons(for: .port(cloudResource, url: "https://cloud.example/3000", openIn: nil)))
+
+        let noURL = Self.portResource(machine: .cloud(Self.machineID))
+        #expect(!CloudTreeRowHoverButtons.hasButtons(for: .port(noURL, url: nil, openIn: nil)))
+
+        let ssh = Self.portResource(machine: .ssh("ssh-host"))
+        #expect(!CloudTreeRowHoverButtons.hasButtons(for: .port(ssh, url: "https://ssh.example/3000", openIn: nil)))
+    }
+
     /// The menu builder appends the rename item in both the browser and the
     /// display case, but only the browser call site was driven end to end, so an
     /// edit that dropped the display one was caught by nothing.
@@ -877,6 +910,20 @@ struct CloudTreeMachineMenuTests {
             diskUsedMb: 6 * 1_024
         )
         return CloudTreeNode(id: CloudTreeNodeBuilder.nodeID(machine: .cloud(machineID)), kind: .machine(machine, nil))
+    }
+
+    private static func portResource(machine: SurfaceMachineID) -> SurfaceResource {
+        SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(3000)),
+            title: "3000",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [],
+            port: 3000,
+            url: nil
+        )
     }
 
     private static func machineActions(recording recorder: CloudTreeMenuVerbRecorder) -> MachineRowActions {
