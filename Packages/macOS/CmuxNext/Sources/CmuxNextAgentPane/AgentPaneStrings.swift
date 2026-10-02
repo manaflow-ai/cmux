@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDictation
 import Foundation
 
 // User-facing text of the agent pane host. The page's own text is in the
@@ -35,6 +36,34 @@ extension AgentPaneHostError {
             String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
         case .timedOut, nil:
             String(localized: "agentPane.error.timedOut", defaultValue: "acpmux did not answer in time.", bundle: .module)
+        }
+    }
+}
+
+extension AgentPaneDictation {
+    static func deniedMessage(_ permission: DictationPermission) -> String {
+        switch permission {
+        case .microphone:
+            String(localized: "agentPane.dictation.microphoneDenied", defaultValue: "Dictation needs microphone access. Turn it on for cmux in System Settings.", bundle: .module)
+        case .speechRecognition:
+            String(localized: "agentPane.dictation.speechDenied", defaultValue: "Dictation in this language needs speech recognition. Turn it on for cmux in System Settings.", bundle: .module)
+        }
+    }
+
+    static var openSettingsTitle: String {
+        String(localized: "agentPane.dictation.openSettings", defaultValue: "Open System Settings", bundle: .module)
+    }
+
+    static func failureMessage(_ failure: DictationFailure) -> String {
+        switch failure {
+        case .onDeviceRecognitionUnavailable:
+            String(localized: "agentPane.dictation.languageUnavailable", defaultValue: "On-device dictation is not available for this language.", bundle: .module)
+        case .modelDownloadFailed:
+            String(localized: "agentPane.dictation.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .module)
+        case .audioCaptureFailed:
+            String(localized: "agentPane.dictation.noMicrophone", defaultValue: "No microphone is available.", bundle: .module)
+        case .microphoneAccessDenied, .speechRecognitionAccessDenied, .transcriptionFailed:
+            String(localized: "agentPane.dictation.failed", defaultValue: "Dictation stopped unexpectedly.", bundle: .module)
         }
     }
 }

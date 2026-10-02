@@ -106,7 +106,8 @@ describe("summary entries", () => {
         status: "waiting",
         pendingPermissions: 2,
         unread: true,
-        preview: "dropped",
+        preview: "Last reply",
+        queue: ["dropped"],
       }),
     ).toEqual({
       sessionId: "s",
@@ -121,7 +122,7 @@ describe("summary entries", () => {
       pendingPermissions: 2,
       unread: true,
       pinned: false,
-      host: undefined,
+      preview: "Last reply",
     });
   });
   test("read the pinned tag and the host", () => {
@@ -131,6 +132,39 @@ describe("summary entries", () => {
       pinned: false,
       host: undefined,
     });
+  });
+
+  test("keep where a session runs and its pull request, and drop malformed ones", () => {
+    const entry = sessionEntry({
+      sessionId: "s",
+      host: "hearty-beige-elk",
+      hostKind: "cloud",
+      branch: "fix",
+      worktree: "~/w/fix",
+      pinned: true,
+      pullRequest: { number: 12, title: "Fix", state: "open", reviewReady: true },
+    });
+    expect(entry).toMatchObject({
+      host: "hearty-beige-elk",
+      hostKind: "cloud",
+      branch: "fix",
+      worktree: "~/w/fix",
+      pinned: true,
+      pullRequest: { number: 12, title: "Fix", state: "open", reviewReady: true },
+    });
+    const odd = sessionEntry({ sessionId: "s", host: "", hostKind: "mars", pullRequest: { title: "no number" } });
+    expect([odd.host, odd.hostKind, odd.pullRequest]).toEqual([undefined, undefined, undefined]);
+    // A closed pull request is kept as closed; an unknown state or a bad number drops it.
+    expect(
+      sessionEntry({ sessionId: "s", pullRequest: { number: 3, title: "Old", state: "closed" } }).pullRequest?.state,
+    ).toBe("closed");
+    for (const pullRequest of [
+      { number: 3, title: "T", state: "weird" },
+      { number: Number.NaN, title: "T", state: "open" },
+      { number: 1.5, title: "T", state: "open" },
+      { number: 3, title: "", state: "open" },
+    ])
+      expect(sessionEntry({ sessionId: "s", pullRequest }).pullRequest).toBeUndefined();
   });
 });
 

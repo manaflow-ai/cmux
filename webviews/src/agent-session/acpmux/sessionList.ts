@@ -15,11 +15,31 @@ export type AcpmuxSessionEntry = {
   updatedAt?: number;
   pendingPermissions?: number;
   unread?: boolean;
-  /// Tagged `pinned` through `_acpmux/tag`; listed under Pinned instead of its project.
-  pinned?: boolean;
-  /// The machine the session runs on, when the summary names one.
+  /** The machine the session runs on ("This Mac", or a cloud machine's name), and which kind it is. */
   host?: string;
+  hostKind?: "local" | "cloud";
+  branch?: string;
+  /** Set only when the session runs in a git worktree: the worktree's path. */
+  worktree?: string;
+  /** Pinned by the fixture's flag, or tagged `pinned` through `_acpmux/tag`; listed under Pinned instead of its project. */
+  pinned?: boolean;
+  pullRequest?: SessionPullRequest;
+  /** A line of the session's latest reply, for previews. */
+  preview?: string;
 };
+
+export type SessionPullRequest = {
+  number: number;
+  title: string;
+  state: "open" | "draft" | "merged" | "closed";
+  reviewReady?: boolean;
+};
+const PR_STATES = new Set(["open", "draft", "merged", "closed"]);
+
+/** A non-empty string, else undefined. */
+export const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+/** "local" or "cloud", else undefined. */
+export const hostKind = (value: unknown) => (value === "local" || value === "cloud" ? value : undefined);
 
 export type SessionGroup = { key: string; label: string; cwd?: string; host?: string; sessions: AcpmuxSessionEntry[] };
 
@@ -47,8 +67,25 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     updatedAt: typeof session.updatedAt === "number" ? session.updatedAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
-    pinned: Array.isArray(session.tags) && session.tags.includes(PINNED_TAG),
-    host: typeof session.host === "string" && session.host ? session.host : undefined,
+    host: text(session.host),
+    hostKind: hostKind(session.hostKind),
+    branch: text(session.branch),
+    worktree: text(session.worktree),
+    pinned: session.pinned === true || (Array.isArray(session.tags) && session.tags.includes(PINNED_TAG)),
+    pullRequest: pullRequest(session.pullRequest),
+    preview: text(session.preview),
+  };
+}
+
+function pullRequest(value: any): SessionPullRequest | undefined {
+  // A pull request the pane can't name or place is left out rather than guessed at.
+  if (!Number.isInteger(value?.number) || value.number <= 0 || !text(value.title) || !PR_STATES.has(value.state))
+    return undefined;
+  return {
+    number: value.number,
+    title: value.title,
+    state: value.state,
+    reviewReady: value.reviewReady === true || undefined,
   };
 }
 

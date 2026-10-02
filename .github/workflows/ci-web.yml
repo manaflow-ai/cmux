@@ -245,6 +245,10 @@ jobs:
       - name: Verify generated cmux-next agent pane
         run: ./scripts/cmux-next/build-agent-pane-web.sh --check
 
+      # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
+      - name: Generated bundle merge driver
+        run: python3 tests/test_install_git_hooks.py
+
       - name: Check diff viewer eager JS budget
         run: node ./scripts/check-webviews-diff-budget.mjs
 
