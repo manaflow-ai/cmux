@@ -3597,12 +3597,15 @@ function firewallProvider(input: VmFirewallInput) {
 
 function ensureOwnedFirewallEndpoint(repo: VmRepositoryShape, input: VmFirewallInput, endpoint: VMFirewallEndpoint) {
   return Effect.gen(function* () {
-    if (endpoint.vmId && repo.findUserVm) {
-      const vm = yield* repo.findUserVm({ userId: input.userId, providerVmId: endpoint.vmId, provider: input.provider });
+    const provider = input.provider ?? "freestyle";
+    if (endpoint.vmId) {
+      if (!repo.findUserVm) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "firewall VM ownership lookup is unavailable" }));
+      const vm = yield* repo.findUserVm({ userId: input.userId, providerVmId: endpoint.vmId, provider });
       if (!vm) return yield* Effect.fail(new VmNotFoundError({ vmId: endpoint.vmId }));
     }
-    if (endpoint.tunnelId && repo.findTunnelsByProviderTunnelIds) {
-      const [tunnel] = yield* repo.findTunnelsByProviderTunnelIds(input.provider ?? "freestyle", [endpoint.tunnelId]);
+    if (endpoint.tunnelId) {
+      if (!repo.findTunnelsByProviderTunnelIds) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "firewall tunnel ownership lookup is unavailable" }));
+      const [tunnel] = yield* repo.findTunnelsByProviderTunnelIds(provider, [endpoint.tunnelId]);
       if (!tunnel || tunnel.userId !== input.userId || tunnel.revokedAt) return yield* Effect.fail(new VmNotFoundError({ vmId: endpoint.tunnelId }));
     }
   });
@@ -3621,8 +3624,11 @@ export function listVmFirewallRules(input: VmFirewallInput & { readonly vpcId?: 
 
 export function listVmNetworks(input: VmFirewallInput): VmWorkflowProgram<Array<{ id: string; cidr: string | null; cidrV6: string | null; scope: "user" | "team" }>> {
   return Effect.gen(function* () {
-    const network = yield* resolveOwnerNetwork({ userId: input.userId, provider: input.provider ?? "freestyle" });
-    return [{ id: network.providerNetworkId, cidr: network.cidr, cidrV6: network.cidrV6, scope: network.scope }];
+    const provider = input.provider ?? "freestyle";
+    const repo = yield* VmRepository;
+    if (!repo.findNetwork) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "network lookup is unavailable" }));
+    const network = yield* repo.findNetwork(input.userId, provider);
+    return network ? [{ id: network.providerNetworkId, cidr: network.cidr, cidrV6: network.cidrV6, scope: "user" as const }] : [];
   });
 }
 

@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { defaultProviderId } from "../../../../services/vms/drivers";
 import { jsonResponse, resolveVmRouteAccountScope, vmErrorResponse, withAuthedVmApiRoute } from "../../../../services/vms/routeHelpers";
 import { runVmRoute } from "../../../../services/vms/routeWorkflow";
@@ -29,7 +30,7 @@ function endpointIdentity(value: Record<string, unknown>, field: string): Omit<E
   if (value.public === true) result.public = true;
   const identity = [result.vmId, result.vpcId, result.tunnelId, result.cidr, result.public].filter(Boolean);
   if (identity.length === 0) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field} must identify a resource or address.`, action: "Pass an identity, CIDR, or public:true." });
-  if (result.public && [result.vmId, result.vpcId, result.tunnelId].some(Boolean)) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.public cannot be combined with a resource identity.`, action: "Use public:true by itself or identify a private resource." });
+  if (result.public && [result.vmId, result.vpcId, result.tunnelId, result.cidr].some(Boolean)) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.public cannot be combined with another identity.`, action: "Use public:true by itself or identify a private resource/address." });
   if ([result.vmId, result.vpcId, result.tunnelId].filter(Boolean).length > 1) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field} may name only one resource identity.`, action: "Choose vmId, vpcId, or tunnelId." });
   return result;
 }
@@ -52,9 +53,8 @@ function validCidr(value: string): boolean {
   if (!/^\d+$/.test(prefixText)) return false;
   const prefix = Number(prefixText);
   const address = value.slice(0, slash);
-  const ipv4 = address.split(".");
-  if (ipv4.length === 4 && ipv4.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return Number.isInteger(prefix) && prefix >= 0 && prefix <= 32;
-  return address.includes(":") && Number.isInteger(prefix) && prefix >= 0 && prefix <= 128;
+  const bits = isIP(address);
+  return bits > 0 && Number.isInteger(prefix) && prefix >= 0 && prefix <= bits;
 }
 
 export async function GET(request: Request): Promise<Response> {
