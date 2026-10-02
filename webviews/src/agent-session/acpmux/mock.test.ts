@@ -140,7 +140,7 @@ describe("mock transport", () => {
     expect(tools.map(({ title, status }) => ({ title, status }))).toEqual([
       { title: "Run bun test Sources/Sidebar", status: "in_progress" },
     ]);
-    expect(turnView(snapshot.rows, new Set(), true).map((row) => row.kind)).toEqual([
+    expect(turnView(snapshot.rows, new Set(), { working: true }).map((row) => row.kind)).toEqual([
       "user",
       "working",
       "assistant",
