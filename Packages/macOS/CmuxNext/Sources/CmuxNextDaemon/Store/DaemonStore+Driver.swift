@@ -166,12 +166,16 @@ extension DaemonStore {
                 failed = true
             }
             isResyncing = false
-            for waiter in refreshing { waiter.resume() }
             if failed {
                 scheduleResyncRetry(seedAgents: seedAgents)
-                // No retry will come (disconnected or budget spent).
+                // The retry serves them; without one (disconnected or
+                // budget spent) they return now with what the store has.
+                refreshWaiters.insert(contentsOf: refreshing, at: 0)
                 if resyncRetry == nil { resumeRefreshWaiters() }
-            } else if !refreshWaiters.isEmpty {
+            } else {
+                for waiter in refreshing { waiter.resume() }
+            }
+            if !failed, !refreshWaiters.isEmpty {
                 // Asked while this snapshot was in flight: fetch one after it.
                 return resync()
             }

@@ -20,9 +20,14 @@ extension DaemonService {
         store.intend(intent, transaction: transaction)
         do {
             let value = try await body(connection)
-            // Every event the daemon emitted before the reply; nil when the
-            // connection is gone, and then no event will come for it.
-            store.noteSettled(transaction, at: await connection.eventSequence() ?? 0)
+            // Every event the daemon emitted before the reply. Nil when the
+            // connection is gone: no event will come on it, and the next
+            // connection's first snapshot holds the result.
+            if let sequence = await connection.eventSequence() {
+                store.noteSettled(transaction, at: sequence)
+            } else {
+                store.noteSettledAtNextSnapshot(transaction)
+            }
             return value
         } catch {
             store.rejectIntent(transaction)

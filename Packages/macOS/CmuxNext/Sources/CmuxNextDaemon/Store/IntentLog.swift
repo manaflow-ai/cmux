@@ -65,6 +65,12 @@ struct IntentLog {
         entries[index].settleSequence = min(entries[index].settleSequence ?? sequence, sequence)
     }
 
+    /// The reply came but no sequence bounds it: settle at the next snapshot.
+    mutating func settleAtSnapshot(_ transaction: ClientTransactionID) {
+        guard let index = entries.firstIndex(where: { $0.transaction == transaction }) else { return }
+        entries[index].settlesAtSnapshot = true
+    }
+
     /// Removes and returns the intent for `transaction`, recording it as settled.
     mutating func remove(_ transaction: ClientTransactionID) -> PendingIntent? {
         guard let index = entries.firstIndex(where: { $0.transaction == transaction }) else { return nil }

@@ -51,6 +51,13 @@ extension DaemonStore {
         settleDueIntents()
     }
 
+    /// The command for `transaction` replied on a connection that is gone
+    /// (no sequence to wait for): the intent settles with the next snapshot
+    /// applied, which a later connection requests after the reply.
+    public func noteSettledAtNextSnapshot(_ transaction: ClientTransactionID) {
+        intentLog.settleAtSnapshot(transaction)
+    }
+
     /// The command for `transaction` failed: the intent leaves the log and
     /// the visible state returns to the confirmed mirror (plus the others).
     public func rejectIntent(_ transaction: ClientTransactionID) {
@@ -152,7 +159,9 @@ extension DaemonStore {
             guard let tab = source.removeTab(surface: surface) else { return nil }
             target.insertTab(tab, at: final)
             return .moveTab(surface: surface, fromPane: source.handle, fromIndex: from, toPane: target.handle)
-        case .renameTab(let surface, let name):
+        case .renameTab(let surface, let requested):
+            // An empty name clears it, as the daemon stores it.
+            let name = requested?.isEmpty == true ? nil : requested
             guard let tab = tabsBySurface[surface], tab.name != name else { return nil }
             let previous = tab.name
             tab.setName(name)
@@ -170,10 +179,10 @@ extension DaemonStore {
             guard let from = workspaces.firstIndex(where: { $0.key == key }) else { return nil }
             return place(at: from, index: min(max(index, 0), workspaces.count - 1), group: workspaces[from].group)
         case .setWorkspaceGroup(let key, let group):
-            guard let from = workspaces.firstIndex(where: { $0.key == key }) else { return nil }
+            guard let from = workspaces.firstIndex(where: { $0.key == key }), group.map({ self.group($0) != nil }) ?? true else { return nil }
             return place(at: from, index: from, group: group)
         case .placeWorkspace(let key, let group, let index):
-            guard let from = workspaces.firstIndex(where: { $0.key == key }) else { return nil }
+            guard let from = workspaces.firstIndex(where: { $0.key == key }), group.map({ self.group($0) != nil }) ?? true else { return nil }
             return place(at: from, index: sectionPlacement(from: from, group: group, index: index), group: group)
         case .setWorkspaceGroupCollapsed(let id, let collapsed):
             guard let group = group(id), group.collapsed != collapsed else { return nil }

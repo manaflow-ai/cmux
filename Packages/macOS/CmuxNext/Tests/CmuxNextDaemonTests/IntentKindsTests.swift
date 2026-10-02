@@ -132,4 +132,36 @@ import Testing
         #expect(store.mirrorViolations.count == 1)
         #endif
     }
+
+    /// The reply came after the connection ended (no event sequence to
+    /// wait for): the intent stays shown until the next snapshot applies.
+    @Test func aReplyWithoutASequenceSettlesAtTheNextSnapshot() throws {
+        let (store, tree) = try loaded()
+        store.intend(.setTabPinned(surface: 3, pinned: true), transaction: "tx")
+        store.noteSettledAtNextSnapshot("tx")
+        store.advanceAppliedSequence(to: 50)
+        #expect(store.tab(surface: 3)?.pinned == true)
+        var pinned = tree
+        pinned.workspaces[0].screens[0].panes[0].tabs[0].pinned = true
+        store.apply(snapshot: pinned)
+        #expect(!store.hasPendingIntents)
+        #expect(store.tab(surface: 3)?.pinned == true)
+    }
+
+    /// An empty name clears the custom name (the daemon stores null), and
+    /// a placement into a group the mirror does not know changes nothing.
+    @Test func emptyNamesClearAndUnknownGroupsAreSkipped() throws {
+        let (store, _) = try grouped()
+        store.intend(.renameWorkspace(key: "a", name: "kept"), transaction: "keep")
+        store.intend(.placeWorkspace(key: "b", group: "nope", index: 0), transaction: "nope")
+        store.intend(.setWorkspaceGroup(key: "d", group: "nope"), transaction: "nope2")
+        #expect(order(store) == ["kept", "b", "c", "d"])
+        #expect(store.workspace(key: "b")?.group == nil)
+        #expect(store.workspace(key: "d")?.group == nil)
+
+        let (tabs, _) = try loaded()
+        #expect(tabs.tab(surface: 3)?.name == "main")
+        tabs.intend(.renameTab(surface: 3, name: ""), transaction: "clear")
+        #expect(tabs.tab(surface: 3)?.name == nil)
+    }
 }

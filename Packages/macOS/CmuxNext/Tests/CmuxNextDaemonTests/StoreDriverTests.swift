@@ -209,6 +209,47 @@ final class ManualFrameScheduler: FrameBatchScheduler {
         await store.refresh() // the driver ended: returns at once
     }
 
+    /// A refresh whose snapshot fails waits for the retry instead of
+    /// returning with the stale mirror; two refreshes asked together share
+    /// one snapshot requested after both.
+    @Test func refreshWaitsForTheRetryOfAFailedSnapshot() async throws {
+        let tree = String(decoding: try Fixture.data("list-workspaces.json"), as: UTF8.self).trimmingCharacters(in: .newlines)
+        let snapshots = Mutex(0)
+        let server = try FakeDaemonServer(handler: ConnectionTests.handshake { request, id in
+            switch request["cmd"]?.stringValue {
+            case "list-workspaces":
+                let count = snapshots.withLock { $0 += 1; return $0 }
+                guard count != 2 else { return [#"{"id":\#(id),"ok":false,"error":{"code":"busy","message":"busy"}}"#] }
+                return [tree.replacingOccurrences(of: #""id":0,"#, with: #""id":\#(id),"#)
+                    .replacingOccurrences(of: #""name":"beta""#, with: #""name":"snapshot \#(count)""#)]
+            case "list-agents":
+                return [#"{"id":\#(id),"ok":true,"data":{"agents":[]}}"#]
+            default:
+                return []
+            }
+        })
+        defer { server.stop() }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
+        try await connection.start()
+        let store = DaemonStore()
+        store.resyncClock = ImmediateClock()
+        let scheduler = ManualFrameScheduler()
+        let run = Task { await store.run(connection: connection, scheduler: scheduler) }
+        try await waitFor { scheduler.count == 1 }
+        scheduler.flush()
+        try await waitFor { store.isLoaded }
+
+        async let first: Void = store.refresh()
+        async let second: Void = store.refresh()
+        _ = await (first, second)
+        let key: WorkspaceKey = "c7a12f08-d868-42cd-9f98-a2ca1f6d9eb1"
+        #expect(snapshots.withLock { $0 } == 3)
+        #expect(store.workspace(key: key)?.name == "snapshot 3")
+
+        await connection.close()
+        await run.value
+    }
+
     private func waitFor(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(10)
         while !condition() {

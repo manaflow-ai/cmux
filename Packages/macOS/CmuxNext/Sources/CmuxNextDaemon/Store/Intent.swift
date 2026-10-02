@@ -10,7 +10,7 @@ public enum Intent: Sendable, Hashable {
     /// `move-tab`: `surface` into `pane` at final display `index`
     /// (`TabDragOutcome.strip`, a palette or keyboard move).
     case moveTab(surface: SurfaceID, toPane: PaneID, index: Int)
-    /// `rename-tab`; nil or empty clears the custom name.
+    /// `rename-tab`; nil or empty clears the custom name (shown as nil).
     case renameTab(surface: SurfaceID, name: String?)
     /// `set-tab-pinned`.
     case setTabPinned(surface: SurfaceID, pinned: Bool)
