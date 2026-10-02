@@ -19753,6 +19753,7 @@ mod tests {
         let dispatch_writer = writer.clone();
         let dispatch_scheduler = scheduler.clone();
         let dispatch_mux = mux.clone();
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
         let dispatch = std::thread::spawn(move || {
             let mut request = Some(Request {
                 id: Some(json!(1)),
@@ -19764,12 +19765,25 @@ mod tests {
                     no_reply: true,
                 },
             });
-            dispatch_scheduler.dispatch(dispatch_mux, 0, &mut request, 1, dispatch_writer)
+            result_tx
+                .send(dispatch_scheduler.dispatch(
+                    dispatch_mux,
+                    0,
+                    &mut request,
+                    1,
+                    dispatch_writer,
+                ))
+                .unwrap();
         });
 
         std::thread::sleep(STREAM_DISCONNECT_POLL + Duration::from_millis(20));
         writer.close();
-        assert_eq!(dispatch.join().unwrap(), Some(false));
+        let result = result_rx.recv_timeout(Duration::from_secs(1));
+        if result.is_err() {
+            scheduler.close();
+        }
+        dispatch.join().unwrap();
+        assert_eq!(result.unwrap(), Some(false));
         assert!(scheduler.state.lock().unwrap().closed);
     }
 
