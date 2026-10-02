@@ -98,8 +98,21 @@ enum CloudHandlers {
     @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
         let id = try await firstWorkspace(on: session, context)
         if let anchor = anchor(id: id, on: session) { return anchor }
-        guard let created = await context.services.windows.createWorkspace(on: session.daemon),
-              let anchor = anchor(id: created, on: session) else {
+        guard let created = await context.services.windows.createWorkspace(on: session.daemon) else {
+            throw ActionFailure(message: CloudStrings.notConnected)
+        }
+        // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
+        let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
+            group.addTask { await waitForAnchor(id: created, on: session) }
+            group.addTask {
+                // wakeup-allow: one-shot ten-second daemon mirror deadline
+                try? await Task.sleep(for: .seconds(10))
+                return false
+            }
+            defer { group.cancelAll() }
+            return await group.next() ?? false
+        }
+        guard mirrored, let anchor = anchor(id: created, on: session) else {
             throw ActionFailure(message: CloudStrings.notConnected)
         }
         return anchor
@@ -110,6 +123,11 @@ enum CloudHandlers {
               let key = workspace.key,
               let pane = workspace.screens.first?.panes.first else { return nil }
         return (id, key, pane)
+    }
+
+    @MainActor private static func waitForAnchor(id: String, on session: CloudMachineSession) async -> Bool {
+        for await ready in Observations({ anchor(id: id, on: session) != nil }) where ready { return true }
+        return false
     }
 
     static func commandArgument(_ invocation: ActionInvocation) throws -> String {
