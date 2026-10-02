@@ -1,17 +1,41 @@
 import { describe, expect, test } from "bun:test";
-import { GROUP_ROWS, groupByProject, projectLabel, sessionEntry, sessionMark, sessionTitle, visibleSessions, type AcpmuxSessionEntry } from "./sessionList";
+import {
+  GROUP_ROWS,
+  groupByProject,
+  projectLabel,
+  sessionEntry,
+  sessionMark,
+  sessionTitle,
+  visibleSessions,
+  type AcpmuxSessionEntry,
+} from "./sessionList";
 
-const entry = (sessionId: string, cwd: string, updatedAt: number, extra: Partial<AcpmuxSessionEntry> = {}): AcpmuxSessionEntry => ({ sessionId, cwd, updatedAt, displayTitle: sessionId, ...extra });
+const entry = (
+  sessionId: string,
+  cwd: string,
+  updatedAt: number,
+  extra: Partial<AcpmuxSessionEntry> = {},
+): AcpmuxSessionEntry => ({ sessionId, cwd, updatedAt, displayTitle: sessionId, ...extra });
 
 describe("session titles", () => {
   test("a generated name shows the first prompt", () => {
-    expect(sessionTitle({ sessionId: "s1", name: "codex", harness: "codex", title: "Fix the login flow" })).toBe("Fix the login flow");
-    expect(sessionTitle({ sessionId: "s1", name: "codex-3", harness: "codex", title: "Fix the login flow" })).toBe("Fix the login flow");
+    expect(sessionTitle({ sessionId: "s1", name: "codex", harness: "codex", title: "Fix the login flow" })).toBe(
+      "Fix the login flow",
+    );
+    expect(sessionTitle({ sessionId: "s1", name: "codex-3", harness: "codex", title: "Fix the login flow" })).toBe(
+      "Fix the login flow",
+    );
   });
   test("a name the user gave wins over the prompt", () => {
-    expect(sessionTitle({ sessionId: "s1", name: "login-fix", harness: "codex", title: "Fix the login flow" })).toBe("login-fix");
-    expect(sessionTitle({ sessionId: "s1", name: "codex-2b", harness: "codex", title: "Fix the login flow" })).toBe("codex-2b");
-    expect(sessionTitle({ sessionId: "s1", name: "codex-", harness: "codex", title: "Fix the login flow" })).toBe("codex-");
+    expect(sessionTitle({ sessionId: "s1", name: "login-fix", harness: "codex", title: "Fix the login flow" })).toBe(
+      "login-fix",
+    );
+    expect(sessionTitle({ sessionId: "s1", name: "codex-2b", harness: "codex", title: "Fix the login flow" })).toBe(
+      "codex-2b",
+    );
+    expect(sessionTitle({ sessionId: "s1", name: "codex-", harness: "codex", title: "Fix the login flow" })).toBe(
+      "codex-",
+    );
   });
   test("a generated name without a prompt yet shows the name, then the id", () => {
     expect(sessionTitle({ sessionId: "s1", name: "claude-2", harness: "claude" })).toBe("claude-2");
@@ -68,8 +92,31 @@ describe("row marks", () => {
 
 describe("summary entries", () => {
   test("keep the fields the sidebar needs from acpmux's summary", () => {
-    expect(sessionEntry({ sessionId: "s", name: "codex", harness: "codex", title: "Hi", cwd: "/p", updatedAt: 7, status: "waiting", pendingPermissions: 2, unread: true, preview: "dropped" })).toEqual({
-      sessionId: "s", displayTitle: "Hi", title: "Hi", name: "codex", harness: "codex", status: "waiting", model: undefined, cwd: "/p", updatedAt: 7, pendingPermissions: 2, unread: true,
+    expect(
+      sessionEntry({
+        sessionId: "s",
+        name: "codex",
+        harness: "codex",
+        title: "Hi",
+        cwd: "/p",
+        updatedAt: 7,
+        status: "waiting",
+        pendingPermissions: 2,
+        unread: true,
+        preview: "dropped",
+      }),
+    ).toEqual({
+      sessionId: "s",
+      displayTitle: "Hi",
+      title: "Hi",
+      name: "codex",
+      harness: "codex",
+      status: "waiting",
+      model: undefined,
+      cwd: "/p",
+      updatedAt: 7,
+      pendingPermissions: 2,
+      unread: true,
     });
   });
 });

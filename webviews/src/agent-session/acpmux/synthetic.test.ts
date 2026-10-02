@@ -12,8 +12,12 @@ describe("synthetic transcript", () => {
   });
 
   test("answers vary in length, with a list every third turn and code every seventh", () => {
-    const answers = syntheticRows(63).filter((row) => row.kind === "assistant").map((row) => row.text ?? "");
-    expect(answers[0]).toBe(`Answer 0. This sentence adds some width to the paragraph. \n\n- first point\n- second point\n- third point\n\n\`\`\`swift\nlet value = 0\nprint(value)\n\`\`\``);
+    const answers = syntheticRows(63)
+      .filter((row) => row.kind === "assistant")
+      .map((row) => row.text ?? "");
+    expect(answers[0]).toBe(
+      `Answer 0. This sentence adds some width to the paragraph. \n\n- first point\n- second point\n- third point\n\n\`\`\`swift\nlet value = 0\nprint(value)\n\`\`\``,
+    );
     expect(answers[1]).toBe("Answer 1. " + "This sentence adds some width to the paragraph. ".repeat(2));
     expect(answers[3]).toContain("- third point");
     expect(answers[3]).not.toContain("```");

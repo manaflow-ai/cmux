@@ -708,6 +708,11 @@ def test_contributor_prose_skips_expensive_areas() -> None:
     assert module.classify_files(["STYLE.md"]).release_build is False
 
 
+def test_shared_vite_plus_check_config_runs_web_only() -> None:
+    # Lint and format settings for the web packages never reach the app build.
+    assert_areas(["config/vite-plus/check.ts"], macos=False, web=True)
+
+
 def test_bundled_root_markdown_still_runs_macos() -> None:
     # THIRD_PARTY_LICENSES.md is root Markdown like the files above, but it
     # ships in Resources/ and AboutLicenseContent.swift reads it, so it is a
@@ -4659,6 +4664,7 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         (["webviews/src/diff/App.tsx"], (False, True, False, False, True, False, False)),
         (["Native/DiffSidecar/src/server.rs"], (False, True, False, False, False, False, False)),
         (["Resources/markdown-viewer/webviews-app/main.mjs"], (False, False, False, False, True, False, False)),
+        (["config/vite-plus/check.ts"], (False, False, False, False, True, False, False)),
         (["web/public/logo.png"], (False, False, False, True, False, False, True)),
         (["web/tests/account-route.test.ts"], (False, False, False, False, False, True, True)),
         (["web/tests/notifications-push-route.test.ts"], (True, False, False, False, False, True, True)),

@@ -4,10 +4,14 @@ import styles from "../src/styles.css" with { type: "text" };
 test("toolbar and files pane keep structural surfaces transparent", () => {
   expect(styles).toContain("--cmux-diff-toolbar-bg: transparent");
   expect(styles).toContain("--cmux-diff-sidebar-bg: transparent");
-  expect(styles).toMatch(/#toolbar\s*\{[^}]*border-bottom: 1px solid var\(--cmux-diff-border\)[^}]*background: var\(--cmux-diff-toolbar-bg\)/s);
+  expect(styles).toMatch(
+    /#toolbar\s*\{[^}]*border-bottom: 1px solid var\(--cmux-diff-border\)[^}]*background: var\(--cmux-diff-toolbar-bg\)/s,
+  );
   expect(styles).toMatch(/#toolbar\s*\{[^}]*padding: 3px 4px 3px 8px;/s);
   expect(styles).toMatch(/#files-sidebar\s*\{[^}]*background: var\(--cmux-diff-sidebar-bg\)/s);
-  expect(styles).toMatch(/#files-header\s*\{[^}]*border-bottom: 1px solid var\(--cmux-diff-border\)[^}]*background: var\(--cmux-diff-sidebar-bg\)/s);
+  expect(styles).toMatch(
+    /#files-header\s*\{[^}]*border-bottom: 1px solid var\(--cmux-diff-border\)[^}]*background: var\(--cmux-diff-sidebar-bg\)/s,
+  );
   expect(styles).toMatch(/#file-list\s*\{[^}]*background: var\(--cmux-diff-sidebar-bg\)/s);
   const rendererHostBlock = String(styles).match(/#viewer diffs-container\s*\{(?<body>[^}]*)\}/s)?.groups?.body ?? "";
   expect(rendererHostBlock).toContain("flex: 1 1 auto");
