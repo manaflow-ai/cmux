@@ -678,6 +678,7 @@ impl Driver {
         );
         // Keystrokes are latency-bound; the OS dial path disables Nagle too.
         socket.set_nagle_enabled(false);
+        socket.set_congestion_control(tcp::CongestionControl::Cubic);
         socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(TCP_TIMEOUT.as_micros()).unwrap_or(u64::MAX),
         )));
