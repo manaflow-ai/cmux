@@ -143,6 +143,9 @@ final class CloudActivationCoordinator {
                 }
             }
             do {
+                // Let the optimistic Cloud sidebar render before activation
+                // preparation touches the main-actor registry and network.
+                await Task.yield()
                 await previousCleanup?.value
                 try Task.checkCancellation()
                 guard self.activationID == id else { throw CancellationError() }

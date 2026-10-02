@@ -125,7 +125,7 @@ struct CloudMachinesEnablementView: View {
         case .disabled, .enabled:
             return String(
                 localized: "cloud.enable.subtitle",
-                defaultValue: "Persistent Linux computers in the cloud that open as regular cmux workspaces."
+                defaultValue: "Persistent cloud computers that open as regular cmux workspaces."
             )
         case .enabling:
             return String(
@@ -186,7 +186,7 @@ struct CloudMachinesEnablementView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
                 .accessibilityIdentifier("CloudMachinesEnableButton")
-                Text(String(localized: "cloud.enable.planNote", defaultValue: "Requires a paid cmux plan."))
+            Text(String(localized: "cloud.enable.planNote", defaultValue: "Requires a cmux Pro plan."))
                     .cmuxFont(size: 11)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
