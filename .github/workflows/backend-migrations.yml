@@ -1,0 +1,256 @@
+# Trusted pre-merge migrations for PlanetScale `cmux-next` (skills/cmux-backend-migrations).
+#
+# pull_request_target: this file and the tooling (backend/db/migrate.ts, its lockfile)
+# always come from the BASE branch. From the PR head we only read the SQL text under
+# backend/db/migrations; no head code is installed or executed, so a PR cannot change the
+# gate, the apply rules, or reach the database secrets except through reviewed SQL.
+#
+#   plan      list changed files (GitHub API), extract the head's migration files, guard:
+#             append-only, numbers above the base, contract only alone and only into main,
+#             parsed-SQL lint.
+#   apply     adding the label `backend:apply-migrations` (same-repo PRs) consumes it and
+#             applies to staging, then production; a later push never applies without a new label.
+#   gate      `backend migrations applied` (required on feat-cmux-next and main): passes at
+#             once when nothing under backend/db/migrations changed; otherwise the tree's
+#             migrations must be exactly what staging and production have. In a merge
+#             group it checks nothing (the queue runs PR-controlled workflow content, so it
+#             gets no secrets; each queued PR already passed this gate).
+
+name: backend-migrations
+
+on:
+  # Only PRs into main and feat-cmux-next: the tooling comes from the PR base branch, so a PR
+  # into any other branch (whose tooling its author controls) must never run here.
+  pull_request_target:
+    # edited: a base-branch change (for example main -> feat-cmux-next) re-runs the gate.
+    types: [opened, synchronize, reopened, labeled, edited]
+    branches: [main, feat-cmux-next]
+  merge_group:
+    branches: [main, feat-cmux-next]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-migrations-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target runs with trusted tokens
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      migrations: ${{ steps.files.outputs.migrations }}
+    steps:
+      - name: Checkout base (trusted tooling)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          path: trusted
+          persist-credentials: false
+      - name: Changed files and head migrations
+        id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref }}
+        run: |
+          set -euo pipefail
+          case "$BASE_REF" in refs/heads/main|refs/heads/feat-cmux-next|main|feat-cmux-next) ;; *) echo "::error::unexpected base branch"; exit 1 ;; esac
+          if [ "$EVENT" = pull_request_target ]; then
+            gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"' > changes.tsv
+          else
+            gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '.files[] | "\(.status)\t\(.filename)\t\(.previous_filename // "")"' > changes.tsv
+          fi
+          # The files API stops at 3000 (compare at 300): a list that long may hide migrations.
+          if [ "$EVENT" = pull_request_target ] && [ "$(wc -l < changes.tsv)" -ge 3000 ]; then echo "::error::change too large to inspect for migrations; split it"; exit 1; fi
+          touched=$(awk -F'\t' '$2 ~ /^backend\/db\/migrations\// || $3 ~ /^backend\/db\/migrations\//' changes.tsv)
+          if [ -n "$touched" ]; then
+            echo "migrations=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "migrations=false" >> "$GITHUB_OUTPUT"; echo "no migration changes"; exit 0
+          fi
+          # Head migration files only: fetched as blobs, never checked out or executed.
+          mkdir -p head-migrations
+          git -C trusted fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          git -C trusted archive "$HEAD_SHA" backend/db/migrations | tar -x -C head-migrations --strip-components=3
+          # Data only: flat regular files with migration names. No symlinks, devices or subdirectories,
+          # so no later job can be made to read anything outside these SQL texts.
+          odd=$(find head-migrations -mindepth 1 \( ! -type f -o -path 'head-migrations/*/*' -o -name '.*' \) -print -quit)
+          if [ -n "$odd" ]; then echo "::error::backend/db/migrations may contain only regular .sql files"; exit 1; fi
+          for f in head-migrations/*; do
+            [ -e "$f" ] || continue
+            case "$(basename "$f")" in [0-9][0-9][0-9][0-9]_*.sql) ;; *) echo "::error::unexpected file name in backend/db/migrations"; exit 1 ;; esac
+            if ! basename "$f" | grep -qE '^[0-9]{4}_[a-z0-9_]+\.sql$'; then echo "::error::unexpected file name in backend/db/migrations"; exit 1; fi
+          done
+          ls head-migrations
+      # Each queued PR already passed this guard; a merge group compares several PRs at once.
+      - name: Guard (append-only, numbering, contract rules)
+        if: steps.files.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref }}
+        run: |
+          set -euo pipefail
+          bad=$(awk -F'\t' '($2 ~ /^backend\/db\/migrations\// || $3 ~ /^backend\/db\/migrations\//) && $1 != "added"' changes.tsv)
+          if [ -n "$bad" ]; then echo "::error::migrations are append-only; changed: $bad"; exit 1; fi
+          base_max=0
+          for m in trusted/backend/db/migrations/[0-9][0-9][0-9][0-9]_*.sql; do
+            [ -e "$m" ] || continue
+            n=$(basename "$m"); n=$((10#${n:0:4})); [ "$n" -gt "$base_max" ] && base_max=$n
+          done
+          contract=""
+          while IFS= read -r f; do
+            n=$(basename "$f" | grep -oE '^[0-9]{4}' || echo 0000)
+            if [ $((10#$n)) -le "$base_max" ]; then echo "::error::$f: number must be above the base's highest ($base_max); renumber after merging the base"; exit 1; fi
+            if grep -qE '^--[[:space:]]*phase:[[:space:]]*contract' "head-migrations/$(basename "$f")"; then contract="$contract $f"; fi
+          done < <(awk -F'\t' '$2 ~ /^backend\/db\/migrations\// {print $2}' changes.tsv)
+          if [ -n "$contract" ]; then
+            ref="${BASE_REF#refs/heads/}"
+            if [ "$ref" != main ]; then echo "::error::contract migration(s)$contract: production runs main, so contract migrations go in a PR into main"; exit 1; fi
+            others=$(awk -F'\t' '$2 !~ /^backend\/db\/migrations\//' changes.tsv)
+            if [ -n "$others" ]; then echo "::error::contract migration(s)$contract must be alone in their PR; other files: $others"; exit 1; fi
+          fi
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.files.outputs.migrations == 'true'
+        with:
+          bun-version: "1.4.2"
+      - name: Lint head SQL with the base's parser rules
+        if: steps.files.outputs.migrations == 'true'
+        run: |
+          (cd trusted/backend && bun install --frozen-lockfile)
+          (cd trusted/backend/db && bun migrate.ts --lint --dir "$GITHUB_WORKSPACE/head-migrations")
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.files.outputs.migrations == 'true'
+        with:
+          name: head-migrations
+          path: head-migrations
+          retention-days: 7
+
+  apply-staging:
+    needs: plan
+    # Only the act of labeling applies (never a later push with the label still present), and
+    # the label is removed first, so every apply follows a fresh label on the current head.
+    if: >-
+      needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target' &&
+      github.event.action == 'labeled' && github.event.label.name == 'backend:apply-migrations' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target runs with trusted tokens
+    environment: cmux-next-staging
+    steps:
+      - name: Consume the apply label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh api -X DELETE "repos/$REPO/issues/$PR/labels/backend:apply-migrations" || true
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: head-migrations
+          path: head-migrations
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - name: Apply to cmux-next/staging
+        env:
+          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+        run: |
+          (cd trusted/backend && bun install --frozen-lockfile)
+          cd trusted/backend/db
+          bun migrate.ts --env staging --dir "$GITHUB_WORKSPACE/head-migrations"
+          bun migrate.ts --env staging --dir "$GITHUB_WORKSPACE/head-migrations" --verify
+
+  apply-production:
+    needs: apply-staging
+    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target runs with trusted tokens
+    environment: cmux-next-production
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: head-migrations
+          path: head-migrations
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      # Expand migrations are additive (parsed-SQL lint), so the code deployed from main keeps
+      # working; contract migrations only come from PRs into main that contain nothing else.
+      - name: Apply to cmux-next/main (production)
+        env:
+          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+        run: |
+          (cd trusted/backend && bun install --frozen-lockfile)
+          cd trusted/backend/db
+          bun migrate.ts --env production --confirm-production --dir "$GITHUB_WORKSPACE/head-migrations"
+          bun migrate.ts --env production --dir "$GITHUB_WORKSPACE/head-migrations" --verify
+
+  gate:
+    name: backend migrations applied
+    needs: [plan, apply-production]
+    if: always()
+    # merge_group runs this file from the queue commit (PR content), so it never gets an
+    # environment or secrets (the environments allow only main and feat-cmux-next); the queue
+    # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
+    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target runs with trusted tokens
+    # The environment's deployment-branch policy (main, feat-cmux-next, their merge-queue
+    # refs) keeps these secrets away from PR-controlled workflows; no environment (and no
+    # deployment record) when nothing changed.
+    environment: ${{ github.event_name == 'pull_request_target' && needs.plan.outputs.migrations == 'true' && github.event.pull_request.head.repo.full_name == github.repository && 'cmux-next-production' || '' }}
+    steps:
+      - name: Plan succeeded
+        env:
+          RESULT: ${{ needs.plan.result }}
+        run: '[ "$RESULT" = success ] || { echo "::error::migration plan $RESULT"; exit 1; }'
+      - name: No migration changes, or merge queue (verified at PR time)
+        if: needs.plan.outputs.migrations != 'true' || github.event_name == 'merge_group'
+        run: echo "nothing to verify here (no migration changes, or a merge group of PRs whose gate passed)"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
+        with:
+          name: head-migrations
+          path: head-migrations
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
+        with:
+          bun-version: "1.4.2"
+      - name: The tree's migrations are exactly what staging and production have
+        if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
+        env:
+          PROD_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+          STAGING_URL: ${{ secrets.CMUX_NEXT_STAGING_MIGRATOR_URL }}
+        run: |
+          if [ -z "$PROD_URL" ] || [ -z "$STAGING_URL" ]; then
+            echo "::error::no database access for this PR (fork PRs never get it); a maintainer carries the migration on a same-repo branch"; exit 1
+          fi
+          (cd trusted/backend && bun install --frozen-lockfile)
+          cd trusted/backend/db
+          ok=1
+          CMUX_NEXT_PG_MIGRATOR_URL="$STAGING_URL" bun migrate.ts --env staging --verify --dir "$GITHUB_WORKSPACE/head-migrations" || ok=0
+          CMUX_NEXT_PG_MIGRATOR_URL="$PROD_URL" bun migrate.ts --env production --verify --dir "$GITHUB_WORKSPACE/head-migrations" || ok=0
+          if [ "$ok" = 0 ]; then
+            echo "::error::migrations are not applied (or the database has migrations this tree lacks). Merge the base, then add the label backend:apply-migrations; merging deploys."
+            exit 1
+          fi
