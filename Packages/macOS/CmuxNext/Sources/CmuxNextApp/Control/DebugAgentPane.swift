@@ -9,12 +9,15 @@ import WebKit
 /// agent pane through the page's `window.cmuxAcpmuxDebug`, the counterpart
 /// of the native pane's seed and fling measurements. Targets the agent tab
 /// shown in `pane` (default: the focused pane of the first window showing
-/// one). Never changes focus.
+/// one). Never changes app or window focus; `open_menu` moves focus inside
+/// the page to the menu's button, as a click does.
 ///
 /// `action`: `seed_rows` (`count`, default 5000), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `typing_stats`,
-/// `reset_typing`, `pid` (the WebContent process, for profiling), or
+/// `reset_typing`, `open_menu` (`label`: opens that composer menu, such as
+/// `Model` or `Mode`, through the same path as a click, for automation and
+/// captures), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
@@ -27,6 +30,7 @@ enum DebugAgentPane {
     private static let functions: [String: String] = [
         "seed_rows": "seedRows", "fling": "startFling", "fling_stats": "flingStats",
         "perf_stats": "perfStats", "typing_stats": "typingStats", "reset_typing": "resetTyping",
+        "open_menu": "openMenu",
     ]
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
@@ -55,7 +59,7 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, pid or full_rate")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -93,6 +97,8 @@ enum DebugAgentPane {
             return [params["seconds"]?.doubleValue ?? 3, options]
         case "perf_stats":
             return [["raw": params["raw"]?.boolValue == true] as [String: Any]]
+        case "open_menu":
+            return [params["label"]?.stringValue ?? ""]
         default:
             return []
         }

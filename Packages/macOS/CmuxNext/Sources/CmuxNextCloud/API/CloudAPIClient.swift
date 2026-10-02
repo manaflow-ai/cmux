@@ -55,6 +55,16 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("DELETE", "/api/vm/\(id)", timeout: .seconds(120), as: Ignored.self)
     }
 
+    /// Parks the machine while preserving its disk and session.
+    public func pauseMachine(_ id: String) async throws {
+        _ = try await send("POST", "/api/vm/\(id)/pause", timeout: .seconds(960), as: Ignored.self)
+    }
+
+    /// Resume can wait up to the route's 16-minute provider readiness budget.
+    public func resumeMachine(_ id: String) async throws {
+        _ = try await send("POST", "/api/vm/\(id)/resume", timeout: .seconds(960), as: Ignored.self)
+    }
+
     public func attachEndpoint(_ id: String) async throws -> CloudAttachEndpoint {
         try await send("POST", "/api/vm/\(id)/attach-endpoint", body: ["transport": "cmux-remote"], timeout: .seconds(30),
                        as: CloudAttachEndpoint.self)
@@ -78,6 +88,11 @@ public struct CloudAPIClient: Sendable {
     public func snapshots(_ id: String) async throws -> [CloudSnapshot] {
         struct List: Decodable { var snapshots: [CloudSnapshot] }
         return try await send("GET", "/api/vm/\(id)/snapshots", as: List.self).snapshots
+    }
+
+    /// Deletes a snapshot scoped to the machine that owns it.
+    public func deleteSnapshot(_ id: String, snapshotID: String) async throws {
+        _ = try await send("DELETE", "/api/vm/\(id)/snapshots/\(snapshotID)", timeout: .seconds(960), as: Ignored.self)
     }
 
     public func restore(snapshotID: String, idempotencyKey: String = UUID().uuidString) async throws -> CloudMachine {

@@ -59,6 +59,24 @@ enum CloudHandlers {
         }
     }
 
+    /// Runs a Cloud mutation while reporting completion to action.run callers.
+    /// Interactive callers still receive the usual failure sheet.
+    static func runTracked(_ label: String, _ context: AppActionContext, _ work: @escaping @MainActor () async throws -> Void) {
+        let logger = context.services.cloud.logger
+        let interactive = !context.services.registry.isCapturingRefusal
+        let task: ActionWork = Task { @MainActor in
+            do {
+                try await work()
+                return nil
+            } catch {
+                logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                if interactive { CloudPresenter.failure(error, in: window(context)) }
+                return ActionWorkFailure("\(label): \(error)")
+            }
+        }
+        context.services.registry.track(task)
+    }
+
     /// Shows `workspaceID` in the active window (or a new one).
     static func show(_ workspaceID: String, _ context: AppActionContext) {
         let windows = context.services.windows!

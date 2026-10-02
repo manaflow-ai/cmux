@@ -11,7 +11,7 @@ import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 const STOP_GUARD_MS = 600;
 
 export const COMPOSER_LABELS = {
-  placeholder: "Ask anything, @ for context, / for commands",
+  placeholder: "Do anything",
   add: "Add",
   mention: "Mention a file or folder",
   attach: "Attach files or images",
