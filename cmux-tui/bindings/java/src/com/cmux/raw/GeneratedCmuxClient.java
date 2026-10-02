@@ -238,6 +238,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final TerminalCommandDeleteResult deleteTerminalCommands(DeleteTerminalCommandsRequest request) throws CmuxException {
+        Object result = execute(Commands.DELETE_TERMINAL_COMMANDS, request.toWire());
+        return TerminalCommandDeleteResult.fromWire(result);
+    }
+
     public final Object deleteWorkspaceGroup(DeleteWorkspaceGroupRequest request) throws CmuxException {
         Object result = execute(Commands.DELETE_WORKSPACE_GROUP, request.toWire());
         return Wire.immutableJson(result);
@@ -346,6 +351,11 @@ public abstract class GeneratedCmuxClient {
     public final Object listTabGroups() throws CmuxException {
         Object result = execute(Commands.LIST_TAB_GROUPS, Map.of());
         return Wire.immutableJson(result);
+    }
+
+    public final TerminalCommandList listTerminalCommands(ListTerminalCommandsRequest request) throws CmuxException {
+        Object result = execute(Commands.LIST_TERMINAL_COMMANDS, request.toWire());
+        return TerminalCommandList.fromWire(result);
     }
 
     public final ListTerminalsResult listTerminals() throws CmuxException {

@@ -347,8 +347,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "adf8de470e15b5dfcd3de6ab1ef088a6b1ede3b22ae90f8518d567421cea303a",
-      "size": 50128
+      "sha256": "39025cef4087145c278b145be8d6e7c4ce30ce4d22da82c6ca2a7a54ec5b6c41",
+      "size": 50690
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -481,6 +481,11 @@
       "size": 2073
     },
     {
+      "path": "DeleteTerminalCommandsRequest.java",
+      "sha256": "08eba0d431e7c866e86a10f005d1fbd7c6d4cdd0ce48d740c315bfbb613699e5",
+      "size": 3508
+    },
+    {
       "path": "DeleteWorkspaceGroupRequest.java",
       "sha256": "db9905d1b7af539b60abb21a268aee7c232ac3654eb19764f66936688fd6208d",
       "size": 2082
@@ -607,8 +612,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "b66f8deec0e8ec317c5b2025f6706e1c32c58054f771c4a0588f215a8d1c9222",
-      "size": 44213
+      "sha256": "e600b7d028965df8e4c61b21150952edff0be6885252e3935f0888791e21a883",
+      "size": 44759
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -809,6 +814,11 @@
       "path": "ListTabGroupsRequest.java",
       "sha256": "d44e7c39e77223307f5e8715126c4fa51d383e5984a0aed668767e0336384fbb",
       "size": 1369
+    },
+    {
+      "path": "ListTerminalCommandsRequest.java",
+      "sha256": "350c2df5e30cb45fd7ded86b798c1b1bd21d97761410d7e25e6130f0c7d68fe3",
+      "size": 2699
     },
     {
       "path": "ListTerminalsRequest.java",
@@ -1152,7 +1162,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "142d49e6cb8110e6ec93bb5a73dd65f419dc2a1f0c3ee734f9c58d0a1308f30c",
+      "sha256": "5fcc6402d3952df056b254819ecb60efd88256b3942005b64ad083498fd6a93c",
       "size": 4696
     },
     {
@@ -1612,8 +1622,8 @@
     },
     {
       "path": "SetTerminalCommandHistoryRequest.java",
-      "sha256": "df749e24e037a2368d2324bf65b756cd9266ef64e9da23e90a1947e33d54546e",
-      "size": 2160
+      "sha256": "8258302dd159f2ae4865c1238f630d2b5c24b81c8f905dcd7fdc95ae2eeec3ba",
+      "size": 2939
     },
     {
       "path": "SetTerminalIdlePolicyRequest.java",
@@ -1836,9 +1846,24 @@
       "size": 7557
     },
     {
+      "path": "TerminalCommandDeleteResult.java",
+      "sha256": "5eea09d83f980002e711e329c18b66bdaec80b2fb5bc5fe7e376446ec2e2c420",
+      "size": 2045
+    },
+    {
       "path": "TerminalCommandHistoryResult.java",
-      "sha256": "240c05f9a626dd8e67dee8f57e641b4f8fc747a5645ae4fc90f523a5231311a5",
-      "size": 2031
+      "sha256": "b9681fc9214a065991a4f03d218c30cc44a6f8cae4d175a30ba9a8c6eed0721a",
+      "size": 2841
+    },
+    {
+      "path": "TerminalCommandList.java",
+      "sha256": "1372c9edd742cb9e1cb7daa71f3bb9bd5ad69e7a3debde9abf083f49c414d69d",
+      "size": 5174
+    },
+    {
+      "path": "TerminalCommandRecord.java",
+      "sha256": "5b6ee5a13be42cc1a7140f78fe58a169699b56281d09a28687b93d135165c386",
+      "size": 6273
     },
     {
       "path": "TerminalEventsRequest.java",
@@ -2152,7 +2177,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0",
+  "ir_sha256": "72c0f53c29ece0fd385a09eda356ab009a05dd61ad60faf89e5e6413647910dc",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

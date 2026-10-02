@@ -1,6 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod command_history;
 mod host_close;
 mod idle_close;
 mod personal;
@@ -2675,14 +2676,13 @@ pub struct Mux {
     /// one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
     terminal_notifications: Mutex<HashMap<TerminalPublicId, SurfaceNotification>>,
-    /// Records finished shell commands in the journal
-    /// (`terminal-command-journal-v1`). Off until a trusted client turns it
-    /// on (`set-terminal-command-history`); never persisted, so a restarted
-    /// daemon records nothing until asked again.
+    /// Records finished shell commands (`terminal-command-history-v1`). Off
+    /// until a trusted client turns it on (`set-terminal-command-history`);
+    /// never persisted, so a restarted daemon records nothing until asked
+    /// again. The rows live in the workspace registry (`terminal_commands`).
     terminal_command_history: AtomicBool,
-    /// The shell command journal worker's bounded queue (started on first use).
-    shell_command_journal:
-        Mutex<Option<SyncSender<(TerminalPublicId, crate::shell_history::FinishedCommand)>>>,
+    /// The command history worker's bounded queue (`mux/command_history.rs`).
+    command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does
     /// this terminal need attention on the shared console"; this map answers
@@ -3131,7 +3131,7 @@ impl Mux {
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
-            shell_command_journal: Mutex::new(None),
+            command_history_worker: Mutex::new(None),
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
@@ -3195,6 +3195,7 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
             let Some(mux) = weak_mux.upgrade() else { return };
@@ -10985,75 +10986,6 @@ impl Mux {
         let key = format!("notify-{}", crate::workspace_registry::new_uuid_v4());
         self.create_durable_notification(&key, title, None, body, level, surface, source)?
             .context("fresh notify key unexpectedly replayed")
-    }
-
-    /// Whether this daemon records finished shell commands (in memory, off
-    /// at start; a global switch that any trusted local client sets: a gap
-    /// recorded in plans/cmux-next/COORDINATION.md).
-    pub(crate) fn terminal_command_history_enabled(&self) -> bool {
-        self.terminal_command_history.load(Ordering::Acquire)
-    }
-
-    pub(crate) fn set_terminal_command_history(&self, enabled: bool) {
-        self.terminal_command_history.store(enabled, Ordering::Release);
-    }
-
-    /// Queues finished shell commands of `terminal` for the journal
-    /// (`shell.command.finished`). One long-lived worker per daemon appends
-    /// them in order; the caller (a PTY reader) never waits for the journal
-    /// writer. The queue is bounded: when it is full, records drop and a
-    /// diagnostic counts it.
-    pub(crate) fn append_shell_commands(
-        self: &Arc<Self>,
-        terminal: TerminalPublicId,
-        commands: Vec<crate::shell_history::FinishedCommand>,
-    ) {
-        if !self.terminal_command_history_enabled() {
-            return;
-        }
-        let Some(sender) = self.shell_command_sender() else {
-            self.report_internal_diagnostic("shell command journal worker not started");
-            return;
-        };
-        for command in commands {
-            if sender.try_send((terminal.clone(), command)).is_err() {
-                self.report_internal_diagnostic("shell command journal queue full; record dropped");
-            }
-        }
-    }
-
-    /// The journal worker's queue, started on first use.
-    fn shell_command_sender(
-        self: &Arc<Self>,
-    ) -> Option<SyncSender<(TerminalPublicId, crate::shell_history::FinishedCommand)>> {
-        let mut slot = self.shell_command_journal.lock().unwrap();
-        if let Some(sender) = slot.as_ref() {
-            return Some(sender.clone());
-        }
-        let (sender, receiver) = std::sync::mpsc::sync_channel::<(
-            TerminalPublicId,
-            crate::shell_history::FinishedCommand,
-        )>(crate::shell_history::MAX_QUEUED_COMMANDS);
-        let mux = Arc::downgrade(self);
-        std::thread::Builder::new()
-            .name("shell-command-journal".into())
-            .spawn(move || {
-                while let Ok((terminal, command)) = receiver.recv() {
-                    let Some(mux) = mux.upgrade() else { return };
-                    let ingress =
-                        crate::shell_history::command_journal_ingress(&terminal, &command);
-                    let key = format!("shell-command-{}", crate::workspace_registry::new_uuid_v4());
-                    if let Err(error) = mux.append_journal_ingress(&ingress, "shell-command", &key)
-                    {
-                        eprintln!(
-                            "cmux-tui: journaling a shell command for {terminal} failed: {error}"
-                        );
-                    }
-                }
-            })
-            .ok()?;
-        *slot = Some(sender.clone());
-        Some(sender)
     }
 
     /// Post what a program in `surface`'s terminal asked for with OSC 9,

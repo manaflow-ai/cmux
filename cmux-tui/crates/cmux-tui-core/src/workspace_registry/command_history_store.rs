@@ -18,8 +18,6 @@
 //! zeroed, and the worker checkpoints the WAL after deletes. Ids are never
 //! reused, so a client cursor stays valid across deletes.
 
-#![allow(dead_code, unused_imports)]
-
 use std::time::Duration;
 
 use rusqlite::{OptionalExtension, Transaction, params};
@@ -119,47 +117,202 @@ fn to_u64(value: i64) -> u64 {
 }
 
 impl WorkspaceRegistry {
+    /// The retention in days ([`DEFAULT_COMMAND_RETENTION_DAYS`] until set).
     pub(crate) fn terminal_command_retention_days(&self) -> anyhow::Result<u32> {
-        anyhow::bail!("terminal command history store is not implemented")
+        Ok(meta_value(&self.connection, RETENTION_KEY)?
+            .and_then(|value| value.parse::<u32>().ok())
+            .filter(|days| (1..=MAX_COMMAND_RETENTION_DAYS).contains(days))
+            .unwrap_or(DEFAULT_COMMAND_RETENTION_DAYS))
     }
 
-    pub(crate) fn set_terminal_command_retention_days(&mut self, _days: u32) -> anyhow::Result<()> {
-        anyhow::bail!("terminal command history store is not implemented")
+    /// Stores the retention. Lists hide what it expires at once; the worker
+    /// deletes those rows on its next pass.
+    pub(crate) fn set_terminal_command_retention_days(&mut self, days: u32) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            (1..=MAX_COMMAND_RETENTION_DAYS).contains(&days),
+            "bad request: retention_days must be 1...{MAX_COMMAND_RETENTION_DAYS}"
+        );
+        self.connection.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![RETENTION_KEY, days.to_string()],
+        )?;
+        Ok(())
     }
 
+    /// Stores finished commands of terminals (public id, command) in one
+    /// transaction, then expires old rows.
     pub(crate) fn append_terminal_commands(
         &mut self,
-        _commands: &[(String, FinishedCommand)],
-        _now_ms: u64,
+        commands: &[(String, FinishedCommand)],
+        now_ms: u64,
     ) -> anyhow::Result<CommandExpiry> {
-        anyhow::bail!("terminal command history store is not implemented")
+        if !commands.is_empty() {
+            let tx = self.connection.transaction()?;
+            {
+                let mut insert = tx.prepare_cached(
+                    "INSERT INTO terminal_commands(
+                       terminal_id, command, cwd, exit_code, started_at_ms, duration_ms
+                     ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                )?;
+                for (terminal_id, command) in commands {
+                    insert.execute(params![
+                        terminal_id,
+                        command.command,
+                        command.cwd,
+                        command.exit_code,
+                        to_i64(command.started_at_ms),
+                        to_i64(command.duration_ms),
+                    ])?;
+                }
+            }
+            tx.commit()?;
+        }
+        self.expire_terminal_commands(now_ms)
     }
 
+    /// The newest `limit` unexpired rows with an id above `after_id`,
+    /// oldest first. Reads only.
     pub(crate) fn list_terminal_commands(
         &self,
-        _after_id: Option<u64>,
-        _limit: usize,
-        _now_ms: u64,
+        after_id: Option<u64>,
+        limit: usize,
+        now_ms: u64,
     ) -> anyhow::Result<CommandHistoryPage> {
-        anyhow::bail!("terminal command history store is not implemented")
+        anyhow::ensure!(
+            (1..=MAX_COMMAND_LIST_LIMIT).contains(&limit),
+            "bad request: limit must be 1...{MAX_COMMAND_LIST_LIMIT}"
+        );
+        let retention_days = self.terminal_command_retention_days()?;
+        let cutoff = expiry_cutoff(retention_days, now_ms);
+        let after = to_i64(after_id.unwrap_or(0));
+        let mut statement = self.connection.prepare_cached(
+            "SELECT id, terminal_id, command, cwd, exit_code, started_at_ms, duration_ms
+             FROM (
+               SELECT * FROM terminal_commands
+               WHERE id > ?1 AND (?3 IS NULL OR started_at_ms > ?3)
+               ORDER BY id DESC LIMIT ?2
+             )
+             ORDER BY id ASC",
+        )?;
+        // One more than asked, to tell whether older rows were left out.
+        let mut commands = statement
+            .query_map(params![after, to_i64(limit as u64 + 1), cutoff.map(to_i64)], |row| {
+                Ok(CommandHistoryRow {
+                    id: to_u64(row.get(0)?),
+                    terminal_id: row.get(1)?,
+                    command: row.get(2)?,
+                    cwd: row.get(3)?,
+                    exit_code: row.get(4)?,
+                    started_at_ms: to_u64(row.get(5)?),
+                    duration_ms: to_u64(row.get(6)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let truncated = commands.len() > limit;
+        if truncated {
+            commands.remove(0);
+        }
+        Ok(CommandHistoryPage {
+            commands,
+            truncated,
+            deletions: meta_value(&self.connection, DELETIONS_KEY)?
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0),
+            registry_id: self.registry_id.clone(),
+            retention_days,
+        })
     }
 
+    /// Runs a client delete; returns how many rows went.
     pub(crate) fn delete_terminal_commands(
         &mut self,
-        _deletion: &CommandDeletion,
+        deletion: &CommandDeletion,
     ) -> anyhow::Result<u64> {
-        anyhow::bail!("terminal command history store is not implemented")
+        if let CommandDeletion::Ids(ids) = deletion {
+            anyhow::ensure!(
+                (1..=MAX_COMMAND_DELETE_IDS).contains(&ids.len()),
+                "bad request: ids must name 1...{MAX_COMMAND_DELETE_IDS} commands"
+            );
+        }
+        let tx = self.connection.transaction()?;
+        let deleted = match deletion {
+            CommandDeletion::Ids(ids) => {
+                let mut statement =
+                    tx.prepare_cached("DELETE FROM terminal_commands WHERE id = ?1")?;
+                let mut deleted = 0;
+                for id in ids {
+                    deleted += statement.execute([to_i64(*id)])?;
+                }
+                deleted
+            }
+            CommandDeletion::StartedSince(since_ms) => tx.execute(
+                "DELETE FROM terminal_commands WHERE started_at_ms >= ?1",
+                [to_i64(*since_ms)],
+            )?,
+            CommandDeletion::All => tx.execute("DELETE FROM terminal_commands", [])?,
+        };
+        if deleted > 0 {
+            tx.execute(
+                "INSERT INTO meta(key, value) VALUES(?1, '1')
+                 ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1",
+                [DELETIONS_KEY],
+            )?;
+        }
+        tx.commit()?;
+        Ok(deleted as u64)
     }
 
+    /// Deletes rows older than the retention. Reads first, so a pass with
+    /// nothing expired writes nothing.
     pub(crate) fn expire_terminal_commands(
         &mut self,
-        _now_ms: u64,
+        now_ms: u64,
     ) -> anyhow::Result<CommandExpiry> {
-        anyhow::bail!("terminal command history store is not implemented")
+        let retention_days = self.terminal_command_retention_days()?;
+        let retention_ms = u64::from(retention_days) * DAY_MS;
+        let oldest = |registry: &Self| -> anyhow::Result<Option<u64>> {
+            let oldest: Option<i64> = registry
+                .connection
+                .query_row("SELECT MIN(started_at_ms) FROM terminal_commands", [], |row| row.get(0))
+                .optional()?
+                .flatten();
+            Ok(oldest.map(to_u64))
+        };
+        let mut deleted = 0;
+        if let (Some(cutoff), Some(oldest)) = (expiry_cutoff(retention_days, now_ms), oldest(self)?)
+            && oldest <= cutoff
+        {
+            deleted = self.connection.execute(
+                "DELETE FROM terminal_commands WHERE started_at_ms <= ?1",
+                [to_i64(cutoff)],
+            )? as u64;
+        }
+        let next_ms = oldest(self)?.map(|oldest| oldest.saturating_add(retention_ms));
+        Ok(CommandExpiry { deleted, next_ms })
     }
 
+    /// Moves deleted pages into the database file and resets the WAL, which
+    /// still holds the text of deleted rows. Never waits for readers: returns
+    /// false when one blocked it, and the caller tries again later.
     pub(crate) fn checkpoint_terminal_command_deletes(&mut self) -> anyhow::Result<bool> {
-        anyhow::bail!("terminal command history store is not implemented")
+        if self.database_path.is_none() {
+            return Ok(true);
+        }
+        self.connection.busy_timeout(Duration::ZERO)?;
+        let result = self
+            .connection
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get::<_, i64>(0));
+        self.connection.busy_timeout(REGISTRY_BUSY_TIMEOUT)?;
+        match result {
+            Ok(busy) => Ok(busy == 0),
+            Err(rusqlite::Error::SqliteFailure(error, _))
+                if error.code == rusqlite::ErrorCode::DatabaseBusy =>
+            {
+                Ok(false)
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 }
 

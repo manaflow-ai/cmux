@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0. */
+/* cmux-tui mux protocol 12, IR 72c0f53c29ece0fd385a09eda356ab009a05dd61ad60faf89e5e6413647910dc. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -812,8 +812,31 @@ export type TerminalColors = {
   "selection_fg": (ColorHex) | null;
 };
 
+export type TerminalCommandDeleteResult = {
+  "deleted": bigint;
+};
+
 export type TerminalCommandHistoryResult = {
   "enabled": boolean;
+  "retention_days": number;
+};
+
+export type TerminalCommandList = {
+  "commands": Array<TerminalCommandRecord>;
+  "deletions": string;
+  "registry_id": string;
+  "retention_days": number;
+  "truncated": boolean;
+};
+
+export type TerminalCommandRecord = {
+  "command": (string) | null;
+  "cwd": (string) | null;
+  "duration_ms": string;
+  "exit_code": (number) | null;
+  "id": string;
+  "started_at_ms": string;
+  "terminal_id": string;
 };
 
 export type TerminalEventsResult = {
