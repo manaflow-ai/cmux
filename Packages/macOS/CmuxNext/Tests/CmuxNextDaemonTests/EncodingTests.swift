@@ -128,6 +128,14 @@ import Testing
         #expect(workspace["cmd"] == .string("move-tab-to-new-workspace"))
         #expect(workspace["group"] == .string("g"))
         #expect(workspace["transaction"] == nil)
+        // A browser respawn names the page, engine and profile; never the dragged tab's URL.
+        let respawn = try object(MoveTabToSplitRespawnRequest(
+            surface: 3, pane: 4, edge: .right, respawn: .browser(url: "chrome://newtab/", engine: .cef, profileID: "work")))
+        #expect(respawn["cmd"] == .string("move-tab-to-split"))
+        #expect(respawn["respawn"]?["kind"] == .string("browser"))
+        #expect(respawn["respawn"]?["url"] == .string("chrome://newtab/"))
+        #expect(respawn["respawn"]?["engine"] == .string("cef"))
+        #expect(respawn["respawn"]?["profile_id"] == .string("work"))
         let move = try object(MoveTabRequest(surface: 3, pane: 7, index: 0, transaction: "tx"))
         #expect(move["transaction"] == .string("tx"))
         let toWorkspace = try object(MoveTabToWorkspaceRequest(surface: 3, workspace: nil))

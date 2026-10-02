@@ -30,14 +30,6 @@ extension DaemonConnection {
         try await requestNew(MoveTabToSplitRequest(surface: surface, pane: pane, edge: edge, ratio: ratio, transaction: transaction))
     }
 
-    /// `move-tab-to-split` that also spawns `respawn` in the pane the tab
-    /// leaves (`tab-split-respawn-v1`): splits a pane with its only tab.
-    @discardableResult
-    public func moveTabToSplit(_ surface: SurfaceID, pane: PaneID, edge: PaneEdge, respawn: SplitRespawn,
-                               transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
-        try await requestNew(MoveTabToSplitRespawnRequest(surface: surface, pane: pane, edge: edge, respawn: respawn, transaction: transaction))
-    }
-
     @discardableResult
     public func moveTabToColumn(_ surface: SurfaceID, target: ColumnDropTarget, afterColumn: ColumnID? = nil, width: Double? = nil,
                                 transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {

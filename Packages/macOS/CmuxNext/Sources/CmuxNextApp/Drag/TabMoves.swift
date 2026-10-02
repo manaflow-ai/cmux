@@ -31,18 +31,29 @@ enum TabMoves {
         })
     }
 
-    /// New pane on `edge` of `pane` holding the tab.
     /// The new tab a split of `tab`'s own pane spawns there when `tab` is
-    /// its only tab: the same kind, fresh. Nil when the kind cannot respawn
-    /// (remote-terminal references, app-local tabs).
-    static func respawn(for tab: TabModel) -> SplitRespawn? {
+    /// its only tab: the same kind, fresh. A terminal gets a new shell in
+    /// the dragged terminal's directory; a frontend browser tab gets the New
+    /// Tab page with the dragged tab's engine and profile. Nil when the
+    /// kind cannot respawn: remote-terminal references, daemon-rendered
+    /// browser tabs, incognito tabs (their URL must stay out of the daemon),
+    /// and app-local tabs (agent chats), which are not daemon tabs.
+    @MainActor
+    static func respawn(for tab: TabModel, in pane: PaneModel, services: AppServices) -> SplitRespawn? {
         switch tab.kind {
-        case .pty: .terminal(cwd: tab.cwd)
-        case .browser: .browser
-        default: nil
+        case .pty:
+            return .terminal(SpawnOptions(cwd: tab.cwd, workspace: services.workspaceKey(of: pane)))
+        case .browser:
+            guard tab.isFrontendOwned, let browserTabs = services.cache.browserTabs, !browserTabs.isIncognitoTab(tab.id),
+                  case .open(let choice) = browserTabs.resolve(requested: nil, inherited: tab.browserEngine)
+            else { return nil }
+            return .browser(url: services.newTabAddress(for: choice), engine: choice.engine, profileID: tab.snapshot.browserProfileID)
+        default:
+            return nil
         }
     }
 
+    /// New pane on `edge` of `pane` holding the tab.
     static func toNewSplit(_ tab: TabModel, pane: PaneModel, edge: PaneEdge, services: AppServices,
                            respawn: SplitRespawn? = nil,
                            transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
@@ -66,8 +77,8 @@ enum TabMoves {
             let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {
                     if let respawn {
-                        _ = try await connection.moveTabToSplit(surface, pane: paneHandle, edge: edge, respawn: respawn,
-                                                                transaction: echoes ? transaction : nil)
+                        try await MoveTabToSplitRespawnRequest(surface: surface, pane: paneHandle, edge: edge, respawn: respawn,
+                                                               transaction: echoes ? transaction : nil).send(on: connection)
                     } else {
                         _ = try await connection.moveTabToSplit(surface, pane: paneHandle, edge: edge, transaction: echoes ? transaction : nil)
                     }

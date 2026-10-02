@@ -19,51 +19,6 @@ public struct MoveTabToSplitRequest: DaemonRequest {
     }
 }
 
-/// The new tab a split spawns in the source pane when the dragged tab was
-/// its only one (`tab-split-respawn-v1`): the same kind, fresh (a new
-/// terminal in the dragged terminal's directory, or a new tab page), never
-/// a copy of the dragged tab's state.
-public enum SplitRespawn: Sendable, Hashable, Encodable {
-    case terminal(cwd: String?)
-    case browser
-
-    private enum CodingKeys: String, CodingKey { case kind, cwd }
-
-    public func encode(to encoder: any Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .terminal(let cwd):
-            try container.encode("terminal", forKey: .kind)
-            try container.encodeIfPresent(cwd, forKey: .cwd)
-        case .browser:
-            try container.encode("browser", forKey: .kind)
-        }
-    }
-}
-
-/// `move-tab-to-split` with `respawn`: one owner op that moves the tab into
-/// a new pane beside its own pane and spawns `respawn` in the pane it left.
-/// It can launch a terminal host, so it uses the spawn deadline.
-public struct MoveTabToSplitRespawnRequest: TerminalSpawningRequest {
-    public typealias Response = TabMoveResult
-    public static let command = "move-tab-to-split"
-    public var surface: SurfaceID
-    public var pane: PaneID
-    public var edge: PaneEdge
-    public var ratio: Double?
-    public var respawn: SplitRespawn
-    public var transaction: ClientTransactionID?
-    public init(surface: SurfaceID, pane: PaneID, edge: PaneEdge, ratio: Double? = nil, respawn: SplitRespawn,
-                transaction: ClientTransactionID? = nil) {
-        self.surface = surface
-        self.pane = pane
-        self.edge = edge
-        self.ratio = ratio
-        self.respawn = respawn
-        self.transaction = transaction
-    }
-}
-
 /// Destination screen of a column drop: named directly or by any of its panes.
 public enum ColumnDropTarget: Sendable, Hashable {
     case screen(ScreenID)

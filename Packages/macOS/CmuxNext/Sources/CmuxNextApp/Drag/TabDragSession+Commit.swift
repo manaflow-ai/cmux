@@ -64,7 +64,7 @@ extension TabDragSession {
             guard let pane = paneModel(id: paneID) else { return settle(false) }
             // The tab's own pane with its only tab: the owner spawns a fresh
             // tab of the same kind there in the same op.
-            let respawn = liveContext(drag).splitRespawns(pane: paneID) ? TabMoves.respawn(for: tab) : nil
+            let respawn = liveContext(drag).splitRespawns(pane: paneID) ? TabMoves.respawn(for: tab, in: pane, services: services) : nil
             TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, respawn: respawn, transaction: transaction,
                                 completion: settle)
         case .newColumn(let screenID, let after):
