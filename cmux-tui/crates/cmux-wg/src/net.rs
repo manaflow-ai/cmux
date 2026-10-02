@@ -15,6 +15,7 @@ use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::task::Poll;
 use std::time::Duration;
 
 use boringtun::noise::{Tunn, TunnResult};
@@ -405,6 +406,8 @@ struct Driver {
 
 enum Event {
     Datagram(usize, Origin),
+    /// The underlay drained its backlog: data may flow again.
+    Drained,
     DatagramError(io::Error),
     Command(Option<Command>),
     Wake,
@@ -509,11 +512,18 @@ impl Driver {
                     None => std::future::pending::<()>().await,
                 }
             };
+            let backlogged = self.underlay.backlogged();
             let underlay = &mut self.underlay;
-            let received = std::future::poll_fn(|cx| underlay.poll_recv(cx, &mut datagram));
+            let io = std::future::poll_fn(|cx| {
+                if backlogged && underlay.poll_flush(cx).is_ready() {
+                    return Poll::Ready(Ok(None));
+                }
+                underlay.poll_recv(cx, &mut datagram).map_ok(Some)
+            });
             let event = tokio::select! {
-                received = received => match received {
-                    Ok(received) => Event::Datagram(received.len, received.origin),
+                io = io => match io {
+                    Ok(Some(received)) => Event::Datagram(received.len, received.origin),
+                    Ok(None) => Event::Drained,
                     Err(error) => Event::DatagramError(error),
                 },
                 command = self.commands.recv() => Event::Command(command),
@@ -536,7 +546,7 @@ impl Driver {
                     return;
                 }
                 Event::Command(Some(command)) => self.handle_command(command),
-                Event::Wake | Event::StackDeadline => {}
+                Event::Wake | Event::StackDeadline | Event::Drained => {}
                 Event::Tick => {
                     self.schedule.on_tick(Instant::now());
                     self.update_timers();
@@ -610,9 +620,14 @@ impl Driver {
         }
     }
 
+    /// Encrypt and send what smoltcp emitted, until the underlay backs up.
+    /// What is left stays in the device queue, which then refuses smoltcp
+    /// more packets: TCP waits instead of losing segments.
     fn flush_tx(&mut self) {
         let mut sent = false;
-        while let Some(packet) = self.device.pop_tx() {
+        while !self.underlay.backlogged()
+            && let Some(packet) = self.device.pop_tx()
+        {
             if let TunnResult::WriteToNetwork(encrypted) =
                 self.tunn.encapsulate(&packet, &mut self.scratch)
             {

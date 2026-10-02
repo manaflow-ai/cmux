@@ -18,10 +18,11 @@ use cmux_transport::PathId;
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 
-/// Datagrams kept while a socket is temporarily unwritable. UDP send
-/// readiness is edge-triggered by Tokio; the driver retries the queue on its
-/// next pass instead of silently losing a handshake.
-const SEND_QUEUE_DEPTH: usize = 64;
+/// Datagrams kept while a socket is unwritable. The driver stops feeding
+/// data the moment anything is queued and waits for writability, so the
+/// queue holds at most one TCP segment plus the odd handshake or keepalive;
+/// the bound only guards memory against a socket that never drains.
+const SEND_QUEUE_DEPTH: usize = 1024;
 
 /// Where a received datagram came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,15 +42,31 @@ pub struct Received {
 
 /// A carrier of one peer's encrypted datagrams.
 ///
-/// Every method is non-blocking. `send` either hands the datagram to the
-/// carrier, queues it for [`Underlay::flush`], or drops it; WireGuard and TCP
-/// above recover from loss.
+/// Every method is non-blocking. `send` hands the datagram to the carrier or
+/// queues it; while anything is queued the carrier is [`backlogged`] and the
+/// driver sends no more data until [`poll_flush`] drains it. A carrier must
+/// not drop what it queued: a lost datagram costs TCP a retransmission
+/// timeout.
+///
+/// [`backlogged`]: Underlay::backlogged
+/// [`poll_flush`]: Underlay::poll_flush
 pub trait Underlay: Send + 'static {
     /// Send one datagram toward the peer.
     fn send(&mut self, datagram: &[u8]);
 
     /// Retry datagrams queued while the carrier was unwritable.
     fn flush(&mut self) {}
+
+    /// Whether datagrams wait for the carrier to become writable.
+    fn backlogged(&self) -> bool {
+        false
+    }
+
+    /// Send queued datagrams as the carrier becomes writable; ready once
+    /// nothing is queued.
+    fn poll_flush(&mut self, _cx: &mut Context<'_>) -> Poll<()> {
+        Poll::Ready(())
+    }
 
     /// Receive the next datagram into `buffer`.
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>>;
@@ -147,6 +164,8 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
         if !self.pending.is_empty() {
             if self.pending.len() < SEND_QUEUE_DEPTH {
                 self.pending.push_back((datagram.to_vec(), peer));
+            } else {
+                eprintln!("wireguard UDP send to {peer} dropped: the socket never drained");
             }
             return;
         }
@@ -172,6 +191,36 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
                 }
             }
         }
+    }
+
+    fn backlogged(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
+    fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        while let Some((datagram, peer)) = self.pending.front() {
+            match self.socket.poll_send_ready(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(error)) => {
+                    eprintln!("wireguard UDP socket failed: {error}");
+                    self.pending.clear();
+                    break;
+                }
+                Poll::Ready(Ok(())) => {}
+            }
+            match self.socket.try_send_to(datagram, *peer) {
+                Ok(_) => {
+                    self.pending.pop_front();
+                }
+                // Readiness was stale; the next poll registers interest.
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                Err(error) => {
+                    eprintln!("wireguard UDP send to {peer} failed: {error}");
+                    self.pending.pop_front();
+                }
+            }
+        }
+        Poll::Ready(())
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {

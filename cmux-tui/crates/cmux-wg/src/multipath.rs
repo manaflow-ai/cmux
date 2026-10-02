@@ -62,6 +62,19 @@ impl Shared {
     fn slot_mut(&mut self, id: PathId) -> Option<&mut Slot> {
         self.slots.iter_mut().find(|slot| slot.id == id)
     }
+
+    /// Whether a path the next datagram would take is backlogged: the
+    /// current path, or any path while datagrams go on every path. A
+    /// backlog on a path not in use never holds the session back.
+    fn backlogged(&self) -> bool {
+        let current = self.selector.current();
+        let targeted = current.is_some_and(|id| self.slots.iter().any(|slot| slot.id == id));
+        self.slots.iter().any(|slot| {
+            !slot.failed
+                && (!targeted || Some(slot.id) == current)
+                && slot.carrier.backlogged()
+        })
+    }
 }
 
 /// The driver's half: an [`Underlay`] over every path of one peer.
@@ -177,6 +190,19 @@ impl Underlay for Multipath {
         for slot in &mut lock(&self.shared).slots {
             slot.carrier.flush();
         }
+    }
+
+    fn backlogged(&self) -> bool {
+        lock(&self.shared).backlogged()
+    }
+
+    fn poll_flush(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        let mut shared = lock(&self.shared);
+        for slot in &mut shared.slots {
+            // Every path drains, but only the ones in use decide readiness.
+            let _ = slot.carrier.poll_flush(cx);
+        }
+        if shared.backlogged() { Poll::Pending } else { Poll::Ready(()) }
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
