@@ -180,11 +180,6 @@ nonisolated enum CatalogArgument {
                        kind: .enumeration([choice("webkit"), choice("cef")]), isRequired: false)
     }
 
-    /// An absolute file path (`file.open`).
-    static var pathString: ActionArgument {
-        ActionArgument(name: "path", title: String(localized: "argument.path", defaultValue: "Path", bundle: .module), kind: .string)
-    }
-
     /// Where `file.open` opens a file: a tab in the pane, or the text editor.
     /// Without it, a tab.
     static var whereChoice: ActionArgument {
