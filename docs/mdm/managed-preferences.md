@@ -22,6 +22,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.newColumnWidth` | string | `"matchCurrent"` | `matchCurrent`, `fitScreen`, `fixed` | New Column Sizing |
 | `layout.stickyColumnEdge` | string | `"right"` | `right`, `left` | Sticky Column Edge |
 | `layout.stickyColumnMode` | string | `"docked"` | `docked`, `overlay` | Sticky Column Mode |
+| `layout.frameOrientation` | string | `"columnMajor"` | `columnMajor`, `rowMajor` | Dock Corners |
 | `layout.minimumPaneWidth` | real | `200` | 80 to 800 | Minimum Pane Width |
 | `layout.minimumPaneHeight` | real | `64` | 32 to 600 | Minimum Pane Height |
 | `appearance.density` | string | `"compact"` | `compact`, `comfortable` | Density |

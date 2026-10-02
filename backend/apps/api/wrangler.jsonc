@@ -18,10 +18,13 @@
       { "name": "CONNECTION_DO", "class_name": "ConnectionDO" },
       { "name": "ACCOUNT_INDEX_DO", "class_name": "AccountIndexDO" },
       { "name": "FEED_DO", "class_name": "FeedDO" },
-      { "name": "DOMAIN_DO", "class_name": "DomainDO" }
+          { "name": "CONVERSATION_DO", "class_name": "ConversationDO" },
+          { "name": "MUX_DO", "class_name": "MuxDO" },
+          { "name": "ADDRESS_DO", "class_name": "AddressDO" },
+          { "name": "DOMAIN_DO", "class_name": "DomainDO" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }],
   "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1101", "simple": { "limit": 30, "period": 60 } }],
   "workflows": [{ "name": "cmux-automation-run-local", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
   "env": {
@@ -36,11 +39,14 @@
           { "name": "CONNECTION_DO", "class_name": "ConnectionDO" },
           { "name": "ACCOUNT_INDEX_DO", "class_name": "AccountIndexDO" },
           { "name": "FEED_DO", "class_name": "FeedDO" },
-      { "name": "DOMAIN_DO", "class_name": "DomainDO" }
+          { "name": "CONVERSATION_DO", "class_name": "ConversationDO" },
+          { "name": "MUX_DO", "class_name": "MuxDO" },
+          { "name": "ADDRESS_DO", "class_name": "AddressDO" },
+          { "name": "DOMAIN_DO", "class_name": "DomainDO" }
         ]
       },
       "workflows": [{ "name": "cmux-automation-run-development", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }],
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }],
       "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1101", "simple": { "limit": 30, "period": 60 } }],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "395af91311c0494a91da6876b0df6d49" }]
     },
@@ -56,11 +62,14 @@
           { "name": "CONNECTION_DO", "class_name": "ConnectionDO" },
           { "name": "ACCOUNT_INDEX_DO", "class_name": "AccountIndexDO" },
           { "name": "FEED_DO", "class_name": "FeedDO" },
-      { "name": "DOMAIN_DO", "class_name": "DomainDO" }
+          { "name": "CONVERSATION_DO", "class_name": "ConversationDO" },
+          { "name": "MUX_DO", "class_name": "MuxDO" },
+          { "name": "ADDRESS_DO", "class_name": "AddressDO" },
+          { "name": "DOMAIN_DO", "class_name": "DomainDO" }
         ]
       },
       "workflows": [{ "name": "cmux-automation-run-staging", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }],
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }],
       "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1102", "simple": { "limit": 30, "period": 60 } }],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9761093781aa4d6f8a1ad00848663266" }],
       "routes": [{ "pattern": "cloud-api-staging.cmux.dev", "custom_domain": true }]
@@ -77,11 +86,14 @@
           { "name": "CONNECTION_DO", "class_name": "ConnectionDO" },
           { "name": "ACCOUNT_INDEX_DO", "class_name": "AccountIndexDO" },
           { "name": "FEED_DO", "class_name": "FeedDO" },
-      { "name": "DOMAIN_DO", "class_name": "DomainDO" }
+          { "name": "CONVERSATION_DO", "class_name": "ConversationDO" },
+          { "name": "MUX_DO", "class_name": "MuxDO" },
+          { "name": "ADDRESS_DO", "class_name": "AddressDO" },
+          { "name": "DOMAIN_DO", "class_name": "DomainDO" }
         ]
       },
       "workflows": [{ "name": "cmux-automation-run-production", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }],
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }],
       "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1103", "simple": { "limit": 30, "period": 60 } }],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "ef387ca3b20b4ea7878e02746d9545ef" }],
       "routes": [{ "pattern": "cloud-api.cmux.dev", "custom_domain": true }]

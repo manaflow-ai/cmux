@@ -3,7 +3,7 @@ public import CoreGraphics
 
 /// Column and split defaults in cmux.json (plans/cmux-next/column-sizing.md):
 /// `layout.splitSizing`, `layout.newColumnWidth`, `layout.stickyColumnEdge`,
-/// `layout.stickyColumnMode`, `layout.minimumPaneWidth`,
+/// `layout.stickyColumnMode`, `layout.frameOrientation`, `layout.minimumPaneWidth`,
 /// `layout.minimumPaneHeight`. A missing key is the default with no
 /// diagnostic; a bad value is the default plus a diagnostic.
 public nonisolated enum ColumnLayoutSettings {
@@ -11,6 +11,7 @@ public nonisolated enum ColumnLayoutSettings {
     public static let newColumnWidthPath = ["layout", "newColumnWidth"]
     public static let stickyEdgePath = ["layout", "stickyColumnEdge"]
     public static let stickyModePath = ["layout", "stickyColumnMode"]
+    public static let frameOrientationPath = ["layout", "frameOrientation"]
     public static let minimumPaneWidthPath = ["layout", "minimumPaneWidth"]
     public static let minimumPaneHeightPath = ["layout", "minimumPaneHeight"]
 
@@ -18,6 +19,7 @@ public nonisolated enum ColumnLayoutSettings {
     public static let newColumnWidthFallback: NewColumnWidthMode = .matchCurrent
     public static let stickyEdgeFallback: StickyDefaultEdge = .right
     public static let stickyModeFallback: StickyDefaultMode = .docked
+    public static let frameOrientationFallback: FrameOrientation = .columnMajor
     public static let minimumPaneWidthFallback: Double = 200
     public static let minimumPaneHeightFallback: Double = 64
     public static let minimumPaneWidthRange: ClosedRange<Double> = 80...800
@@ -68,6 +70,7 @@ public nonisolated enum ColumnLayoutSettings {
         if let fixed { snapshot.defaultColumnWidth = fixed }
         snapshot.stickyColumnEdge = choice(root, stickyEdgePath, fallback: stickyEdgeFallback, diagnostics: &diagnostics)
         snapshot.stickyColumnMode = choice(root, stickyModePath, fallback: stickyModeFallback, diagnostics: &diagnostics)
+        snapshot.frameOrientation = choice(root, frameOrientationPath, fallback: frameOrientationFallback, diagnostics: &diagnostics)
         let width = number(root, minimumPaneWidthPath, fallback: minimumPaneWidthFallback, range: minimumPaneWidthRange, diagnostics: &diagnostics)
         let height = number(root, minimumPaneHeightPath, fallback: minimumPaneHeightFallback, range: minimumPaneHeightRange,
                             diagnostics: &diagnostics)

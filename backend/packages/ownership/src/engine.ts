@@ -58,6 +58,8 @@ export interface EngineOptions {
     readonly params?: (op: string, params: unknown) => unknown
     readonly state?: (state: unknown) => unknown
     readonly row?: (table: string, row: unknown) => unknown
+    /** Tables whose writes never leave the owner (their keys may be secrets, for example token hashes). */
+    readonly privateTables?: ReadonlyArray<string>
   }
   /** What subscribers see of the actor in events. Default: the full principal. */
   readonly eventActor?: (p: Principal) => Principal
@@ -225,7 +227,7 @@ export class OwnerEngine<S, P = unknown> {
     // 4. Commit (state, rows, ledger, events, outbox) in one transaction, then publish.
     const changed = decision.ok && decision.changed
     const nextSeq = changed ? this.seq + 1 : this.seq
-    const effects = changed && decision.ok && this.options.rowMode ? { state: this.redactState(decision.state), writes: decision.writes.map((w) => this.redactWrite(w)) } : undefined
+    const effects = changed && decision.ok && this.options.rowMode ? { state: this.redactState(decision.state), writes: this.publicWrites(decision.writes) } : undefined
     const event: EventFrame | undefined = changed
       ? {
           t: "event",
@@ -321,7 +323,7 @@ export class OwnerEngine<S, P = unknown> {
       : this.sql.exec<{ idempotency_key: string; ok: number; sequence: number }>(`SELECT idempotency_key, ok, sequence FROM ${this.t.ledger} WHERE identity = ? ORDER BY created_at`, identity)
     const decided: Array<DecidedKey> = rows.map((r) => ({ idempotency_key: r.idempotency_key, ok: Number(r.ok) === 1, sequence: Number(r.sequence) }))
     const mode = this.options.rowMode
-    const tail = mode
+    const tail = mode && !this.options.redact?.privateTables?.includes(mode.snapshotTable)
       ? {
           table: mode.snapshotTable,
           rows: this.rows
@@ -335,6 +337,12 @@ export class OwnerEngine<S, P = unknown> {
 
   private redactState(state: S): unknown {
     return this.options.redact?.state ? this.options.redact.state(state) : state
+  }
+
+  /** Writes subscribers may see: private tables dropped, row values redacted. */
+  private publicWrites(writes: ReadonlyArray<RowWrite>): Array<RowWrite> {
+    const hidden = this.options.redact?.privateTables
+    return writes.filter((w) => !hidden?.includes(w.table)).map((w) => this.redactWrite(w))
   }
 
   private redactWrite(w: RowWrite): RowWrite {

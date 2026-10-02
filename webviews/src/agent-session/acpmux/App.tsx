@@ -25,6 +25,7 @@ import { ScrollPacing } from "./pacing";
 import { Composer } from "./Composer";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
+import { HomeLists } from "./HomeLists";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import { DiffPanel } from "./DiffPanel";
@@ -1042,6 +1043,12 @@ function AcpmuxPane() {
         {snapshot.permission?.pending && (
           <div className="acpmux-permission">
             <PermissionCard permission={snapshot.permission} />
+          </div>
+        )}
+        {/* Between the hero and the docked composer. */}
+        {freshChat && (
+          <div className="acpmux-home-area">
+            <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
           </div>
         )}
         <Composer
