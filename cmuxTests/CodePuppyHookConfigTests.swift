@@ -20,7 +20,7 @@ struct CodePuppyHookConfigTests {
                 ["type": "command", "command": userCommand],
                 ["type": "command", "command": "cmux hooks code-puppy stop"],
             ],
-        ]]]]
+        ], ["matcher": "user-empty", "hooks": [], "custom": "preserve"]]]]
         try JSONSerialization.data(withJSONObject: legacyConfig).write(to: hookURL)
 
         let install = runCodexHookProcess(
@@ -30,6 +30,7 @@ struct CodePuppyHookConfigTests {
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
+            "XDG_CONFIG_HOME": "",
             ],
             timeout: 10
         )
@@ -46,11 +47,21 @@ struct CodePuppyHookConfigTests {
         let stop = try #require(hooks["Stop"] as? [[String: Any]])
         let commands = stop.flatMap { ($0["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String } }
         #expect(commands == [userCommand])
+        #expect(stop.contains { $0["matcher"] as? String == "user-empty" && $0["custom"] as? String == "preserve" })
+
+        let repeatInstall = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "pup", "install", "--yes"],
+            environment: ["HOME": root.path, "PATH": "/usr/bin:/bin", "CMUX_CLI_SENTRY_DISABLED": "1", "XDG_CONFIG_HOME": ""],
+            timeout: 10
+        )
+        #expect(repeatInstall.status == 0, Comment(rawValue: repeatInstall.stderr))
+        #expect(try Data(contentsOf: registryURL) == JSONSerialization.data(withJSONObject: registry, options: [.prettyPrinted, .sortedKeys]))
 
         let uninstall = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "code-puppy", "uninstall"],
-            environment: ["HOME": root.path, "PATH": "/usr/bin:/bin", "CMUX_CLI_SENTRY_DISABLED": "1"],
+            environment: ["HOME": root.path, "PATH": "/usr/bin:/bin", "CMUX_CLI_SENTRY_DISABLED": "1", "XDG_CONFIG_HOME": ""],
             timeout: 10
         )
         #expect(uninstall.status == 0, Comment(rawValue: uninstall.stderr))

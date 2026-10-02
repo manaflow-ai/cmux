@@ -10,8 +10,8 @@ struct CLICodePuppyLiveStatusTests {
 
     @Test(arguments: [
         ("prompt-submit", "UserPromptSubmit", "Running"),
-        ("tool-start", "PreToolUse", "read_file"),
-        ("tool-end", "PostToolUse", "Running"),
+        ("pre-tool-use", "PreToolUse", "read_file"),
+        ("post-tool-use", "PostToolUse", "Running"),
         ("stop", "Stop", "Idle"),
         ("stop", "SubagentStop", "Idle"),
         ("stop", "Stop", "Code Puppy error"),
@@ -21,6 +21,9 @@ struct CLICodePuppyLiveStatusTests {
         let context = try Harness.makeContext(name: "puppy-status")
         defer { context.cleanup() }
         let sessionID = "puppy-turn"
+        let autosaves = context.root.appendingPathComponent(".code_puppy/autosaves")
+        try FileManager.default.createDirectory(at: autosaves, withIntermediateDirectories: true)
+        try Data("durable session fixture".utf8).write(to: autosaves.appendingPathComponent(sessionID + ".pkl"))
         let storeURL = context.root.appendingPathComponent("code-puppy-hook-sessions.json")
         let record: [String: Any] = [
             "sessionId": sessionID, "workspaceId": Self.workspace, "surfaceId": Self.surface,

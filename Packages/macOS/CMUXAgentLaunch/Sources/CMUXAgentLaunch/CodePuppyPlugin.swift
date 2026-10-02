@@ -122,13 +122,6 @@ public enum CodePuppyPlugin {
         await asyncio.to_thread(_send_sync, ["hooks", "code-puppy", subcommand], payload)
 
 
-    async def _feed(event, **fields):
-        if not _enabled() or not _session:
-            return
-        payload = dict(session_id=_session, hook_event_name=event, cwd=os.getcwd(), **fields)
-        await asyncio.to_thread(_send_sync, ["hooks", "feed", "--source", "code-puppy", "--event", event], payload)
-
-
     async def _on_start(agent_name, model_name, session_id=None):
         global _session
         if not _enabled():
@@ -168,7 +161,6 @@ public enum CodePuppyPlugin {
             return
         fields = dict(tool_name=tool_name, tool_input=tool_args)
         await _send("pre-tool-use", "PreToolUse", **fields)
-        await _feed("PreToolUse", **fields)
 
 
     async def _on_post(tool_name, tool_args, result, duration_ms, context=None):
@@ -176,7 +168,6 @@ public enum CodePuppyPlugin {
             return
         fields = dict(tool_name=tool_name, tool_input=tool_args, tool_duration_ms=duration_ms)
         await _send("post-tool-use", "PostToolUse", **fields)
-        await _feed("PostToolUse", **fields)
 
 
     async def _on_shutdown():

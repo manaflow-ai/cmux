@@ -68,11 +68,11 @@ struct CodePuppyAgentRegistrationTests {
         #expect(registration.argumentNeedles == ["code-puppy", "code_puppy"])
         #expect(registration.lifecycleEvents.map(\.agentEvent) == [
             "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-            "Stop", "SubagentStop", "Notification", "SessionEnd",
+            "Stop", "Notification", "SessionEnd",
         ])
         #expect(registration.lifecycleEvents.map(\.cmuxSubcommand) == [
-            "session-start", "prompt-submit", "tool-start", "tool-end",
-            "stop", "stop", "notification", "session-end",
+            "session-start", "prompt-submit", "pre-tool-use", "post-tool-use",
+            "stop", "notification", "session-end",
         ])
         #expect(registration.feedEvents.isEmpty)
         for event in registration.lifecycleEvents {

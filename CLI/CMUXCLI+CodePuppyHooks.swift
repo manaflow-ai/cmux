@@ -173,7 +173,11 @@ extension CMUXCLI {
                 let remaining = entries.filter {
                     !Self.isCmuxOwnedHookCommand($0["command"] as? String ?? "", for: def)
                 }
-                changed = changed || remaining.count != entries.count
+                guard remaining.count != entries.count else {
+                    retained.append(group)
+                    continue
+                }
+                changed = true
                 if !remaining.isEmpty {
                     group["hooks"] = remaining
                     retained.append(group)

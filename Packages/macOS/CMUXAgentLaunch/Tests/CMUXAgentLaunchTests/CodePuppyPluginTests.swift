@@ -71,22 +71,22 @@ async def exercise():
     await registered['agent_run_end']('code-puppy','model','uuid-root',False,RuntimeError('oops'),None,{})
     await registered['shutdown']()
 asyncio.run(exercise())
-assert [argv[-1] for argv,payload,env in calls] == ['session-start','prompt-submit','pre-tool-use','PreToolUse','post-tool-use','PostToolUse','stop','session-end']
+assert [argv[-1] for argv,payload,env in calls] == ['session-start','prompt-submit','pre-tool-use','post-tool-use','stop','session-end']
 assert all(payload['session_id'] == 'auto_session_actual' for _,payload,_ in calls)
 assert all(env['CMUX_CODE_PUPPY_PID'] == 'parent-pid' for _,_,env in calls)
-assert calls[6][1]['success'] is False and calls[6][1]['error'] == 'oops'
-assert calls[6][1]['type'] == 'error'
+assert calls[4][1]['success'] is False and calls[4][1]['error'] == 'oops'
+assert calls[4][1]['type'] == 'error'
 assert calls[0][0][0] == sys.argv[2] and calls[0][0][1:3] == ['--socket','/tagged socket']
 os.environ['CMUX_CODE_PUPPY_HOOKS_DISABLED'] = '1'
-asyncio.run(exercise()); assert len(calls) == 8
+asyncio.run(exercise()); assert len(calls) == 6
 os.environ.pop('CMUX_CODE_PUPPY_HOOKS_DISABLED'); os.environ.pop('CMUX_SURFACE_ID')
-asyncio.run(exercise()); assert len(calls) == 8
+asyncio.run(exercise()); assert len(calls) == 6
 os.environ['CMUX_SURFACE_ID'] = 'surface'; os.environ['CMUX_AGENT_MANAGED_SUBAGENT'] = '1'
-asyncio.run(exercise()); assert len(calls) == 8
+asyncio.run(exercise()); assert len(calls) == 6
 os.environ.pop('CMUX_AGENT_MANAGED_SUBAGENT')
 os.environ['CMUX_BUNDLED_CLI_PATH'] = '/ambient'; os.environ['CMUX_SOCKET_PATH'] = '/ambient.sock'
-asyncio.run(exercise()); assert len(calls) == 16
-assert calls[8][0][:3] == ['/ambient','--socket','/ambient.sock']
+asyncio.run(exercise()); assert len(calls) == 12
+assert calls[6][0][:3] == ['/ambient','--socket','/ambient.sock']
 def unavailable(*args, **kwargs): raise OSError('not installed')
 module.subprocess.run = unavailable
 asyncio.run(exercise())
