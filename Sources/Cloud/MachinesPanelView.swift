@@ -38,7 +38,8 @@ struct MachinesPanelView: View {
         devicesModel: DevicesPanelViewModel? = nil,
         tabManager: TabManager? = nil,
         teamPickerPresentation: CloudTeamPickerPresentation? = nil,
-        activationCoordinator: CloudActivationCoordinator
+        activationCoordinator: CloudActivationCoordinator,
+        viewModel: MachinesPanelViewModel? = nil
     ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
@@ -48,7 +49,7 @@ struct MachinesPanelView: View {
             initialValue: AppDelegate.shared?.cloudBannerDismissalStore
                 ?? CloudBannerDismissalStore(defaults: .standard)
         )
-        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
+        _viewModel = StateObject(wrappedValue: viewModel ?? MachinesPanelViewModel(
             machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
                 guard let tabManager else { return [] }
@@ -238,7 +239,7 @@ struct MachinesPanelView: View {
         return status
     }
 
-    private var controlBar: some View {
+    var controlBar: some View {
         HStack(spacing: 0) {
             CloudTeamPickerHeader(
                 accountFlow: accountFlow,
