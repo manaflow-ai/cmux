@@ -20,6 +20,7 @@ import {
   NeedsInputIcon,
   NewChatIcon,
   PullIcon,
+  SearchIcon,
   WorkingIcon,
   WorktreeIcon,
 } from "./sidebarIcons";
@@ -64,8 +65,9 @@ export function SessionSidebar({
   account?: SidebarAccount;
 }) {
   const [view, setView] = useState<SidebarView>("sessions");
-  // Kept here so expanded projects survive a trip to another rail view.
+  // Kept here so expanded projects and a search survive a trip to another rail view.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
   const needsInput = useMemo(
     () => sessions.some((session) => sessionMark(session, session.sessionId === selectedId) === "input"),
     [sessions, selectedId],
@@ -109,6 +111,8 @@ export function SessionSidebar({
               selectedId={selectedId}
               onSelect={onSelect}
               onNewChat={onNewChat}
+              query={query}
+              onQuery={setQuery}
               expanded={expanded}
               onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
             />
@@ -167,6 +171,8 @@ function SessionsView({
   selectedId,
   onSelect,
   onNewChat,
+  query,
+  onQuery,
   expanded,
   onExpand,
 }: {
@@ -174,6 +180,8 @@ function SessionsView({
   selectedId?: string;
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
+  query: string;
+  onQuery: (query: string) => void;
   expanded: Set<string>;
   onExpand: (groupKey: string) => void;
 }) {
@@ -183,7 +191,8 @@ function SessionsView({
       <span>New chat</span>
     </button>
   );
-  const { pinned, groups } = useMemo(() => sidebarSections(sessions), [sessions]);
+  const searching = query.trim() !== "";
+  const { pinned, groups } = useMemo(() => sidebarSections(sessions, query), [sessions, query]);
   if (sessions.length === 0)
     return (
       <>
@@ -193,9 +202,37 @@ function SessionsView({
     );
   // Section labels only earn their place when both sections show.
   const labelled = pinned.length > 0 && groups.length > 0;
+  // Escape clears a query first; with the field empty it reaches the overlay, which closes.
+  const onSearchKey = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Escape") return;
+    // During IME composition Escape cancels the composition, and closes nothing.
+    // WebKit can end the composition before this keydown, which then reports only keyCode 229.
+    const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229;
+    if (!composing && !query) return;
+    event.stopPropagation();
+    if (!composing) onQuery("");
+  };
   return (
     <>
       {newChat}
+      <search className="acpmux-sidebar-search">
+        <label>
+          <SearchIcon />
+          <input
+            type="search"
+            aria-label="Search sessions"
+            placeholder="Search"
+            spellCheck={false}
+            value={query}
+            onChange={(event) => onQuery(event.target.value)}
+            onKeyDown={onSearchKey}
+          />
+        </label>
+      </search>
+      {/* Always present, so a screen reader announces the text when it appears. */}
+      <output className="acpmux-sidebar-empty">
+        {pinned.length === 0 && groups.length === 0 ? "No matching sessions" : ""}
+      </output>
       {pinned.length > 0 && (
         <section className="acpmux-sidebar-pinned" aria-label="Pinned">
           {labelled && (
@@ -223,7 +260,8 @@ function SessionsView({
             </div>
           )}
           {groups.map((group) => {
-            const { rows, hidden } = visibleSessions(group, expanded.has(group.key), selectedId);
+            // A search shows every match, so it never hides rows behind "Show more".
+            const { rows, hidden } = visibleSessions(group, searching || expanded.has(group.key), selectedId);
             const mark = groupMark(group, selectedId);
             return (
               <section className="acpmux-sidebar-group" key={group.key}>
