@@ -40,21 +40,21 @@ pub fn split_global(args: &[String]) -> Result<(Global, Vec<String>), String> {
             "-h" | "--help" => global.help = true,
             a if a == "--team" || a.starts_with("--team=") => global.team = Some(value_of("team")?),
             a if a == "--data" || a.starts_with("--data=") => {
-                global.data = Some(value_of("data")?.into())
+                global.data = Some(value_of("data")?.into());
             }
             a if a == "--idempotency-key" || a.starts_with("--idempotency-key=") => {
-                global.key = Some(value_of("idempotency-key")?)
+                global.key = Some(value_of("idempotency-key")?);
             }
             a if a == "--key-prefix" || a.starts_with("--key-prefix=") => {
-                global.key_prefix = Some(value_of("key-prefix")?)
+                global.key_prefix = Some(value_of("key-prefix")?);
             }
             a if a == "--count" || a.starts_with("--count=") => {
                 global.count =
-                    Some(value_of("count")?.parse().map_err(|_| "--count takes a number")?)
+                    Some(value_of("count")?.parse().map_err(|_| "--count takes a number")?);
             }
             a if a == "--timeout" || a.starts_with("--timeout=") => {
                 global.timeout =
-                    Some(value_of("timeout")?.parse().map_err(|_| "--timeout takes seconds")?)
+                    Some(value_of("timeout")?.parse().map_err(|_| "--timeout takes seconds")?);
             }
             _ => rest.push(arg.clone()),
         }

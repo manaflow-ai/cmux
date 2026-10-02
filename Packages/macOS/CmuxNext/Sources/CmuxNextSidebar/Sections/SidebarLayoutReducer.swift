@@ -79,10 +79,13 @@ public nonisolated enum SidebarLayoutReducer {
         }
         if let look = patch.look { sections[s].look = look }
         if let showsTitle = patch.showsTitle { sections[s].showsTitle = showsTitle }
-        if let arrangement = patch.arrangement {
-            guard arrangement.isValid else { throw SidebarLayoutReject.invalidArrangement }
-            sections[s].arrangement = arrangement
-        }
+        var arrangement = sections[s].arrangement
+        if let layout = patch.layout { arrangement.layout = layout }
+        if let align = patch.align { arrangement.align = align }
+        if let gap = patch.gap { arrangement.gap = gap.value }
+        if let columns = patch.columns { arrangement.columns = columns.value }
+        guard arrangement.isValid else { throw SidebarLayoutReject.invalidArrangement }
+        sections[s].arrangement = arrangement
         if let room = patch.room {
             // L1: the workspace list shows in every room.
             if sections[s].content == .workspaces, room.value != nil { throw SidebarLayoutReject.workspacesRequired }

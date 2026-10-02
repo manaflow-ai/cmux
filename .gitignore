@@ -79,3 +79,7 @@ tmux-*.log
 # Remote-only Blacksmith cmux-tui benchmark output
 /testbox-benchmark/
 /.cmux-scratch/
+
+# Local-only prototype and deploy state
+/Prototypes/codex-atlas-clone/
+/.cloudflare/

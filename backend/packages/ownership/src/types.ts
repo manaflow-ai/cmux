@@ -21,6 +21,8 @@ export interface Principal {
   readonly stack_user_id?: string
   readonly email?: string | null
   readonly display_name?: string
+  /** The install's registered kind (mac, ios, web, cli, daemon, vm), resolved by UserDO with the grant. */
+  readonly install_kind?: string
   /** Op classes of the principal's grant, resolved by the grant's owner (UserDO) for other owners. */
   readonly grant_classes?: ReadonlyArray<string>
   /** Token expiry (ms); long-lived connections close at this time. */
@@ -121,6 +123,8 @@ export interface OutboxItem {
 
 export interface ReduceContext {
   readonly principal: Principal
+  /** The request's channel (view-state rules, and owners that accept some ops only from a person). */
+  readonly origin?: Origin
   readonly now: number
   readonly tx: string
   /** Deterministic id from the transaction, so mirror replay reproduces it. */

@@ -35,6 +35,13 @@ final class UnreadBadgeView: NSView {
         needsLayout = true
     }
 
+    /// Width of a count badge for `count` (without a view).
+    static func width(count: Int) -> CGFloat {
+        let text = count > 99 ? "99+" : String(count)
+        let size = (text as NSString).size(withAttributes: [.font: SidebarStyle.badgeFont])
+        return max(SidebarStyle.badgeHeight + Metrics.space2, ceil(size.width) + Metrics.space4)
+    }
+
     /// Width this badge wants at the given height.
     var preferredWidth: CGFloat {
         switch state {

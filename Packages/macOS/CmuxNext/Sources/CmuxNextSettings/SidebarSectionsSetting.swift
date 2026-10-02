@@ -22,6 +22,15 @@ public nonisolated enum SidebarSectionsSetting {
         }
         result.topBandMaxShare = share(root, topSharePath, "sidebar.topBandMaxShare", fallback: result.topBandMaxShare, &diagnostics)
         result.bottomBandMaxShare = share(root, bottomSharePath, "sidebar.bottomBandMaxShare", fallback: result.bottomBandMaxShare, &diagnostics)
+        // Together the shares leave the list at least a fifth: past 0.8 both
+        // shrink in proportion (each value alone stays valid, so setting one
+        // never needs the other changed first).
+        let sum = result.topBandMaxShare + result.bottomBandMaxShare
+        if sum > SidebarSectionsPreferences.maxShareSum {
+            let scale = SidebarSectionsPreferences.maxShareSum / sum
+            result.topBandMaxShare *= scale
+            result.bottomBandMaxShare *= scale
+        }
         if let value = root.value(at: scrollPath) {
             if let flag = value.boolValue {
                 result.stickyBandsScroll = flag

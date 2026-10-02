@@ -9,12 +9,26 @@
 //! at once.
 //!
 //! A reader thread now owns the socket. `InputAck` and `TerminateAck` carry
-//! no state the output path needs, so the thread resolves them as they arrive.
-//! Every other frame, including responses that must stay ordered with output
-//! (`ClearHistoryAck` applies a replay; resize and cell-pixel responses
-//! follow the output they fence), goes to the surface's reader in stream order
-//! through a queue bounded by payload bytes. When the queue is full the thread
-//! stops reading, which keeps the host's backpressure.
+//! no state the output path needs, so the thread resolves them as they
+//! arrive. On a smart-renderer connection it also resolves
+//! `KittyGraphicsLimitsAck`: a smart host answers a Kitty limits update with
+//! `ResyncRequired` and then the acknowledgement, and the surface's reader
+//! stops reading the stream at `ResyncRequired`, so only this thread can
+//! still deliver it. Older hosts send the replacement replay before the
+//! acknowledgement and keep it in output order.
+//!
+//! Every other frame (including `ClearHistoryAck`, whose replay must stay
+//! ordered with output, and resize and cell-pixel responses) goes to the
+//! surface's reader in stream order through a queue bounded by payload
+//! bytes. When the queue is full the thread stops reading, which keeps the
+//! host's backpressure. Once the surface's reader abandons the stream
+//! (`abandon`), the thread discards ordered frames instead of queueing them,
+//! so a backlog can never delay an acknowledgement it still owes.
+//!
+//! Failure ownership: at the end of the stream the thread fails only the
+//! waiters it resolves itself; the surface's reader drains the queued frames
+//! and then fails the ordered waiters. After `abandon` or a drop, the thread
+//! fails every waiter at the end of the stream.
 
 use std::collections::VecDeque;
 use std::io::Read;
@@ -41,7 +55,8 @@ struct QueueState {
     frames: VecDeque<HostFrame>,
     queued_payload: usize,
     ended: bool,
-    receiver_gone: bool,
+    /// The surface's reader no longer reads this queue (`abandon` or drop).
+    abandoned: bool,
 }
 
 struct Queue {
@@ -49,11 +64,34 @@ struct Queue {
     changed: Condvar,
 }
 
+/// Which responses the reader thread resolves itself for one connection.
+#[derive(Clone, Copy)]
+pub(super) struct EarlyResponses {
+    smart_renderer: bool,
+}
+
+impl EarlyResponses {
+    pub(super) fn new(smart_renderer: bool) -> Self {
+        Self { smart_renderer }
+    }
+
+    /// Whether the reader thread resolves responses of `kind`.
+    pub(super) fn resolves(self, kind: MessageKind) -> bool {
+        match kind {
+            MessageKind::InputAck | MessageKind::TerminateAck => true,
+            MessageKind::KittyGraphicsLimitsAck => self.smart_renderer,
+            _ => false,
+        }
+    }
+}
+
 /// The surface side of one connection's demultiplexer.
 pub(super) struct HostFrames {
     queue: Arc<Queue>,
+    control_responses: Arc<ControlResponses>,
+    early: EarlyResponses,
     /// A handle on the reader thread's socket, shut down for reading when the
-    /// connection is abandoned so the thread's blocked read returns and the
+    /// connection is dropped so the thread's blocked read returns and the
     /// descriptor closes as the plain reader's did.
     shutdown: UnixStream,
 }
@@ -66,15 +104,18 @@ impl HostFrames {
         stream: UnixStream,
         control_responses: Arc<ControlResponses>,
         protocol_version: u16,
+        smart_renderer: bool,
     ) -> std::io::Result<Self> {
+        let early = EarlyResponses::new(smart_renderer);
         let shutdown = stream.try_clone()?;
         let queue =
             Arc::new(Queue { state: Mutex::new(QueueState::default()), changed: Condvar::new() });
         let thread_queue = queue.clone();
+        let thread_responses = control_responses.clone();
         std::thread::Builder::new().name(name).spawn(move || {
-            read_stream(stream, &control_responses, protocol_version, &thread_queue);
+            read_stream(stream, &thread_responses, protocol_version, early, &thread_queue);
         })?;
-        Ok(Self { queue, shutdown })
+        Ok(Self { queue, control_responses, early, shutdown })
     }
 
     /// The next frame in stream order; blocks until one arrives.
@@ -94,23 +135,35 @@ impl HostFrames {
             state = self.queue.changed.wait(state).unwrap();
         }
     }
+
+    /// The surface's reader stops reading this stream (for example at
+    /// `ResyncRequired`) but the connection may stay open while it
+    /// reconnects. Ordered waiters fail now. The thread keeps resolving early
+    /// acknowledgements (a Kitty limits acknowledgement follows
+    /// ResyncRequired), discards ordered frames, and fails every waiter when
+    /// the stream ends.
+    pub(super) fn abandon(&self) {
+        {
+            let mut state = self.queue.state.lock().unwrap();
+            state.abandoned = true;
+            state.frames.clear();
+            state.queued_payload = 0;
+            self.queue.changed.notify_all();
+        }
+        let early = self.early;
+        self.control_responses.fail_all_except(|kind| early.resolves(kind));
+    }
 }
 
 impl Drop for HostFrames {
     fn drop(&mut self) {
+        self.abandon();
         let _ = self.shutdown.shutdown(std::net::Shutdown::Read);
-        let mut state = self.queue.state.lock().unwrap();
-        state.receiver_gone = true;
-        state.frames.clear();
-        state.queued_payload = 0;
-        self.queue.changed.notify_all();
     }
 }
 
-/// Whether `frame` is a response the output path never needs, resolved as
-/// soon as it arrives.
-fn resolves_early(frame: &Frame, protocol_version: u16) -> bool {
-    matches!(frame.kind, MessageKind::InputAck | MessageKind::TerminateAck)
+fn resolves_early(frame: &Frame, protocol_version: u16, early: EarlyResponses) -> bool {
+    early.resolves(frame.kind)
         && frame.request_id != 0
         && frame.version == protocol_version
         && frame.flags == 0
@@ -121,32 +174,50 @@ fn read_stream(
     mut stream: impl Read,
     control_responses: &ControlResponses,
     protocol_version: u16,
+    early: EarlyResponses,
     queue: &Queue,
 ) {
     while let Ok(Some(frame)) = read_frame(&mut stream, MAX_FRAME_PAYLOAD) {
-        if resolves_early(&frame, protocol_version) {
-            // An ack nobody waits for ends the connection, as it did when
-            // the surface's reader resolved it inline.
-            if !control_responses.resolve_after(&frame, || {}) {
-                break;
+        if resolves_early(&frame, protocol_version, early) {
+            // A Kitty limits acknowledgement that arrives after its
+            // requester's deadline is advisory: the requester already
+            // degraded graphics and must not tear down a healthy connection.
+            if frame.kind == MessageKind::KittyGraphicsLimitsAck
+                && !control_responses.has_waiter(frame.request_id)
+            {
+                continue;
             }
-            continue;
+            if control_responses.resolve_after(&frame, || {}) {
+                continue;
+            }
+            // Any other acknowledgement nobody waits for, or one whose id
+            // belongs to a waiter of another kind, ends the connection, as it
+            // did when the surface's reader resolved it inline.
+            break;
         }
         let mut state = queue.state.lock().unwrap();
-        while !state.receiver_gone
+        while !state.abandoned
             && !state.frames.is_empty()
             && state.queued_payload + frame.payload.len() > QUEUED_PAYLOAD_BUDGET
         {
             state = queue.changed.wait(state).unwrap();
         }
-        if state.receiver_gone {
-            return;
+        if state.abandoned {
+            continue;
         }
         state.queued_payload += frame.payload.len();
         state.frames.push_back(HostFrame::Frame(frame));
         queue.changed.notify_all();
     }
     let mut state = queue.state.lock().unwrap();
+    if state.abandoned {
+        drop(state);
+        control_responses.fail_all();
+        return;
+    }
+    // The surface's reader still drains the queued frames, resolves their
+    // ordered responses, and fails the rest after `End`.
+    control_responses.fail_all_except(|kind| !early.resolves(kind));
     state.ended = true;
     queue.changed.notify_all();
 }
@@ -154,6 +225,10 @@ fn read_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal_host_protocol::encode_frame;
+    use std::time::Duration;
+
+    const SMART: EarlyResponses = EarlyResponses { smart_renderer: true };
 
     fn frame(kind: MessageKind, request_id: u64, version: u16) -> Frame {
         let mut frame = Frame::new(kind, Vec::new());
@@ -162,17 +237,122 @@ mod tests {
         frame
     }
 
+    fn version() -> u16 {
+        Frame::new(MessageKind::InputAck, Vec::new()).version
+    }
+
+    fn stream_of(frames: &[Frame]) -> std::io::Cursor<Vec<u8>> {
+        let mut bytes = Vec::new();
+        for frame in frames {
+            bytes.extend(encode_frame(frame).unwrap());
+        }
+        std::io::Cursor::new(bytes)
+    }
+
+    fn queue() -> Queue {
+        Queue { state: Mutex::new(QueueState::default()), changed: Condvar::new() }
+    }
+
     #[test]
-    fn only_valid_input_and_terminate_acks_resolve_early() {
-        let version = Frame::new(MessageKind::InputAck, Vec::new()).version;
-        assert!(resolves_early(&frame(MessageKind::InputAck, 7, version), version));
-        assert!(resolves_early(&frame(MessageKind::TerminateAck, 7, version), version));
-        assert!(!resolves_early(&frame(MessageKind::InputAck, 0, version), version));
-        assert!(!resolves_early(&frame(MessageKind::ClearHistoryAck, 7, version), version));
-        assert!(!resolves_early(&frame(MessageKind::ResizeAck, 7, version), version));
+    fn early_responses_depend_on_kind_and_renderer() {
+        let version = version();
+        let legacy = EarlyResponses::new(false);
+        assert!(resolves_early(&frame(MessageKind::InputAck, 7, version), version, SMART));
+        assert!(resolves_early(&frame(MessageKind::TerminateAck, 7, version), version, legacy));
+        assert!(resolves_early(
+            &frame(MessageKind::KittyGraphicsLimitsAck, 7, version),
+            version,
+            SMART
+        ));
+        assert!(!resolves_early(
+            &frame(MessageKind::KittyGraphicsLimitsAck, 7, version),
+            version,
+            legacy
+        ));
+        assert!(!resolves_early(&frame(MessageKind::InputAck, 0, version), version, SMART));
+        assert!(!resolves_early(&frame(MessageKind::ClearHistoryAck, 7, version), version, SMART));
+        assert!(!resolves_early(&frame(MessageKind::ResizeAck, 7, version), version, SMART));
         assert!(!resolves_early(
             &frame(MessageKind::InputAck, 7, version.wrapping_add(1)),
-            version
+            version,
+            SMART
         ));
+    }
+
+    /// A smart host answers a Kitty limits update with ResyncRequired and
+    /// then the acknowledgement. The surface's reader abandons the stream at
+    /// ResyncRequired; the acknowledgement must still reach its requester.
+    #[test]
+    fn kitty_ack_after_resync_reaches_its_waiter() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let kitty = responses.wait_for_test(9, MessageKind::KittyGraphicsLimitsAck);
+        let queue = queue();
+        queue.state.lock().unwrap().abandoned = true;
+        let mut resync = Frame::new(MessageKind::ResyncRequired, Vec::new());
+        resync.version = version;
+        let stream = stream_of(&[resync, frame(MessageKind::KittyGraphicsLimitsAck, 9, version)]);
+        read_stream(stream, &responses, version, SMART, &queue);
+        assert_eq!(
+            kitty.recv_timeout(Duration::from_secs(1)).unwrap().kind,
+            MessageKind::KittyGraphicsLimitsAck
+        );
+    }
+
+    /// At the end of the stream the thread fails only the waiters it owns: a
+    /// queued ClearHistoryAck is still resolved by the surface's reader.
+    #[test]
+    fn end_of_stream_leaves_queued_ordered_responses_to_the_surface_reader() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let clear = responses.wait_for_test(5, MessageKind::ClearHistoryAck);
+        let input = responses.wait_for_test(6, MessageKind::InputAck);
+        let queue = queue();
+        let stream = stream_of(&[frame(MessageKind::ClearHistoryAck, 5, version)]);
+        read_stream(stream, &responses, version, SMART, &queue);
+        assert!(responses.has_waiter(5), "the ordered waiter was failed before its frame");
+        assert!(!responses.has_waiter(6), "the thread must fail the early waiters it owns");
+        assert!(input.recv_timeout(Duration::from_millis(10)).is_err());
+        let state = queue.state.lock().unwrap();
+        assert!(state.ended);
+        let Some(HostFrame::Frame(queued)) = state.frames.front() else {
+            panic!("the ClearHistoryAck frame was not queued");
+        };
+        assert!(responses.resolve(queued));
+        assert_eq!(clear.recv().unwrap().kind, MessageKind::ClearHistoryAck);
+    }
+
+    /// After `abandon`, ordered frames are discarded instead of queued, so a
+    /// backlog larger than the queue budget cannot delay an acknowledgement.
+    #[test]
+    fn abandoned_streams_discard_ordered_frames_and_still_resolve_acks() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let kitty = responses.wait_for_test(3, MessageKind::KittyGraphicsLimitsAck);
+        let queue = queue();
+        queue.state.lock().unwrap().abandoned = true;
+        let mut output = Frame::new(MessageKind::Output, vec![b'x'; 1024 * 1024]);
+        output.version = version;
+        let mut frames = vec![output; 12];
+        frames.push(frame(MessageKind::KittyGraphicsLimitsAck, 3, version));
+        read_stream(stream_of(&frames), &responses, version, SMART, &queue);
+        assert!(kitty.recv_timeout(Duration::from_secs(1)).is_ok());
+        let state = queue.state.lock().unwrap();
+        assert!(state.frames.is_empty() && state.queued_payload == 0);
+    }
+
+    /// A Kitty limits acknowledgement whose requester already gave up does
+    /// not end the connection.
+    #[test]
+    fn late_kitty_ack_keeps_the_connection() {
+        let version = version();
+        let responses = ControlResponses::new_for_test();
+        let queue = queue();
+        let mut output = Frame::new(MessageKind::Output, b"after".to_vec());
+        output.version = version;
+        let stream = stream_of(&[frame(MessageKind::KittyGraphicsLimitsAck, 4, version), output]);
+        read_stream(stream, &responses, version, SMART, &queue);
+        let state = queue.state.lock().unwrap();
+        assert_eq!(state.frames.len(), 1, "the frame after the late ack was not read");
     }
 }

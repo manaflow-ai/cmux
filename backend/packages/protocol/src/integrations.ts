@@ -17,7 +17,18 @@ export const ConnectionId = Schema.String.check(Schema.isPattern(/^conn_[a-z0-9]
 export const IntegrationProvider = Schema.Literals(["github", "linear", "slack"]).annotate({ identifier: "IntegrationProvider" })
 export type IntegrationProvider = typeof IntegrationProvider.Type
 
-export const ConnectionStatus = Schema.Literals(["pending", "active", "needs_reauth", "error", "revoked"]).annotate({ identifier: "ConnectionStatus" })
+export const ConnectionStatus = Schema.Literals(["pending", "active", "needs_reauth", "error", "revoked", "expired"]).annotate({ identifier: "ConnectionStatus" })
+
+/**
+ * A connection the user started but never approved at the provider becomes
+ * `expired` this long after it was created (30 minutes, twice the 15-minute
+ * OAuth state lifetime). The owner's alarm expires it once; a provider callback
+ * that arrives later is refused. A new Connect click starts a fresh one.
+ */
+export const PENDING_CONNECTION_TTL_MS = 30 * 60_000
+
+/** Expired connections leave the owner's state this long after they expired (the projection keeps the row). */
+export const EXPIRED_CONNECTION_RETENTION_MS = 24 * 3600_000
 
 export const Connection = Schema.Struct({
   id: ConnectionId,
@@ -301,5 +312,12 @@ export const ConnectionStatusParams = Schema.Struct({
 export const connectionInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("connection.activate", ConnectionActivateParams, "Internal: the provider approved; the credential is stored."),
   internal("connection.status", ConnectionStatusParams, "Internal: a refresh, call or provider event changed the connection's health."),
+  internal(
+    "connection.expire",
+    // `at` is the alarm's wake instant (the owner's own clock reading; only the owner submits this op).
+    Schema.Struct({ connection: ConnectionId, at: Schema.Int }),
+    "Internal: a pending connection outlived PENDING_CONNECTION_TTL_MS."
+  ),
+  internal("connection.forget", Schema.Struct({ connection: ConnectionId, at: Schema.Int }), "Internal: drop an expired connection from owner state after EXPIRED_CONNECTION_RETENTION_MS."),
   internal("integration.policy.apply_managed", PolicyApplyManagedParams, "Internal: an SSO-provisioned or MDM-managed policy replaces and locks the team policy.")
 ]

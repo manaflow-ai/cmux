@@ -8,10 +8,10 @@ public nonisolated enum SidebarLayoutPlanner {
     /// section, adds one (no title, `look`) holding the item. Nil when the
     /// layout already holds `ref` anywhere.
     public static func add(_ ref: LayoutItemRef, to region: SidebarRegion = .top, in document: SidebarLayoutDocument,
-                           look: SectionLook = .builtIn, newItem: LayoutItemID = .mint(),
+                           look: SectionLook = .builtIn, showsLabel: Bool = true, newItem: LayoutItemID = .mint(),
                            newSection: LayoutSectionID = .mint()) -> SidebarLayoutOp? {
         guard document.firstItem(with: ref) == nil else { return nil }
-        let item = LayoutItem(id: newItem, ref: ref)
+        let item = LayoutItem(id: newItem, ref: ref, showsLabel: showsLabel)
         let index = region == .top ? 0 : Int.max
         if let section = document.sections.first(where: { $0.region == region && $0.room == nil && $0.content == .items }) {
             return .itemAdd(item, section: section.id, index: index)

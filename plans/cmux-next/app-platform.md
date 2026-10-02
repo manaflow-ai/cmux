@@ -46,7 +46,7 @@ The Rust app host needs the testbox for every build and a daemon supervisor, so 
 
 ## 5. Prototypes for Lawrence (Debug Settings > Apps)
 
-- `apps.store.layout` = `grid` (cards, Raycast Store-like) | `list` (dense rows, Finder-like) | `split` (list + detail side by side).
+- `apps.store.layout` = `grid` (cards) | `list` (dense rows) | `split` (list + detail side by side).
 - `apps.section.look` = `native` (app sections use built-in row metrics) | `card` (app section in a subtle inset card with the app icon in the header) | `minimal` (no header icon, title only).
 - `apps.consent.style` = `sheet` (scopes as a list with reasons) | `inline` (scopes expand inside the listing page).
 Screenshots of each come from a throwaway demo executable that links CmuxNextApps with the mock registry.
@@ -59,8 +59,8 @@ Screenshots of each come from a throwaway demo executable that links CmuxNextApp
 | 2 | Manifest schema + TS validator + fixtures (valid/invalid) | landed |
 | 3 | Runtime JS (reactive core, views, scene ops, `cmux` global proxy) + generator (`cmux-app.d.ts`, `scopes.json`, `ops.json`) + bun tests (`scripts/cmux-next/check-app-platform.sh`) | landed |
 | 4 | Samples: github-prs, running-agents, agent-status (ids `cmux/…`) | landed |
-| 5 | Swift `CmuxNextApps`: manifest model, scene renderer, JSC prototype engine, section provider protocol, mock registry | in progress |
-| 6 | App Store window + `appStore.show` (Cmd-Shift-P), three layout prototypes | in progress |
+| 5 | Swift `CmuxNextApps`: manifest model, scene renderer, JSC prototype engine, section provider protocol, mock registry | landed (see 6a) |
+| 6 | App Store window + `appStore.show` (Cmd-Shift-P), three layout prototypes | landed (see 6a) |
 | 7 | Store backend: `ops-apps.ts`, `AppDO`, installs in `UserDO`/`TeamDO`, `0002_app_store.sql`, projections, tests | in progress |
 | 8 | Web store pages in the dashboard (`/apps`, `/apps/$publisher/$name`) | in progress |
 | 9 | CLI/MCP verbs (Rust CLI request to the #16174 owner) | requested |
@@ -68,6 +68,14 @@ Screenshots of each come from a throwaway demo executable that links CmuxNextApp
 Sidebar: the sections lead accepted app sections: `SectionContent.app` + `LayoutSection.contribution`, `SidebarAppSectionProvider` (title, makeView, preferredHeight) set as `SidebarView.appSections`, action `sidebar.section.addApp` with CLI `cmux sidebar add-app-section` (CLI names are noun + verb).
 | 10 | Rust app host (rquickjs) + supervisor in the daemon, OS sandbox, owner-side app grant checks | next |
 | 11 | Web panes, whole sidebars, skills, MCP servers | later |
+
+## 6a. Swift lane status (CmuxNextApps, 2026-10-02)
+
+Landed: `scripts/cmux-next/sync-app-runtime.sh` (`--check` in check-app-platform.sh); `AppManifest` (validator with JSON Pointer issues, tested on the shared fixtures); `AppScene` reducer + `AppSceneView` renderer (Row uses the built-in sidebar item metrics; colors resolved in the host view's theme scope, no blue); `AppEngine` (JavaScriptCore, one VM per app on its own executor, scope check per call against scopes.json, 250 ms watchdog, injected one-shot clock) and `AppHost`; `AppGrants` (tiers, per-scope revoke, Run sandboxed, read per call); prototype `AppRegistry` (`<apps dir>/registry.json`, a stand-in for UserDO installs); the App Store window (Discover grid/list/split, listing with live preview, Installed with grants and logs); `appStore.show [app]` and `appStore.showInstalled`; the App sink `AppOperationRouter` (action.run through the control router with the op's origin, reads from ControlSnapshot, notification ledger, per-app storage file, net.fetch with credentials stripped; everything else `operation.unsupported`).
+
+Not built yet: `apps.consent.style` (consent happens through the per-scope switches for now), `apps.engine` (only the JSC engine exists), a cloud `AppStoreCatalog` client, app commands in the palette (`app:<id>#<cmd>`), `integration.request`, app settings in Settings > Apps.
+
+TODO (step 7 of the Swift lane): the sidebar has no `SectionContent.app` / `SidebarAppSectionProvider` on feat-cmux-next yet. `CmuxNextApps.AppSectionProvider` already has the agreed shape (`title(for:)`, `makeView(for:)`, `preferredHeight(for:width:)`, plus `release(_:)`); when the sections lead lands the protocol, the App conforms it (`AppsService`) and sets `SidebarView.appSections`. CmuxNextSidebar was not edited.
 
 ## 7. Ownership of new state
 

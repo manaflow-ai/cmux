@@ -9,7 +9,8 @@ extension AppEngine {
         guard let params = try? AppJSON.parse(paramsText), let options = try? AppJSON.parse(optionsText) else {
             return answer(callback, .failure(AppOperationError(code: "invalid_params", message: "params are not JSON")))
         }
-        if let refusal = configuration.scopes.refusal(op: name, params: params, granted: configuration.grantedScopes) {
+        let grants = configuration.grants.snapshot
+        if let refusal = configuration.scopes.refusal(op: name, params: params, granted: grants.scopes, sandboxed: grants.sandboxed) {
             return answer(callback, .failure(refusal))
         }
         guard pendingCalls.count < configuration.maxPendingCalls else {

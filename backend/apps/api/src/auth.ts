@@ -113,8 +113,8 @@ export const withGrantClasses = async (env: Env, p: Principal): Promise<Principa
   if (p.kind === "session") return p
   if (!p.user || !p.install || !p.grant) return undefined
   const stub = env.USER_DO.get(env.USER_DO.idFromName(p.user))
-  const r = (await stub.installGrant(p.user, p.install, p.grant)) as { ok: true; op_classes: ReadonlyArray<string> } | { ok: false }
-  return r.ok ? { ...p, grant_classes: [...r.op_classes] } : undefined
+  const r = (await stub.installGrant(p.user, p.install, p.grant)) as { ok: true; op_classes: ReadonlyArray<string>; kind: string } | { ok: false }
+  return r.ok ? { ...p, grant_classes: [...r.op_classes], install_kind: r.kind } : undefined
 }
 
 /** Resolves the bearer token: our install JWT, else a Stack session token. */

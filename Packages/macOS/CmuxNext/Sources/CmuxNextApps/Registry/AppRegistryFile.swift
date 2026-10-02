@@ -10,11 +10,31 @@ public nonisolated struct AppRegistryFile: Sendable, Hashable, Codable {
         public var installed: Bool
         public var enabled: Bool
         public var changedAt: Date
+        /// Requested scopes the user revoked.
+        public var revokedScopes: [String]
+        /// Optional scopes the user granted.
+        public var grantedOptionalScopes: [String]
+        /// The "Run sandboxed" switch; nil = the tier's default.
+        public var sandboxed: Bool?
 
-        public init(installed: Bool, enabled: Bool, changedAt: Date = Date()) {
+        public init(installed: Bool, enabled: Bool, changedAt: Date = Date(), revokedScopes: [String] = [],
+                    grantedOptionalScopes: [String] = [], sandboxed: Bool? = nil) {
             self.installed = installed
             self.enabled = enabled
             self.changedAt = changedAt
+            self.revokedScopes = revokedScopes
+            self.grantedOptionalScopes = grantedOptionalScopes
+            self.sandboxed = sandboxed
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            installed = try c.decode(Bool.self, forKey: .installed)
+            enabled = try c.decode(Bool.self, forKey: .enabled)
+            changedAt = try c.decodeIfPresent(Date.self, forKey: .changedAt) ?? .distantPast
+            revokedScopes = try c.decodeIfPresent([String].self, forKey: .revokedScopes) ?? []
+            grantedOptionalScopes = try c.decodeIfPresent([String].self, forKey: .grantedOptionalScopes) ?? []
+            sandboxed = try c.decodeIfPresent(Bool.self, forKey: .sandboxed)
         }
     }
 
