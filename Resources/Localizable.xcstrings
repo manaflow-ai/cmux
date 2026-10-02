@@ -618218,6 +618218,65 @@
           }
         }
       }
+    },
+    "simulator.failure.subprocessReadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading Simulator subprocess output failed on %1$@: %2$@ (errno %3$@)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشلت قراءة مخرجات العملية الفرعية للـ Simulator على %1$@: %2$@ (errno %3$@)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Lesen der Simulator-Subprozessausgabe ist bei %1$@ fehlgeschlagen: %2$@ (errno %3$@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer la salida del subproceso del simulador en %1$@: %2$@ (errno %3$@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La lecture de la sortie du sous-processus du Simulateur a échoué sur %1$@ : %2$@ (errno %3$@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorサブプロセスの出力を%1$@で読み取れませんでした: %2$@ (errno %3$@)。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator 하위 프로세스 출력을 %1$@에서 읽지 못했습니다: %2$@ (errno %3$@)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取模拟器子进程输出时在 %1$@ 上失败：%2$@（errno %3$@）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取 Simulator 子程序輸出時在 %1$@ 失敗：%2$@（errno %3$@）。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
