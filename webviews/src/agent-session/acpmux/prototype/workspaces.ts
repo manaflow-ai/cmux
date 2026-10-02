@@ -105,3 +105,15 @@ export function selectTab(stack: Stack, workspaceId: string, tabId?: string): St
 export function workspaceLead(workspace: Workspace): WorkspaceTab {
   return workspace.tabs.find((tab) => tab.kind === "agent") ?? workspace.tabs[0]!;
 }
+
+/** Classic cmux's new workspace: a terminal, at the top of the stack. */
+export function newTerminalWorkspace(stack: Stack): Stack {
+  const id = `ws-new-${stack.workspaces.length + 1}`;
+  return { activeId: id, workspaces: [workspace(id, terminal(`t-${id}`, "~ · zsh")), ...stack.workspaces] };
+}
+
+/** Classic cmux opens on a terminal: the first terminal-led workspace, with its terminal tab showing. */
+export function terminalFirst(stack: Stack): Stack {
+  const lead = stack.workspaces.find((candidate) => candidate.tabs[0]!.kind === "terminal");
+  return lead ? selectTab(stack, lead.id, lead.tabs[0]!.id) : stack;
+}
