@@ -194,7 +194,8 @@ nonisolated enum CatalogArgument {
         switch value {
         case "grey": String(localized: "argument.value.grey", defaultValue: "Grey", bundle: .module)
         case "docked": String(localized: "argument.value.docked", defaultValue: "Docked", bundle: .module)
-        case "overlay": String(localized: "argument.value.overlay", defaultValue: "Overlay", bundle: .module)
+        // UI name "Floating"; the value stays `overlay` on the wire and in cmux.json.
+        case "overlay": String(localized: "argument.value.overlay", defaultValue: "Floating", bundle: .module)
         case "blue": String(localized: "argument.value.blue", defaultValue: "Blue", bundle: .module)
         case "red": String(localized: "argument.value.red", defaultValue: "Red", bundle: .module)
         case "yellow": String(localized: "argument.value.yellow", defaultValue: "Yellow", bundle: .module)

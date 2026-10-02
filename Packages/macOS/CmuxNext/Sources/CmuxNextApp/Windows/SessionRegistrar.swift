@@ -40,7 +40,8 @@ final class SessionRegistrar {
         let machines = machines
         observation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
-                [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded)]
+                [String(machines.local.store.personal.revision), String(machines.local.store.personal.isLoaded),
+                 String(machines.local.store.isProvisional)]
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.registryID ?? "")" }
                     + machines.ssh.map { "\($0.machineID):\($0.autoConnect)" }
             }) {
@@ -53,7 +54,7 @@ final class SessionRegistrar {
 
     private func sync() {
         let home = machines.local
-        guard home.store.personal.isLoaded, let connection = home.connection else { return }
+        guard home.store.personal.isLoaded, !home.store.isProvisional, let connection = home.connection else { return }
         for daemon in machines.daemons where daemon.store.isLoaded {
             guard let session = daemon.store.registryID, let identity = daemon.store.identity else { continue }
             let snapshot = SessionSnapshot(sessionName: identity.session, capabilities: identity.capabilities.sorted(),
