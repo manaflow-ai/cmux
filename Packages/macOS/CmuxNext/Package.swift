@@ -49,6 +49,9 @@ import PackageDescription
 //     log of the Tasks owner; no daemon; the App supplies the source; plans/cmux-next/tasks.md)
 //   CmuxNextFeed -> Design (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
+//   CmuxNextServer -> Design (server menubar panel, pairing, approver sheet and health prototypes
+//     over a projection of `server.status`; no daemon; the App supplies the source;
+//     plans/cmux-next/server.md)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -131,6 +134,7 @@ let package = Package(
                 "CmuxNextAgentActivity",
                 "CmuxNextApps",
                 "CmuxNextTasks",
+                "CmuxNextServer",
             ],
             resources: [
                 .process("Resources"),
@@ -366,6 +370,22 @@ let package = Package(
         .testTarget(
             name: "CmuxNextFeedTests",
             dependencies: ["CmuxNextFeed"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the
+        // menubar panel, pairing, approver sheet and health prototypes over a
+        // projection of `server.status`. The App supplies the source.
+        .target(
+            name: "CmuxNextServer",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextServerTests",
+            dependencies: ["CmuxNextServer"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
