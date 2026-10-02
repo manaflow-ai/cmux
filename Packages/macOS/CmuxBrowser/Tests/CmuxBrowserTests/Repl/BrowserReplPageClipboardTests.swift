@@ -115,6 +115,54 @@ extension BrowserReplPasteboardRedirectTests {
             #expect(texts == [action.text])
         }
 
+        /// In the app an agent's click reaches the page's click handler after
+        /// WebKit has reset the page's transient activation (it does after
+        /// each script the driver evaluates between the press and the
+        /// release), so `navigator.userActivation.isActive` is false there
+        /// although the click is a user gesture. The page's write still lands
+        /// on the tab's clipboard. Here the click runs from a script WebKit
+        /// evaluates without a user gesture, which leaves the page in the same
+        /// state.
+        @Test(arguments: [cases[0], cases[2]])
+        func aPageScriptWithoutTransientActivationStillWritesTheTabClipboard(_ action: Case) async throws {
+            let shim = try Self.shim()
+            var routed: [[[String: Any]]] = []
+            var outcome: (done: String?, active: String?, standInChanged: Bool)?
+            try await Self.withStandInSystemPasteboard { standIn in
+                let standInBefore = standIn.changeCount
+                let webView = try await Self.load(Self.page) { webView in
+                    BrowserReplPageClipboard.install(on: webView, shim: shim) { _, items in
+                        routed.append(items)
+                        return true
+                    }
+                }
+                let selector = NSSelectorFromString("_evaluateJavaScriptWithoutUserGesture:completionHandler:")
+                try #require(webView.responds(to: selector))
+                typealias Evaluate = @convention(c) (AnyObject, Selector, NSString, (@convention(block) (Any?, (any Error)?) -> Void)?) -> Void
+                let evaluate = unsafeBitCast(webView.method(for: selector), to: Evaluate.self)
+                var active: String?
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    let script = "window.__active = String(navigator.userActivation.isActive); document.getElementById('\(action.button)').click(); window.__active"
+                    evaluate(webView, selector, script as NSString) { value, _ in
+                        active = value as? String
+                        continuation.resume()
+                    }
+                }
+                let done = try await Self.waitForDone(in: webView)
+                try await Self.settle { !routed.isEmpty || standIn.changeCount != standInBefore }
+                outcome = (done, active, standIn.changeCount != standInBefore)
+            }
+            let result = try #require(outcome)
+            #expect(result.active == "false", "the click ran with transient activation, so this tests nothing")
+            #expect(!result.standInChanged, "the page's \(action.button) wrote the system pasteboard")
+            #expect(result.done == action.done)
+            let texts = routed.last?.compactMap { item -> String? in
+                guard let base64 = item["base64"] as? String, let data = Data(base64Encoded: base64) else { return nil }
+                return String(decoding: data, as: UTF8.self)
+            }
+            #expect(texts == [action.text], "the page's write did not reach the tab's clipboard")
+        }
+
         /// A tab no session created keeps the browser's behavior: the page's
         /// writes reach the (stand-in) system pasteboard, also after a session
         /// tab in this process installed the guard.
