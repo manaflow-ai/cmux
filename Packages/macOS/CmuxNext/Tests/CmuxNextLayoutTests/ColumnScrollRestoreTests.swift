@@ -2,7 +2,7 @@ import CoreGraphics
 import Testing
 @testable import CmuxNextLayout
 
-/// niri's restore point (activate_prev_column_on_removal): closing the
+/// the restore point (activate_prev_column_on_removal): closing the
 /// column just opened right of the focused one puts back the offset from
 /// before the open, but only when that column was focused and its close
 /// moved focus back. Found by ColumnScrollCloseModelCheckTests (S3): after

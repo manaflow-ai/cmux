@@ -1976,7 +1976,7 @@ enum Command {
         #[serde(default)]
         transaction: Option<String>,
     },
-    /// Drop a tab between niri columns: a new column holding the tab.
+    /// Drop a tab between strip columns: a new column holding the tab.
     MoveTabToColumn {
         surface: SurfaceId,
         #[serde(default)]

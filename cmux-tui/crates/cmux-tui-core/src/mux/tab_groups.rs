@@ -42,7 +42,7 @@ pub enum TabGroupDestination {
     Strip { pane: PaneId, index: Option<usize> },
     /// Into a new split beside `pane`.
     Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32> },
-    /// Into a new niri column on `pane`'s screen.
+    /// Into a new strip column on `pane`'s screen.
     Column { pane: PaneId, after_column: Option<SplitId>, width: Option<f32> },
     /// Into a new workspace, optionally in a sidebar group at an index.
     NewWorkspace { group: Option<String>, index: Option<usize> },

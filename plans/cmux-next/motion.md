@@ -67,7 +67,7 @@ nxmot (MacBook Pro, 120 Hz).
 | `appear` | 0.18 / 0.90 | 175 ms | 225 ms | palette scale-in (from `Motion.panelOpenScale` 0.97 about the panel center), tab grow-in, tab group expand, sidebar row insert, sidebar show (timed equivalent), browser toolbar show, ghost card/inline morph |
 | `disappear` | 0.15 / 0.90 | 142 ms | 200 ms | tab close (width to 0), group collapse, sidebar row removal, sidebar hide (timed equivalent), browser toolbar hide |
 | `settle` | 0.22 / 0.85 | 175 ms | 342 ms | release after drag: tab drop, drag ghost landing, sidebar row drop (carries pointer velocity; 0.8 pt overshoot on 200 pt) |
-| `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, niri column reveal, wheel notch, trackpad fling snap |
+| `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, strip column reveal, wheel notch, trackpad fling snap |
 | `screen` | 0.22 / 0.90 | 208 ms | 267 ms | screen switch slide |
 | `track` | 0.12 / 0.90 | 117 ms | 167 ms | drop-zone highlight, drag ghost jumps between targets |
 | `selection` | 0.15 / 0.90 | 142 ms | 200 ms | sidebar selection pill |
@@ -120,9 +120,8 @@ not change. Loops keep their period (they show state, not transitions).
   continuity (Chrome's linear-time animations restart on interruption; ours
   retarget). Safari, Finder and Spotlight timings were not measured here
   (see "Not verified").
-- niri's default horizontal view movement is a spring with stiffness 800
-  and damping ratio 1 (response 0.222 s). `scroll` keeps niri's stiffness and
-  uses 0.9 damping to drop the tail.
+- `scroll` is a spring with stiffness 800 (response 0.222 s) and 0.9
+  damping; damping 1 leaves a slow sub-pixel tail.
 - Hover in 0.08 s and focus in 0.1 s: fast enough to read as instant
   feedback, slow enough that sweeping the pointer across tabs does not
   strobe. Press states have no animation.
@@ -170,7 +169,7 @@ rest).
 | Browser find bar, notices | fade in 0.14 s, out 0.12 s, curve (0.2, 0.9, 0.3, 1) | `fadeIn` / `fadeOut` | 140 / 120 ms | 120 / 80 ms | - |
 | Browser toolbar show / hide | constraint 0.2 s, same curve | `appear` / `disappear` (timed equivalent) | 200 ms | 175 / 142 ms | - |
 | Browser progress line | CATransaction 0.2 s | `move` (timed equivalent) | 200 ms | 192 ms | - |
-| niri column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
+| strip column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
 | Screen switch | display-link spring 0.38/0.92 | `screen` | 367 / 475 ms | 208 / 267 ms | 244-249 ms |
 | Splits (Cmd-D, Cmd-Shift-D), close, move | one frame | one frame (unchanged) | 0 | 0 | - |
 | Pane ratio, equalize, width presets, pane zoom | display-link spring 0.34/0.88 | `move` | 292 / 483 ms | 192 / 250 ms | 258 ms (column width preset) |

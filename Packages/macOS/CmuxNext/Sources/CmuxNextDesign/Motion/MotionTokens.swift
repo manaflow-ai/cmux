@@ -38,9 +38,9 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// Release after direct manipulation (drop, drag cancel, ghost landing).
     /// Slightly under-damped so the carried velocity reads as physical.
     case settle
-    /// Programmatic scroll: tab strip reveal, niri column reveal, wheel
-    /// notch, trackpad fling snap. niri's own default is stiffness 800
-    /// (response 0.222 s) at damping 1; 0.9 drops its slow sub-pixel tail.
+    /// Programmatic scroll: tab strip reveal, strip column reveal, wheel
+    /// notch, trackpad fling snap. Stiffness 800 (response 0.222 s); damping
+    /// 0.9 instead of 1 drops the slow sub-pixel tail.
     case scroll
     /// Screen switch slide.
     case screen

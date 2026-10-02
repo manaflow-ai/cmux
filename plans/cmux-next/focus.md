@@ -266,8 +266,8 @@ cmux-next matches tmux: history from every focus source, pane position on a tie.
   the top-left pane (tmux's first in pane order). When nothing overlaps, the nearest edge,
   then the nearest center. History never skips a pane: in A | B | C, left from C is B even
   if A was focused after B.
-- niri columns: a left or right move that lands in another column goes to that column's
-  most recently focused pane (niri keeps an active tile per column), else to the geometric
+- strip columns: a left or right move that lands in another column goes to that column's
+  most recently focused pane (each column keeps an active tile), else to the geometric
   choice. `column.focusLeft` and `column.focusRight` pick the column's most recently focused
   pane, else its first.
 - Screens: every screen switch (switcher click, `screen.next`, `screen.previous`,
@@ -282,7 +282,7 @@ cmux-next matches tmux: history from every focus source, pane position on a tie.
   time).
 
 Tests: `FocusHistoryNavigationTests` (reducer plus navigation in several split layouts,
-niri columns, screens, workspaces, closed panes, every source), `FocusNavigationTests`.
+strip columns, screens, workspaces, closed panes, every source), `FocusNavigationTests`.
 
 ## 5. Keyboard routing (one router, `KeyRouter`)
 
@@ -556,14 +556,14 @@ ends and outside an edit, so an edit reaches the machine as one event with its f
 Status: implemented 2026-09-30. The ring is an overlay: `PaneOverlayView` in the layout's
 `OverlayPlane` (above Chromium page windows), stroked inside the pane's content area, so
 it never changes a pane frame, inset or the hosted view's frame
-(`FocusRingNoShiftTests` moves focus across splits and niri columns under every ring
+(`FocusRingNoShiftTests` moves focus across splits and strip columns under every ring
 style, width and corner setting). cmux.json `focusRing.{enabled, style (ring | glow |
 none), color (default: the Ghostty theme's focus gray), width, cornerRadius (default: the
 pane radius), showWhenSinglePane, contrast (subtle | standard | strong)}`; palette: Toggle Focus Ring, Use Ring / Glow Focus
 Style, Toggle Focus Ring for a Single Pane. The glow is a stroke with a shadow clipped to
 the content rect, so it falls inward only. The attention ring of an unread notification
 shares the overlay (plans/cmux-next/notifications.md). Column scrolling:
-plans/cmux-next/niri.md.
+plans/cmux-next/column-scroll.md.
 
 Contrast (2026-10-02, user: "we need focus ring to be subtler by default somehow. color
 subtler"): `focusRing.contrast` sets the pane ring's share of the theme focus color (the

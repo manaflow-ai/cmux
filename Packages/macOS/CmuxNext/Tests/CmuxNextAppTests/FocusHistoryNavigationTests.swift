@@ -172,7 +172,7 @@ struct FocusHistoryNavigationTests {
         #expect(Self.move(.right, state, frames: frames).1 == "b")
     }
 
-    // MARK: Workspaces, niri columns, screens
+    // MARK: Workspaces, strip columns, screens
 
     @Test func historyIsPerWorkspace() {
         var state = Self.reduce([.focusPane("c", source: .mouse)], from: Self.loaded(["a", "b", "c"], workspace: "w1"))
@@ -192,7 +192,7 @@ struct FocusHistoryNavigationTests {
         #expect(state.recentPanes == ["a"])
     }
 
-    @Test func niriColumnReturnsToItsActiveTile() {
+    @Test func stripColumnReturnsToItsActiveTile() {
         // Columns [A over B] [D over E]: B then D focused. Left from D is B
         // (the column's last focused tile), though A overlaps D.
         let frames = ["a": Self.rect(0, 0, 100, 99), "b": Self.rect(0, 100, 100, 100),

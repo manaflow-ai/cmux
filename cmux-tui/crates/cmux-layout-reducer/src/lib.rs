@@ -7,7 +7,7 @@
 //!
 //! The model abstracts split geometry: a screen is an ordered list of
 //! columns, and a column is the ordered list of panes in its split tree. An
-//! ordinary screen (no niri columns) is one column with `columns_active`
+//! ordinary screen (no strip columns) is one column with `columns_active`
 //! false.
 //!
 //! Invariants, checked by [`apply`] on every result, by the property tests
@@ -81,7 +81,7 @@ pub struct Workspace {
 pub struct Screen {
     pub id: ScreenId,
     pub columns: Vec<Column>,
-    /// Whether the columns are niri columns. When false the screen has one
+    /// Whether the columns are strip columns. When false the screen has one
     /// column, its split tree, whose id is not a column id.
     pub columns_active: bool,
 }

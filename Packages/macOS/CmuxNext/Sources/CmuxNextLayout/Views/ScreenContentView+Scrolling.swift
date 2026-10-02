@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// Column strip scrolling. Every rule lives in `ColumnScrollState.reduce`
-/// (plans/cmux-next/niri.md); this extension feeds it model snapshots,
+/// (plans/cmux-next/column-scroll.md); this extension feeds it model snapshots,
 /// trackpad gestures and wheel notches, and applies its effects.
 extension ScreenContentView {
     /// The strip the reducer sees now; nil on a split screen.
@@ -25,7 +25,7 @@ extension ScreenContentView {
         return apply(scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals)))
     }
 
-    /// niri `center-column`. Returns true if the spring needs frames.
+    /// Centers the column holding `pane` once. Returns true if the spring needs frames.
     @discardableResult
     func center(_ pane: PaneID, animated: Bool) -> Bool {
         scrollbarFlash = true

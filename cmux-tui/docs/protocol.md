@@ -148,7 +148,7 @@ their existing behavior and report `browser_renderer:"daemon"`.
 
 `tab-drag-v1` makes every tab drag outcome one atomic command:
 `move-tab` (pane and index, across screens and workspaces),
-`move-tab-to-split` (pane edge), `move-tab-to-column` (new niri column),
+`move-tab-to-split` (pane edge), `move-tab-to-column` (new strip column),
 `move-tab-to-workspace`, and `move-tab-to-new-workspace` (optional group and
 index; returns the new workspace). Each takes an optional client
 `transaction`, echoed in the moved tab's `tab-changed` delta. Drags that stay

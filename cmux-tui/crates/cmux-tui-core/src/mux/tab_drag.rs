@@ -1,5 +1,5 @@
 //! Tab drag outcomes that create a pane: drop a tab on a pane edge (a new
-//! split) or between niri columns (a new column).
+//! split) or between strip columns (a new column).
 //!
 //! Each outcome is one atomic resource commit. The mutation runs on a clone
 //! of the live [`State`] with the same in-memory helpers the existing split
@@ -56,7 +56,7 @@ pub enum TabDragDestination {
     /// A new pane beside `pane` on `edge`. `ratio` is the new pane's share
     /// of the split (default one half).
     Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32> },
-    /// A new niri column on the screen containing `pane`, after the column
+    /// A new strip column on the screen containing `pane`, after the column
     /// `after_column` (default: after the last column), `width` wide as a
     /// fraction of the frontend viewport.
     Column { pane: PaneId, after_column: Option<SplitId>, width: f32 },
@@ -166,7 +166,7 @@ impl Mux {
         self.commit_tab_drag(surface, TabDragDestination::Split { pane, edge, ratio }, transaction)
     }
 
-    /// Move a tab into a new niri column on the screen containing `pane`.
+    /// Move a tab into a new strip column on the screen containing `pane`.
     pub fn move_tab_to_column(
         self: &Arc<Self>,
         surface: SurfaceId,

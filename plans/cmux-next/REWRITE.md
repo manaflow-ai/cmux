@@ -7,7 +7,7 @@ Living document. Branch `feat-cmux-next`, worktree `worktrees/feat-cmux-next`.
 1. Remove bonsplit entirely.
 2. Terminals and layout state live in the cmux-tui daemon. Quit and reopen cmux keeps every terminal, tab, pane, column, screen, workspace.
 3. Tabs: Chrome-style. Tabs shrink as count grows, hover a tiny tab for a live preview, Chrome-level open and close animations. Also a bonsplit-like mode.
-4. niri-style scrolling columns: create columns, scroll horizontally between them.
+4. scrolling columns: create columns, scroll horizontally between them.
 5. Screens: supported, UI hidden until the user opts in.
 6. Command palette (Cmd-Shift-P): Raycast quality, Liquid Glass, fast fuzzy search, every action registered.
 7. Sidebar: Arc/Dia/Chrome quality, Liquid Glass, better drag reorder, groups.
@@ -53,13 +53,13 @@ Design docs: architecture.md (state ownership, AppKit, RAM/CPU budgets, Chrome t
 
 ## Tab drag (user requirement 2026-09-28): as fluid as possible
 
-One drag, every destination. Dragging a tab can end as: reorder in its strip; move into another pane's strip (any window); new split (pane edge zones L/R/T/B); new pane in a column; new niri column (between columns or past the last column); new workspace (sidebar gap, or onto the sidebar "new" zone); move into an existing workspace (hover a sidebar row, Arc-style spring-load: hovering opens that workspace so you can keep dragging into its panes); new window (release outside any window: Chrome tear-off, the window appears under the cursor already carrying the tab).
+One drag, every destination. Dragging a tab can end as: reorder in its strip; move into another pane's strip (any window); new split (pane edge zones L/R/T/B); new pane in a column; new strip column (between columns or past the last column); new workspace (sidebar gap, or onto the sidebar "new" zone); move into an existing workspace (hover a sidebar row, Arc-style spring-load: hovering opens that workspace so you can keep dragging into its panes); new window (release outside any window: Chrome tear-off, the window appears under the cursor already carrying the tab).
 
 Design:
 - `TabDragSession` lives in CmuxNextApp (the only module that sees every surface). It owns one floating borderless panel with a live glass "ghost" of the tab (thumbnail from the terminal/browser snapshot API) that follows the cursor across windows and outside them. Chrome behavior: while over a tab strip the ghost collapses into an inline tab with neighbors sliding; when it leaves the strip it expands into a preview card; over a pane it shows the drop-zone highlight.
 - Each surface implements a `TabDropTargetProviding` protocol (in CmuxNextDesign so every module can conform without importing each other): hit-test(point in screen coords) -> DropProposal(kind, highlightFrame, commit closure). Tab strip, layout, sidebar conform; the window background and "outside" are handled by the session.
 - Commit is ONE daemon command per outcome (atomic, undoable): move-tab(to pane, index), tab-to-new-split(pane, edge), tab-to-new-column(screen, after column), tab-to-new-workspace(group?, index), move-tab-to-workspace. Windows are frontend-local: which workspace each window shows persists in a `personal` frontend projection so windows restore after relaunch. Tear-off = tab-to-new-workspace + open that workspace in a new window.
-- Optimistic UI: apply locally at drop, reconcile via transaction-id echo. Escape cancels with a spring back to origin. Spring-loaded sidebar hover 500 ms. Auto-scroll strips, sidebar and niri columns near edges during drag. Multi-tab drag (cmd-click select) later.
+- Optimistic UI: apply locally at drop, reconcile via transaction-id echo. Escape cancels with a spring back to origin. Spring-loaded sidebar hover 500 ms. Auto-scroll strips, sidebar and strip columns near edges during drag. Multi-tab drag (cmd-click select) later.
 - Tabs (PR 15509, merged): App must end every drag (model removal or restoreDetachedTab) or the tab stays hidden. Optimistic reorder is kept until model order changes: on daemon rejection the App must push the authoritative order (transaction-id echo) to reset it. Rename the App's placeholder TabStripView.
 
 ## Action contract (user requirement 2026-09-28): every feature, every entrypoint
@@ -166,7 +166,7 @@ Shortcut editing in the palette: Cmd-K on a highlighted action opens an inline r
 ## Round 4 decisions (2026-09-30)
 
 User: Incognito is a palette "New Incognito Window" only; a whole window is off-the-record, and incognito and normal windows never mix. Sized popups (OAuth, payment, extension popup windows) open in a floating cmux panel. Production Cloud VM image: bake the new cmux-tui from a separate PR to main, merged before feat-cmux-next. Dev backend cleanup approved. New tab = chrome://newtab (themed); native messaging reads Chrome's folders; Web Store works like Brave/Arc; omnibox keyword mode; getAuthToken researched first.
-Coordinator (reversible): WebKit inspector uses Safari's own dock controls (WebKit owns its frames; a second owner caused the flicker); Chromium keeps the cmux divider. SIGPIPE ignored process-wide; `kill <pid>` counts as a clean quit; a second crash within 60 s skips browser restore. No out-of-process CEF now (spike in browser-isolation.md). Hibernation default "moderate", pinned tabs exempt. Daemon parses OSC 9/777/99 with a `source` field; daemon takes shell args for bash/nushell integration; closed workspaces keep terminals 30 s; daemon writes a launch snapshot for instant startup. A Settings window generated from the settings schema. niri: default column width 1/2; a lone full-width column shrinks to 1/2 when a second column opens.
+Coordinator (reversible): WebKit inspector uses Safari's own dock controls (WebKit owns its frames; a second owner caused the flicker); Chromium keeps the cmux divider. SIGPIPE ignored process-wide; `kill <pid>` counts as a clean quit; a second crash within 60 s skips browser restore. No out-of-process CEF now (spike in browser-isolation.md). Hibernation default "moderate", pinned tabs exempt. Daemon parses OSC 9/777/99 with a `source` field; daemon takes shell args for bash/nushell integration; closed workspaces keep terminals 30 s; daemon writes a launch snapshot for instant startup. A Settings window generated from the settings schema. Columns: default column width 1/2; a lone full-width column shrinks to 1/2 when a second column opens.
 
 ## Onboarding (2026-10-01, minimal per user)
 

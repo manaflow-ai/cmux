@@ -4138,7 +4138,7 @@ Params: `group`, `pane`, `edge` (`left`/`right`/`top`/`bottom`), `ratio`,
 | status | implemented |
 | since | protocol 12 additive extension; capability `tab-groups-v1` |
 
-Moves a whole group into a new niri column, in one commit.
+Moves a whole group into a new strip column, in one commit.
 
 Params: `group`, then `pane` or `screen`, `after_column`, `width`,
 `transaction`, as in `move-tab-to-column`.
@@ -4401,7 +4401,7 @@ object{surface:Id, pane:Id, screen:Id, workspace:Id, undoable:bool}
 | status | implemented |
 | since | protocol 12 additive extension; capability `tab-drag-v1` |
 
-Drops a tab between niri columns: creates a horizontal viewport column on the
+Drops a tab between strip columns: creates a horizontal viewport column on the
 screen and moves the tab into it, in one atomic commit, with the same undo,
 event, and transaction rules as `move-tab-to-split`. A screen without columns
 becomes a two-column screen.

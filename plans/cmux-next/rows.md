@@ -6,7 +6,7 @@ chords for new columns and new rows; check whether the auto-layout pane chord (C
 needs a new shortcut; keep ownership in Rust as for columns; design it to be cohesive.
 
 Binding: OWNERSHIP-PRINCIPLES.md, layout-invariants.md, column-sizing.md, sticky-column.md,
-the column scroll plan. Formal model: `formal/LayoutRows.tla`.
+column-scroll.md. Formal model: `formal/LayoutRows.tla`.
 
 ## Answer: Cmd-Ctrl-N needs no new shortcut
 

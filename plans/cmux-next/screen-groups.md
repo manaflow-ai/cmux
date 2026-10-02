@@ -5,7 +5,7 @@ just reuse code from how we do grouping of horizontal tabs."
 
 ## What existed before this change
 
-- A screen is one of a workspace's layouts (niri columns of panes); a
+- A screen is one of a workspace's layouts (strip columns of panes); a
   workspace with two or more screens shows the screen bar at its bottom
   (`ScreenBarController`), a `TabStripView` whose tabs are the screens.
 - Daemon (cmux-tui `mux/screen_groups.rs`, capabilities

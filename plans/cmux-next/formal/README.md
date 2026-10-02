@@ -114,7 +114,7 @@ Bounds that did not finish and are not evidence: two clients with three ops (mor
 
 ## Companion: `closefocus.tla`
 
-Focus and scroll after a close (`../close-focus.md`): one window's client view state over the projected layout. `Kind = "strip"` is the niri column strip (columns of panes, the successor is `FocusAfterClose.pane`, `Policy` previous neighbor or most recent); `Kind = "list"` is the sidebar's workspace list (the successor is the next row, else the previous one). Anyone may close any item; origin does not enter the rules. A close re-anchors the offset, reveals the focus with the least scroll, clamps, and the presented offset animates to the target.
+Focus and scroll after a close (`../close-focus.md`): one window's client view state over the projected layout. `Kind = "strip"` is the strip column strip (columns of panes, the successor is `FocusAfterClose.pane`, `Policy` previous neighbor or most recent); `Kind = "list"` is the sidebar's workspace list (the successor is the next row, else the previous one). Anyone may close any item; origin does not enter the rules. A close re-anchors the offset, reveals the focus with the least scroll, clamps, and the presented offset animates to the target.
 
 Properties: `Safety` (focus is live and never removed, target clamped, target shows the focus), `UnfocusedCloseKeepsFocus`, `NoJump`, `MinimalReveal`, `SuccessorRule` (stated on column indices, independent of the successor definition), `NoSecondScroll` (a `Resync` step re-settles unchanged geometry and must not scroll), and liveness `Settles` (after the last user step the view settles with the focus visible; weak fairness on the animation only).
 
@@ -122,4 +122,4 @@ Run `./run-closefocus-tlc.sh` (configs strip, strip-recent, list; must pass) and
 
 Last results (2026-10-01, TLC 1.7.4, Java 26, `-workers 2`): strip 23,057 distinct states (83,305 generated, depth 11), strip-recent 23,229 (84,039, depth 11), list 93,149 (332,887, depth 10); about 20 s in all. Mutants: history caught by `SuccessorRule`, noanchor (list and strip) by `NoJump`, center by `MinimalReveal`, noreveal (strip) by `Safety`, nudge by `Safety` first and by `NoSecondScroll` alone when the other properties are off.
 
-Abstractions: every column is `CW` wide and every row `CW` tall with no gap and no padding (the Swift model checks cover mixed widths, padding and gaps); the presented offset moves one unit per animation step; niri's restore point after closing a just-opened column is not modeled.
+Abstractions: every column is `CW` wide and every row `CW` tall with no gap and no padding (the Swift model checks cover mixed widths, padding and gaps); the presented offset moves one unit per animation step; the restore point after closing a just-opened column is not modeled.

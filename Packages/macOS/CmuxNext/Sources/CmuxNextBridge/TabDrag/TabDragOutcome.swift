@@ -9,7 +9,7 @@ public nonisolated enum TabDragOutcome: Hashable, Sendable {
     case strip(stripID: UUID, index: Int, groupID: String?)
     /// New pane on `edge` of the layout pane `paneID`.
     case newSplit(paneID: String, edge: TabDropEdge)
-    /// New niri column on `screenID` after `afterColumnID`.
+    /// New strip column on `screenID` after `afterColumnID`.
     case newColumn(screenID: String, afterColumnID: String)
     /// New workspace at root `index`, inside `groupID` when non-nil.
     case newWorkspace(groupID: String?, index: Int?)
