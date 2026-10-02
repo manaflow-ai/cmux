@@ -62,13 +62,13 @@ extension TerminalSurfaceView {
             // Output or a mouse scroll moved the viewport under the cursor box.
             copyMode.syncCursor()
         case .startSearch(let needle):
-            session?.find.searchStarted(needle: needle)
+            session.find.searchStarted(needle: needle)
         case .endSearch:
-            session?.find.searchEnded()
+            session.find.searchEnded()
         case .searchTotal(let total):
-            session?.find.receiveTotal(total)
+            session.find.receiveTotal(total)
         case .searchSelected(let selected):
-            session?.find.receiveSelected(selected)
+            session.find.receiveSelected(selected)
         case .copyTitleToClipboard:
             guard !model.title.isEmpty else { return false }
             TerminalPasteboard.write([TerminalClipboardItem(mime: "text/plain", text: model.title)], to: .standard)

@@ -1,4 +1,4 @@
-import CmuxNextTerminalFind
+public import CmuxNextTerminalFind
 import GhosttyKit
 
 // The find bar drives Ghostty's search bindings on whichever surface is
