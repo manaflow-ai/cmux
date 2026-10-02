@@ -1827,8 +1827,11 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         }
         for why, change in kept.items():
             with self.subTest(why=why):
-                expected = (GUI_MINI.replace("26.6", "26.5") if why == "another Xcode pin"
-                            else GUI_MINI if why == "a drained fleet" else SMALL)
+                expected = (
+                    GUI_MINI if why == "a drained fleet"
+                    else "glaeda-gui-std-xcode-26.5" if why == "another Xcode pin"
+                    else SMALL
+                )
                 self.assertEqual(self.pool.ui_owned_runner(SMALL, **{**move, **change}), expected)
         self.assertEqual(self.pool.ui_owned_runner(MINI, **move), MINI)
         # A snapshot too old to route on still keeps a UI run off Blacksmith.

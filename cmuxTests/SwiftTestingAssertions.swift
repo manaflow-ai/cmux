@@ -8,24 +8,20 @@ import Testing
 struct SwiftTestingAssertions {
     /// Resolves a test source file from its module-relative identity.
     static func sourceURL(_ file: StaticString = #fileID) -> URL {
-        let fileID = String(describing: file)
-        let environment = ProcessInfo.processInfo.environment
-        var roots: [URL] = []
-        for key in ["CMUX_CI_RUNTIME_SOURCE_ROOT", "TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT"] {
-            if let runtimeRoot = environment[key], !runtimeRoot.isEmpty {
-                roots.append(URL(fileURLWithPath: runtimeRoot, isDirectory: true)
-                    .appendingPathComponent("src", isDirectory: true))
-            }
+        let sourceRoot: URL
+        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+           !runtimeRoot.isEmpty {
+            sourceRoot = URL(fileURLWithPath: runtimeRoot, isDirectory: true)
+                .appendingPathComponent("src", isDirectory: true)
+        } else {
+            sourceRoot = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
         }
-        roots.append(
-            URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-        )
-        roots.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true))
+
+        let fileID = String(describing: file)
         // #fileID is "<module>/<file>"; the module name matches the repo directory.
-        let candidates = roots.map { $0.appendingPathComponent(fileID) }
-        return candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) ?? candidates[0]
+        return sourceRoot.appendingPathComponent(fileID)
     }
 
 
