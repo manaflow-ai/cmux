@@ -83,7 +83,7 @@ struct ShortcutChordRoutingTests {
         #expect(registry.unavailableReason(for: "palette.shortcutKeymap") == nil)
         let lines = KeymapHandlers.summary(ShortcutKeymapPreset.tmux.plan(from: [:]), registry: registry)
         #expect(lines.first == KeymapStrings.change("New Workspace", "⌘N", "⌃B C"))
-        #expect(lines.contains(KeymapStrings.change("Select Workspace 1…9", "⌘1…9", "⌃B 1…9")))
+        #expect(lines.contains(KeymapStrings.change("Select Home or Workspace 1…9", "⌘1…9", "⌃B 1…9")))
         #expect(KeymapHandlers.summary(ShortcutKeymapPreset.cmux.plan(from: [:]), registry: registry) == [KeymapStrings.noChanges])
     }
 }
