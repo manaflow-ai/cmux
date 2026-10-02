@@ -74,6 +74,7 @@ public nonisolated enum SidebarLayoutReducer {
             sections[s].title = title.value
         }
         if let look = patch.look { sections[s].look = look }
+        if let showsTitle = patch.showsTitle { sections[s].showsTitle = showsTitle }
         if let room = patch.room {
             // L1: the workspace list shows in every room.
             if sections[s].content == .workspaces, room.value != nil { throw SidebarLayoutReject.workspacesRequired }

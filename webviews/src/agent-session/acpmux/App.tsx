@@ -33,7 +33,8 @@ import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DateLine } from "./conversation/DateLine";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 
@@ -136,6 +137,13 @@ const WorkedRow = memo(
     a.onToggleActivity === b.onToggleActivity,
 );
 
+/// "Sun, Sep 13 at 7:55 PM" over a prompt after an hour's gap (turnView in conversation/turns.ts).
+const DateRow = memo(
+  function DateRow({ row }: RowProps) {
+    return <DateLine row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.at === b.row.at,
+);
 /// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
 const ThinkingRow = memo(
   function ThinkingRow(_: RowProps) {
@@ -281,6 +289,7 @@ const defaultRegistry: NativeRegistry = {
   assistant: MessageRow,
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
+  [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
   editedFiles: EditedFilesRow,
@@ -671,7 +680,7 @@ function AcpmuxPane() {
   const freshChat = isNewChat(snapshot);
   // Codex's turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(
-    () => turnView(snapshot.rows, expanded, snapshot.isWorking),
+    () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
     [snapshot.rows, expanded, snapshot.isWorking],
   );
   // The open changes view: a turn of one session, and the control that opened it.

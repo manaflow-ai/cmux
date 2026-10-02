@@ -49,6 +49,11 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// of `focusRing.contrast`; nil follows the setting. Read here, in the
     /// observed style, so a slider move repaints the ring at once.
     public var focusRingAlphaOverride: CGFloat?
+    /// `appearance.focusIndicator`, and how unfocused panes' tabs draw
+    /// subtler when it marks tabs (`ChromeEmphasis.forPane`).
+    public var focusIndicator: FocusIndicator = .both
+    public var inactiveTabStyle: InactiveTabStyle = .fade
+    public var inactiveTabStrength: CGFloat = 0.35
     /// Fraction of a pane's extent that counts as an edge drop zone.
     public var dropEdgeFraction: CGFloat = 0.28
     /// Clamp for the edge drop band.
@@ -83,6 +88,9 @@ extension LayoutStyle {
         style.showsPaneBorder = Metrics.paneBorder == .subtle
         style.drawsLines = Borders.drawsLines
         style.focusRing = DesignSettings.shared.focusRing
+        style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
+        style.inactiveTabStyle = FocusIndicatorTunables.inactiveTabStyle.value
+        style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
         style.attention = DesignSettings.shared.attention
         if !style.drawsLines {
             // No outlines: the focused pane is marked by the others' dim
