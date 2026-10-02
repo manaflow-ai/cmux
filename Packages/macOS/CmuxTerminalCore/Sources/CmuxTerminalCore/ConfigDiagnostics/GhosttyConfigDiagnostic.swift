@@ -4,7 +4,8 @@ import Foundation
 ///
 /// Ghostty formats file diagnostics as `<path>:<line>:<key>: <message>`;
 /// ``filePath`` and ``line`` are parsed from that prefix so the notice can
-/// open the offending file.
+/// open the offending file. Diagnostics without a file location can still
+/// name a key as `<key>: <message>`.
 public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
     /// Synthetic path prefix cmux uses when it loads its own inline config
     /// fragments (see `loadInlineGhosttyConfig`). Diagnostics from those are
@@ -17,8 +18,7 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
     public let filePath: String?
     /// The 1-based line in ``filePath``, when present.
     public let line: Int?
-    /// The config key the diagnostic is about, when it has a file location
-    /// and a key.
+    /// The config key the diagnostic names, with or without a file location.
     public let key: String?
 
     /// Parses a Ghostty diagnostic message.
@@ -48,7 +48,9 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
     }
 
     private static func parseFileLocation(_ message: String) -> (path: String?, line: Int?, key: String?) {
-        guard message.hasPrefix("/") || message.hasPrefix("~") else { return (nil, nil, nil) }
+        guard message.hasPrefix("/") || message.hasPrefix("~") else {
+            return (nil, nil, parseKey(message[...]))
+        }
         // Find the first ":<digits>:" after the path.
         var searchStart = message.startIndex
         while let colon = message[searchStart...].firstIndex(of: ":") {
@@ -67,8 +69,8 @@ public struct GhosttyConfigDiagnostic: Equatable, Hashable, Sendable {
         return (nil, nil, nil)
     }
 
-    /// Ghostty writes `<key>: <message>` after the location, or
-    /// ` <message>` when the diagnostic has no key.
+    /// Ghostty writes `<key>: <message>` with or without a location, or
+    /// ` <message>` after a location when the diagnostic has no key.
     private static func parseKey(_ rest: Substring) -> String? {
         guard let colon = rest.firstIndex(of: ":") else { return nil }
         let key = rest[..<colon]
