@@ -17,6 +17,7 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerPreviousFile,
              .diffViewerNextHunk,
              .diffViewerPreviousHunk,
+             .diffViewerToggleViewed,
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return true
@@ -39,7 +40,8 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerNextFile,
              .diffViewerPreviousFile,
              .diffViewerNextHunk,
-             .diffViewerPreviousHunk:
+             .diffViewerPreviousHunk,
+             .diffViewerToggleViewed:
             return true
         default:
             return false
@@ -252,7 +254,7 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerScrollToTop:
             return .viewerPanel
         case .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
-             .diffViewerNextHunk, .diffViewerPreviousHunk:
+             .diffViewerNextHunk, .diffViewerPreviousHunk, .diffViewerToggleViewed:
             return .browserPanel
         case .commandPaletteNext, .commandPalettePrevious:
             return .commandPaletteVisible
@@ -260,7 +262,7 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToMachines, .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus
-        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .pasteLastScreenshot, .clearScreenKeepScrollback:
+        case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow, .clearScreenKeepScrollback:
             return .nonBrowserPanel
         case .focusHistoryBack, .focusHistoryForward:
             return .outsideBrowserPanel

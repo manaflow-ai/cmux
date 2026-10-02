@@ -17,9 +17,7 @@ struct CloudSidebarNativeDropTests {
 
     private func expectNoSidebarHints(_ outline: NSOutlineView) {
         let views = outline.subviews + (outline.window?.contentView?.superview?.subviews ?? [])
-        #expect(!views.contains {
-            $0 is FileDropHintBadgeView || $0.identifier?.rawValue == "sidebarReorderIndicator"
-        })
+        #expect(!views.contains { $0 is FileDropHintBadgeView })
     }
 
     @Test("Repeated Cloud row hover creates no hint views or indicator frame updates", arguments: [3, 100])
@@ -44,6 +42,9 @@ struct CloudSidebarNativeDropTests {
         defer { coordinator.outlineView(outline, draggingSession: session, endedAt: .zero, operation: []) }
         let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero,
                                             sequenceNumber: session.draggingSequenceNumber)
+        #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
+        let indicator = try #require(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" })
+        let initialFrame = indicator.frame
         let counter = HintFrameCounter()
         let observations = outline.subviews.filter { $0.identifier?.rawValue == "sidebarReorderIndicator" }.map { view in
             view.postsFrameChangedNotifications = true
@@ -55,8 +56,8 @@ struct CloudSidebarNativeDropTests {
         let iterations = 200
         var rejected = 0
         let elapsed = ContinuousClock().measure {
-            for index in 0..<iterations {
-                let position = index.isMultiple(of: 2) ? 0 : parent.children.count
+            for _ in 0..<iterations {
+                let position = 0
                 if coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: position) != .move {
                     rejected += 1
                 }
@@ -67,6 +68,9 @@ struct CloudSidebarNativeDropTests {
         print("CLOUD_SIDEBAR_DRAG_PERF workspaces=\(workspaceCount) updates=\(iterations) indicator_frame_changes=\(counter.value) duration_ms=\(milliseconds)")
         #expect(rejected == 0)
         #expect(counter.value == 0)
+        #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: parent.children.count) == .move)
+        #expect(indicator.frame != initialFrame)
+        #expect(counter.value == 1)
         expectNoSidebarHints(outline)
     }
 
@@ -129,12 +133,20 @@ struct CloudSidebarNativeDropTests {
         let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
         #expect(outline.draggingDestinationFeedbackStyle == .none)
+        let visibleIndicators = outline.subviews.filter {
+            $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden
+        }
+        #expect(visibleIndicators.count == 1)
         expectNoSidebarHints(outline)
         try fixture.attachScreenshot(named: "cloud-sidebar-drag-without-hints")
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: nil, proposedChildIndex: 0).isEmpty)
         expectNoSidebarHints(outline)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
         outline.draggingExited(info)
+        let visibleIndicatorsAfterExit = outline.subviews.filter {
+            $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden
+        }
+        #expect(visibleIndicatorsAfterExit.isEmpty)
         expectNoSidebarHints(outline)
     }
 
@@ -171,8 +183,10 @@ struct CloudSidebarNativeDropTests {
         #expect(coordinator.deferredNodes == nil)
         let current = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: source.id))
         #expect(current.children.map(\.searchableTitle) == (accepted ? ["fresh-2", "fresh-1"] : ["fresh-1", "fresh-2"]))
-        let indicators = outline.subviews.filter { $0.identifier?.rawValue == "sidebarReorderIndicator" }
-        #expect(indicators.isEmpty)
+        let visibleIndicators = outline.subviews.filter {
+            $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden
+        }
+        #expect(visibleIndicators.isEmpty)
         #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
     }
 
@@ -218,6 +232,7 @@ struct CloudSidebarNativeDropTests {
         #expect(!outline.isCurrentDragDestination(old))
         #expect(coordinator.outlineView(outline, validateDrop: old, proposedItem: nil, proposedChildIndex: 0).isEmpty)
         #expect(!outline.isCurrentDragDestination(old))
+        #expect(outline.subviews.contains { $0.identifier?.rawValue == "sidebarReorderIndicator" && !$0.isHidden })
         #expect(coordinator.outlineView(outline, validateDrop: current, proposedItem: nil, proposedChildIndex: 0).isEmpty)
         #expect(outline.isCurrentDragDestination(old))
         expectNoSidebarHints(outline)

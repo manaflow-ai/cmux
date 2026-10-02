@@ -11,9 +11,7 @@ import {
   type ExecResult,
   type CreateProviderTunnelOptions,
   type ProviderId,
-  type EnsureProviderNetworkOptions,
   type ProviderNetwork,
-  type ProviderNetworkTunnel,
   type ProviderTunnel,
   type ProviderTunnelAttachment,
   type ProviderTunnelCreateResult,
@@ -138,7 +136,7 @@ export type VmProviderGatewayShape = {
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
-    options: EnsureProviderNetworkOptions,
+    options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean },
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
   /** Read a provider network by id or slug without creating or repairing it. */
   readonly getNetwork?: (
@@ -171,8 +169,6 @@ export type VmProviderGatewayShape = {
   readonly attachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<ProviderTunnelAttachment, VmProviderOperationError>;
   readonly detachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly listNetworkTunnelIds?: (provider: ProviderId, networkId: string) => Effect.Effect<string[], VmProviderOperationError>;
-  readonly listNetworkTunnels?: (provider: ProviderId, networkId: string) => Effect.Effect<ProviderNetworkTunnel[], VmProviderOperationError>;
-  readonly listTunnels?: (provider: ProviderId) => Effect.Effect<ProviderNetworkTunnel[], VmProviderOperationError>;
 };
 
 export class VmProviderGateway extends Context.Tag("cmux/VmProviderGateway")<
@@ -213,8 +209,12 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   deleteHomeVolume: (provider, volumeName) =>
     providerEffect(provider, "deleteHomeVolume", async () => {
       const impl = getProvider(provider);
-      // Providers without persistent volumes have nothing to delete.
-      if (!impl.deleteHomeVolume) return;
+      // A caller only reaches this seam with an explicitly owned volume. Do
+      // not report success when the current driver cannot delete legacy
+      // storage: durable cleanup must remain pending for retry/operator work.
+      if (!impl.deleteHomeVolume) {
+        throw new VmOperationUnsupportedError({ provider, operation: "deleteHomeVolume" });
+      }
       await impl.deleteHomeVolume(volumeName);
     }),
   listVolumes: (provider, options) =>
@@ -400,17 +400,5 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       const networking = privateNetworking(provider);
       if (!networking.listNetworkTunnelIds) throw new VmOperationUnsupportedError({ provider, operation: "listNetworkTunnelIds" });
       return await networking.listNetworkTunnelIds(networkId);
-    }),
-  listNetworkTunnels: (provider, networkId) =>
-    providerEffect(provider, "listNetworkTunnels", async () => {
-      const networking = privateNetworking(provider);
-      if (!networking.listNetworkTunnels) throw new VmOperationUnsupportedError({ provider, operation: "listNetworkTunnels" });
-      return await networking.listNetworkTunnels(networkId);
-    }),
-  listTunnels: (provider) =>
-    providerEffect(provider, "listTunnels", async () => {
-      const networking = privateNetworking(provider);
-      if (!networking.listTunnels) throw new VmOperationUnsupportedError({ provider, operation: "listTunnels" });
-      return await networking.listTunnels();
     }),
 });

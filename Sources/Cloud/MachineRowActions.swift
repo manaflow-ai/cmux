@@ -179,6 +179,14 @@ struct MachineRowActions {
         )
     }
 
+    /// The rename sheet should identify a machine by the label the user sees;
+    /// the stable VM id is only the mutation target and a fallback for machines
+    /// that have not received a label yet.
+    static func renamePromptDisplayName(id: String, currentLabel: String?) -> String {
+        let label = currentLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return label?.isEmpty == false ? label! : id
+    }
+
     @MainActor
     private static func presentRenamePrompt(
         id: String,
@@ -189,7 +197,10 @@ struct MachineRowActions {
         let alert = NSAlert()
         alert.alertStyle = .informational
         let format = String(localized: "machines.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}")
-        alert.messageText = String(format: format, id)
+        alert.messageText = String(
+            format: format,
+            renamePromptDisplayName(id: id, currentLabel: currentLabel)
+        )
         alert.informativeText = String(
             localized: "machines.rename.message",
             defaultValue: "The label is display-only. The machine keeps its name as its address."
@@ -239,9 +250,19 @@ struct MachineRowActions {
             localized: "machines.delete.message",
             defaultValue: "This permanently deletes the machine and everything stored on it. This cannot be undone."
         )
-        alert.addButton(withTitle: String(localized: "machines.delete.confirm", defaultValue: "Delete"))
+        let deleteButton = alert.addButton(withTitle: String(localized: "machines.delete.confirm", defaultValue: "Delete"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        alert.buttons.first?.hasDestructiveAction = true
+        deleteButton.hasDestructiveAction = true
+        // Keep Return bound to the destructive action even when the alert is a sheet.
+        // NSAlert does not always make the first button the key window's default
+        // responder when the button has a destructive style.
+        deleteButton.keyEquivalent = "\r"
+        deleteButton.keyEquivalentModifierMask = []
+        alert.window.defaultButtonCell = deleteButton.cell as? NSButtonCell
+        alert.window.initialFirstResponder = deleteButton
+        if let cancelButton = alert.buttons.dropFirst().first {
+            cancelButton.keyEquivalent = "\u{1b}"
+        }
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             // A second confirm while the first delete runs is a no-op, never a second `vm rm`.
             guard response == .alertFirstButtonReturn, MachineDeleteCoordinator.shared.canBegin(id) else { return }

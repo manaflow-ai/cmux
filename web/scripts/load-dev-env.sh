@@ -115,28 +115,6 @@ elif [[ -z "${DIRECT_DATABASE_URL:-}" && -n "${DATABASE_URL:-}" ]]; then
   export DIRECT_DATABASE_URL="$DATABASE_URL"
 fi
 
-# Cloud private networks and tunnels are named from the Stack user id, and
-# production, staging, and every dev database share one Freestyle account.
-# Without a namespace a dev stack enrolls its tunnels into the user's
-# production network and nothing ever removes them. Name the namespace after
-# the database this server uses: a shared PlanetScale branch shares one, and
-# every local or dev-backend Postgres (its own port and password) gets its own.
-# An explicit value, even empty (production), wins.
-if [[ -z "${CMUX_VM_NETWORK_NAMESPACE+x}" ]]; then
-  if [[ "${CMUX_DEV_USE_PLANETSCALE:-0}" == "1" ]]; then
-    cmux_network_identity="$DATABASE_URL"
-  else
-    cmux_network_identity="${CMUX_DB_USER}:${CMUX_DB_PASSWORD}@${CMUX_DB_PORT}/${CMUX_DB_NAME}#${CMUX_PORT}"
-  fi
-  if command -v sha256sum >/dev/null 2>&1; then
-    cmux_network_hash="$(printf '%s' "$cmux_network_identity" | sha256sum)"
-  else
-    cmux_network_hash="$(printf '%s' "$cmux_network_identity" | shasum -a 256)"
-  fi
-  export CMUX_VM_NETWORK_NAMESPACE="dev-${cmux_network_hash:0:10}"
-  unset cmux_network_identity cmux_network_hash
-fi
-
 if [[ "${CMUX_DEV_USE_EXTERNAL_VM_API_BASE_URL:-0}" != "1" ]]; then
   export CMUX_VM_API_BASE_URL="http://localhost:${CMUX_PORT}"
 fi

@@ -190,9 +190,30 @@ extension MobileShellComposite {
         // Demonstration surfaces answer the viewport report locally with the
         // phone's own natural grid: there is no Mac to negotiate with, and a
         // nil answer would put the mounted view into its bounded
-        // retryViewportReport loop. Placed before the replay-barrier prearm
-        // below so no barrier is ever armed against a demo surface (a
-        // lingering barrier would gate the engine's output).
+        // retryViewportReport loop. External hosts also answer locally, but
+        // their grid must be sent to the owning Cloud source. Check that
+        // owner before the generic locally-served branch.
+        if externalHostOwnsSurface(surfaceID) {
+            reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
+            effectiveViewportSizesBySurfaceID[surfaceID] = reportedGrid
+            handleExternalHostViewportReport(
+                surfaceID: surfaceID,
+                columns: columns,
+                rows: rows
+            )
+            recordAppEvent(
+                .terminalViewportReportSucceeded,
+                correlationID: surfaceID,
+                count: columns * rows
+            )
+            finishPreparation()
+            return (
+                columns: columns,
+                rows: rows,
+                renderEpoch: nil,
+                renderRevisionFloor: nil
+            )
+        }
         if locallyServedOwnsSurface(surfaceID) {
             // A tmux pane keeps its layout size: grant that grid so a pinned
             // (letterboxed) surface is not resized to the phone's.
@@ -208,6 +229,26 @@ extension MobileShellComposite {
             return (
                 columns: granted.columns,
                 rows: granted.rows,
+                renderEpoch: nil,
+                renderRevisionFloor: nil
+            )
+        }
+        if !terminalAllowsTraffic(surfaceID: surfaceID) {
+            // Detached by another participant: the host ignores this phone's
+            // viewport until the user reattaches. Answer locally with the
+            // last granted grid so the mounted view does not enter its
+            // retry loop, and leave the Mac untouched.
+            let heldGrid = effectiveViewportSizesBySurfaceID[surfaceID] ?? reportedGrid
+            reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
+            recordAppEvent(
+                .terminalViewportReportFailed,
+                correlationID: surfaceID,
+                failure: .superseded
+            )
+            finishPreparation()
+            return (
+                columns: heldGrid.columns,
+                rows: heldGrid.rows,
                 renderEpoch: nil,
                 renderRevisionFloor: nil
             )
@@ -231,14 +272,15 @@ extension MobileShellComposite {
             let remoteWorkspaceID = remoteWorkspaceID(for: preparedWorkspaceID)
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.viewport",
-                params: [
-                    "workspace_id": remoteWorkspaceID.rawValue,
-                    "surface_id": surfaceID,
-                    "client_id": clientID,
-                    "viewport_columns": columns,
-                    "viewport_rows": rows,
-                    "viewport_generation": Int(clamping: requestGeneration),
-                ]
+                params: MobileTerminalViewportParameters(
+                    clientID: clientID,
+                    identity: terminalDeviceIdentity
+                ).report(
+                    workspaceID: remoteWorkspaceID.rawValue,
+                    surfaceID: surfaceID,
+                    viewport: reportedGrid,
+                    generation: requestGeneration
+                )
             )
             let data = try await client.sendRequest(request)
             guard remoteClient === client else {

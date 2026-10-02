@@ -69,6 +69,9 @@ export async function GET(
           caller: user,
         })),
         address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
+        // Contract recorded when the provider attached cmux-tui. This is
+        // rollout metadata, not a live daemon probe.
+        cmuxTuiContract: vm.cmuxTuiContract,
       });
     },
   );

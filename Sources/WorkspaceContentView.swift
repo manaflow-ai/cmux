@@ -100,6 +100,22 @@ private struct WorkspacePanelContentHostView: View {
                 workspace.requestDeferredBrowserMaterialization(panelId: panel.id, isVisibleInUI: isVisibleInUI)
             }
         )
+        .onAppear {
+            if isVisibleInUI {
+                workspace.owningTabManager?.dismissNotificationOnVisiblePanel(
+                    tabId: workspace.id,
+                    panelId: panel.id
+                )
+            }
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            if visible {
+                workspace.owningTabManager?.dismissNotificationOnVisiblePanel(
+                    tabId: workspace.id,
+                    panelId: panel.id
+                )
+            }
+        }
     }
 }
 
@@ -180,6 +196,7 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.tmuxOverlayExperimentTarget) private var overlayTarget
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -196,7 +213,6 @@ struct WorkspaceContentView: View {
 #endif
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.hasMultipleSplitSurfaces
-        let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
@@ -287,7 +303,7 @@ struct WorkspaceContentView: View {
                         appearance: appearance,
                         windowAppearance: windowAppearance,
                         customSidebarTabManager: workspace.owningTabManager,
-                        hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                        hasUnreadNotification: showsNotificationRing && !overlayTarget.usesWorkspacePaneOverlay,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
                             // active workspace. This prevents divergence between the blue focused-tab

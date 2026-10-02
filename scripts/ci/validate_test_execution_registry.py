@@ -86,7 +86,8 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
     """Every workflow's text, for asking whether a path is executed anywhere.
 
     A Linux guard does not have to live in ci-guards.yml to be live. The
-    always-on lanes run guards too -- testbox-broker-guard.yml deliberately has
+    routed CI lanes run guards too -- the Testbox checks now live in
+    ci-guards.yml's `ci` group, while testbox-broker-guard.yml deliberately has
     no path filter, and ci-artifact-transport.yml owns its own -- so checking
     ci-guards.yml alone rejects a test that demonstrably executes on every
     pull request.

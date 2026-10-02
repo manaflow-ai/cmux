@@ -58,7 +58,6 @@ import {
   vmDisplayNameCopy,
   vmCreateCleanupPendingCopy,
   vmGuestInstallCopy,
-  vmNetworkFullCopy,
   vmRecreateRequiredCopy,
   vmRequestLocale,
   vmRequiresProCopy,
@@ -68,9 +67,8 @@ import {
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
-import { ProviderArtifactUnavailableError, ProviderMachineRecreateRequiredError } from "./drivers/types";
+import { ProviderArtifactUnavailableError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError } from "./drivers/types";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
-import { isProviderNetworkAddressExhausted } from "./providerErrors";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
 
@@ -550,7 +548,7 @@ export async function invalidVmDisplayNameResponse(request: Request): Promise<Re
 
 /**
  * A machine size the ladder offers but the caller's plan does not include
- * (today: 32 GB and 64 GB, sold by Max). This is a paywall, so the response
+ * (today: 16, 24, and 32 GB, sold by Max). This is a paywall, so the response
  * carries the same `upgradeRequired`/`upgradeUrl` fields as `vm_requires_pro`
  * plus the plan that unlocks the size, and it is never silently coerced.
  */
@@ -812,8 +810,8 @@ export const vmWorkflowErrorResponders = {
     if (providerMachineRecreateRequired(error.cause)) {
       return vmRecreateRequiredResponse(error, context.locale);
     }
-    if (isProviderNetworkAddressExhausted(error.cause)) {
-      return vmNetworkFullResponse(error, context.locale);
+    if (providerCauseIs(error.cause, ProviderNetworkFullError)) {
+      return vmNetworkFullResponse(error);
     }
     if (isProviderCreateCleanupError(error.cause)) {
       return vmCreateCleanupPendingResponse(context.locale);
@@ -1049,24 +1047,24 @@ export async function vmWorkflowErrorResponse(
   return respondVmWorkflowError(error, { locale: options.locale ?? "en" }, options.overrides);
 }
 
-/** Match typed artifact failures even when the provider wraps the original cause. */
-function providerArtifactUnavailable(cause: unknown): boolean {
+/** Match a typed provider failure even when the provider wraps the original cause. */
+function providerCauseIs(cause: unknown, type: abstract new (...args: never[]) => Error): boolean {
   let current = cause;
   for (let depth = 0; depth < 8 && current; depth += 1) {
-    if (current instanceof ProviderArtifactUnavailableError) return true;
+    if (current instanceof type) return true;
     current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
   }
   return false;
 }
 
+/** Match typed artifact failures even when the provider wraps the original cause. */
+function providerArtifactUnavailable(cause: unknown): boolean {
+  return providerCauseIs(cause, ProviderArtifactUnavailableError);
+}
+
 /** Match a machine the server can never attach, even when the provider wraps it. */
 function providerMachineRecreateRequired(cause: unknown): boolean {
-  let current = cause;
-  for (let depth = 0; depth < 8 && current; depth += 1) {
-    if (current instanceof ProviderMachineRecreateRequiredError) return true;
-    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
-  }
-  return false;
+  return providerCauseIs(cause, ProviderMachineRecreateRequiredError);
 }
 
 type GuestCliInstallFailure = {
@@ -1171,22 +1169,25 @@ async function vmRecreateRequiredResponse(error: VmProviderOperationError, local
 }
 
 /**
- * The owner's private network has no free address even after the control
- * plane reclaimed what it could prove unused. Retrying the same request cannot
- * help, so the answer is non-retryable and names the user's way out.
+ * The owner's private network has no free address. It stays full until the
+ * owner deletes machines or revokes Macs, so this is a permanent refusal: no
+ * retryAfter, and an action that frees addresses instead of "retry".
  */
-async function vmNetworkFullResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
-  const copy = await vmNetworkFullCopy(locale);
+function vmNetworkFullResponse(error: VmProviderOperationError): Response {
+  const message = "This account's private network has no free addresses.";
   return vmErrorResponse({
     error: "vm_network_full",
     status: 409,
-    message: copy.message,
-    action: copy.action,
+    message,
+    reason: "Every address in this account's private network is assigned to a machine or an enrolled Mac.",
+    action:
+      "Delete machines you no longer use with `cmux vm rm <id>`, or revoke Macs you no longer use on the " +
+      "Cloud Mac access page at https://cmux.com/dashboard/cloud, then try again.",
     phase: vmPhaseForOperation(error.operation),
     retryable: false,
-    displayTitle: copy.title,
-    displayMessage: copy.message,
-    details: { operation: error.operation, retryable: false },
+    displayTitle: "Private network full",
+    displayMessage: message,
+    details: { operation: error.operation, retryable: false, providerCode: "provider_network_full" },
   });
 }
 

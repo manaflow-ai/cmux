@@ -401,20 +401,6 @@ export class ProviderTunnelNetworkOverlapError extends Error {
   readonly kind = "network_overlap" as const;
 }
 
-/**
- * One tunnel as a network listing reports it. The provider's timestamps are
- * the only age signal for a tunnel no control-plane row describes.
- */
-export type ProviderNetworkTunnel = {
-  readonly id: string;
-  readonly slug: string | null;
-  /** Epoch milliseconds; 0 when the provider omitted or garbled it. */
-  readonly createdAt: number;
-  readonly updatedAt: number;
-  /** Every network the tunnel is attached to. */
-  readonly networkIds: readonly string[];
-};
-
 /** Result of enrolling a tunnel, including whether provider state was recovered or rotated. */
 export type ProviderTunnelCreateResult = {
   readonly tunnel: ProviderTunnel;
@@ -444,7 +430,7 @@ export interface VMPrivateNetworking {
    * under concurrent calls with the same slug: two machines created at once
    * must land on one network, not two.
    */
-  ensureNetwork(options: EnsureProviderNetworkOptions): Promise<ProviderNetwork>;
+  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean; membersRule?: boolean }): Promise<ProviderNetwork>;
   /** Read a network back by id or slug, or null when the provider has none. */
   getNetwork(networkIdOrSlug: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */
@@ -469,23 +455,7 @@ export interface VMPrivateNetworking {
   detachTunnelNetwork?(tunnelId: string, networkId: string): Promise<void>;
   /** Ids of every tunnel attached to a network. */
   listNetworkTunnelIds?(networkId: string): Promise<string[]>;
-  /** Every tunnel attached to a network, with the provider's timestamps. */
-  listNetworkTunnels?(networkId: string): Promise<ProviderNetworkTunnel[]>;
-  /** Every tunnel in the provider account, including other deployments' tunnels. */
-  listTunnels?(): Promise<ProviderNetworkTunnel[]>;
 }
-
-export type EnsureProviderNetworkOptions = {
-  readonly slug: string;
-  readonly displayName?: string;
-  readonly heal?: boolean;
-  readonly membersRule?: boolean;
-  /**
-   * The IPv4 range for a network this call creates. Omitted means the
-   * provider's default. It never changes an existing network.
-   */
-  readonly cidr?: string;
-};
 
 export interface VMProvider {
   readonly id: ProviderId;
@@ -631,16 +601,14 @@ export class ProviderMachineRecreateRequiredError extends ProviderError {
 }
 
 /**
- * The provider refused to place a machine or tunnel because the network has no
- * free address. Retrying the same request cannot help until an address is
- * released, so routes answer a non-retryable `vm_network_full`.
+ * The owner's private network has no free address for another member. It
+ * stays full until machines are deleted or computers are revoked, so routes
+ * answer with a non-retryable cleanup action, never a retryable outage.
  */
-export class ProviderNetworkAddressExhaustedError extends ProviderError {
-  readonly kind = "network_address_exhausted" as const;
-
-  constructor(provider: ProviderId, readonly networkId: string | null, cause?: unknown) {
-    super(provider, `network ${networkId ?? "(unknown)"} has no free addresses`, cause);
-    this.name = "ProviderNetworkAddressExhaustedError";
+export class ProviderNetworkFullError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderNetworkFullError";
   }
 }
 

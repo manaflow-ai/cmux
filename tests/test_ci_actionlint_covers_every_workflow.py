@@ -22,7 +22,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
-LINT_WORKFLOW = WORKFLOW_DIR / "testbox-broker-guard.yml"
+# The lint now runs in ci-guards.yml's routed `ci` group. The old standalone
+# Testbox workflow remains dispatch-only for explicit diagnostics.
+LINT_WORKFLOW = WORKFLOW_DIR / "ci-guards.yml"
 CONFIG = ROOT / ".github" / "actionlint.yaml"
 
 # Files actionlint is allowed to skip a rule in. An entry here is a deferred
@@ -51,7 +53,7 @@ def lint_step(text: str) -> str:
 def main() -> int:
     text = LINT_WORKFLOW.read_text(encoding="utf-8")
     step = lint_step(text)
-    check(bool(step), "testbox-broker-guard.yml has a `Lint every workflow` step")
+    check(bool(step), "ci-guards.yml has a `Lint every workflow` step")
 
     invocation = [
         line.strip()
@@ -71,12 +73,11 @@ def main() -> int:
         "the linter is still the pinned, checksum-verified download",
     )
 
-    # A lint behind a paths filter is a lint that misses the workflow broken by
-    # an edit to some other file.
-    trigger = text[: text.index("\njobs:")]
+    # The reusable guard must keep the lint in the `ci` matrix group. Changes
+    # to workflow definitions route that group through detect_linux_guard_changes.py.
     check(
-        "pull_request:\n" in trigger and "paths:" not in trigger,
-        "the lint runs on every pull request with no path filter",
+        "matrix.group == 'ci'" in step,
+        "the lint runs in the routed CI guard group",
     )
 
     config = CONFIG.read_text(encoding="utf-8")
