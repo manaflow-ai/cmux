@@ -453,9 +453,10 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "plan") this.rows.set(`plan-${event.seq}`, { id: `plan-${event.seq}`, version: 1, at: event.at, kind: "plan", text: text || JSON.stringify(update.entries ?? update.content ?? "") });
   }
 
-  /// The tool calls and time since the turn's user message.
+  /// The tool calls and time since the turn's user message. A prompt still sending (queued
+  /// behind this turn) or one that failed to send did not start a turn.
   private turnTotals(endedAt: number): { durationMs?: number; toolCount: number } {
-    const rows = [...this.rows.values()].sort((a, b) => a.at - b.at);
+    const rows = [...this.rows.values()].filter((row) => !row.pending && !row.failed).sort((a, b) => a.at - b.at);
     let start = rows.length;
     while (start > 0 && rows[start - 1]!.kind !== "user") start -= 1;
     const user = rows[start - 1];
