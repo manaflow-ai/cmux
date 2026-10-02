@@ -16,8 +16,12 @@ use serde_json::{Value, json};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
-/// Deadline for the per-tab setup calls and other internal calls.
+/// Deadline for internal calls.
 pub(super) const INTERNAL_TIMEOUT: Duration = Duration::from_secs(10);
+/// Deadline for a new target's setup batch: its replies wait for the
+/// renderer process to start, which takes seconds on a cold, loaded machine
+/// (hosted macOS runners exceeded 10 s).
+pub(super) const SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct CdpDriver {
     pub(super) inner: Arc<Inner>,
@@ -256,7 +260,7 @@ impl Inner {
             .chain(self.fetch_enable_step())
             .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
             .collect(),
-            INTERNAL_TIMEOUT,
+            SETUP_TIMEOUT,
         );
         if let Some(Ok(tree)) = results.get(1) {
             let frame = &tree["frameTree"]["frame"];
@@ -291,7 +295,7 @@ impl Inner {
             .chain(self.fetch_enable_step())
             .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
             .collect(),
-            INTERNAL_TIMEOUT,
+            SETUP_TIMEOUT,
         );
         results.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }
