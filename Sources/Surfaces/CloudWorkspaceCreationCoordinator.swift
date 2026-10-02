@@ -265,7 +265,7 @@ final class CloudWorkspaceCreationCoordinator {
             catalog.notifyChange()
             host.complete(reservation, projection: projections[0])
             if focus, let manager = host.manager,
-               manager.selectedTabId == host.selectedWorkspaceID,
+               (manager.selectedTabId == host.selectedWorkspaceID || manager.window == nil),
                manager.window?.isKeyWindow != false,
                let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
                 manager.selectWorkspace(workspace)
