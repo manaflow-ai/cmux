@@ -25,6 +25,11 @@ public nonisolated enum AgentPaneFileOpen {
         return url
     }
 
+    /// Whether a tab may show the file at `url`.
+    public static func showsInTab(_ url: URL) -> Bool {
+        true
+    }
+
     /// The app that edits text: the default for source code, else for plain text.
     @MainActor public static func editorApplication(workspace: NSWorkspace = .shared) -> URL? {
         workspace.urlForApplication(toOpen: .sourceCode) ?? workspace.urlForApplication(toOpen: .plainText)

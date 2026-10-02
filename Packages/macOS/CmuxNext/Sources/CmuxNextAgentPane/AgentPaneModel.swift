@@ -58,7 +58,8 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .openFile(let path, let target):
-            guard let onOpenFile, let url = AgentPaneFileOpen.resolve(path), onOpenFile(url, target) else {
+            guard let onOpenFile, let url = AgentPaneFileOpen.resolve(path),
+                  target == .editor || AgentPaneFileOpen.showsInTab(url), onOpenFile(url, target) else {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
             }
             return AgentPaneReply.success()
