@@ -1,0 +1,13 @@
+[package]
+name = "cmux-theme-tokens"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux-next ThemeTokens: chrome colors derived from the user's Ghostty theme. Reads the Ghostty config itself; no UI toolkit dependency."
+
+[lints]
+workspace = true
+
+[dependencies]

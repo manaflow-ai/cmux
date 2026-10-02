@@ -21,3 +21,4 @@
 # from manaflow-ai/cmux-gpui; the GPUI lane keeps ownership.
 /cmux-tui/bindings/rust-daemon-client/  @lawrencecchen
 /cmux-tui/crates/cmux-motion/           @lawrencecchen
+/cmux-tui/crates/cmux-theme-tokens/     @lawrencecchen

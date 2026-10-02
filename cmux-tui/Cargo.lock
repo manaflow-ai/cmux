@@ -841,6 +841,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-theme-tokens"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-tui"
 version = "0.1.0"
 dependencies = [
