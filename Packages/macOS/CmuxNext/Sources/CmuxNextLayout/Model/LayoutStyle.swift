@@ -45,6 +45,7 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var paneBorderWidth: CGFloat?
     /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
     public var inactivePaneDimming: CGFloat = 0.14
+    public var focusRingAlphaOverride: CGFloat?
     /// Fraction of a pane's extent that counts as an edge drop zone.
     public var dropEdgeFraction: CGFloat = 0.28
     /// Clamp for the edge drop band.
