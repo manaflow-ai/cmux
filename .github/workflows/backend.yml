@@ -149,6 +149,46 @@ jobs:
           done
           echo "::error::preview Worker did not answer at $url"; exit 1
 
+  # Pushes are never rejected (agents push straight to feat-cmux-next); a bad migration push
+  # turns red here, after the fact. No secrets: it compares the pushed tree with the previous head.
+  migrations-push-guard:
+    if: github.event_name == 'push'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - name: Migrations stay append-only, numbered upward, expand-only on feat-cmux-next
+        env:
+          BEFORE: ${{ github.event.before }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          dir=backend/db/migrations
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then echo "no previous head to compare (new branch or force push); lint only"; BEFORE=""; fi
+          errors=0
+          if [ -n "$BEFORE" ]; then
+            while IFS=$'\t' read -r status path; do
+              [ -n "$path" ] || continue
+              if [ "$status" != A ]; then echo "::error file=$path,title=Migration changed after it was shared::$path ($status). Applied migrations are append-only; add a new numbered file."; errors=1; fi
+            done < <(git diff --name-status --no-renames "$BEFORE" HEAD -- "$dir")
+            before_max=0
+            for m in $(git ls-tree --name-only "$BEFORE" "$dir/" 2>/dev/null); do n=$(basename "$m"); [[ "$n" =~ ^[0-9]{4}_ ]] && [ $((10#${n:0:4})) -gt "$before_max" ] && before_max=$((10#${n:0:4})); done
+            while IFS= read -r path; do
+              [ -n "$path" ] || continue
+              n=$(basename "$path"); num=$((10#${n:0:4}))
+              if [ "$num" -le "$before_max" ]; then echo "::error file=$path,title=Migration number not above the previous head::$path must be numbered above $before_max."; errors=1; fi
+              if [ "$REF_NAME" = feat-cmux-next ] && grep -qE '^--[[:space:]]*phase:[[:space:]]*contract' "$path"; then echo "::error file=$path,title=Contract migration on feat-cmux-next::contract migrations go in a PR into main only."; errors=1; fi
+            done < <(git diff --name-only --diff-filter=A "$BEFORE" HEAD -- "$dir")
+          fi
+          (cd backend && bun install --frozen-lockfile >/dev/null)
+          (cd backend/db && bun migrate.ts --lint) || errors=1
+          exit "$errors"
+
   deploy-staging:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -168,7 +208,23 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      - name: Deploy API Worker (refuses if staging lacks a migration)
+      # Visible refusal: a migration pushed without the label flow (or a database ahead of this
+      # tree) stops the deploy here with an annotation naming the commit, before anything ships.
+      - name: Staging schema matches this commit
+        working-directory: backend/db
+        env:
+          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+          SHA: ${{ github.sha }}
+        run: |
+          if ! out=$(bun migrate.ts --env staging --verify 2>&1); then
+            echo "$out"
+            msg="Staging deploy refused for ${SHA:0:11}: $(echo "$out" | tail -1). Migrations reach staging only through a PR with the label backend:apply-migrations (skills/cmux-backend-migrations)."
+            echo "::error title=Staging deploy refused::$msg"
+            { echo "### Staging deploy refused"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "$out"
+      - name: Deploy API Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
