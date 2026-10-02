@@ -8,6 +8,12 @@ public nonisolated struct SettingRefused: Error, Sendable, CustomStringConvertib
     public var description: String { "\(key) does not accept \(value.compactText)" }
 }
 
+/// A write through `setSetting(at:to:)` for a key `SettingsSchema` does not list.
+public struct SettingNotInSchema: Error, Sendable, CustomStringConvertible {
+    public let key: String
+    public var description: String { "\(key) is not a setting" }
+}
+
 extension SettingsController {
     /// Writes one schema setting atomically; nil removes the key (its
     /// default applies) and any object the removal leaves empty. The file
@@ -15,9 +21,23 @@ extension SettingsController {
     /// window reads it back from `snapshot`.
     public func setSetting(_ descriptor: SettingDescriptor, to value: JSONValue?) async throws {
         if let source = managedKeys[descriptor.id] { throw SettingManaged(key: descriptor.id, source: source) }
-        guard let value else { return try await removePruning(descriptor.path) }
-        guard descriptor.accepts(value) else { throw SettingRefused(key: descriptor.id, value: value) }
-        try await file.set(value, at: descriptor.path)
+        if let value {
+            guard descriptor.accepts(value) else { throw SettingRefused(key: descriptor.id, value: value) }
+            try await file.set(value, at: descriptor.path)
+        } else {
+            try await removePruning(descriptor.path)
+        }
+        validatedWrites[descriptor.id, default: 0] += 1
+    }
+
+    /// `setSetting` for the schema key at `path`: the one write path of the
+    /// palette's typed setters and handlers. Throws `SettingNotInSchema`
+    /// when the schema lists no such key.
+    public func setSetting(at path: [String], to value: JSONValue?) async throws {
+        guard let descriptor = SettingsSchema.descriptor(for: path) else {
+            throw SettingNotInSchema(key: path.joined(separator: "."))
+        }
+        try await setSetting(descriptor, to: value)
     }
 
     /// Advanced > Reset All Settings: removes every key the schema lists and

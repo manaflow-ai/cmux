@@ -3,7 +3,6 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
-import os
 
 /// Sticky columns and the strip scrollbar (plans/cmux-next/sticky-column.md).
 /// Every entry point (palette, context menus, CLI verbs, `action.run`,
@@ -13,8 +12,6 @@ import os
 /// Disabled with the daemon's reason until the pinned cmux-tui serves
 /// `sticky-columns-v1`.
 enum StickyColumnHandlers {
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
-
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         let capability = DaemonCapabilities.shared.stickyColumns
         registry.bind("column.makeSticky", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
@@ -43,12 +40,7 @@ enum StickyColumnHandlers {
         registry.bind("layout.toggleStripScrollbar", run: { _ in
             let next = DesignSettings.shared.stripScrollbar.toggled
             DesignSettings.shared.stripScrollbar = next
-            guard let settings = ctx.services.settings else { return }
-            Task {
-                do { try await settings.set(.string(next.rawValue), at: StripScrollbarSetting.configPath) } catch {
-                    logger.error("set strip scrollbar failed: \(String(describing: error), privacy: .public)")
-                }
-            }
+            ctx.writeSetting("set strip scrollbar", StripScrollbarSetting.configPath, .string(next.rawValue))
         })
     }
 

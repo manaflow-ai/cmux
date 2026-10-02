@@ -2,16 +2,14 @@ import CmuxNextActions
 import CoreGraphics
 import CmuxNextDesign
 import CmuxNextSettings
-import os
 
 /// Density, animation speed, titlebar style, interface size (the chrome body
 /// font; terminal fonts come from the Ghostty config) and pane chrome
 /// (border, padding). Applied to `DesignSettings` at once, then
-/// written to cmux.json, which owns settings; the watcher reapplies the
-/// same value.
+/// written to cmux.json through the validated `setSetting` path
+/// (`AppActionContext.writeSetting`), which owns settings; the watcher
+/// reapplies the same value.
 enum AppearanceHandlers {
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
-
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("appearance.density.compact", run: { _ in try setDensity(.compact, context) })
         registry.bind("appearance.density.comfortable", run: { _ in try setDensity(.comfortable, context) })
@@ -34,7 +32,7 @@ enum AppearanceHandlers {
             var chrome = design.paneChrome
             chrome.borderColor = nil
             design.setPaneChrome(chrome)
-            write(context, "reset pane border color") { try await $0.setPaneBorderColor(nil) }
+            context.writeSetting("reset pane border color", ["layout", "paneBorderColor"], nil, reloadOnFailure: true)
         })
         for style in TitlebarStyle.allCases {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
@@ -42,16 +40,16 @@ enum AppearanceHandlers {
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             try requireUnmanaged(fontSizePath, context)
             DesignSettings.shared.setOverride(.chromeFontSize, nil)
-            write(context, "reset interface size") { try await $0.file.remove(fontSizePath) }
+            context.writeSetting("reset interface size", fontSizePath, nil, reloadOnFailure: true)
         })
     }
 
-    private static let fontSizePath = ["appearance", "metrics", MetricKey.chromeFontSize.rawValue]
+    private static let fontSizePath = InterfaceSizeSetting.configPath
 
     private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
         try requireUnmanaged(["appearance", "density"], context)
         DesignSettings.shared.density = density
-        write(context, "set density") { try await $0.setDensity(density) }
+        context.writeSetting("set density", ["appearance", "density"], .string(density.rawValue), reloadOnFailure: true)
     }
 
     /// Subtle border on or off. Subtle is the default, so turning it back
@@ -64,8 +62,8 @@ enum AppearanceHandlers {
         var chrome = design.paneChrome
         chrome.border = next == .subtle ? nil : next
         design.setPaneChrome(chrome)
-        let border = chrome.border
-        write(context, "toggle pane border") { try await $0.setPaneBorder(border) }
+        let border = chrome.border.map { JSONValue.string($0.rawValue) }
+        context.writeSetting("toggle pane border", ["layout", "paneBorder"], border, reloadOnFailure: true)
     }
 
     /// Padding off (0) or back to the density default.
@@ -75,8 +73,8 @@ enum AppearanceHandlers {
         var chrome = design.paneChrome
         chrome.padding = Metrics.panePadding > 0 ? 0 : nil
         design.setPaneChrome(chrome)
-        let padding = chrome.padding.map(Double.init)
-        write(context, "toggle pane padding") { try await $0.setPanePadding(padding) }
+        let padding = chrome.padding.map { JSONValue.number(Double($0)) }
+        context.writeSetting("toggle pane padding", ["layout", "panePadding"], padding, reloadOnFailure: true)
     }
 
     /// Square corners (0) or back to the default radius. With no padding and
@@ -94,8 +92,8 @@ enum AppearanceHandlers {
             if Metrics.paneCornerRadius == 0 { chrome.cornerRadius = Metrics.densityPaneCornerRadius }
         }
         design.setPaneChrome(chrome)
-        let radius = chrome.cornerRadius.map(Double.init)
-        write(context, "toggle pane corners") { try await $0.setPaneCornerRadius(radius) }
+        let radius = chrome.cornerRadius.map { JSONValue.number(Double($0)) }
+        context.writeSetting("toggle pane corners", ["layout", "paneCornerRadius"], radius, reloadOnFailure: true)
     }
 
     /// Border width: one device pixel (the default, key removed) or 2 pt.
@@ -105,31 +103,31 @@ enum AppearanceHandlers {
         var chrome = design.paneChrome
         chrome.borderWidth = Metrics.paneBorderWidth == nil ? 2 : nil
         design.setPaneChrome(chrome)
-        let width = chrome.borderWidth.map(Double.init)
-        write(context, "toggle pane border width") { try await $0.setPaneBorderWidth(width) }
+        let width = chrome.borderWidth.map { JSONValue.number(Double($0)) }
+        context.writeSetting("toggle pane border width", ["layout", "paneBorderWidth"], width, reloadOnFailure: true)
     }
 
     /// `window.titlebar`: applied at once, then written to cmux.json.
     private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {
         try requireUnmanaged(WindowTitlebarSetting.configPath, context)
         DesignSettings.shared.titlebar = style
-        write(context, "set titlebar") { try await $0.setTitlebar(style) }
+        // The default removes the key (and an emptied `window` object).
+        let value: JSONValue? = style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue)
+        context.writeSetting("set titlebar", WindowTitlebarSetting.configPath, value, reloadOnFailure: true)
     }
 
     /// `ui.animationSpeed`: applied at once, then written to cmux.json.
     private static func setAnimationSpeed(_ speed: MotionSpeed, _ context: AppActionContext) throws {
         try requireUnmanaged(AnimationSpeedSetting.configPath, context)
         DesignSettings.shared.animationSpeed = speed
-        write(context, "set animation speed") { try await $0.setAnimationSpeed(speed) }
+        context.writeSetting("set animation speed", AnimationSpeedSetting.configPath, .string(speed.rawValue), reloadOnFailure: true)
     }
 
     /// `layout.centerFocusedColumn`: applied at once, then written to cmux.json.
     private static func setCenterFocusedColumn(_ mode: CenterFocusedColumn, _ context: AppActionContext) throws {
         try requireUnmanaged(CenterFocusedColumnSetting.configPath, context)
         DesignSettings.shared.centerFocusedColumn = mode
-        write(context, "set center focused column") {
-            try await $0.set(.string(mode.rawValue), at: CenterFocusedColumnSetting.configPath)
-        }
+        context.writeSetting("set center focused column", CenterFocusedColumnSetting.configPath, .string(mode.rawValue), reloadOnFailure: true)
     }
 
     /// Body size in points: the override, else the density default.
@@ -142,7 +140,7 @@ enum AppearanceHandlers {
         let design = DesignSettings.shared
         design.setOverride(.chromeFontSize, CGFloat(interfaceSize(design) + delta))
         let size = interfaceSize(design)
-        write(context, "set interface size") { try await $0.set(.number(size), at: fontSizePath) }
+        context.writeSetting("set interface size", fontSizePath, .number(size), reloadOnFailure: true)
     }
 
     /// Refuses before anything is applied when an MDM profile or the team
@@ -151,18 +149,6 @@ enum AppearanceHandlers {
     static func requireUnmanaged(_ path: [String], _ context: AppActionContext) throws {
         if let managed = context.services.settings?.managedKey(forPath: path) {
             throw ActionFailure.invalidTarget(RefusalStrings.settingManaged(managed.key))
-        }
-    }
-
-    private static func write(_ context: AppActionContext, _ label: String,
-                              _ body: @escaping @Sendable (SettingsController) async throws -> Void) {
-        guard let settings = context.services.settings else { return }
-        Task {
-            do { try await body(settings) } catch {
-                logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                // The live value was applied first; reload so the file (and managed layers) win again.
-                await settings.reload()
-            }
         }
     }
 }
