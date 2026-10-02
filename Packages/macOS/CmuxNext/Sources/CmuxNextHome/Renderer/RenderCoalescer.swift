@@ -6,6 +6,7 @@ import Foundation
 /// something asked for it. Scroll events, page chunks and source changes in
 /// one pass become one transcript render. It never wakes the run loop: the
 /// observer only runs on passes that other events caused.
+@MainActor
 final class RenderCoalescer {
     private var observer: CFRunLoopObserver?
     private(set) var isDirty = false
