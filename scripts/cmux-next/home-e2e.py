@@ -73,8 +73,14 @@ def tail():
 
 wait("my message is confirmed", lambda: any(m["author"] == "user_local" and m["seq"] > start_seq and "PONG" in m["text"]
                                             for m in tail()), 30)
+wait("the mux used cmux (it names a real workspace)", lambda: any(m["author"] == "agent_mux" and m["seq"] > start_seq
+                                                                    and "workspace" in m["text"].lower() for m in tail()),
+     opts.timeout)
+# The report comes after the spawn message; the spawn message repeats the task ("reply with ... PONG").
 reply = wait("the mux reports the child's PONG", lambda: next((m for m in tail() if m["author"] == "agent_mux"
-                                                               and m["seq"] > start_seq and "PONG" in m["text"]), None),
+                                                               and m["seq"] > start_seq and "PONG" in m["text"]
+                                                               and "reply with" not in m["text"].lower()
+                                                               and "finished" in m["text"].lower()), None),
              opts.timeout)
 print("mux:", reply["text"][:400].replace("\n", " "))
 focus_ok("after reply")
