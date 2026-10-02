@@ -12,8 +12,10 @@ struct AgentFeedStoreView: View {
     let status: MobileNotificationFeedStatus
     let pendingReplyRequestIDs: Set<String>
     let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
+    var isActive = true
 
     @State private var showsNavigationFailure = false
+    @State private var isFeedVisible = false
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
 
     var body: some View {
@@ -24,14 +26,18 @@ struct AgentFeedStoreView: View {
             pendingTerminalReplyItemIDs: pendingTerminalReplyItemIDs,
             failedTerminalReplies: store.agentFeedFailedTerminalReplies,
             refreshesOnAppear: true,
+            isActive: isActive,
             actions: actions,
             searchText: searchCoordinator.searchDestinationText(for: .feed)
         )
         .onAppear {
-            store.recordAppEvent(.agentFeedOpened, count: items.count)
+            updateFeedVisibility(isActive)
+        }
+        .onChange(of: isActive) { _, active in
+            updateFeedVisibility(active)
         }
         .onDisappear {
-            store.recordAppEvent(.agentFeedClosed)
+            updateFeedVisibility(false)
         }
         .alert(String(localized: "mobile.agentFeed.openFailed.title", defaultValue: "Couldn’t open event", bundle: .module),
                isPresented: $showsNavigationFailure) {
@@ -94,6 +100,18 @@ struct AgentFeedStoreView: View {
                 store.recordAppEvent(.agentFeedFilterChanged, count: filter == .needsInput ? 1 : 0)
             }
         )
+    }
+
+    private func updateFeedVisibility(_ active: Bool) {
+        if active {
+            guard !isFeedVisible else { return }
+            isFeedVisible = true
+            store.recordAppEvent(.agentFeedOpened, count: items.count)
+        } else {
+            guard isFeedVisible else { return }
+            isFeedVisible = false
+            store.recordAppEvent(.agentFeedClosed)
+        }
     }
 }
 #endif
