@@ -106,28 +106,38 @@
             return p.evaluate(readList, { repo: name, limit: options.limit || 50 });
           });
         },
-        // Issues and pull requests assigned to the signed-in user, from
-        // GitHub's assigned lists: [{ repo, number, kind, title, url }].
-        // { pulls: false } or { issues: false } skips one list.
+        // Issues and pull requests assigned to the signed-in user, newest
+        // update first: [{ repo, number, kind, title, url }]. Options:
+        // { pulls: false } or { issues: false }, state ("open" | "closed" | "all"), limit (50).
         async assigned(options = {}) {
+          // GitHub's own search, which answers JSON to the web client in the
+          // session (the assigned dashboard renders late from script).
+          const kinds = options.issues === false ? " is:pr" : options.pulls === false ? " is:issue" : "";
+          const state = options.state === "all" ? "" : ` is:${options.state || "open"}`;
+          const q = `assignee:@me${state}${kinds} sort:updated-desc`;
+          const limit = options.limit || 50;
           const out = [];
-          const seen = new Set();
-          const lists = [options.issues === false ? null : "/issues/assigned", options.pulls === false ? null : "/pulls/assigned"].filter(Boolean);
-          for (const listPath of lists) {
-            const rows = await t.withTab(ORIGIN + listPath, async (p) => {
-              t.assertSignedIn("github.assigned", p, SIGN_IN);
-              await t.waitIn(p, () => [...document.querySelectorAll("a[href]")].some((a) => /^\/[\w.-]+\/[\w.-]+\/(issues|pull)\/\d+$/.test(a.getAttribute("href") || "")) || /No results|nothing|No issues|No pull requests/i.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "github.assigned", what: "the assigned list", timeout: 20000 }).catch(() => {});
-              return p.evaluate(() => {
-                const clean = (x) => (x || "").replace(/\s+/g, " ").trim();
-                return [...document.querySelectorAll("a[href]")].map((a) => {
-                  const m = /^\/([\w.-]+\/[\w.-]+)\/(issues|pull)\/(\d+)$/.exec(a.getAttribute("href") || "");
-                  return m && { repo: m[1], number: Number(m[3]), kind: m[2] === "pull" ? "pull" : "issue", title: clean(a.textContent), url: new URL(a.getAttribute("href"), location.href).href };
-                }).filter((x) => x && x.title && !/^#?\d+$/.test(x.title));
-              });
-            });
-            for (const r of rows) if (!seen.has(r.url)) (seen.add(r.url), out.push(r));
+          for (let page = 1; out.length < limit && page <= 10; page++) {
+            const r = await t.fetch(`${ORIGIN}/search?q=${encodeURIComponent(q)}&type=issues&p=${page}`, { headers: { accept: "application/json" } });
+            if (r.status === 401 || /\/login/.test(r.url)) throw new S.SiteError("not_signed_in", "github.assigned: the cmux browser is not signed in to GitHub; open https://github.com with tabs.open() and ask the user to sign in");
+            if (!r.ok) throw new S.SiteError("http", `github.assigned: HTTP ${r.status}`);
+            let json;
+            try {
+              json = await r.json();
+            } catch (e) {
+              throw new S.SiteError("unexpected", "github.assigned: GitHub's search did not answer JSON");
+            }
+            const route = (json.payload && json.payload.blackbirdSearchRoute) || {};
+            const results = route.results || [];
+            for (const x of results) {
+              const repo = x.repo && x.repo.repository ? `${x.repo.repository.owner_login}/${x.repo.repository.name}` : null;
+              const pull = !!(x.issue && x.issue.issue && x.issue.issue.pull_request_id);
+              out.push({ repo, number: x.number, kind: pull ? "pull" : "issue", title: S.decodeEntities(String(x.hl_title || "").replace(/<[^>]*>/g, "")), url: `${ORIGIN}/${repo}/${pull ? "pull" : "issues"}/${x.number}` });
+              if (out.length >= limit) break;
+            }
+            if (!results.length || page >= (route.page_count || page)) break;
           }
-          return options.limit ? out.slice(0, options.limit) : out;
+          return out;
         },
         // A file's text at a ref: file("owner/repo", "path/to/file", { ref: "main" }).
         async file(repo, filePath, options = {}) {

@@ -121,7 +121,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet` | profile and `article[data-testid="tweet"]` cards in a background tab, scrolled for more | read |
 | `x.post(text \| { text, replyTo })` | draft; confirmed: Web Intent `/intent/post`, text checked, Post | write [9] |
 | `github.issue`, `.pull`, `.issues` | pages in a background tab | read |
-| `github.assigned({ issues, pulls, limit })` | GitHub's `/issues/assigned` and `/pulls/assigned` lists in a background tab | read |
+| `github.assigned({ issues, pulls, state, limit })` | GitHub's own search (`/search?type=issues`, `assignee:@me`) answering JSON in the session, 10 per page | read |
 | `googleDrive.recent({ uid, limit })` | Drive's Recent view in a background tab, rows by `data-id` | read |
 | `github.diff`, `.file` | `/pull/N.diff`, `/raw/REF/PATH` with the session | read |
 | `linear.*` | client-api.linear.app GraphQL from a linear.app tab with the session | read |
