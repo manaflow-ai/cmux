@@ -25,9 +25,27 @@ public final class ThemeScope {
     /// This scope's own theme; nil inherits the parent's.
     public private(set) var spec: ThemeSpec?
     public private(set) var input: ThemeInput
-    public private(set) var tokens: ThemeTokens
+    /// This scope's own colors (its theme, else its parent's). Children
+    /// inherit these.
+    public private(set) var ownTokens: ThemeTokens
+    /// The colors the views and windows this scope roots draw in: those of
+    /// the scope it shows (`show(_:)`) when they are as light or dark as its
+    /// own, else its own. A light workspace in a dark room never turns the
+    /// window's chrome light.
+    public var tokens: ThemeTokens {
+        guard let shown else { return ownTokens }
+        let candidate = shown.tokens
+        return candidate.isDark == ownTokens.isDark ? candidate : ownTokens
+    }
     /// Bumps on every change of `tokens` (tests, diagnostics).
     public private(set) var generation = 0
+    /// The scope whose colors this scope's own views draw in: a window's
+    /// room scope shows its current workspace's, so the sidebar and
+    /// titlebar always match the content beside them.
+    public private(set) weak var shown: ThemeScope?
+    private let viewers = NSHashTable<ThemeScope>.weakObjects()
+    /// `tokens` as last painted, so a change is noticed whichever way it came.
+    private var displayed: ThemeTokens
 
     private var overrideInput: ThemeInput?
     private let children = NSHashTable<ThemeScope>.weakObjects()
@@ -38,7 +56,8 @@ public final class ThemeScope {
     private init() {
         level = .config
         input = ThemeStore.shared.input
-        tokens = ThemeStore.shared.tokens
+        ownTokens = ThemeStore.shared.tokens
+        displayed = ownTokens
     }
 
     /// A scope at `level` that inherits `parent` until it gets its own theme.
@@ -46,7 +65,8 @@ public final class ThemeScope {
         self.level = level == .config ? .room : level
         self.parent = parent
         input = parent.input
-        tokens = parent.tokens
+        ownTokens = parent.ownTokens
+        displayed = ownTokens
         parent.children.add(self)
     }
 
@@ -90,6 +110,42 @@ public final class ThemeScope {
         update(animated: animated, repaint: true)
     }
 
+    /// Draws this scope's own views and windows in `scope`'s colors (nil:
+    /// its own). Children keep inheriting this scope's own theme, so a
+    /// parked workspace never takes the shown one's colors.
+    public func show(_ scope: ThemeScope?, animated: Bool = false) {
+        guard scope !== shown else { return }
+        // A chain that leads back here would never resolve its colors.
+        var next = scope
+        while let candidate = next {
+            if candidate === self { return }
+            next = candidate.shown
+        }
+        shown?.viewers.remove(self)
+        shown = scope
+        scope?.viewers.add(self)
+        refreshDisplay(animated: animated, repaint: true)
+    }
+
+    /// Repaints and notifies when `tokens` moved away from what was last
+    /// painted: this scope's own colors, the shown scope's, or which of the
+    /// two applies changed.
+    private func refreshDisplay(animated: Bool, repaint: Bool) {
+        // A child root's explicit appearance compares with these colors.
+        for child in children.allObjects { for view in child.roots.allObjects { child.applyAppearance(to: view) } }
+        let now = tokens
+        guard now != displayed else { return }
+        displayed = now
+        generation += 1
+        if repaint { self.repaint(animated: animated) }
+        for responder in responders.allObjects {
+            (responder as? any ThemeResponsive)?.themeDidChange()
+        }
+        for viewer in viewers.allObjects where viewer.shown === self {
+            viewer.refreshDisplay(animated: animated, repaint: true)
+        }
+    }
+
     /// Called by `ThemeStore.shared` after a Ghostty config change. The
     /// store repaints every window itself, so scopes only recompute.
     func storeDidChange() {
@@ -104,15 +160,9 @@ public final class ThemeScope {
         guard next != input else { return }
         input = next
         let derived = level == .config ? ThemeStore.shared.tokens : ThemeTokens.derive(from: next)
-        let changed = derived != tokens
-        tokens = derived
-        if changed { generation += 1 }
+        ownTokens = derived
         for child in children.allObjects { child.update(animated: animated, repaint: false) }
-        guard changed else { return }
-        if repaint { self.repaint(animated: animated) }
-        for responder in responders.allObjects {
-            (responder as? any ThemeResponsive)?.themeDidChange()
-        }
+        refreshDisplay(animated: animated, repaint: repaint)
     }
 
     // MARK: Views and windows

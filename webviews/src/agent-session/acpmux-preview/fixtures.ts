@@ -1,6 +1,7 @@
 import codexRecording from "./fixtures/codex-session-events.ndjson?raw";
 import claudeRecording from "./fixtures/claude-live-notifications.ndjson?raw";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../acpmux/model";
+import { commandsFromUpdate } from "../acpmux/slashCommands";
 import { sessionEntry } from "../acpmux/sessionList";
 
 const catalog = [
@@ -59,6 +60,8 @@ function recordingRows(raw: string, title: string, harness: string): { snapshot:
     }
     const eventKind = String(event.kind ?? (event.update as Record<string, unknown> | undefined)?.sessionUpdate ?? "");
     const msg = (event.msg ?? event.update ?? {}) as Record<string, unknown>;
+    const commands = commandsFromUpdate((msg.params as Record<string, unknown> | undefined)?.update ?? event.update);
+    if (commands) { snapshot.commands = commands; continue; }
     const content = (msg.content ?? {}) as Record<string, unknown>;
     const text = String(msg.text ?? content.text ?? "");
     if (eventKind === "user_message" || eventKind === "session/prompt") {

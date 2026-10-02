@@ -162,6 +162,14 @@ import Testing
         #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app", tag: "ignored", isDebugBuild: false, home: home) == "/Users/u/.local/state/cmux/cmux.sock")
     }
 
+    @Test func anyProcessOfThisUserIsAdmittedUnlessSomethingChoosesAMode() {
+        #expect(ControlService.resolveAccessMode(explicit: nil, environment: [:], configured: nil) == .automation)
+        #expect(ControlService.resolveAccessMode(explicit: nil, environment: [:], configured: "cmuxOnly") == .cmuxOnly)
+        #expect(ControlService.resolveAccessMode(explicit: nil, environment: ["CMUX_NEXT_SOCKET_MODE": "password"], configured: "cmuxOnly") == .password)
+        #expect(ControlService.resolveAccessMode(explicit: .off, environment: ["CMUX_NEXT_SOCKET_MODE": "password"], configured: nil) == .off)
+        #expect(ControlService.resolveAccessMode(explicit: nil, environment: [:], configured: "bogus") == .automation)
+    }
+
     @Test func parsesAccessModesWithLegacyAliases() {
         #expect(ControlService.parseAccessMode("cmuxOnly") == .cmuxOnly)
         #expect(ControlService.parseAccessMode("openAccess") == .allowAll)

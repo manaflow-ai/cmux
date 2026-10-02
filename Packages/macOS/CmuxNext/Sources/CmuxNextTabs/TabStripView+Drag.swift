@@ -22,7 +22,7 @@ extension TabStripView {
         )
         self.press = nil
         setHovered(nil)
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         cells[press.id]?.isLifted = true
         installEscapeMonitor()
         updateSeparators()

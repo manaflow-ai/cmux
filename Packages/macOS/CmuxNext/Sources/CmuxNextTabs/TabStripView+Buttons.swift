@@ -53,7 +53,7 @@ extension TabStripView {
         if trailingButtonIndex(at: point) == pressed, let id = buttonGroup.id(at: pressed) {
             model.send(.trailingButton(id))
         }
-        updateHover(at: point)
+        updateHover(at: point, moved: false)
         return true
     }
 }
