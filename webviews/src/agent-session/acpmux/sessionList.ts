@@ -169,17 +169,53 @@ export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): S
   return undefined;
 }
 
-/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. */
-export function sidebarSections(sessions: AcpmuxSessionEntry[]): {
+/** Sessions whose title, name, folder, branch, worktree or cloud machine contains every word of the query, ignoring case. */
+export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): AcpmuxSessionEntry[] {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return sessions;
+  return sessions.filter((session) => {
+    const text = [
+      session.displayTitle,
+      session.title,
+      session.name,
+      // Folder names, not full paths: a path prefix like `/Users/me` would match every session.
+      session.cwd && projectLabel(session.cwd),
+      session.branch,
+      session.worktree && projectLabel(session.worktree),
+      cloudHost(session),
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .toLowerCase();
+    return terms.every((term) => text.includes(term));
+  });
+}
+
+/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. */
+export function sidebarSections(
+  sessions: AcpmuxSessionEntry[],
+  query = "",
+): {
   pinned: AcpmuxSessionEntry[];
   groups: SessionGroup[];
 } {
-  return {
-    pinned: byRecency(sessions.filter((session) => session.pinned)),
-    groups: groupByProject(
-      sessions.filter((session) => !session.pinned),
-      sessions,
+  const pinned = byRecency(
+    filterSessions(
+      sessions.filter((session) => session.pinned),
+      query,
     ),
+  );
+  const groups = groupByProject(
+    sessions.filter((session) => !session.pinned),
+    sessions,
+  );
+  if (!query.trim()) return { pinned, groups };
+  // Projects and their headers come from every session, so a search only hides rows.
+  return {
+    pinned,
+    groups: groups
+      .map((group) => ({ ...group, sessions: filterSessions(group.sessions, query) }))
+      .filter((group) => group.sessions.length > 0),
   };
 }
 
@@ -204,4 +240,27 @@ export function visibleSessions(
     group.sessions.slice(GROUP_ROWS).some((session) => session.sessionId === selectedId);
   if (open) return { rows: group.sessions, hidden: 0 };
   return { rows: group.sessions.slice(0, GROUP_ROWS), hidden: group.sessions.length - GROUP_ROWS };
+}
+
+/** A project header's mark: the most urgent of its sessions' needs-input and lost marks. */
+export function groupMark(group: SessionGroup, selectedId?: string): "input" | "error" | undefined {
+  let mark: "input" | "error" | undefined;
+  for (const session of group.sessions) {
+    const own = sessionMark(session, session.sessionId === selectedId);
+    if (own === "input") return "input";
+    if (own === "error") mark = "error";
+  }
+  return mark;
+}
+
+/** A compact age for the history list: `now`, `5m`, `3h`, `2d`, `6w`. */
+export function shortAge(updatedAt: number | undefined, now: number): string {
+  if (updatedAt === undefined) return "";
+  const minutes = Math.max(0, Math.floor((now - updatedAt) / 60_000));
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return days < 14 ? `${days}d` : `${Math.floor(days / 7)}w`;
 }

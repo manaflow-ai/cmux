@@ -1,8 +1,8 @@
 /// The canonical action catalog: one descriptor per row of the old app's
 /// action inventory (plans/cmux-next/inventory.md section 1) plus the tab
 /// group and workspace group families (plans/cmux-next/architecture.md
-/// section 7), split by domain across `ActionCatalog+<Domain>.swift`. IDs
-/// match `KeyboardShortcutSettings.Action` raw values where one existed
+/// section 7), one `ActionCatalogGroup` per domain in
+/// `Catalog/<Domain>ActionCatalog.swift`. IDs match `KeyboardShortcutSettings.Action` raw values where one existed
 /// (users store them in `cmux.json` `shortcuts`), else the old palette
 /// command ID, else a new stable ID.
 public nonisolated enum ActionCatalog {
@@ -25,36 +25,42 @@ public nonisolated enum ActionCatalog {
         "browserRenameProfile": "browserProfile.rename",
     ]
 
+    /// The catalog's domain groups, in inventory order. `all` concatenates
+    /// their descriptors in this order, which menu ranks tie-break on.
+    static let groups: [any ActionCatalogGroup.Type] = [
+        WindowActionCatalog.self,
+        WorkspaceActionCatalog.self,
+        WorkspaceVerbActionCatalog.self,
+        WorkspaceGroupActionCatalog.self,
+        ProfileActionCatalog.self,
+        ThemeActionCatalog.self,
+        PaneActionCatalog.self,
+        TabActionCatalog.self,
+        ResourceActionCatalog.self,
+        TabGroupActionCatalog.self,
+        ScreenActionCatalog.self,
+        ScreenGroupActionCatalog.self,
+        TerminalActionCatalog.self,
+        BrowserActionCatalog.self,
+        PageInfoActionCatalog.self,
+        ExtensionActionCatalog.self,
+        BrowserProfileActionCatalog.self,
+        SidebarActionCatalog.self,
+        NotificationActionCatalog.self,
+        AgentActionCatalog.self,
+        CloudActionCatalog.self,
+        AccountActionCatalog.self,
+        RemoteActionCatalog.self,
+        SettingsActionCatalog.self,
+        HibernationActionCatalog.self,
+        LayoutActionCatalog.self,
+        HistoryActionCatalog.self,
+        BookmarkActionCatalog.self,
+    ]
+
     private static func makeAll() -> [ActionDescriptor] {
         var all: [ActionDescriptor] = []
-        all += windowActions()
-        all += workspaceActions()
-        all += workspaceVerbActions()
-        all += workspaceGroupsActions()
-        all += profileActions()
-        all += themeActions()
-        all += paneActions()
-        all += tabActions()
-        all += resourceActions()
-        all += tabGroupsActions()
-        all += screenActions()
-        all += screenGroupActions()
-        all += terminalActions()
-        all += browserActions()
-        all += pageInfoActions()
-        all += extensionActions()
-        all += browserProfileActions()
-        all += sidebarActions()
-        all += notificationsActions()
-        all += agentsActions()
-        all += cloudActions()
-        all += accountsActions()
-        all += remoteActions()
-        all += settingsActions()
-        all += hibernationActions()
-        all += layoutActions()
-        all += historyActions()
-        all += bookmarkActions()
+        for group in groups { all += group.descriptors() }
         return all
     }
 }
