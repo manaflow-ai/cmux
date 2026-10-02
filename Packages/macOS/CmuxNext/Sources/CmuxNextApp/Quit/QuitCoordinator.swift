@@ -35,6 +35,16 @@ final class QuitCoordinator {
         }
     }
 
+    /// SIGTERM (`QuitSignal`): Quit, keep sessions, never an alert. Dev
+    /// tooling quits tagged apps this way (scripts/lib/stop-app-instances.sh)
+    /// and must never wait on the alert. An open alert is answered with
+    /// keep; a quit already completing is left to finish.
+    func terminateFromSignal() {
+        if let sheet { return sheet.answerKeepingSessions() }
+        guard !isQuitting else { return }
+        requestQuit(.signal)
+    }
+
     func shouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !isQuitting else { return .terminateLater }
         isQuitting = true
