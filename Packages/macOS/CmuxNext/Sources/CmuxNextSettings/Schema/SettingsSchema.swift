@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + columnLayout + appearance + browser + notifications
+        general + columnLayout + appearance + sidebarSections + browser + notifications
     }
 
     /// The descriptors of one section, in order.

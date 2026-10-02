@@ -31,9 +31,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 <!-- generated: action surfaces -->
 
-## Counts (693 actions)
+## Counts (700 actions)
 
-Palette 690, CLI verbs 398, right-click 392, MCP tools 344.
+Palette 697, CLI verbs 405, right-click 399, MCP tools 351.
 
 ## Menus
 
@@ -56,8 +56,8 @@ Palette 690, CLI verbs 398, right-click 392, MCP tools 344.
 - **bookmarksBar**: bookmark.addPage bookmark.newFolder bookmark.addAllTabs | bookmark.toggleBar bookmark.manager
 - **screenBar**: screen.new screen.newWith screen.reopenClosed
 - **notification**: notificationOpen | notificationToggleRead | notificationCopy | notificationDismiss
-- **sidebarItem**: sidebar.item.remove
-- **sidebarSection**: sidebar.section.add sidebar.item.add | sidebar.section.rename [appearance] > (sidebar.section.useBuiltInLook sidebar.section.useListLook sidebar.section.toggleTitle) [options] > (sidebar.section.toggleRoomScope sidebar.section.setMaxRows) | sidebar.section.toggleCollapsed | [move] > (sidebar.section.moveToTop sidebar.section.moveToScrolling sidebar.section.moveToBottom) | sidebar.section.remove
+- **sidebarItem**: sidebar.item.toggleLabel | sidebar.item.remove
+- **sidebarSection**: sidebar.section.add sidebar.item.add | sidebar.section.rename [appearance] > (sidebar.section.useBuiltInLook sidebar.section.useListLook sidebar.section.toggleTitle sidebar.section.layoutList sidebar.section.layoutInline sidebar.section.layoutGrid sidebar.section.setAlignment sidebar.section.setGap sidebar.section.setColumns) [options] > (sidebar.section.toggleRoomScope sidebar.section.setMaxRows) | sidebar.section.toggleCollapsed | [move] > (sidebar.section.moveToTop sidebar.section.moveToScrolling sidebar.section.moveToBottom) | sidebar.section.remove
 
 ## Exemptions: palette
 
