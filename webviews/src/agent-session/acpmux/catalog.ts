@@ -1,4 +1,4 @@
-import { QueryClient, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, QueryClient, useQuery } from "@tanstack/react-query";
 import type { AcpmuxSnapshot } from "./model";
 
 // TanStack Query holds acpmux server state the pane reads on request: today the
@@ -40,6 +40,9 @@ export function useHarnessCatalog(
     queryFn: () => source!.client.harnesses(),
     enabled: source !== undefined,
     staleTime: HARNESS_CATALOG_STALE_MS,
+    // A new client's catalog replaces the last one when it arrives, so the
+    // model picker does not empty out across a reconnect.
+    placeholderData: keepPreviousData,
   });
   if (!source) return snapshotCatalog;
   return query.data ?? snapshotCatalog;

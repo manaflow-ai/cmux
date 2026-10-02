@@ -459,11 +459,11 @@ export class AcpmuxDirectClient {
   async setModel(modelId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId }); }
   async setMode(modeId: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId }); }
   async setConfig(configId: string, value: string): Promise<void> { if (this.selectedSessionId) await this.request("session/set_config_option", { sessionId: this.selectedSessionId, configId, value }); }
+  /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
+  async harnesses(): Promise<AcpmuxSnapshot["catalog"]> { return normalizeCatalog(await this.request("_acpmux/harnesses", {})); }
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
-  /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
-  async harnesses(): Promise<AcpmuxSnapshot["catalog"]> { return normalizeCatalog(await this.request("_acpmux/harnesses", {})); }
   async loadOlder(): Promise<void> {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;

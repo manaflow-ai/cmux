@@ -274,6 +274,9 @@ function AcpmuxPane() {
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  // The pane keeps the last client's catalog until the next client's arrives;
+  // ids only grow, so a new client never reads an older client's cache entry.
+  const catalogClientId = useRef(0);
   const [catalogSource, setCatalogSource] = useState<{ id: number; client: HarnessCatalogSource }>();
   const catalog = useHarnessCatalog(catalogSource, snapshot.catalog);
   const composerSnapshot = useMemo(() => catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog }, [snapshot, catalog]);
@@ -299,7 +302,6 @@ function AcpmuxPane() {
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     const RECONNECT_MAX_DELAY_MS = 2_000;
     let reconnect = false;
-    let nextClientId = 0;
     const connectHost = async () => {
       try {
         const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSession?: boolean }>("ready", reconnect ? { reconnect } : {});
@@ -317,15 +319,14 @@ function AcpmuxPane() {
           if (cancelled) return;
           reconnect = true;
           directClient.current = undefined;
-          setCatalogSource(undefined);
           delete window.cmuxAcpmuxActions;
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
         });
         if (cancelled) { client.close(); return; }
         directClient.current = client;
-        nextClientId += 1;
-        setCatalogSource({ id: nextClientId, client });
+        catalogClientId.current += 1;
+        setCatalogSource({ id: catalogClientId.current, client });
         retryDelay = 250;
         const persistSession = (sessionId?: string) => sessionId ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
         window.cmuxAcpmuxActions = {
