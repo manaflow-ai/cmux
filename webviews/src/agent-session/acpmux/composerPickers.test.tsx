@@ -22,7 +22,7 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
-const { ComposerPickers, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
+const { ComposerPickers, isPlan, loadRecents, rememberCombo } = await import("./ComposerPickers");
 const { approvalDocs, approvalLevel } = await import("./approvalModes");
 
 const doc = dom.window.document;
@@ -366,7 +366,6 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector(".acpmux-menu-item.acpmux-unrestricted")!.textContent).toBe("Full accessUnrestricted");
     await render(snapshot({ modes: { ...modes, currentModeId: "bypassPermissions" } }));
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).not.toBeNull();
-    expect(unrestricted("default")).toBe(false);
   });
 
   test("the approval menu asks how the agent's actions are approved, links its docs, and marks each mode's level", async () => {
@@ -387,9 +386,10 @@ describe("acpmux composer pickers", () => {
       "https://learn.chatgpt.com/docs/agent-approvals-security",
     );
     expect(heading.querySelector("a")!.textContent).toBe("Learn more");
-    // The question describes the listbox, which holds only the modes.
-    expect(doc.querySelector("[role=listbox]")!.getAttribute("aria-describedby")).toBe(heading.id);
-    expect(button("Mode")!.getAttribute("aria-describedby")).toBe(heading.id);
+    // The question alone, not "Learn more", describes the listbox and its button.
+    const question = heading.querySelector("span")!.id;
+    expect(doc.querySelector("[role=listbox]")!.getAttribute("aria-describedby")).toBe(question);
+    expect(button("Mode")!.getAttribute("aria-describedby")).toBe(question);
     // Hand, approve badge, warning shield: each glyph's first stroke tells them apart.
     const glyph = (d: string) =>
       d.startsWith("M5.4 8.6")

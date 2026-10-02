@@ -2,7 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { agentName } from "./agents";
 import { ApproveIcon, HandIcon } from "./approvalIcons";
-import { approvalDocs, approvalLevel, type ApprovalLevel, type ApprovalMode } from "./approvalModes";
+import { approvalDocs, approvalLevel, type ApprovalLevel } from "./approvalModes";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -385,11 +385,6 @@ export function ContextRing({ used, size }: { used: number; size: number }) {
   );
 }
 
-/// Modes that skip approvals draw in the theme's warning color, as Codex draws "Full access".
-export function unrestricted(mode: ApprovalMode | string): boolean {
-  return approvalLevel(mode) === "full";
-}
-
 /// A pick that returns "keep" leaves the menu open (e.g. a row that expands the menu).
 export type Section = { title?: string; choices: Choice[]; current?: string; onPick(id: string): void | "keep" };
 
@@ -539,7 +534,7 @@ export function Picker({
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
-        aria-describedby={open && heading ? `${menuId}-heading` : undefined}
+        aria-describedby={open && heading ? `${menuId}-question` : undefined}
         onKeyDown={keyDown}
         onKeyUp={keyUp}
         onClick={() => (open ? setOpen(false) : show())}
@@ -551,8 +546,8 @@ export function Picker({
         <div className={`acpmux-menu acpmux-menu-${align}`}>
           {/* The heading and the query sit beside the listbox, which may hold only options and groups. */}
           {heading && (
-            <div className="acpmux-menu-heading" id={`${menuId}-heading`}>
-              <span>{heading.label}</span>
+            <div className="acpmux-menu-heading">
+              <span id={`${menuId}-question`}>{heading.label}</span>
               {heading.link && (
                 <a
                   ref={learnMore}
@@ -583,7 +578,7 @@ export function Picker({
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={label}
-            aria-describedby={heading ? `${menuId}-heading` : undefined}
+            aria-describedby={heading ? `${menuId}-question` : undefined}
           >
             {sections.map((section, s) => {
               const titled = section.title && sections.length > 1;
