@@ -4,10 +4,11 @@
 // virtualized transcript still lays out one row per entry. After codex-atlas-clone's
 // derive.ts (`deriveTurn`, `formatDuration`).
 import type { AcpmuxRow } from "../model";
+import { timestampTurns } from "./timestamps";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
-/// A row added by this pass: the date line over the first prompt of each day.
+/// A row added by this pass: the timestamp line over a turn (timestamps.ts).
 export const DATE = "date";
 /// Activity rows shown inside an open disclosure are copies under this suffix, so the
 /// edited-files card after the answer keeps the original id.
@@ -39,19 +40,21 @@ const isEdit = (row: AcpmuxRow) =>
   row.kind === "activity" &&
   (row.items ?? []).some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
 
-/// The rows to draw. `expanded` holds the ids of open disclosures.
-export function turnView(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {
+/// The rows to draw. `expanded` holds the ids of open disclosures; `now` dates the turns
+/// (timestamps.ts).
+export function turnView(
+  rows: readonly AcpmuxRow[],
+  expanded: ReadonlySet<string>,
+  { now = Date.now() }: { now?: number } = {},
+): AcpmuxRow[] {
   const out: AcpmuxRow[] = [];
   let index = 0;
   // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
   while (index < rows.length && rows[index]!.kind !== "user") out.push(rows[index++]!);
-  let day: string | undefined;
+  const loadedFromStart = index === 0;
+  const turns: { user: AcpmuxRow; turn: AcpmuxRow[]; held: AcpmuxRow[] }[] = [];
   while (index < rows.length) {
     const user = rows[index++]!;
-    // The first prompt of each local day is dated, as Codex does over a prompt.
-    const today = new Date(user.at).toDateString();
-    if (today !== day) out.push({ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE });
-    day = today;
     const turn: AcpmuxRow[] = [];
     // A prompt not yet accepted (sent while this turn runs, or refused) sorts among this turn's
     // rows by its send time; it neither ends the turn nor folds into it, and draws after it.
@@ -60,11 +63,21 @@ export function turnView(rows: readonly AcpmuxRow[], expanded: ReadonlySet<strin
       const row = rows[index++]!;
       (row.kind === "user" ? held : turn).push(row);
     }
-    out.push(user, ...shapeTurn(user, turn, expanded), ...held);
+    turns.push({ user, turn, held });
   }
+  const dated = timestampTurns(
+    turns.map(({ user, turn }) => ({ promptAt: user.at, answerAt: [...turn].reverse().find(isAnswer)?.at })),
+    now,
+    loadedFromStart,
+  );
+  turns.forEach(({ user, turn, held }, at) => {
+    if (dated[at]) out.push({ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE });
+    out.push(user, ...shapeTurn(user, turn, expanded), ...held);
+  });
   return out;
 }
 
+const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 
 function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {

@@ -1531,15 +1531,17 @@ describe("acpmux new chat", () => {
   });
 });
 
-describe("acpmux date lines", () => {
-  /// Codex dates the first prompt of a day; the pane showed no date at all.
-  test("the first prompt of a day draws its date above it", async () => {
+describe("acpmux timestamp lines", () => {
+  /// Codex dates a turn that starts over an hour after the last answer; the pane showed no
+  /// date at all.
+  test("a turn over an hour after the previous answer draws its time above it", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
-    const at = new Date(2026, 8, 13, 19, 55).getTime();
+    const at = Date.now() - 20 * 60_000;
     const rows: AcpmuxRow[] = [
-      { id: "u", version: 1, at, kind: "user", text: "find SOTA harness research" },
-      { id: "u2", version: 1, at: at + 60_000, kind: "user", text: "and RLMs?" },
+      { id: "u", version: 1, at: at - 3 * 36e5, kind: "user", text: "find SOTA harness research" },
+      { id: "a", version: 1, at: at - 3 * 36e5 + 60_000, kind: "assistant", text: "RLMs lead." },
+      { id: "u2", version: 1, at, kind: "user", text: "and since then?" },
     ];
     try {
       await act(async () =>
@@ -1551,10 +1553,14 @@ describe("acpmux date lines", () => {
           }),
         ),
       );
+      // One over the thread's first prompt (over an hour old), one over the late prompt.
       const lines = [...dom.window.document.querySelectorAll("time.cv-date-line")];
-      expect(lines.length).toBe(1);
-      expect(lines[0]!.getAttribute("datetime")).toBe(new Date(at).toISOString());
-      expect(lines[0]!.textContent).toContain("Sep 13");
+      expect(lines.map((line) => line.getAttribute("datetime"))).toEqual([
+        new Date(at - 3 * 36e5).toISOString(),
+        new Date(at).toISOString(),
+      ]);
+      // "Today", or "Yesterday" when the test runs just after midnight.
+      expect(lines[1]!.textContent).toMatch(/^(Today|Yesterday) \d{1,2}:\d{2}\s[AP]M$/);
     } finally {
       await act(async () => root.unmount());
       restore();

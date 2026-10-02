@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { DATE, formatDuration, turnView as shape, workedLabel } from "./turns";
-import { dateLabel } from "./DateLine";
+import { timestampText } from "./timestamps";
 
 /// The turn shape without its date lines, which "date lines" covers.
 const turnView = (...args: Parameters<typeof shape>) => shape(...args).filter((entry) => entry.kind !== DATE);
@@ -111,30 +111,56 @@ describe("turn view", () => {
   });
 });
 
-describe("date lines", () => {
-  const at = (day: number, hour: number) => new Date(2026, 8, day, hour, 55).getTime();
-  const prompt = (id: string, when: number) => row(id, "user", when, { text: id });
-  const dates = (rows: AcpmuxRow[]) =>
-    shape(rows, new Set()).flatMap((entry) => (entry.kind === DATE ? [entry.id] : []));
+describe("timestamp lines", () => {
+  const HOUR = 36e5;
+  const start = Date.UTC(2026, 8, 14, 2, 55); // Sun, Sep 13 at 7:55 PM in Los Angeles.
+  const turnAt = (id: string, at: number, answerAfter?: number): AcpmuxRow[] => [
+    row(id, "user", at, { text: id }),
+    ...(answerAfter === undefined ? [] : [row(`${id}-a`, "assistant", at + answerAfter, { text: "ok" })]),
+  ];
+  const dated = (rows: AcpmuxRow[], now: number) =>
+    shape(rows, new Set(), { now }).flatMap((entry) => (entry.kind === DATE ? [entry.id] : []));
 
-  test("the first prompt of each day is dated", () => {
-    const rows = [prompt("a", at(13, 19)), prompt("b", at(13, 21)), prompt("c", at(14, 9)), prompt("d", at(14, 10))];
-    expect(dates(rows)).toEqual(["date-a", "date-c"]);
+  test("the thread's first prompt is dated once it is over an hour old", () => {
+    const rows = turnAt("a", start, 60_000);
+    expect(dated(rows, start + 30 * 60_000)).toEqual([]);
+    expect(dated(rows, start + 2 * HOUR)).toEqual(["date-a"]);
     // The line sits right above its prompt.
-    expect(ids(shape(rows, new Set())).slice(0, 2)).toEqual(["date-a", "a"]);
+    expect(ids(shape(rows, new Set(), { now: start + 2 * HOUR }))).toEqual(["date-a", "a", "a-a"]);
   });
 
-  test("rows before the first prompt are not dated", () => {
-    expect(ids(shape([row("g", "assistant", at(13, 8)), prompt("a", at(13, 9))], new Set()))).toEqual([
-      "g",
-      "date-a",
-      "a",
-    ]);
+  test("a prompt more than an hour after the previous answer is dated; turns within the hour are not", () => {
+    const rows = [
+      ...turnAt("a", start, 60_000),
+      ...turnAt("b", start + 30 * 60_000, 60_000),
+      // 61 minutes after b's answer.
+      ...turnAt("c", start + 31 * 60_000 + HOUR + 60_000, 60_000),
+    ];
+    expect(dated(rows, start + 3 * HOUR)).toEqual(["date-a", "date-c"]);
   });
 
-  test("the label reads as Codex's, with the year only when it is not this one", () => {
-    const label = dateLabel(at(13, 19), at(20, 9));
-    expect(label).toMatch(/^Sun, Sep 13 at 7:55\sPM$/);
-    expect(dateLabel(new Date(2025, 8, 13, 19, 55).getTime(), at(20, 9))).toContain("2025");
+  test("a day change alone draws no line, and a turn without an answer is measured from nothing", () => {
+    const midnight = Date.UTC(2026, 8, 14, 6, 50);
+    expect(
+      dated([...turnAt("a", midnight, 60_000), ...turnAt("b", midnight + 20 * 60_000)], midnight + 30 * 60_000),
+    ).toEqual([]);
+    // b has no answer, so c's gap is not measured from b's prompt.
+    const rows = [...turnAt("a", start, 60_000), ...turnAt("b", start + 10 * 60_000), ...turnAt("c", start + 5 * HOUR)];
+    expect(dated(rows, start + 5 * HOUR)).toEqual(["date-a"]);
+  });
+
+  test("history that starts mid-turn does not date its first loaded prompt as the thread's first", () => {
+    const rows = [row("g", "assistant", start - 60_000, { text: "earlier" }), ...turnAt("a", start, 60_000)];
+    expect(dated(rows, start + 5 * HOUR)).toEqual([]);
+  });
+
+  test("the wording follows Codex: Today, Yesterday, the weekday, then the date with ' at '", () => {
+    const clock = { now: Date.UTC(2026, 8, 22, 19), timeZone: "America/Los_Angeles", locale: "en-US" };
+    const text = (at: number) => timestampText(at, clock).replace(/\u202f/g, " ");
+    expect(text(Date.UTC(2026, 8, 22, 16, 5))).toBe("Today 9:05 AM");
+    expect(text(Date.UTC(2026, 8, 22, 3, 16))).toBe("Yesterday 8:16 PM");
+    expect(text(Date.UTC(2026, 8, 18, 3, 16))).toBe("Thursday 8:16 PM");
+    expect(text(start)).toBe("Sun, Sep 13 at 7:55 PM");
+    expect(text(Date.UTC(2025, 8, 14, 2, 55))).toBe("Sep 13, 2025 at 7:55 PM");
   });
 });
