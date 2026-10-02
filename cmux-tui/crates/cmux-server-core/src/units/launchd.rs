@@ -19,7 +19,9 @@ fn plist(layout: &Layout, user: Option<&str>) -> Result<String, UnitError> {
     body.push_str(&format!("  <key>Label</key>\n  <string>{LAUNCHD_LABEL}</string>\n"));
     if let ServiceKind::AppServiceAgent { .. } = layout.service {
         // SMAppService resolves the program inside the app bundle.
-        body.push_str("  <key>BundleProgram</key>\n  <string>Contents/Resources/bin/cmux</string>\n");
+        body.push_str(
+            "  <key>BundleProgram</key>\n  <string>Contents/Resources/bin/cmux</string>\n",
+        );
     }
     body.push_str("  <key>ProgramArguments</key>\n  <array>\n");
     for arg in &args {
@@ -27,7 +29,10 @@ fn plist(layout: &Layout, user: Option<&str>) -> Result<String, UnitError> {
     }
     body.push_str("  </array>\n");
     if let Some(user) = user {
-        body.push_str(&format!("  <key>UserName</key>\n  <string>{}</string>\n", xml_escape(user)?));
+        body.push_str(&format!(
+            "  <key>UserName</key>\n  <string>{}</string>\n",
+            xml_escape(user)?
+        ));
     }
     let mode = match layout.mode {
         InstallMode::User => "user",

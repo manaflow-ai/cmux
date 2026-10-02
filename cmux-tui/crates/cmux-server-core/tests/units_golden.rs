@@ -9,7 +9,8 @@ use cmux_server_core::units::{
 use cmux_server_core::{InstallMode, Platform};
 
 fn unix(mode: InstallMode, platform: Platform, home: &str) -> Layout {
-    layout(mode, platform, &LayoutEnv { home: Some(home.to_owned()), ..LayoutEnv::default() }).unwrap()
+    layout(mode, platform, &LayoutEnv { home: Some(home.to_owned()), ..LayoutEnv::default() })
+        .unwrap()
 }
 
 fn win(mode: InstallMode) -> Layout {
@@ -151,19 +152,27 @@ fn launch_daemon_and_app_variants() {
     let l = unix(InstallMode::User, Platform::MacOs, "/Users/a&b");
     let daemon = launch_daemon_plist(&l, "ana").unwrap();
     assert!(daemon.contains("  <key>UserName</key>\n  <string>ana</string>\n"));
-    assert!(daemon.contains("<string>/Users/a&amp;b/Library/Application Support/cmux/current/bin/cmux</string>"));
+    assert!(daemon.contains(
+        "<string>/Users/a&amp;b/Library/Application Support/cmux/current/bin/cmux</string>"
+    ));
     assert_eq!(launch_daemon_plist(&l, "ana</string>"), Err(UnitError::BadUser));
 
     let mut env = LayoutEnv { home: Some("/Users/ana".to_owned()), ..LayoutEnv::default() };
     env.mac_app_bundle = Some("/Applications/cmux.app".to_owned());
     let app = layout(InstallMode::User, Platform::MacOs, &env).unwrap();
     let plist = launch_agent_plist(&app).unwrap();
-    assert!(plist.contains("<key>BundleProgram</key>\n  <string>Contents/Resources/bin/cmux</string>"));
+    assert!(
+        plist.contains("<key>BundleProgram</key>\n  <string>Contents/Resources/bin/cmux</string>")
+    );
     assert!(plist.contains("<string>/Applications/cmux.app/Contents/Resources/bin/cmux</string>"));
 
     let system = unix(InstallMode::System, Platform::MacOs, "/var/root");
     assert_eq!(launch_agent_plist(&system), Err(UnitError::WrongLayout));
-    assert!(launch_daemon_plist(&system, "_cmux").unwrap().contains("<string>/Library/Application Support/cmux/current/bin/cmux</string>"));
+    assert!(
+        launch_daemon_plist(&system, "_cmux")
+            .unwrap()
+            .contains("<string>/Library/Application Support/cmux/current/bin/cmux</string>")
+    );
 }
 
 #[test]
@@ -187,7 +196,15 @@ fn windows_service_argv_golden() {
     );
     assert_eq!(
         windows_service_failure_argv(),
-        ["sc.exe", "failure", "cmux-server", "reset=", "86400", "actions=", "restart/2000/restart/2000/restart/60000"]
+        [
+            "sc.exe",
+            "failure",
+            "cmux-server",
+            "reset=",
+            "86400",
+            "actions=",
+            "restart/2000/restart/2000/restart/60000"
+        ]
     );
     assert_eq!(windows_service_create_argv(&win(InstallMode::User)), Err(UnitError::WrongLayout));
 }

@@ -86,8 +86,9 @@ pub struct Layout {
 }
 
 impl Layout {
-    pub fn store_package(&self, sha256_hex: &str) -> HostPath {
-        self.store.join(sha256_hex)
+    /// `<store>/<sha256>`, or `None` unless `sha256_hex` is 64 lowercase hex.
+    pub fn store_package(&self, sha256_hex: &str) -> Option<HostPath> {
+        crate::manifest::valid_sha256(sha256_hex).then(|| self.store.join(sha256_hex))
     }
 
     pub fn profile(&self, generation: u64) -> HostPath {
@@ -135,7 +136,11 @@ impl Layout {
 }
 
 /// Computes the layout for `mode` on `platform` from `env`.
-pub fn layout(mode: InstallMode, platform: Platform, env: &LayoutEnv) -> Result<Layout, LayoutError> {
+pub fn layout(
+    mode: InstallMode,
+    platform: Platform,
+    env: &LayoutEnv,
+) -> Result<Layout, LayoutError> {
     if env.mac_app_bundle.is_some() && (platform != Platform::MacOs || mode != InstallMode::User) {
         return Err(LayoutError::AppBundleNotApplicable);
     }
@@ -182,30 +187,43 @@ fn abs(platform: Platform, literal: &str) -> HostPath {
     HostPath::new(platform, literal).expect("absolute literal")
 }
 
-fn env_path(platform: Platform, value: &Option<String>, name: &'static str) -> Result<Option<HostPath>, LayoutError> {
+fn env_path(
+    platform: Platform,
+    value: &Option<String>,
+    name: &'static str,
+) -> Result<Option<HostPath>, LayoutError> {
     match value.as_deref() {
         None | Some("") => Ok(None),
         Some(v) => HostPath::new(platform, v).map(Some).ok_or(LayoutError::NotAbsolute(name)),
     }
 }
 
-fn required(platform: Platform, value: &Option<String>, name: &'static str) -> Result<HostPath, LayoutError> {
+fn required(
+    platform: Platform,
+    value: &Option<String>,
+    name: &'static str,
+) -> Result<HostPath, LayoutError> {
     env_path(platform, value, name)?.ok_or(LayoutError::Missing(name))
 }
 
 fn linux_user(env: &LayoutEnv) -> Result<Parts, LayoutError> {
     let p = Platform::Linux;
     let home = required(p, &env.home, "HOME")?;
-    let data = env_path(p, &env.xdg_data_home, "XDG_DATA_HOME")?.unwrap_or_else(|| home.join(".local/share"));
-    let state = env_path(p, &env.xdg_state_home, "XDG_STATE_HOME")?.unwrap_or_else(|| home.join(".local/state"));
-    let config = env_path(p, &env.xdg_config_home, "XDG_CONFIG_HOME")?.unwrap_or_else(|| home.join(".config"));
+    let data = env_path(p, &env.xdg_data_home, "XDG_DATA_HOME")?
+        .unwrap_or_else(|| home.join(".local/share"));
+    let state = env_path(p, &env.xdg_state_home, "XDG_STATE_HOME")?
+        .unwrap_or_else(|| home.join(".local/state"));
+    let config = env_path(p, &env.xdg_config_home, "XDG_CONFIG_HOME")?
+        .unwrap_or_else(|| home.join(".config"));
     let root = data.join("cmux");
     Ok(Parts {
         store: root.join("store"),
         root,
         state: state.join("cmux/server"),
         config_file: config.join("cmux/server.json"),
-        service: ServiceKind::SystemdUser { unit_path: config.join("systemd/user").join(SYSTEMD_UNIT) },
+        service: ServiceKind::SystemdUser {
+            unit_path: config.join("systemd/user").join(SYSTEMD_UNIT),
+        },
         cli_shim: home.join(".local/bin/cmux"),
     })
 }
@@ -218,7 +236,9 @@ fn linux_system() -> Parts {
         root,
         state: abs(p, "/var/lib/cmux"),
         config_file: abs(p, "/etc/cmux/server.json"),
-        service: ServiceKind::SystemdSystem { unit_path: abs(p, "/etc/systemd/system").join(SYSTEMD_UNIT) },
+        service: ServiceKind::SystemdSystem {
+            unit_path: abs(p, "/etc/systemd/system").join(SYSTEMD_UNIT),
+        },
         cli_shim: abs(p, "/usr/local/bin/cmux"),
     }
 }
@@ -236,7 +256,9 @@ fn macos_user(env: &LayoutEnv) -> Result<Parts, LayoutError> {
             root: support,
             state,
             config_file,
-            service: ServiceKind::AppServiceAgent { bundled_plist: bundle.join("Contents/Library/LaunchAgents").join(&plist) },
+            service: ServiceKind::AppServiceAgent {
+                bundled_plist: bundle.join("Contents/Library/LaunchAgents").join(&plist),
+            },
             cli_shim: bundle.join("Contents/Resources/bin/cmux"),
         }),
         None => Ok(Parts {
@@ -244,7 +266,9 @@ fn macos_user(env: &LayoutEnv) -> Result<Parts, LayoutError> {
             root: support,
             state,
             config_file,
-            service: ServiceKind::LaunchAgent { plist_path: home.join("Library/LaunchAgents").join(&plist) },
+            service: ServiceKind::LaunchAgent {
+                plist_path: home.join("Library/LaunchAgents").join(&plist),
+            },
             cli_shim: home.join(".local/bin/cmux"),
         }),
     }
@@ -261,7 +285,9 @@ fn macos_system() -> Parts {
         state: root.join("server"),
         config_file: root.join("server.json"),
         root,
-        service: ServiceKind::LaunchDaemon { plist_path: abs(p, "/Library/LaunchDaemons").join(&format!("{LAUNCHD_LABEL}.plist")) },
+        service: ServiceKind::LaunchDaemon {
+            plist_path: abs(p, "/Library/LaunchDaemons").join(&format!("{LAUNCHD_LABEL}.plist")),
+        },
         cli_shim: abs(p, "/usr/local/bin/cmux"),
     }
 }

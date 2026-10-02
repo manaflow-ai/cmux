@@ -68,11 +68,8 @@ impl HostPath {
             return None;
         }
         let sep = platform.separator();
-        let mut path = if platform == Platform::Windows {
-            path.replace('/', "\\")
-        } else {
-            path.to_owned()
-        };
+        let mut path =
+            if platform == Platform::Windows { path.replace('/', "\\") } else { path.to_owned() };
         while path.len() > 1 && path.ends_with(sep) && !is_windows_drive_root(platform, &path) {
             path.pop();
         }
@@ -88,7 +85,12 @@ impl HostPath {
     }
 
     /// Appends relative components separated by `/`. Each component must be
-    /// non-empty, not `.` or `..`, and free of either separator.
+    /// non-empty, not `.` or `..`, and free of either separator; callers
+    /// pass literals or validated ids.
+    ///
+    /// # Panics
+    ///
+    /// On a component that breaks these rules.
     pub fn join(&self, relative: &str) -> HostPath {
         let sep = self.platform.separator();
         let mut path = self.path.clone();

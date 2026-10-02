@@ -31,7 +31,9 @@ fn valid_name(s: &str) -> bool {
     !b.is_empty()
         && b.len() <= 64
         && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
-        && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'.' | b'_' | b'-'))
+        && b.iter().all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'.' | b'_' | b'-')
+        })
 }
 
 fn valid_role(s: &str) -> bool {
@@ -51,7 +53,10 @@ fn check_package(p: &Package) -> Result<(), ManifestError> {
     if !valid_name(n) {
         return Err(invalid(format!("package name {n:?}")));
     }
-    if p.version.is_empty() || p.version.len() > 64 || p.version.chars().any(|c| c.is_control() || c.is_whitespace()) {
+    if p.version.is_empty()
+        || p.version.len() > 64
+        || p.version.chars().any(|c| c.is_control() || c.is_whitespace())
+    {
         return Err(invalid(format!("package {n} version")));
     }
     let host_ok = p.url.strip_prefix("https://").is_some_and(|rest| {
@@ -81,7 +86,8 @@ pub(super) fn check(m: &ChannelManifest) -> Result<u64, ManifestError> {
     if !valid_role(&m.channel) {
         return Err(invalid(format!("channel {:?}", m.channel)));
     }
-    let expires = parse_rfc3339_utc_ms(&m.expires_at).ok_or_else(|| invalid(format!("expires_at {:?}", m.expires_at)))?;
+    let expires = parse_rfc3339_utc_ms(&m.expires_at)
+        .ok_or_else(|| invalid(format!("expires_at {:?}", m.expires_at)))?;
     if parse_version(&m.min_cmux_version).is_none() {
         return Err(invalid(format!("min_cmux_version {:?}", m.min_cmux_version)));
     }

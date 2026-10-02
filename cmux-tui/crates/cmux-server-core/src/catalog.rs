@@ -44,7 +44,13 @@ pub struct ServerOp {
     pub user_origin_only: bool,
 }
 
-const fn op(name: &'static str, owner: Owner, cli: Option<&'static str>, risk: Risk, mcp: Mcp) -> ServerOp {
+const fn op(
+    name: &'static str,
+    owner: Owner,
+    cli: Option<&'static str>,
+    risk: Risk,
+    mcp: Mcp,
+) -> ServerOp {
     let user_origin_only = matches!(mcp, Never);
     ServerOp { name, owner, cli, risk, mcp, user_origin_only }
 }
@@ -78,7 +84,13 @@ pub static SERVER_OPS: &[ServerOp] = &[
     op("server.db.drop", Local("postgres"), Some("server db drop"), Destructive, Never),
     op("server.db.limits.set", Local("postgres"), Some("server db limits set"), Mutate, Never),
     op("server.db.backup", Local("postgres"), Some("server db backup"), Mutate, Never),
-    op("server.db.backup.status", Local("postgres"), Some("server db backup status"), Read, Mcp::Default),
+    op(
+        "server.db.backup.status",
+        Local("postgres"),
+        Some("server db backup status"),
+        Read,
+        Mcp::Default,
+    ),
     op("server.db.restore", Local("postgres"), Some("server db restore"), Destructive, Never),
     op("server.db.upgrade", Local("postgres"), Some("server db upgrade"), Destructive, Never),
     op("server.db.expose", Local("postgres"), Some("server db expose"), Mutate, Never),
@@ -89,9 +101,27 @@ pub static SERVER_OPS: &[ServerOp] = &[
     op("server.app.restart", Local("apps"), Some("server app restart"), Mutate, OptIn),
     op("server.app.deploy", Local("apps"), Some("server app deploy"), Mutate, OptIn),
     op("server.software.list", Local("server"), Some("server software list"), Read, Mcp::Default),
-    op("server.software.install", Local("server"), Some("server software install"), Mutate, Approval),
-    op("server.software.remove", Local("server"), Some("server software remove"), Destructive, Approval),
-    op("server.software.system_install", Local("server"), Some("server software system-install"), Mutate, Approval),
+    op(
+        "server.software.install",
+        Local("server"),
+        Some("server software install"),
+        Mutate,
+        Approval,
+    ),
+    op(
+        "server.software.remove",
+        Local("server"),
+        Some("server software remove"),
+        Destructive,
+        Approval,
+    ),
+    op(
+        "server.software.system_install",
+        Local("server"),
+        Some("server software system-install"),
+        Mutate,
+        Approval,
+    ),
 ];
 
 pub fn find(name: &str) -> Option<&'static ServerOp> {

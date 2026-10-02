@@ -42,7 +42,13 @@ fn linux_user_layout_matches_table() {
     assert_eq!(l.wal_archive().as_str(), "/home/ana/.local/state/cmux/server/backups/wal");
     let app = AppId::parse("notes").unwrap();
     assert_eq!(l.app_pgpass(&app).as_str(), "/home/ana/.local/state/cmux/server/apps/notes/pgpass");
-    assert_eq!(l.store_package("ab").as_str(), "/home/ana/.local/share/cmux/store/ab");
+    let sha = "0f".repeat(32);
+    assert_eq!(
+        l.store_package(&sha).unwrap().as_str(),
+        format!("/home/ana/.local/share/cmux/store/{sha}")
+    );
+    assert_eq!(l.store_package("../../etc"), None);
+    assert_eq!(l.store_package(&"AB".repeat(32)), None);
     assert_eq!(l.profile(7).as_str(), "/home/ana/.local/share/cmux/profiles/7");
 }
 
@@ -57,7 +63,10 @@ fn linux_user_honors_xdg_and_refuses_relative() {
     assert_eq!(l.state.as_str(), "/state/cmux/server");
     assert_eq!(l.config_file.as_str(), "/home/ana/.config/cmux/server.json");
     env.xdg_data_home = Some("relative/dir".to_owned());
-    assert_eq!(layout(InstallMode::User, Platform::Linux, &env), Err(LayoutError::NotAbsolute("XDG_DATA_HOME")));
+    assert_eq!(
+        layout(InstallMode::User, Platform::Linux, &env),
+        Err(LayoutError::NotAbsolute("XDG_DATA_HOME"))
+    );
     assert_eq!(
         layout(InstallMode::User, Platform::Linux, &LayoutEnv::default()),
         Err(LayoutError::Missing("HOME"))
@@ -196,11 +205,11 @@ proptest! {
         prop_assert!(a.block.ports().all(|p| !busy.contains(&p) && p != 5432));
         prop_assert!((RANGE_START..RANGE_START + RANGE_LEN).contains(&a.block.postgres));
         // Deterministic, and stable once persisted.
-        prop_assert_eq!(allocate(&id, &busy, None).unwrap(), a.clone());
+        prop_assert_eq!(&allocate(&id, &busy, None).unwrap(), &a);
         let again = allocate(&id, &busy, Some(a.block.postgres)).unwrap();
-        prop_assert_eq!(again.block, a.block.clone());
+        prop_assert_eq!(&again.block, &a.block);
         prop_assert_eq!(again.source, PortSource::Persisted);
-        // A port the scan passed over is busy: the chosen base is the first free one.
+        // With nothing busy, the first candidate wins.
         if busy.is_empty() {
             prop_assert_eq!(a.block.postgres, first_candidate(&id));
         }

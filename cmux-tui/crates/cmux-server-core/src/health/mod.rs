@@ -11,7 +11,9 @@ mod facts;
 mod fixes;
 mod reduce;
 
-pub use facts::{BackupFacts, DiskFacts, Facts, HealthSettings, LockFacts, PowerFacts, PowerSource, QuotaUsage};
+pub use facts::{
+    BackupFacts, DiskFacts, Facts, HealthSettings, LockFacts, PowerFacts, PowerSource, QuotaUsage,
+};
 pub use fixes::{FIXES, Fix, FixError, FixValues, fixes_for, render_argv};
 pub use reduce::reduce;
 

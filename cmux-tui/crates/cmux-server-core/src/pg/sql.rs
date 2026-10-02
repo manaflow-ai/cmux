@@ -59,7 +59,10 @@ impl PgPlan {
     /// Cluster-level hardening, run once after the first start.
     pub fn cluster_sql(&self) -> Vec<Statement> {
         vec![
-            stmt(ADMIN_DATABASE, format!("REVOKE ALL ON DATABASE {} FROM PUBLIC", ident(ADMIN_DATABASE))),
+            stmt(
+                ADMIN_DATABASE,
+                format!("REVOKE ALL ON DATABASE {} FROM PUBLIC", ident(ADMIN_DATABASE)),
+            ),
             stmt(ADMIN_DATABASE, "REVOKE CONNECT ON DATABASE \"template1\" FROM PUBLIC".to_owned()),
         ]
     }
@@ -69,7 +72,10 @@ impl PgPlan {
     pub fn shared_database_sql(&self) -> Vec<Statement> {
         let db = ident(SHARED_DATABASE);
         vec![
-            stmt(ADMIN_DATABASE, format!("CREATE DATABASE {db} OWNER {} TEMPLATE \"template0\"", ident(ADMIN_ROLE))),
+            stmt(
+                ADMIN_DATABASE,
+                format!("CREATE DATABASE {db} OWNER {} TEMPLATE \"template0\"", ident(ADMIN_ROLE)),
+            ),
             stmt(ADMIN_DATABASE, format!("REVOKE ALL ON DATABASE {db} FROM PUBLIC")),
             stmt(SHARED_DATABASE, "REVOKE ALL ON SCHEMA \"public\" FROM PUBLIC".to_owned()),
         ]
@@ -80,7 +86,12 @@ impl PgPlan {
     /// `password_verifier` is a SCRAM verifier from [`super::scram_verifier`]
     /// (never a clear-text password, so it never reaches the server log). It is
     /// required exactly when [`PgPlan::app_needs_password`] is true.
-    pub fn app_sql(&self, app: &AppDb, limits: &AppLimits, password_verifier: Option<&str>) -> Result<Vec<Statement>, PgError> {
+    pub fn app_sql(
+        &self,
+        app: &AppDb,
+        limits: &AppLimits,
+        password_verifier: Option<&str>,
+    ) -> Result<Vec<Statement>, PgError> {
         let needs = self.app_needs_password(app);
         let password = match (needs, password_verifier) {
             (true, Some(v)) if valid_verifier(v) => {
@@ -92,31 +103,61 @@ impl PgPlan {
         let role = ident(&app.id.role());
         let a = ADMIN_DATABASE;
         let mut out = vec![
-            stmt(a, format!(
-                "CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT {}{password}",
-                limits.connection_limit
-            )),
-            stmt(a, format!("ALTER ROLE {role} SET statement_timeout = '{}ms'", limits.statement_timeout_ms)),
-            stmt(a, format!(
-                "ALTER ROLE {role} SET idle_in_transaction_session_timeout = '{}ms'",
-                limits.idle_in_transaction_timeout_ms
-            )),
-            stmt(a, format!("ALTER ROLE {role} SET temp_file_limit = '{}kB'", limits.temp_file_limit_kb)),
+            stmt(
+                a,
+                format!(
+                    "CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT {}{password}",
+                    limits.connection_limit
+                ),
+            ),
+            stmt(
+                a,
+                format!(
+                    "ALTER ROLE {role} SET statement_timeout = '{}ms'",
+                    limits.statement_timeout_ms
+                ),
+            ),
+            stmt(
+                a,
+                format!(
+                    "ALTER ROLE {role} SET idle_in_transaction_session_timeout = '{}ms'",
+                    limits.idle_in_transaction_timeout_ms
+                ),
+            ),
+            stmt(
+                a,
+                format!(
+                    "ALTER ROLE {role} SET temp_file_limit = '{}kB'",
+                    limits.temp_file_limit_kb
+                ),
+            ),
         ];
         match app.mode {
             DbMode::Database => {
                 let db_name = app.id.role();
                 let db = ident(&db_name);
-                out.push(stmt(a, format!("CREATE DATABASE {db} OWNER {role} TEMPLATE \"template0\"")));
+                out.push(stmt(
+                    a,
+                    format!("CREATE DATABASE {db} OWNER {role} TEMPLATE \"template0\""),
+                ));
                 out.push(stmt(a, format!("REVOKE ALL ON DATABASE {db} FROM PUBLIC")));
-                out.push(stmt(&db_name, "REVOKE CREATE ON SCHEMA \"public\" FROM PUBLIC".to_owned()));
+                out.push(stmt(
+                    &db_name,
+                    "REVOKE CREATE ON SCHEMA \"public\" FROM PUBLIC".to_owned(),
+                ));
             }
             DbMode::Schema => {
                 let shared = ident(SHARED_DATABASE);
                 out.push(stmt(a, format!("GRANT CONNECT ON DATABASE {shared} TO {role}")));
-                out.push(stmt(SHARED_DATABASE, format!("CREATE SCHEMA {role} AUTHORIZATION {role}")));
+                out.push(stmt(
+                    SHARED_DATABASE,
+                    format!("CREATE SCHEMA {role} AUTHORIZATION {role}"),
+                ));
                 out.push(stmt(SHARED_DATABASE, format!("REVOKE ALL ON SCHEMA {role} FROM PUBLIC")));
-                out.push(stmt(a, format!("ALTER ROLE {role} IN DATABASE {shared} SET search_path = {role}")));
+                out.push(stmt(
+                    a,
+                    format!("ALTER ROLE {role} IN DATABASE {shared} SET search_path = {role}"),
+                ));
             }
         }
         Ok(out)
@@ -127,7 +168,10 @@ impl PgPlan {
         let value = if read_only { "on" } else { "off" };
         stmt(
             ADMIN_DATABASE,
-            format!("ALTER ROLE {} SET default_transaction_read_only = {value}", ident(&app.id.role())),
+            format!(
+                "ALTER ROLE {} SET default_transaction_read_only = {value}",
+                ident(&app.id.role())
+            ),
         )
     }
 }

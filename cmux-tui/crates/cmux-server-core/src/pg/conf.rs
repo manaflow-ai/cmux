@@ -70,7 +70,8 @@ fn conf_string(value: &str) -> String {
 }
 
 fn bin(spec: &ClusterSpec, name: &str) -> HostPath {
-    let exe = if spec.platform == Platform::Windows { format!("{name}.exe") } else { name.to_owned() };
+    let exe =
+        if spec.platform == Platform::Windows { format!("{name}.exe") } else { name.to_owned() };
     spec.pg_bin_dir.join(&exe)
 }
 

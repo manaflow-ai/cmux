@@ -20,7 +20,7 @@ fn days_from_civil(y: i64, m: u64, d: u64) -> i64 {
 
 fn days_in_month(y: u64, m: u64) -> u64 {
     match m {
-        2 if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 => 29,
+        2 if (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400) => 29,
         2 => 28,
         4 | 6 | 9 | 11 => 30,
         _ => 31,
@@ -49,7 +49,14 @@ pub fn parse_rfc3339_utc_ms(s: &str) -> Option<u64> {
     }
     let (y, mo, da) = (digits(y)?, digits(mo)?, digits(da)?);
     let (h, mi, se) = (digits(h)?, digits(mi)?, digits(se)?);
-    if y < 1970 || !(1..=12).contains(&mo) || da == 0 || da > days_in_month(y, mo) || h > 23 || mi > 59 || se > 59 {
+    if y < 1970
+        || !(1..=12).contains(&mo)
+        || da == 0
+        || da > days_in_month(y, mo)
+        || h > 23
+        || mi > 59
+        || se > 59
+    {
         return None;
     }
     let ms = match frac {

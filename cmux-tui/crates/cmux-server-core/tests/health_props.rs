@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use cmux_server_core::health::{
-    AlertKey, AlertSet, BackupFacts, DiskFacts, Facts, LockFacts, PowerFacts, PowerSource, Post,
+    AlertKey, AlertSet, BackupFacts, DiskFacts, Facts, LockFacts, Post, PowerFacts, PowerSource,
     QuotaUsage, Severity, reduce,
 };
 use cmux_server_core::{InstallMode, Platform};
@@ -20,28 +20,39 @@ fn power() -> impl Strategy<Value = Option<PowerFacts>> {
     prop_oneof![
         Just(None),
         Just(Some(PowerFacts { source: PowerSource::Ac, battery_percent: Some(90) })),
-        prop::sample::select(vec![Some(5u8), Some(50), Some(90), None])
-            .prop_map(|pct| Some(PowerFacts { source: PowerSource::Battery, battery_percent: pct })),
+        prop::sample::select(vec![Some(5u8), Some(50), Some(90), None]).prop_map(|pct| Some(
+            PowerFacts { source: PowerSource::Battery, battery_percent: pct }
+        )),
     ]
 }
 
 fn disk() -> impl Strategy<Value = Option<DiskFacts>> {
     prop_oneof![
         Just(None),
-        (prop::sample::select(vec![100 * GIB, 1024 * GIB]), prop::sample::select(vec![1u64, 3, 8, 15, 50]))
-            .prop_map(|(total, pct)| Some(DiskFacts { free_bytes: total / 100 * pct, total_bytes: total })),
+        (
+            prop::sample::select(vec![100 * GIB, 1024 * GIB]),
+            prop::sample::select(vec![1u64, 3, 8, 15, 50])
+        )
+            .prop_map(|(total, pct)| Some(DiskFacts {
+                free_bytes: total / 100 * pct,
+                total_bytes: total
+            })),
     ]
 }
 
 fn lock() -> impl Strategy<Value = Option<LockFacts>> {
-    prop::option::of((any::<bool>(), prop::sample::select(vec![None, Some(10u64), Some(1000)]), any::<bool>()))
-        .prop_map(|o| {
-            o.map(|(held, due, gui)| LockFacts {
-                display_assertion_held: held,
-                idle_lock_due_secs: due,
-                gui_workload_active: gui,
-            })
+    prop::option::of((
+        any::<bool>(),
+        prop::sample::select(vec![None, Some(10u64), Some(1000)]),
+        any::<bool>(),
+    ))
+    .prop_map(|o| {
+        o.map(|(held, due, gui)| LockFacts {
+            display_assertion_held: held,
+            idle_lock_due_secs: due,
+            gui_workload_active: gui,
         })
+    })
 }
 
 fn quota() -> impl Strategy<Value = Vec<QuotaUsage>> {
@@ -52,19 +63,24 @@ fn quota() -> impl Strategy<Value = Vec<QuotaUsage>> {
     )
     .prop_map(|m| {
         m.into_iter()
-            .map(|(app, pct)| QuotaUsage { app: app.to_owned(), bytes: pct * GIB, quota_bytes: 100 * GIB })
+            .map(|(app, pct)| QuotaUsage {
+                app: app.to_owned(),
+                bytes: pct * GIB,
+                quota_bytes: 100 * GIB,
+            })
             .collect()
     })
 }
 
 fn backup() -> impl Strategy<Value = Option<BackupFacts>> {
-    prop::option::of((prop::option::of(0u64..200 * HOUR), prop::option::of(0u64..200 * HOUR))).prop_map(|o| {
-        o.map(|(last, wal)| BackupFacts {
-            cluster_created_at_ms: 0,
-            last_base_backup_at_ms: last,
-            wal_failing_since_ms: wal,
+    prop::option::of((prop::option::of(0u64..200 * HOUR), prop::option::of(0u64..200 * HOUR)))
+        .prop_map(|o| {
+            o.map(|(last, wal)| BackupFacts {
+                cluster_created_at_ms: 0,
+                last_base_backup_at_ms: last,
+                wal_failing_since_ms: wal,
+            })
         })
-    })
 }
 
 prop_compose! {
@@ -94,7 +110,10 @@ prop_compose! {
 }
 
 fn steps() -> impl Strategy<Value = Vec<(Facts, u64)>> {
-    prop::collection::vec((facts(), prop::sample::select(vec![0u64, 1_000, 29_999, 30_000, 60_000, HOUR, 24 * HOUR])), 1..24)
+    prop::collection::vec(
+        (facts(), prop::sample::select(vec![0u64, 1_000, 29_999, 30_000, 60_000, HOUR, 24 * HOUR])),
+        1..24,
+    )
 }
 
 fn severities(s: &AlertSet) -> BTreeMap<AlertKey, Severity> {
@@ -111,7 +130,11 @@ fn apply(open: &mut BTreeMap<String, Severity>, posts: &[Post]) -> Result<(), Te
                 prop_assert_ne!(old, Some(*severity), "duplicate notify for {}", dedupe_key);
             }
             Post::Resolve { dedupe_key } => {
-                prop_assert!(open.remove(dedupe_key).is_some(), "resolve without raise: {}", dedupe_key);
+                prop_assert!(
+                    open.remove(dedupe_key).is_some(),
+                    "resolve without raise: {}",
+                    dedupe_key
+                );
             }
         }
     }
@@ -157,7 +180,8 @@ proptest! {
         apply(&mut open, &posts)?;
         prop_assert!(open.is_empty(), "{:?}", open);
         prop_assert!(end.is_empty() && end.pending().is_empty() && end.wake_at_ms().is_none());
-        prop_assert!(posts.iter().all(|p| matches!(p, Post::Resolve { .. })));
+        let all_resolves = posts.iter().all(|p| matches!(p, Post::Resolve { .. }));
+        prop_assert!(all_resolves, "{:?}", posts);
     }
 
     #[test]

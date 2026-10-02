@@ -13,7 +13,11 @@ pub(super) struct Condition {
 
 /// The conditions that hold at `now`, and the earliest future time at which
 /// a time-based condition (backup age, WAL failure) starts to hold.
-pub(super) fn conditions(facts: &Facts, now_ms: u64, prev: &AlertSet) -> (Vec<Condition>, Option<u64>) {
+pub(super) fn conditions(
+    facts: &Facts,
+    now_ms: u64,
+    prev: &AlertSet,
+) -> (Vec<Condition>, Option<u64>) {
     let s = &facts.settings;
     let prev_sev = |key: &AlertKey| prev.get(key).map(|a| a.severity);
     let mut out = Vec::new();
@@ -67,7 +71,11 @@ pub(super) fn conditions(facts: &Facts, now_ms: u64, prev: &AlertSet) -> (Vec<Co
     for usage in &facts.quota {
         let key = AlertKey { check: CheckId::PostgresQuota, subject: Some(usage.app.clone()) };
         let latched = prev_sev(&key).is_some();
-        let pct = if latched { s.quota_warning_percent.saturating_sub(s.clear_margin) } else { s.quota_warning_percent };
+        let pct = if latched {
+            s.quota_warning_percent.saturating_sub(s.clear_margin)
+        } else {
+            s.quota_warning_percent
+        };
         if usage.quota_bytes > 0 && at_least_percent(usage.bytes, usage.quota_bytes, pct) {
             push(key, Severity::Warning, 0);
         }
@@ -113,10 +121,16 @@ fn disk_severity(s: &HealthSettings, disk: &DiskFacts, prev: Option<Severity>) -
     let margin_bytes = u64::from(m) * GIB;
     let critical = below(disk, s.disk_critical_percent, s.disk_critical_bytes);
     let warning = below(disk, s.disk_warning_percent, s.disk_warning_bytes);
-    let critical_hold =
-        below(disk, s.disk_critical_percent.saturating_add(m), s.disk_critical_bytes.saturating_add(margin_bytes));
-    let warning_hold =
-        below(disk, s.disk_warning_percent.saturating_add(m), s.disk_warning_bytes.saturating_add(margin_bytes));
+    let critical_hold = below(
+        disk,
+        s.disk_critical_percent.saturating_add(m),
+        s.disk_critical_bytes.saturating_add(margin_bytes),
+    );
+    let warning_hold = below(
+        disk,
+        s.disk_warning_percent.saturating_add(m),
+        s.disk_warning_bytes.saturating_add(margin_bytes),
+    );
     let level = match prev {
         Some(Severity::Critical) if critical_hold => Severity::Critical,
         Some(Severity::Critical | Severity::Warning) if critical => Severity::Critical,
@@ -132,7 +146,10 @@ fn disk_severity(s: &HealthSettings, disk: &DiskFacts, prev: Option<Severity>) -
 /// Whether the backup is stale at `now`, and when it next becomes stale if
 /// it is not.
 fn backup_state(s: &HealthSettings, b: &BackupFacts, now_ms: u64) -> (bool, Option<u64>) {
-    let base_due = b.last_base_backup_at_ms.unwrap_or(b.cluster_created_at_ms).saturating_add(s.backup_max_age_ms);
+    let base_due = b
+        .last_base_backup_at_ms
+        .unwrap_or(b.cluster_created_at_ms)
+        .saturating_add(s.backup_max_age_ms);
     let wal_due = b.wal_failing_since_ms.map(|t| t.saturating_add(s.wal_failing_max_ms));
     let dues = std::iter::once(base_due).chain(wal_due);
     let stale = dues.clone().any(|due| due <= now_ms);

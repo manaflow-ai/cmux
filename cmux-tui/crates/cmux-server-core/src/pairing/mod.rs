@@ -113,7 +113,10 @@ pub enum QrError {
 /// Checks a scanned payload against the install key the pairing record
 /// holds and returns the code. Symbols are compared after normalization.
 pub fn verify_qr_fp(payload: &str, pubkey: &[u8]) -> Result<PairingCode, QrError> {
-    let rest = payload.strip_prefix(PAIR_URL).and_then(|r| r.strip_prefix("?c=")).ok_or(QrError::Malformed)?;
+    let rest = payload
+        .strip_prefix(PAIR_URL)
+        .and_then(|r| r.strip_prefix("?c="))
+        .ok_or(QrError::Malformed)?;
     let (code, fp) = rest.split_once("#fp=").ok_or(QrError::Malformed)?;
     if code.contains(['&', '#', '?']) || fp.contains(['&', '#', '?']) {
         return Err(QrError::Malformed);

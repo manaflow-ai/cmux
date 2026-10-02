@@ -1,8 +1,8 @@
 //! Postgres plan goldens, injection refusal, schema vs database mode.
 
 use cmux_server_core::pg::{
-    AppDb, AppId, AppIdError, AppLimits, ClusterSpec, DbMode, PgError, PgPlan, password_from_random,
-    pgpass_line, quote_ident, quote_literal, scram_verifier,
+    AppDb, AppId, AppIdError, AppLimits, ClusterSpec, DbMode, PgError, PgPlan,
+    password_from_random, pgpass_line, quote_ident, quote_literal, scram_verifier,
 };
 use cmux_server_core::{HostPath, InstallMode, Platform};
 use proptest::prelude::*;
@@ -75,7 +75,9 @@ fn initdb_argv_unix_and_windows() {
     assert_eq!(argv[0], r"C:\Users\ana\AppData\Local\cmux\current\pg\bin\initdb.exe");
     assert!(argv.contains(&"--auth-local=scram-sha-256".to_owned()));
     assert!(argv.contains(&"--auth-host=scram-sha-256".to_owned()));
-    assert!(argv.contains(&r"--pwfile=C:\Users\ana\AppData\Local\cmux\server\postgres\admin.pw".to_owned()));
+    assert!(argv.contains(
+        &r"--pwfile=C:\Users\ana\AppData\Local\cmux\server\postgres\admin.pw".to_owned()
+    ));
 }
 
 #[test]
@@ -161,21 +163,34 @@ fn app_sql_database_mode_system() {
     let a = app("notes", DbMode::Database, false);
     assert!(!plan.app_needs_password(&a));
     let sql = plan.app_sql(&a, &AppLimits::default(), None).unwrap();
-    let rendered: Vec<(&str, &str)> = sql.iter().map(|s| (s.database.as_str(), s.sql.as_str())).collect();
+    let rendered: Vec<(&str, &str)> =
+        sql.iter().map(|s| (s.database.as_str(), s.sql.as_str())).collect();
     assert_eq!(
         rendered,
         [
-            ("postgres", "CREATE ROLE \"app_notes\" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT 20"),
+            (
+                "postgres",
+                "CREATE ROLE \"app_notes\" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT 20"
+            ),
             ("postgres", "ALTER ROLE \"app_notes\" SET statement_timeout = '30000ms'"),
-            ("postgres", "ALTER ROLE \"app_notes\" SET idle_in_transaction_session_timeout = '60000ms'"),
+            (
+                "postgres",
+                "ALTER ROLE \"app_notes\" SET idle_in_transaction_session_timeout = '60000ms'"
+            ),
             ("postgres", "ALTER ROLE \"app_notes\" SET temp_file_limit = '1048576kB'"),
-            ("postgres", "CREATE DATABASE \"app_notes\" OWNER \"app_notes\" TEMPLATE \"template0\""),
+            (
+                "postgres",
+                "CREATE DATABASE \"app_notes\" OWNER \"app_notes\" TEMPLATE \"template0\""
+            ),
             ("postgres", "REVOKE ALL ON DATABASE \"app_notes\" FROM PUBLIC"),
             ("app_notes", "REVOKE CREATE ON SCHEMA \"public\" FROM PUBLIC"),
         ]
     );
     // A verifier where none is needed is refused (no silent password).
-    assert_eq!(plan.app_sql(&a, &AppLimits::default(), Some("SCRAM-SHA-256$1:a$b:c")), Err(PgError::BadVerifier));
+    assert_eq!(
+        plan.app_sql(&a, &AppLimits::default(), Some("SCRAM-SHA-256$1:a$b:c")),
+        Err(PgError::BadVerifier)
+    );
 }
 
 #[test]
@@ -187,18 +202,25 @@ fn app_sql_schema_mode_user_with_password() {
     let v = scram_verifier(&password_from_random(&[7; 32]), &[1; 16], 4096).unwrap();
     let sql = plan.app_sql(&a, &AppLimits::default(), Some(&v)).unwrap();
     assert!(sql[0].sql.ends_with(&format!("CONNECTION LIMIT 20 PASSWORD '{v}'")));
-    let tail: Vec<(&str, &str)> = sql[4..].iter().map(|s| (s.database.as_str(), s.sql.as_str())).collect();
+    let tail: Vec<(&str, &str)> =
+        sql[4..].iter().map(|s| (s.database.as_str(), s.sql.as_str())).collect();
     assert_eq!(
         tail,
         [
             ("postgres", "GRANT CONNECT ON DATABASE \"cmux_apps\" TO \"app_crm\""),
             ("cmux_apps", "CREATE SCHEMA \"app_crm\" AUTHORIZATION \"app_crm\""),
             ("cmux_apps", "REVOKE ALL ON SCHEMA \"app_crm\" FROM PUBLIC"),
-            ("postgres", "ALTER ROLE \"app_crm\" IN DATABASE \"cmux_apps\" SET search_path = \"app_crm\""),
+            (
+                "postgres",
+                "ALTER ROLE \"app_crm\" IN DATABASE \"cmux_apps\" SET search_path = \"app_crm\""
+            ),
         ]
     );
     let shared: Vec<String> = plan.shared_database_sql().into_iter().map(|s| s.sql).collect();
-    assert_eq!(shared[0], "CREATE DATABASE \"cmux_apps\" OWNER \"cmux_admin\" TEMPLATE \"template0\"");
+    assert_eq!(
+        shared[0],
+        "CREATE DATABASE \"cmux_apps\" OWNER \"cmux_admin\" TEMPLATE \"template0\""
+    );
     assert_eq!(plan.cluster_sql().len(), 2);
     assert_eq!(
         plan.read_only_sql(&a, true).sql,
@@ -210,8 +232,14 @@ fn app_sql_schema_mode_user_with_password() {
 fn verifier_injection_is_refused() {
     let plan = PgPlan::new(linux_spec(InstallMode::User)).unwrap();
     let a = app("crm", DbMode::Database, false);
-    for bad in ["x", "SCRAM-SHA-256$4096:a$b:c'; DROP ROLE cmux_admin; --", "SCRAM-SHA-256$", "md5abc"] {
-        assert_eq!(plan.app_sql(&a, &AppLimits::default(), Some(bad)), Err(PgError::BadVerifier), "{bad}");
+    for bad in
+        ["x", "SCRAM-SHA-256$4096:a$b:c'; DROP ROLE cmux_admin; --", "SCRAM-SHA-256$", "md5abc"]
+    {
+        assert_eq!(
+            plan.app_sql(&a, &AppLimits::default(), Some(bad)),
+            Err(PgError::BadVerifier),
+            "{bad}"
+        );
     }
 }
 
@@ -226,7 +254,10 @@ fn scram_verifier_golden() {
     );
     assert_eq!(scram_verifier("tab\there", &salt, 4096), None);
     assert_eq!(scram_verifier("x", &salt, 0), None);
-    assert_eq!(pgpass_line(&app("crm", DbMode::Schema, false), "a:b\\c"), "*:*:cmux_apps:app_crm:a\\:b\\\\c\n");
+    assert_eq!(
+        pgpass_line(&app("crm", DbMode::Schema, false), "a:b\\c"),
+        "*:*:cmux_apps:app_crm:a\\:b\\\\c\n"
+    );
 }
 
 #[test]

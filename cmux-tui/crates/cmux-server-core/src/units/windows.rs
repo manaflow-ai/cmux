@@ -44,10 +44,18 @@ pub fn windows_service_create_argv(layout: &Layout) -> Result<Vec<String>, UnitE
 /// `sc.exe failure` argv: restart after 2 s, 2 s, then 60 s; reset the
 /// failure count after a day.
 pub fn windows_service_failure_argv() -> Vec<String> {
-    ["sc.exe", "failure", WINDOWS_SERVICE, "reset=", "86400", "actions=", "restart/2000/restart/2000/restart/60000"]
-        .iter()
-        .map(|s| (*s).to_owned())
-        .collect()
+    [
+        "sc.exe",
+        "failure",
+        WINDOWS_SERVICE,
+        "reset=",
+        "86400",
+        "actions=",
+        "restart/2000/restart/2000/restart/60000",
+    ]
+    .iter()
+    .map(|s| (*s).to_owned())
+    .collect()
 }
 
 fn xml_escape(value: &str) -> String {

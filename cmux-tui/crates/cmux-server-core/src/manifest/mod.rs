@@ -21,7 +21,7 @@ mod time;
 mod validate;
 
 pub use time::parse_rfc3339_utc_ms;
-pub use validate::{Version, parse_version};
+pub use validate::{Version, parse_version, valid_sha256};
 
 use ring::signature::{ED25519, UnparsedPublicKey};
 use serde::{Deserialize, Serialize};
@@ -57,7 +57,9 @@ impl ChannelManifest {
     /// Packages for a machine with `roles` (a package with role `all` is
     /// for every machine).
     pub fn packages_for<'a>(&'a self, roles: &'a [&str]) -> impl Iterator<Item = &'a Package> {
-        self.packages.iter().filter(move |p| p.roles.iter().any(|r| r == "all" || roles.contains(&r.as_str())))
+        self.packages
+            .iter()
+            .filter(move |p| p.roles.iter().any(|r| r == "all" || roles.contains(&r.as_str())))
     }
 }
 
@@ -90,9 +92,15 @@ pub enum ManifestError {
     Parse(String),
     /// Signed and parsed, but a field breaks a rule.
     Invalid(String),
-    Expired { expires_at_ms: u64, now_ms: u64 },
+    Expired {
+        expires_at_ms: u64,
+        now_ms: u64,
+    },
     /// A sequence lower than the last applied one (a replay or downgrade).
-    Rollback { sequence: u64, last_applied: u64 },
+    Rollback {
+        sequence: u64,
+        last_applied: u64,
+    },
 }
 
 /// Verifies `bytes` with `signature`, then parses and checks the manifest.
@@ -120,7 +128,10 @@ pub fn verify(
     }
     let reapply = match last_applied {
         Some(last) if manifest.sequence < last => {
-            return Err(ManifestError::Rollback { sequence: manifest.sequence, last_applied: last });
+            return Err(ManifestError::Rollback {
+                sequence: manifest.sequence,
+                last_applied: last,
+            });
         }
         Some(last) => manifest.sequence == last,
         None => false,
@@ -133,5 +144,5 @@ pub fn verify(
 
 /// `<store>/<sha256>`: where a package unpacks (lane 1 store layout).
 pub fn store_path(layout: &Layout, package: &Package) -> Option<HostPath> {
-    validate::valid_sha256(&package.sha256).then(|| layout.store_package(&package.sha256))
+    layout.store_package(&package.sha256)
 }

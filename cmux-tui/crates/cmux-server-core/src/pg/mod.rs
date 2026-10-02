@@ -12,7 +12,7 @@ mod ident;
 mod scram;
 mod sql;
 
-pub use conf::{CONF_INCLUDE_LINE, CONF_FILE};
+pub use conf::{CONF_FILE, CONF_INCLUDE_LINE};
 pub use ident::{APP_ID_MAX, AppId, AppIdError, quote_ident, quote_literal, valid_os_user};
 pub use scram::{SCRAM_ITERATIONS, password_from_random, pgpass_line, scram_verifier};
 pub use sql::{AppLimits, Statement};

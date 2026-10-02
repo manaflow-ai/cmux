@@ -74,7 +74,10 @@ fn fixture_verifies_with_current_and_next_key() {
     assert_eq!(v2.key_id, "release-next");
     // Only the current key baked: the next key's signature is refused.
     let only_current = [key("release-2026", PUB_1)];
-    assert_eq!(verify(MANIFEST, &hex(SIG_2), &only_current, NOW, None, "0.70.1"), Err(ManifestError::BadSignature));
+    assert_eq!(
+        verify(MANIFEST, &hex(SIG_2), &only_current, NOW, None, "0.70.1"),
+        Err(ManifestError::BadSignature)
+    );
 }
 
 #[test]
@@ -82,16 +85,31 @@ fn tampered_bytes_or_signature_are_refused() {
     let mut bytes = MANIFEST.to_vec();
     let pos = bytes.iter().position(|b| *b == b'2').unwrap();
     bytes[pos] = b'3';
-    assert_eq!(verify(&bytes, &hex(SIG_1), &keys(), NOW, None, "1.0.0"), Err(ManifestError::BadSignature));
+    assert_eq!(
+        verify(&bytes, &hex(SIG_1), &keys(), NOW, None, "1.0.0"),
+        Err(ManifestError::BadSignature)
+    );
     let mut sig = hex(SIG_1);
     sig[10] ^= 0x40;
-    assert_eq!(verify(MANIFEST, &sig, &keys(), NOW, None, "1.0.0"), Err(ManifestError::BadSignature));
-    assert_eq!(verify(MANIFEST, &sig[..63], &keys(), NOW, None, "1.0.0"), Err(ManifestError::BadSignature));
-    assert_eq!(verify(MANIFEST, &hex(SIG_1), &[], NOW, None, "1.0.0"), Err(ManifestError::BadSignature));
+    assert_eq!(
+        verify(MANIFEST, &sig, &keys(), NOW, None, "1.0.0"),
+        Err(ManifestError::BadSignature)
+    );
+    assert_eq!(
+        verify(MANIFEST, &sig[..63], &keys(), NOW, None, "1.0.0"),
+        Err(ManifestError::BadSignature)
+    );
+    assert_eq!(
+        verify(MANIFEST, &hex(SIG_1), &[], NOW, None, "1.0.0"),
+        Err(ManifestError::BadSignature)
+    );
     // Trailing whitespace changes the bytes: the signature covers them exactly.
     let mut spaced = MANIFEST.to_vec();
     spaced.push(b' ');
-    assert_eq!(verify(&spaced, &hex(SIG_1), &keys(), NOW, None, "1.0.0"), Err(ManifestError::BadSignature));
+    assert_eq!(
+        verify(&spaced, &hex(SIG_1), &keys(), NOW, None, "1.0.0"),
+        Err(ManifestError::BadSignature)
+    );
 }
 
 #[test]
@@ -116,9 +134,11 @@ fn expiry_and_sequence_rules() {
     ));
 }
 
+type Mutation = Box<dyn Fn(&mut ChannelManifest)>;
+
 #[test]
 fn signed_but_invalid_manifests_are_refused() {
-    let cases: Vec<(&str, Box<dyn Fn(&mut ChannelManifest)>)> = vec![
+    let cases: Vec<(&str, Mutation)> = vec![
         ("schema", Box::new(|m| m.schema = 2)),
         ("channel", Box::new(|m| m.channel = "Stable!".into())),
         ("expires_at", Box::new(|m| m.expires_at = "2030-01-01T00:00:00+02:00".into())),
@@ -142,7 +162,10 @@ fn signed_but_invalid_manifests_are_refused() {
         }
     }
     let sig = signer().sign(b"{not json").as_ref().to_vec();
-    assert!(matches!(verify(b"{not json", &sig, &keys(), NOW, None, "1.0.0"), Err(ManifestError::Parse(_))));
+    assert!(matches!(
+        verify(b"{not json", &sig, &keys(), NOW, None, "1.0.0"),
+        Err(ManifestError::Parse(_))
+    ));
 }
 
 #[test]
@@ -164,7 +187,15 @@ fn time_and_version_parsing() {
     assert_eq!(parse_rfc3339_utc_ms("1970-01-01T00:00:00Z"), Some(0));
     assert_eq!(parse_rfc3339_utc_ms("2024-02-29T12:34:56.789Z"), Some(1_709_210_096_789));
     assert_eq!(parse_rfc3339_utc_ms("2026-10-02T00:00:00Z"), Some(NOW));
-    for bad in ["2023-02-29T00:00:00Z", "2030-13-01T00:00:00Z", "2030-01-01 00:00:00Z", "2030-01-01T24:00:00Z", "1969-12-31T23:59:59Z", "2030-01-01T00:00:00.Z", "2030-1-01T00:00:00Z"] {
+    for bad in [
+        "2023-02-29T00:00:00Z",
+        "2030-13-01T00:00:00Z",
+        "2030-01-01 00:00:00Z",
+        "2030-01-01T24:00:00Z",
+        "1969-12-31T23:59:59Z",
+        "2030-01-01T00:00:00.Z",
+        "2030-1-01T00:00:00Z",
+    ] {
         assert_eq!(parse_rfc3339_utc_ms(bad), None, "{bad}");
     }
     assert_eq!(parse_version("0.70.1"), Some((0, 70, 1)));
@@ -187,7 +218,9 @@ fn catalog_names_are_unique_and_consistent() {
         assert_eq!(op.mcp, Mcp::Never, "{name}");
         assert!(op.user_origin_only, "{name}");
     }
-    assert!(SERVER_OPS.iter().filter(|o| o.risk == Risk::Destructive).all(|o| o.mcp != Mcp::Default));
+    assert!(
+        SERVER_OPS.iter().filter(|o| o.risk == Risk::Destructive).all(|o| o.mcp != Mcp::Default)
+    );
     assert_eq!(find("server.status").unwrap().mcp, Mcp::Default);
     assert!(find("server.nope").is_none());
 }

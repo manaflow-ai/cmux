@@ -80,7 +80,11 @@ pub enum PortError {
 /// A persisted port wins even when it is in `in_use`: the holder is usually
 /// our own cluster. The I/O crate detects a foreign holder when the cluster
 /// fails to bind and reports it; it never moves the port silently.
-pub fn allocate(install_id: &str, in_use: &BTreeSet<u16>, persisted: Option<u16>) -> Result<Allocation, PortError> {
+pub fn allocate(
+    install_id: &str,
+    in_use: &BTreeSet<u16>,
+    persisted: Option<u16>,
+) -> Result<Allocation, PortError> {
     if let Some(port) = persisted {
         let block = PortBlock::starting_at(port).ok_or(PortError::InvalidPersisted(port))?;
         return Ok(Allocation { block, source: PortSource::Persisted });
