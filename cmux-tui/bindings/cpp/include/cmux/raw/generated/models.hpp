@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0";
+inline constexpr std::string_view kProtocolIrSha256 = "a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -192,6 +192,7 @@ struct CloseTabsRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
 struct CopyRequest;
+struct CreateBookmarkRequest;
 struct CreateBrowserProfileRequest;
 struct CreatePersonalGroupRequest;
 struct CreateProfileRequest;
@@ -201,6 +202,7 @@ struct CreateTabGroupRequest;
 struct CreateTerminalRequest;
 struct CreateWorkspaceRequest;
 struct CreateWorkspaceGroupRequest;
+struct DeleteBookmarkRequest;
 struct DeleteBrowserProfileRequest;
 struct DeletePersonalGroupRequest;
 struct DeleteProfileRequest;
@@ -219,10 +221,12 @@ struct GetFrontendProjectionRequest;
 struct GetSizeStateRequest;
 struct IdentifyRequest;
 struct IdsRequest;
+struct ImportBookmarksRequest;
 struct ImportSessionOrganizationRequest;
 struct JournalFrontendEventRequest;
 struct JournalFrontendEventResult;
 struct ListAgentsRequest;
+struct ListBookmarksRequest;
 struct ListClientsRequest;
 struct ListClientsResult;
 struct ListNotificationsRequest;
@@ -238,6 +242,7 @@ struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
+struct MoveBookmarkRequest;
 struct MoveBrowserProfileRequest;
 struct MovePersonalGroupRequest;
 struct MoveProfileRequest;
@@ -341,6 +346,7 @@ struct UnpinWorkspaceRequest;
 struct UnregisterBrowserProviderRequest;
 struct UnsaveScreenGroupRequest;
 struct UnsaveTabGroupRequest;
+struct UpdateBookmarkRequest;
 struct UpdateBrowserProfileRequest;
 struct UpdateFrontendBrowserTabRequest;
 struct UpdatePersonalGroupRequest;
@@ -357,6 +363,7 @@ struct WaitForRequest;
 struct ZoomPaneRequest;
 struct AgentChangedEvent;
 struct BellEvent;
+struct BookmarksChangedEvent;
 struct BrowserStateEvent;
 struct ClientAttachedEvent;
 struct ClientChangedEvent;
@@ -601,6 +608,12 @@ struct Base64 {
 struct BellEvent {
     Id surface{};
     friend bool operator==(const BellEvent&, const BellEvent&) = default;
+};
+
+struct BookmarksChangedEvent {
+    std::uint64_t bookmarks_revision{};
+    std::string browser_profile_id{};
+    friend bool operator==(const BookmarksChangedEvent&, const BookmarksChangedEvent&) = default;
 };
 
 struct BrowserActivateRequest {
@@ -1155,6 +1168,22 @@ struct CopyResult {
     friend bool operator==(const CopyResult&, const CopyResult&) = default;
 };
 
+struct CreateBookmarkRequest {
+    Field<std::string> bookmark{};
+    std::string browser_profile_id{};
+    Field<std::uint64_t> created_ms{};
+    Field<std::string> favicon_key{};
+    Field<std::uint64_t> index{};
+    std::string kind{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    std::string parent{};
+    Field<std::string> source_key{};
+    std::string title{};
+    Field<std::string> url{};
+    friend bool operator==(const CreateBookmarkRequest&, const CreateBookmarkRequest&) = default;
+};
+
 struct JsonValue {
     Json value{};
     friend bool operator==(const JsonValue&, const JsonValue&) = default;
@@ -1294,6 +1323,13 @@ struct DaemonShutdownEvent {
 struct DeadPane {
     Id id{};
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
+};
+
+struct DeleteBookmarkRequest {
+    std::string bookmark{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    friend bool operator==(const DeleteBookmarkRequest&, const DeleteBookmarkRequest&) = default;
 };
 
 struct DeleteBrowserProfileRequest {
@@ -1719,6 +1755,18 @@ struct IdsResult {
     friend bool operator==(const IdsResult&, const IdsResult&) = default;
 };
 
+struct ImportBookmarksRequest {
+    std::string browser_profile_id{};
+    Field<std::uint64_t> index{};
+    Field<std::string> mutation_id{};
+    std::vector<JsonValue> nodes{};
+    Field<std::string> origin{};
+    std::string parent{};
+    std::optional<bool> replace{};
+    Field<std::string> source_key{};
+    friend bool operator==(const ImportBookmarksRequest&, const ImportBookmarksRequest&) = default;
+};
+
 struct ImportSessionOrganizationRequest {
     std::optional<std::vector<JsonValue>> groups{};
     std::string session_id{};
@@ -1788,6 +1836,11 @@ struct ListAgentsRequest {
 struct ListAgentsResult {
     std::vector<AgentRecord> agents{};
     friend bool operator==(const ListAgentsResult&, const ListAgentsResult&) = default;
+};
+
+struct ListBookmarksRequest {
+    std::string browser_profile_id{};
+    friend bool operator==(const ListBookmarksRequest&, const ListBookmarksRequest&) = default;
 };
 
 struct ListClientsRequest {
@@ -2011,6 +2064,15 @@ struct MintTerminalRendererResult {
     std::string token{};
     std::uint64_t ttl_ms{};
     friend bool operator==(const MintTerminalRendererResult&, const MintTerminalRendererResult&) = default;
+};
+
+struct MoveBookmarkRequest {
+    std::string bookmark{};
+    std::uint64_t index{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    std::string parent{};
+    friend bool operator==(const MoveBookmarkRequest&, const MoveBookmarkRequest&) = default;
 };
 
 struct MoveBrowserProfileRequest {
@@ -3523,6 +3585,17 @@ struct UnsaveTabGroupRequest {
     friend bool operator==(const UnsaveTabGroupRequest&, const UnsaveTabGroupRequest&) = default;
 };
 
+struct UpdateBookmarkRequest {
+    std::string bookmark{};
+    Field<std::string> favicon_key{};
+    Field<std::uint64_t> last_used_ms{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    Field<std::string> title{};
+    Field<std::string> url{};
+    friend bool operator==(const UpdateBookmarkRequest&, const UpdateBookmarkRequest&) = default;
+};
+
 struct UpdateBrowserProfileRequest {
     std::string browser_profile{};
     Field<std::string> color{};
@@ -4803,6 +4876,12 @@ struct Codec<CopyRequest> {
 };
 
 template <>
+struct Codec<CreateBookmarkRequest> {
+    static Result<Json> encode(const CreateBookmarkRequest& value);
+    static Result<CreateBookmarkRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CreateBrowserProfileRequest> {
     static Result<Json> encode(const CreateBrowserProfileRequest& value);
     static Result<CreateBrowserProfileRequest> decode(const Json& value);
@@ -4854,6 +4933,12 @@ template <>
 struct Codec<CreateWorkspaceGroupRequest> {
     static Result<Json> encode(const CreateWorkspaceGroupRequest& value);
     static Result<CreateWorkspaceGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DeleteBookmarkRequest> {
+    static Result<Json> encode(const DeleteBookmarkRequest& value);
+    static Result<DeleteBookmarkRequest> decode(const Json& value);
 };
 
 template <>
@@ -4965,6 +5050,12 @@ struct Codec<IdsRequest> {
 };
 
 template <>
+struct Codec<ImportBookmarksRequest> {
+    static Result<Json> encode(const ImportBookmarksRequest& value);
+    static Result<ImportBookmarksRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ImportSessionOrganizationRequest> {
     static Result<Json> encode(const ImportSessionOrganizationRequest& value);
     static Result<ImportSessionOrganizationRequest> decode(const Json& value);
@@ -4986,6 +5077,12 @@ template <>
 struct Codec<ListAgentsRequest> {
     static Result<Json> encode(const ListAgentsRequest& value);
     static Result<ListAgentsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListBookmarksRequest> {
+    static Result<Json> encode(const ListBookmarksRequest& value);
+    static Result<ListBookmarksRequest> decode(const Json& value);
 };
 
 template <>
@@ -5076,6 +5173,12 @@ template <>
 struct Codec<MintTerminalRendererByTerminalRequest> {
     static Result<Json> encode(const MintTerminalRendererByTerminalRequest& value);
     static Result<MintTerminalRendererByTerminalRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveBookmarkRequest> {
+    static Result<Json> encode(const MoveBookmarkRequest& value);
+    static Result<MoveBookmarkRequest> decode(const Json& value);
 };
 
 template <>
@@ -5697,6 +5800,12 @@ struct Codec<UnsaveTabGroupRequest> {
 };
 
 template <>
+struct Codec<UpdateBookmarkRequest> {
+    static Result<Json> encode(const UpdateBookmarkRequest& value);
+    static Result<UpdateBookmarkRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<UpdateBrowserProfileRequest> {
     static Result<Json> encode(const UpdateBrowserProfileRequest& value);
     static Result<UpdateBrowserProfileRequest> decode(const Json& value);
@@ -5790,6 +5899,12 @@ template <>
 struct Codec<BellEvent> {
     static Result<Json> encode(const BellEvent& value);
     static Result<BellEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<BookmarksChangedEvent> {
+    static Result<Json> encode(const BookmarksChangedEvent& value);
+    static Result<BookmarksChangedEvent> decode(const Json& value);
 };
 
 template <>

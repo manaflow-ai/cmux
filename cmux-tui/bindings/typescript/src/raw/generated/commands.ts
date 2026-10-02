@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0. */
+/* cmux-tui mux protocol 12, IR a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a. */
 
 
 import type * as T from "./types.js";
@@ -312,6 +312,24 @@ export interface CopyRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: control. */
+export interface CreateBookmarkRequest extends CmuxRequestBase {
+  cmd: "create-bookmark";
+  "bookmark"?: (string) | null;
+  "browser_profile_id": string;
+  "created_ms"?: (bigint) | null;
+  "favicon_key"?: (string) | null;
+  "index"?: (bigint) | null;
+  "kind": string;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
+  "parent": string;
+  "source_key"?: (string) | null;
+  "title": string;
+  "url"?: (string) | null;
+}
+export type CreateBookmarkResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface CreateBrowserProfileRequest extends CmuxRequestBase {
   cmd: "create-browser-profile";
   "browser_profile"?: (string) | null;
@@ -435,6 +453,15 @@ export interface CreateWorkspaceGroupRequest extends CmuxRequestBase {
   "name": string;
 }
 export type CreateWorkspaceGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface DeleteBookmarkRequest extends CmuxRequestBase {
+  cmd: "delete-bookmark";
+  "bookmark": string;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
+}
+export type DeleteBookmarkResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface DeleteBrowserProfileRequest extends CmuxRequestBase {
@@ -563,6 +590,20 @@ export interface IdsRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: control. */
+export interface ImportBookmarksRequest extends CmuxRequestBase {
+  cmd: "import-bookmarks";
+  "browser_profile_id": string;
+  "index"?: (bigint) | null;
+  "mutation_id"?: (string) | null;
+  "nodes": Array<T.JsonValue>;
+  "origin"?: (string) | null;
+  "parent": string;
+  "replace"?: boolean;
+  "source_key"?: (string) | null;
+}
+export type ImportBookmarksResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface ImportSessionOrganizationRequest extends CmuxRequestBase {
   cmd: "import-session-organization";
   "groups"?: Array<T.JsonValue>;
@@ -586,6 +627,13 @@ export interface ListAgentsRequest extends CmuxRequestBase {
   "state"?: (T.AgentState) | null;
   "surface"?: (T.Id) | null;
 }
+
+/** Protocol v12; authority: control. */
+export interface ListBookmarksRequest extends CmuxRequestBase {
+  cmd: "list-bookmarks";
+  "browser_profile_id": string;
+}
+export type ListBookmarksResult = T.JsonValue;
 
 /** Protocol v6; authority: control. */
 export interface ListClientsRequest extends CmuxRequestBase {
@@ -672,6 +720,17 @@ export interface MintTerminalRendererByTerminalRequest extends CmuxRequestBase {
   "ttl_ms"?: bigint;
 }
 export type MintTerminalRendererByTerminalResult = T.MintTerminalRendererResult;
+
+/** Protocol v12; authority: control. */
+export interface MoveBookmarkRequest extends CmuxRequestBase {
+  cmd: "move-bookmark";
+  "bookmark": string;
+  "index": bigint;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
+  "parent": string;
+}
+export type MoveBookmarkResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface MoveBrowserProfileRequest extends CmuxRequestBase {
@@ -1632,6 +1691,19 @@ export interface UnsaveTabGroupRequest extends CmuxRequestBase {
 export type UnsaveTabGroupResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
+export interface UpdateBookmarkRequest extends CmuxRequestBase {
+  cmd: "update-bookmark";
+  "bookmark": string;
+  "favicon_key"?: (string) | null;
+  "last_used_ms"?: (bigint) | null;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
+  "title"?: (string) | null;
+  "url"?: (string) | null;
+}
+export type UpdateBookmarkResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface UpdateBrowserProfileRequest extends CmuxRequestBase {
   cmd: "update-browser-profile";
   "browser_profile": string;
@@ -1791,6 +1863,7 @@ export type CmuxRequest =
   | CloseTerminalRequest
   | CloseWorkspaceRequest
   | CopyRequest
+  | CreateBookmarkRequest
   | CreateBrowserProfileRequest
   | CreatePersonalGroupRequest
   | CreateProfileRequest
@@ -1800,6 +1873,7 @@ export type CmuxRequest =
   | CreateTerminalRequest
   | CreateWorkspaceRequest
   | CreateWorkspaceGroupRequest
+  | DeleteBookmarkRequest
   | DeleteBrowserProfileRequest
   | DeletePersonalGroupRequest
   | DeleteProfileRequest
@@ -1818,9 +1892,11 @@ export type CmuxRequest =
   | GetSizeStateRequest
   | IdentifyRequest
   | IdsRequest
+  | ImportBookmarksRequest
   | ImportSessionOrganizationRequest
   | JournalFrontendEventRequest
   | ListAgentsRequest
+  | ListBookmarksRequest
   | ListClientsRequest
   | ListNotificationsRequest
   | ListPersonalRequest
@@ -1835,6 +1911,7 @@ export type CmuxRequest =
   | MarkWorkspacesProviderManagedRequest
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
+  | MoveBookmarkRequest
   | MoveBrowserProfileRequest
   | MovePersonalGroupRequest
   | MoveProfileRequest
@@ -1936,6 +2013,7 @@ export type CmuxRequest =
   | UnregisterBrowserProviderRequest
   | UnsaveScreenGroupRequest
   | UnsaveTabGroupRequest
+  | UpdateBookmarkRequest
   | UpdateBrowserProfileRequest
   | UpdateFrontendBrowserTabRequest
   | UpdatePersonalGroupRequest
@@ -2201,6 +2279,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "create-bookmark": {
+    request: CreateBookmarkRequest;
+    result: CreateBookmarkResult;
+    authority: "control";
+    since: 12;
+    capability: "bookmarks-v1";
+    stream: null;
+  };
   "create-browser-profile": {
     request: CreateBrowserProfileRequest;
     result: CreateBrowserProfileResult;
@@ -2271,6 +2357,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "workspace-groups-v1";
+    stream: null;
+  };
+  "delete-bookmark": {
+    request: DeleteBookmarkRequest;
+    result: DeleteBookmarkResult;
+    authority: "control";
+    since: 12;
+    capability: "bookmarks-v1";
     stream: null;
   };
   "delete-browser-profile": {
@@ -2417,6 +2511,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "import-bookmarks": {
+    request: ImportBookmarksRequest;
+    result: ImportBookmarksResult;
+    authority: "control";
+    since: 12;
+    capability: "bookmarks-v1";
+    stream: null;
+  };
   "import-session-organization": {
     request: ImportSessionOrganizationRequest;
     result: ImportSessionOrganizationResult;
@@ -2439,6 +2541,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "list-bookmarks": {
+    request: ListBookmarksRequest;
+    result: ListBookmarksResult;
+    authority: "control";
+    since: 12;
+    capability: "bookmarks-v1";
     stream: null;
   };
   "list-clients": {
@@ -2551,6 +2661,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 11;
     capability: null;
+    stream: null;
+  };
+  "move-bookmark": {
+    request: MoveBookmarkRequest;
+    result: MoveBookmarkResult;
+    authority: "control";
+    since: 12;
+    capability: "bookmarks-v1";
     stream: null;
   };
   "move-browser-profile": {
@@ -3359,6 +3477,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "saved-tab-groups-v1";
+    stream: null;
+  };
+  "update-bookmark": {
+    request: UpdateBookmarkRequest;
+    result: UpdateBookmarkResult;
+    authority: "control";
+    since: 12;
+    capability: "bookmarks-v1";
     stream: null;
   };
   "update-browser-profile": {
