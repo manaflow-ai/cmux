@@ -164,8 +164,9 @@ nonisolated enum FocusReducer {
     /// newest surviving pane in the history, else the first pane.
     static func successor(of pane: String, history: [String], old: FocusTopology, new: FocusTopology,
                           policy: CloseFocusPolicy) -> String? {
-        let before = old.columns(containing: pane) ?? [old.panes.map(\.id)]
-        let after = before.map { $0.filter(new.contains(pane:)) }
+        let columns = old.columns(containing: pane) ?? [FocusTopology.Column(id: "", panes: old.panes.map(\.id))]
+        let before = columns.map(\.panes)
+        let after = columns.map { $0.panes.filter(new.contains(pane:)) }
         let onScreen = Set(before.flatMap { $0 })
         if let pick = FocusAfterClose.pane(focused: pane, before: before, after: after,
                                           history: history.filter(onScreen.contains), policy: policy),
