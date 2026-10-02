@@ -125,11 +125,23 @@ public nonisolated enum TabDragResolver {
         }
     }
 
-    /// Index of the winning proposal: the first non-nil accepted one.
+    /// Whether a rejected `kind` ends the search: the tab's own strip place
+    /// is no drop target, and the surfaces behind it (the own pane, whose
+    /// top edge band holds the strip) must not take the drop either.
+    public static func blocks(_ kind: TabDropKind, context: TabDragContext) -> Bool {
+        guard case .strip(let strip, let index, let group) = kind else { return false }
+        return context.isOwnPlace(strip: strip, index: index, groupID: group)
+    }
+
+    /// Index of the winning proposal: the first non-nil accepted one, unless
+    /// a proposal before it `blocks`.
     public static func winner(_ proposals: [TabDropProposal?], context: TabDragContext) -> Int? {
-        proposals.firstIndex { proposal in
-            proposal.map { accepts($0.kind, context: context) } ?? false
+        for (index, proposal) in proposals.enumerated() {
+            guard let proposal else { continue }
+            if accepts(proposal.kind, context: context) { return index }
+            if blocks(proposal.kind, context: context) { return nil }
         }
+        return nil
     }
 
     /// The outcome for the winning proposal. `insideWindow` is false when

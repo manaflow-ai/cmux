@@ -230,10 +230,13 @@ final class TabDragSession: NSObject {
         for provider in providers(in: controller, near: point, drag: drag) {
             guard let proposal = provider.dropHitTest(screenPoint: point, payload: payload) else { continue }
             drag.touched[ObjectIdentifier(provider)] = provider
-            if TabDragResolver.accepts(proposal.kind, context: liveContext(drag)) {
+            let context = liveContext(drag)
+            if TabDragResolver.accepts(proposal.kind, context: context) {
                 return Hit(window: controller, winner: Winner(provider: provider, proposal: proposal, window: controller))
             }
             provider.dropExited()
+            // Over the own strip place: no target, not the pane behind it.
+            if TabDragResolver.blocks(proposal.kind, context: context) { break }
         }
         return Hit(window: controller)
     }
