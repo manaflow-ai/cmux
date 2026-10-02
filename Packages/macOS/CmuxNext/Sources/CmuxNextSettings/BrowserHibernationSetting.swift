@@ -5,7 +5,7 @@
 /// ```jsonc
 /// "browser": {
 ///   "hibernation": "moderate",        // "off" | "moderate" | "aggressive" | minutes (number)
-///   "hibernationExclusions": ["mail.google.com", "*.figma.com"],
+///   "hibernationExclusions": ["mail.google.com", "*.example.com"],
 ///   "hibernatePinnedTabs": false
 /// }
 /// ```
