@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a. */
+/* cmux-tui mux protocol 12, IR 06426902f6b840fe5bda861cd89adf95557247009953da568266a7381b1a1f9c. */
 
 
 import type * as T from "./types.js";
@@ -934,6 +934,7 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "cols"?: (number) | null;
   "engine": string;
   "favicon_url"?: (string) | null;
+  "owner"?: (string) | null;
   "pane"?: (T.Id) | null;
   "profile_id"?: (string) | null;
   "rows"?: (number) | null;
@@ -1717,6 +1718,7 @@ export type UpdateBrowserProfileResult = T.JsonValue;
 export interface UpdateFrontendBrowserTabRequest extends CmuxRequestBase {
   cmd: "update-frontend-browser-tab";
   "favicon_url"?: (string) | null;
+  "owner"?: (string) | null;
   "surface": T.Id;
   "title"?: (string) | null;
   "url"?: (string) | null;

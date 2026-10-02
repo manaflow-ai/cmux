@@ -29,7 +29,7 @@ fn mcp_exemption_reason(exemption: &str) -> String {
         "clipboard" => "it reads or writes the user's clipboard",
         _ => "the app keeps it out of MCP",
     };
-    format!("The app marks it `{exemption}` for MCP (surfaces.mcp): {why}.")
+    format!("The app marks it `{exemption}` for MCP in its action list: {why}.")
 }
 
 /// App control methods that are neither actions nor tools, with the reason.
@@ -66,7 +66,7 @@ pub(super) fn from_list(list: &Value) -> (Vec<ActionTool>, Vec<Exclusion>) {
     let mut excluded = Vec::new();
     let actions = list.get("actions").and_then(Value::as_array).map(Vec::as_slice);
     for action in actions.unwrap_or_default() {
-        let surfaces = action.get("surfaces");
+        let surfaces = action.get(crate::app_identity::ACTION_SURFACE_PLAN);
         let surface = |name: &str| surfaces.and_then(|surfaces| surfaces[name].as_str());
         let cli = match surface("cli") {
             Some(cli) => cli == "offered",
@@ -93,7 +93,7 @@ pub(super) fn from_list(list: &Value) -> (Vec<ActionTool>, Vec<Exclusion>) {
                 continue;
             }
             None => {
-                exclude("The app does not report surfaces.mcp for it; update the app.");
+                exclude("The app reports no MCP decision for it; update the app.");
                 continue;
             }
         }

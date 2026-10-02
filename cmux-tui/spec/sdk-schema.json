@@ -13157,6 +13157,15 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "owner": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false
@@ -13204,6 +13213,15 @@
       "default": null
      },
      "favicon_url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "owner": {
       "type": {
        "kind": "scalar",
        "name": "string"

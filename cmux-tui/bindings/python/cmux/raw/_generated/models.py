@@ -2297,6 +2297,7 @@ class NewFrontendBrowserTabRequest:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
+    owner: Union[str, None, MissingType] = field(default=MISSING)
     profile_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
@@ -3027,6 +3028,7 @@ class UpdateFrontendBrowserTabRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/update-frontend-browser-tab/request'
     surface: Id
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
+    owner: Union[str, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 
