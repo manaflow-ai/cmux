@@ -1,4 +1,4 @@
-import { idFactory, type Principal } from "@cmux/ownership"
+import { idFactory, MemoryRows, type Principal } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { connectionsDomain } from "../src/domains/connections.ts"
 import { runLimitMs, schedulerDomain, type SchedulerState } from "../src/domains/scheduler.ts"
@@ -11,7 +11,7 @@ const sharedMember: Principal = { identity: `session:${userId}`, kind: "session"
 let n = 0
 const ctx = (principal: Principal) => {
   const tx = `t${n++}`
-  return { principal, now: 1_800_000_000_000, tx, newId: idFactory(tx) }
+  return { principal, now: 1_800_000_000_000, tx, newId: idFactory(tx), rows: new MemoryRows() }
 }
 
 describe("team admin ops are personal-team only until roles exist", () => {
