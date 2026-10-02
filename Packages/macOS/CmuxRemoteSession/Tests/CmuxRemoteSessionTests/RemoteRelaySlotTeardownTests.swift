@@ -293,7 +293,7 @@ struct RemoteRelaySlotTeardownTests {
 
         let succeeded = await coordinator.stopAndWait(cleanupScope: .persistentSlot)
 
-        let cleanupCommand = try #require(runner.requests.last?.arguments.last)
+        let cleanupCommand = try command(in: runner) { $0.contains("serve --persistent-stop --slot") }
         #expect(succeeded)
         #expect(cleanupCommand.contains("serve --persistent-stop --slot"))
         #expect(cleanupCommand.contains("64010.shell"))
@@ -316,7 +316,7 @@ struct RemoteRelaySlotTeardownTests {
 
         let succeeded = await coordinator.stopAndWait(cleanupScope: .transport)
 
-        let cleanupCommand = try #require(runner.requests.last?.arguments.last)
+        let cleanupCommand = try command(in: runner) { $0.contains("64010.slot") }
         #expect(succeeded)
         #expect(!cleanupCommand.contains("serve --persistent-stop --slot"))
         #expect(!cleanupCommand.contains("rm -rf"))
@@ -331,11 +331,13 @@ struct RemoteRelaySlotTeardownTests {
 
         let transportSucceeded = await coordinator.stopAndWait(cleanupScope: .transport)
         #expect(transportSucceeded)
-        #expect(runner.requests.isEmpty)
+        #expect(runner.requests.count == 1)
+        let transportPasteCleanup = try #require(runner.requests.first?.arguments.last)
+        #expect(transportPasteCleanup.contains(".cache/cmux/paste/"))
 
         let succeeded = await coordinator.stopAndWait(cleanupScope: .persistentSlot)
 
-        let cleanupCommand = try #require(runner.requests.last?.arguments.last)
+        let cleanupCommand = try command(in: runner) { $0.contains("serve --persistent-stop --slot") }
         #expect(succeeded)
         #expect(cleanupCommand.contains("$HOME/.cmux/bin/cmuxd-remote"))
         #expect(cleanupCommand.contains("serve --persistent-stop --slot"))
@@ -354,10 +356,10 @@ struct RemoteRelaySlotTeardownTests {
         let succeeded = await coordinator.stopAndWait(cleanupScope: .persistentSlot)
 
         #expect(succeeded)
-        #expect(runner.requests.count == 2)
-        let metadataCleanup = try #require(runner.requests.first?.arguments.last)
+        #expect(runner.requests.count == 3)
+        let metadataCleanup = try command(in: runner) { $0.contains("64010.slot") }
         #expect(metadataCleanup.contains("64010.slot"))
-        let directCleanup = try #require(runner.requests.last?.arguments.last)
+        let directCleanup = try command(in: runner) { $0.contains("$HOME/.cmux/bin/cmuxd-remote") }
         #expect(directCleanup.contains("$HOME/.cmux/bin/cmuxd-remote"))
         #expect(directCleanup.contains("serve --persistent-stop --slot"))
         #expect(!directCleanup.contains("relay_socket="))
@@ -407,6 +409,17 @@ struct RemoteRelaySlotTeardownTests {
                 reverseRelayPortUnavailableRetrying: "",
                 controlMasterOwnershipUnavailable: ""
             )
+        )
+    }
+
+    private func command(
+        in runner: SpyProcessRunner,
+        matching predicate: (String) -> Bool
+    ) throws -> String {
+        try #require(
+            runner.requests
+                .compactMap(\.arguments.last)
+                .first(where: predicate)
         )
     }
 
