@@ -1006,6 +1006,8 @@ struct ContentView: View {
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
     @State private var commandPaletteCloudWorkspaceTargetsCache: [CommandPaletteCloudWorkspaceTarget] = []
     @State private var commandPaletteCloudWorkspaceTargetsFingerprint: Int?
+    @State private var commandPaletteCloudWorkspaceTargetsCacheRevision: UInt64 = 0
+    @State private var commandPaletteCloudWorkspaceTargetsCachedRevision: UInt64?
 
     private var isCommandPalettePresented: Bool {
         commandPaletteOverlayState.isCommandPalettePresented
@@ -2687,6 +2689,17 @@ struct ContentView: View {
                     ])
                 }
             }
+        })
+
+        view = AnyView(view.onReceive(
+            NotificationCenter.default.publisher(for: SurfaceCatalog.didChangeNotification, object: SurfaceCatalog.shared)
+        ) { _ in
+            invalidateCommandPaletteCloudWorkspaceTargets()
+        })
+        view = AnyView(view.onReceive(
+            NotificationCenter.default.publisher(for: CloudSidebarOrganizationStore.didChangeNotification, object: SurfaceCatalog.shared.sidebarOrganization)
+        ) { _ in
+            invalidateCommandPaletteCloudWorkspaceTargets()
         })
 
         view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
@@ -5071,10 +5084,14 @@ struct ContentView: View {
 
     private var commandPaletteCurrentSearchFingerprint: Int {
         let scope = commandPaletteListScope
+        let cloudWorkspaceTargets = scope == .switcher
+            ? commandPaletteCloudWorkspaceTargets()
+            : nil
         return commandPaletteEntriesFingerprint(
             for: scope,
             includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries,
-            commandsContext: scope == .commands ? commandPaletteCachedCommandsContext() : nil
+            commandsContext: scope == .commands ? commandPaletteCachedCommandsContext() : nil,
+            cloudWorkspaceTargets: cloudWorkspaceTargets
         )
     }
 
@@ -5182,20 +5199,25 @@ struct ContentView: View {
     private func commandPaletteEntries(for scope: CommandPaletteListScope) -> [CommandPaletteCommand] {
         commandPaletteEntries(
             for: scope,
-            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
+            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries,
+            cloudWorkspaceTargets: scope == .switcher ? commandPaletteCloudWorkspaceTargets() : nil
         )
     }
 
     private func commandPaletteEntries(
         for scope: CommandPaletteListScope,
         includeSurfaces: Bool,
-        commandsContext: CommandPaletteCommandsContext? = nil
+        commandsContext: CommandPaletteCommandsContext? = nil,
+        cloudWorkspaceTargets: [CommandPaletteCloudWorkspaceTarget]? = nil
     ) -> [CommandPaletteCommand] {
         switch scope {
         case .commands:
             return commandPaletteCommands(commandsContext: commandsContext ?? commandPaletteCachedCommandsContext())
         case .switcher:
-            return commandPaletteSwitcherEntries(includeSurfaces: includeSurfaces)
+            return commandPaletteSwitcherEntries(
+                includeSurfaces: includeSurfaces,
+                cloudWorkspaceTargets: cloudWorkspaceTargets
+            )
         }
     }
 
@@ -5231,10 +5253,14 @@ struct ContentView: View {
         let commandsContext = scope == .commands
             ? commandPaletteCommandsContext(terminalOpenTargets: terminalOpenTargets)
             : nil
+        let cloudWorkspaceTargets = scope == .switcher
+            ? commandPaletteCloudWorkspaceTargets()
+            : nil
         let fingerprint = commandPaletteEntriesFingerprint(
             for: scope,
             includeSurfaces: includeSurfaces,
-            commandsContext: commandsContext
+            commandsContext: commandsContext,
+            cloudWorkspaceTargets: cloudWorkspaceTargets
         )
         guard force || cachedCommandPaletteScope != scope || cachedCommandPaletteFingerprint != fingerprint else {
             return
@@ -5243,7 +5269,8 @@ struct ContentView: View {
         let entries = commandPaletteEntries(
             for: scope,
             includeSurfaces: includeSurfaces,
-            commandsContext: commandsContext
+            commandsContext: commandsContext,
+            cloudWorkspaceTargets: cloudWorkspaceTargets
         )
         commandPaletteSearchCommandsByID = CommandPaletteSearchOrchestrator.firstValueDictionary(
             entries,
@@ -5616,7 +5643,8 @@ struct ContentView: View {
     private func commandPaletteEntriesFingerprint(
         for scope: CommandPaletteListScope,
         includeSurfaces: Bool,
-        commandsContext: CommandPaletteCommandsContext? = nil
+        commandsContext: CommandPaletteCommandsContext? = nil,
+        cloudWorkspaceTargets: [CommandPaletteCloudWorkspaceTarget]? = nil
     ) -> Int {
         switch scope {
         case .commands:
@@ -5624,7 +5652,10 @@ struct ContentView: View {
                 commandsContext: commandsContext ?? commandPaletteCachedCommandsContext()
             )
         case .switcher:
-            return commandPaletteSwitcherEntriesFingerprint(includeSurfaces: includeSurfaces)
+            return commandPaletteSwitcherEntriesFingerprint(
+                includeSurfaces: includeSurfaces,
+                cloudWorkspaceTargets: cloudWorkspaceTargets
+            )
         }
     }
 
@@ -5635,7 +5666,10 @@ struct ContentView: View {
         return hasher.finalize()
     }
 
-    private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
+    private func commandPaletteSwitcherEntriesFingerprint(
+        includeSurfaces: Bool,
+        cloudWorkspaceTargets: [CommandPaletteCloudWorkspaceTarget]? = nil
+    ) -> Int {
         if commandPaletteCurrentWorkSnapshot != nil {
             var hasher = Hasher()
             hasher.combine("current-work")
@@ -5676,6 +5710,7 @@ struct ContentView: View {
             )
         }
         var fingerprint = CommandPaletteSwitcherFingerprintContext.fingerprint(windowContexts: fingerprintContexts)
+        _ = cloudWorkspaceTargets ?? commandPaletteCloudWorkspaceTargets()
         fingerprint = fingerprint &* 31 &+ (commandPaletteCloudWorkspaceTargetsFingerprint ?? 0)
         return fingerprint
     }
@@ -5756,6 +5791,9 @@ struct ContentView: View {
 
     private func commandPaletteCloudWorkspaceTargets() -> [CommandPaletteCloudWorkspaceTarget] {
         guard CloudMachinesFeature.isEnabled else { return [] }
+        if commandPaletteCloudWorkspaceTargetsCachedRevision == commandPaletteCloudWorkspaceTargetsCacheRevision {
+            return commandPaletteCloudWorkspaceTargetsCache
+        }
         let catalog = SurfaceCatalog.shared
         let snapshot = catalog.snapshot
         let allNodes = CloudTreeNodeBuilder.nodes(
@@ -5788,14 +5826,15 @@ struct ContentView: View {
         var fingerprintHasher = Hasher()
         for target in targets {
             fingerprintHasher.combine(target.machine.rawValue)
+            let machineName = catalog.machineInfo(for: target.machine)?.name ?? target.machine.rawValue
+            fingerprintHasher.combine(machineName)
             fingerprintHasher.combine(target.workspace.id)
             fingerprintHasher.combine(target.workspace.name)
-            if let remoteWorkspaceID = target.group.remoteWorkspaceID {
-                fingerprintHasher.combine(remoteWorkspaceID)
-            }
+            fingerprintHasher.combine(target.group)
         }
         commandPaletteCloudWorkspaceTargetsFingerprint = fingerprintHasher.finalize()
         commandPaletteCloudWorkspaceTargetsCache = targets
+        commandPaletteCloudWorkspaceTargetsCachedRevision = commandPaletteCloudWorkspaceTargetsCacheRevision
         return targets
     }
 
@@ -5813,7 +5852,23 @@ struct ContentView: View {
         actions.openWorkspace(target.machine, target.workspace, target.group)
     }
 
-    private func commandPaletteSwitcherEntries(includeSurfaces: Bool) -> [CommandPaletteCommand] {
+    private func invalidateCommandPaletteCloudWorkspaceTargets() {
+        commandPaletteCloudWorkspaceTargetsCacheRevision &+= 1
+        commandPaletteCloudWorkspaceTargetsCachedRevision = nil
+        commandPaletteCloudWorkspaceTargetsCache = []
+        commandPaletteCloudWorkspaceTargetsFingerprint = nil
+        guard isCommandPalettePresented,
+              commandPaletteListScope == .switcher else { return }
+        scheduleCommandPaletteResultsRefresh(
+            query: commandPaletteQuery,
+            forceSearchCorpusRefresh: true
+        )
+    }
+
+    private func commandPaletteSwitcherEntries(
+        includeSurfaces: Bool,
+        cloudWorkspaceTargets: [CommandPaletteCloudWorkspaceTarget]? = nil
+    ) -> [CommandPaletteCommand] {
         if let snapshot = commandPaletteCurrentWorkSnapshot {
             return commandPaletteCurrentWorkEntries(snapshot: snapshot)
         }
@@ -5925,8 +5980,7 @@ struct ContentView: View {
         }
 
         let cloudWorkspaceKind = String(localized: "commandPalette.kind.cloudWorkspace", defaultValue: "Cloud Workspace")
-        let cloudWorkspaceTargets = commandPaletteCloudWorkspaceTargets()
-        for target in cloudWorkspaceTargets {
+        for target in cloudWorkspaceTargets ?? commandPaletteCloudWorkspaceTargets() {
             let machineName = SurfaceCatalog.shared.machineInfo(for: target.machine)?.name ?? target.machine.rawValue
             let title = target.workspace.name
             let commandID = "switcher.cloudWorkspace.\(target.machine.rawValue).\(target.workspace.id)"
@@ -10128,8 +10182,7 @@ struct ContentView: View {
     }
 
     private func openCommandPaletteSwitcher() {
-        commandPaletteCloudWorkspaceTargetsCache = []
-        commandPaletteCloudWorkspaceTargetsFingerprint = nil
+        invalidateCommandPaletteCloudWorkspaceTargets()
         handleCommandPaletteListRequest(scope: .switcher)
     }
 
