@@ -18,6 +18,7 @@ enum CloudTeamPickerMenu {
     static let invitedHeaderIdentifier = "CloudTeamPickerInvitedHeader"
     static let signedInAsIdentifier = "CloudTeamPickerSignedInAs"
     static let signOutIdentifier = "CloudTeamPickerSignOutButton"
+    static let switchAccountIdentifier = "CloudTeamPickerSwitchAccountButton"
 
     static func invitationIdentifier(_ invitationID: String) -> String {
         "CloudTeamPickerInvitation_\(invitationID)"
@@ -45,6 +46,7 @@ enum CloudTeamPickerMenu {
         invitations: [Invitation] = [],
         onJoin: ((Invitation) -> Void)? = nil,
         accountEmail: String? = nil,
+        onSwitchAccount: (() -> Void)? = nil,
         onSignOut: (() -> Void)? = nil
     ) -> NSMenu {
         let menu = NSMenu()
@@ -143,6 +145,15 @@ enum CloudTeamPickerMenu {
                     ),
                     identifier: signedInAsIdentifier
                 ))
+            }
+            if let onSwitchAccount {
+                let switchAccount = SidebarRowClosureMenuItem(
+                    title: String(localized: "cloud.teamPicker.switchAccount", defaultValue: "Switch Account…"),
+                    handler: onSwitchAccount
+                )
+                switchAccount.identifier = NSUserInterfaceItemIdentifier(switchAccountIdentifier)
+                switchAccount.isEnabled = !isBusy
+                menu.addItem(switchAccount)
             }
             let signOut = SidebarRowClosureMenuItem(
                 title: String(localized: "settings.account.signOut", defaultValue: "Sign Out"),

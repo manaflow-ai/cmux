@@ -69,6 +69,12 @@ struct AgentFeedView: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let notable = preparedRows.compactMap { model -> AgentFeedRowModel? in
             let item = model.item
+            // Notification history belongs to the Notifications tab. Keep
+            // this client-side guard for snapshots produced by older Macs.
+            guard item.source.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare("notification") != .orderedSame else {
+                return nil
+            }
             guard query.isEmpty || item.matchesFeedSearch(query) else { return nil }
             switch item.kind {
             case .toolUse, .userPrompt:
@@ -90,7 +96,13 @@ struct AgentFeedView: View {
     }
 
     private var needsInputCount: Int {
-        items.lazy.filter(\.effectiveNeedsInput).count
+        preparedRows.lazy
+            .filter { model in
+                model.item.source.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .caseInsensitiveCompare("notification") != .orderedSame
+            }
+            .filter { $0.item.effectiveNeedsInput }
+            .count
     }
 
     var body: some View {

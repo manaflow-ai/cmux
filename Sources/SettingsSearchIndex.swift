@@ -192,6 +192,7 @@ enum SettingsSearchIndex {
                 String(localized: "settings.automation.agentAutoResume.subtitle", defaultValue: "Send “continue” when an agent's turn ends on a retryable error such as model capacity or a dropped connection.")
             ].joined(separator: " ")
         ),
+        setting(.automation, "agent-messages", String(localized: "settings.automation.agentMessages", defaultValue: "Agent Messages"), "agentMessages.enabled agent message inbox communication mute disable off send deliver"),
         setting(.automation, "canonical-agent-scratch", String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"), "agent artifacts temporary files cleanup retention claude codex opencode storage"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
         setting(.automation, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),
@@ -366,6 +367,7 @@ enum SettingsSearchIndex {
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.agentAutoResume": settingID(for: .automation, idSuffix: "agent-error-auto-resume"),
+        "agentMessages.enabled": settingID(for: .automation, idSuffix: "agent-messages"),
         "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
         "automation.geminiIntegration": settingID(for: .automation, idSuffix: "gemini"),
         "automation.kiroIntegration": settingID(for: .automation, idSuffix: "kiro"),

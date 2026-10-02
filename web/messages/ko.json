@@ -403,6 +403,7 @@
       "label": "계정 메뉴",
       "settings": "설정",
       "billing": "결제",
+      "switchAccount": "계정 전환",
       "signOut": "로그아웃",
       "signingOut": "로그아웃 중…",
       "signOutError": "로그아웃할 수 없습니다. 다시 시도하세요.",
@@ -489,11 +490,11 @@
           ],
           "pro": [
             "Cloud VM의 클라우드 에이전트",
-            "VM 전체가 공유하는 24 GB RAM과 vCPU 6개",
+            "최대 5대의 Cloud VM, VM당 최대 vCPU 4개와 8 GB RAM",
             "cmux iOS 앱"
           ],
           "max": [
-            "VM 전체가 공유하는 64 GB RAM과 vCPU 16개",
+            "최대 5대의 Cloud VM, VM당 최대 vCPU 16개와 32 GB RAM",
             "더 큰 머신 크기",
             "Pro의 모든 기능"
           ],
@@ -541,6 +542,11 @@
         "team": "팀 만들기",
         "banner": "지금 {plan}을(를) 사용 중입니다.",
         "bannerLink": "요금제 및 결제"
+      },
+      "appStore": {
+        "title": "App Store를 통해 결제됨",
+        "body": "이 플랜은 cmux iPhone 앱에서 구입했으며 Apple이 청구합니다. App Store 구독에서 변경하거나 취소하세요.",
+        "manage": "App Store에서 관리"
       }
     },
     "mobileDevices": {
@@ -1125,6 +1131,80 @@
       "revokeApiKeyConfirmTitle": "이 API 키를 폐기할까요?",
       "apiKeyUsageDetail": "최근 30일: 완료 {completions}회 · 토큰 {tokens}개 ({input} 입력 / {output} 출력) · API 환산 {value}",
       "apiKeyUsageUnavailable": "사용량을 사용할 수 없음",
+      "revokeApiKeyConfirmBody": "이 키를 사용하는 클라이언트는 즉시 인증할 수 없게 됩니다."
+    },
+    "cloud": {
+      "title": "Cloud 머신 및 Mac 액세스",
+      "description": "머신별 아웃바운드 네트워크를 설정하고, 비공개 Cloud VM 네트워크에 WireGuard로 액세스할 수 있는 Mac을 확인합니다. iPhone 및 Iroh 페어링 기록은 별도로 관리됩니다.",
+      "macAccessTitle": "Mac 액세스",
+      "machines": {
+        "title": "머신",
+        "empty": "Cloud 머신이 없습니다.",
+        "personal": "개인",
+        "team": "팀",
+        "status": {
+          "provisioning": "시작 중",
+          "running": "실행 중",
+          "failed": "실패",
+          "paused": "일시 중지됨",
+          "destroyed": "삭제됨"
+        }
+      },
+      "network": {
+        "open": "네트워크",
+        "title": "{name}의 아웃바운드 네트워크",
+        "description": "이 머신이 연결할 수 있는 대상을 선택하세요. 변경 사항은 재시작 없이 즉시 적용됩니다.",
+        "loading": "네트워크 정책을 불러오는 중…",
+        "loadError": "이 머신의 네트워크 정책을 불러올 수 없습니다.",
+        "saveError": "이 네트워크 정책을 적용할 수 없습니다.",
+        "unsupported": "이 머신은 아웃바운드 네트워크 제어를 지원하지 않습니다.",
+        "retry": "다시 시도",
+        "appliedLabel": "상태:",
+        "applied": {
+          "applied": "적용됨",
+          "pending": "적용 중",
+          "failed": "적용 실패"
+        },
+        "unsaved": "저장되지 않은 변경 사항",
+        "refresh": "새로고침",
+        "modeLabel": "아웃바운드 액세스",
+        "mode": {
+          "full": {
+            "label": "전체 인터넷",
+            "description": "모든 공개 주소."
+          },
+          "allowlist": {
+            "label": "허용 목록",
+            "description": "지정한 프리셋, 도메인, IP 범위만."
+          },
+          "none": {
+            "label": "인터넷 없음",
+            "description": "아래에 나열된 cmux 호스트만."
+          }
+        },
+        "presetsTitle": "프리셋",
+        "presetsNote": "각 프리셋은 정확한 호스트 이름을 추가합니다. 다른 하위 도메인을 사용하는 서비스에는 도메인이 더 필요할 수 있습니다.",
+        "domainsTitle": "도메인",
+        "domainsNote": "정확한 호스트 이름만, 포트 443의 HTTPS만 허용됩니다. 와일드카드는 아직 지원되지 않습니다.",
+        "domainInput": "도메인",
+        "rangesTitle": "IP 범위",
+        "rangesNote": "공급자 방화벽이 머신 외부에서 이 규칙을 적용합니다. 포트를 비워 두면 모든 포트가 허용됩니다. 포트를 지정하려면 프로토콜이 필요합니다.",
+        "cidrInput": "IP 범위(CIDR)",
+        "portInput": "포트",
+        "protocolInput": "프로토콜",
+        "anyProtocol": "모두",
+        "noteInput": "메모(선택 사항)",
+        "allPorts": "모든 포트",
+        "dnsLabel": "DNS 허용",
+        "dnsNote": "IP 범위가 가리키는 이름을 도구가 확인할 수 있게 합니다. 도메인에는 DNS가 필요하지 않습니다. 열린 DNS는 아웃바운드 채널입니다. 프로세스가 조회하는 이름에 데이터를 담아 외부로 보낼 수 있습니다.",
+        "requiredTitle": "항상 허용",
+        "requiredNote": "cmux는 머신에 CLI를 설치하고 업데이트하기 위해 모든 모드에서 이 호스트가 필요합니다.",
+        "add": "추가",
+        "remove": "제거",
+        "discard": "변경 사항 취소",
+        "close": "닫기",
+        "apply": "적용"
+      },
       "revokeApiKeyConfirmBody": "이 키를 사용하는 클라이언트는 즉시 인증할 수 없게 됩니다.",
       "apiKeysEmptyTitle": "아직 API 키가 없습니다",
       "apiKeysEmptyHint": "CodeRouter 클라이언트를 인증할 키를 만드세요.",
@@ -2839,12 +2919,18 @@
       "limitsTitle": "플랜 한도",
       "limitsDesc": "플랜 한도는 공유 CPU나 메모리 풀이 아니라 머신 수를 기준으로 합니다. 각 머신은 해당 크기만큼의 리소스를 받습니다.",
       "limitsFree": "무료 계정은 머신을 만들 수 없습니다.",
-      "limitsPaid": "Pro 및 Max 계정은 활성 머신을 최대 50대까지 가질 수 있습니다. 실행 중이거나 시작 중인 머신이 활성 머신입니다.",
-      "limitsTeam": "Team 계정은 유료 시트 하나당 활성 머신을 최대 50대까지 가질 수 있습니다.",
-      "limitsMax": "24 GB보다 큰 머신에는 cmux Max가 필요합니다.",
+      "limitsPaid": "Pro 및 Max 계정은 활성 머신을 최대 5대까지 가질 수 있습니다. 실행 중이거나 시작 중인 머신이 활성 머신입니다.",
+      "limitsTeam": "Team 계정은 유료 시트 하나당 활성 머신을 최대 5대까지 가질 수 있습니다.",
+      "limitsMax": "8 GB보다 큰 머신에는 cmux Max가 필요합니다. Max 머신은 최대 32 GB와 vCPU 16개까지 가능합니다.",
       "limitsPricing": "현재 가격은 가격 페이지를 확인하세요. 사용량 기반 과금이나 초과 요금은 없습니다.",
+      "agentUpdatesTitle": "코딩 에이전트를 최신 상태로 유지",
+      "agentUpdatesDesc": "이 설정을 켜면 머신이 Claude Code, Codex, OpenCode, pi, agent-browser를 업데이트합니다. 머신을 만든 뒤와 연결할 때마다 확인하며, 24시간에 최대 한 번입니다. 업데이트는 분리된 상태로 실행되므로 연결을 막지 않습니다.",
+      "agentUpdatesSource": "각 도구는 공식 GitHub 릴리스에서 가져오며, 릴리스 에셋의 sha256 다이제스트로 검증합니다. npm은 사용하지 않습니다. 릴리스는 공개된 지 3일이 지난 후에만 설치되며, 업데이트가 이전 버전을 설치하는 일은 없습니다. 실행 중인 에이전트는 시작할 때의 파일을 계속 사용하고, 업데이트가 실패하면 현재 버전이 그대로 남습니다.",
+      "agentUpdatesStatus": "마지막 확인 결과는 /etc/cmux/agent-updates.state에, 업데이트 로그는 /var/log/cmux-agent-updates.log에 있습니다. 실패한 확인은 다음 연결 때 다시 실행됩니다.",
+      "agentUpdatesToggle": "새 머신 시트에서는 이 설정이 기본으로 켜져 있습니다. 기존 머신에서 바꾸려면 머신을 오른쪽 클릭하고 에이전트를 최신 상태로 유지를 선택하거나 cmux vm agent-updates를 실행하세요. cmux vm new는 --agent-updates latest를 전달하지 않으면 이미지의 버전을 유지합니다. 업데이트를 끄면 이미 설치된 버전이 유지됩니다.",
+      "agentUpdatesNetwork": "업데이트는 github.com, api.github.com, objects.githubusercontent.com, release-assets.githubusercontent.com만 사용합니다. cmux는 허용 목록과 인터넷 없음을 포함한 모든 네트워크 모드에서 이 호스트를 허용하므로, 네트워크 정책이 업데이트를 막지 않습니다.",
       "resizeTitle": "크기 조정",
-      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 4 GB 단위로 최대 256 GB, 메모리는 최대 64 GB, CPU는 최대 32 vCPU까지 늘릴 수 있습니다. 실제 최대치는 플랜에 따라 정해집니다.",
+      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 4 GB 단위로 최대 256 GB, 메모리는 최대 32 GB, CPU는 최대 16 vCPU까지 늘릴 수 있습니다. 실제 최대치는 플랜에 따라 정해집니다.",
       "pauseTitle": "일시 중지와 재개",
       "pauseDesc": "cmux vm pause는 머신의 컴퓨팅을 중지합니다. 디스크, 워크스페이스, 터미널 기록은 유지되고, 실행 중인 프로세스는 중지됩니다. cmux vm resume은 머신을 다시 시작합니다. 일시 중지된 머신을 열거나 그 머신에서 명령을 실행해도 머신이 시작됩니다.",
       "pauseIdle": "머신은 유휴 상태여도 스스로 일시 중지되지 않습니다. 일시 중지하거나 삭제할 때까지 계속 실행됩니다.",
@@ -2995,7 +3081,7 @@
       "errPlan": "Cloud VM에는 유료 플랜이 필요함",
       "fixPlan": "무료 계정은 머신을 만들 수 없습니다. 가격 페이지에서 업그레이드하세요.",
       "errSize": "선택한 크기에 더 높은 플랜이 필요함",
-      "fixSize": "24 GB보다 큰 머신에는 cmux Max가 필요합니다. 더 작은 크기를 고르거나 업그레이드하세요.",
+      "fixSize": "8 GB보다 큰 머신에는 cmux Max가 필요합니다. 더 작은 크기를 고르거나 업그레이드하세요.",
       "errLimit": "활성 머신 한도에 도달함",
       "fixLimit": "머신을 일시 중지하거나 삭제한 뒤 다시 시도하세요.",
       "errLocked": "머신이 잠겨 있음",
@@ -5100,7 +5186,8 @@
   "pricing": {
     "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
     "signedOutNotice": "로그인되어 있지 않습니다. 로그인하여 현재 요금제를 확인하거나 기존 구매를 복원하세요.",
-    "signedOutSignIn": "로그인"
+    "signedOutSignIn": "로그인",
+    "manageInAppStore": "App Store에서 관리"
   },
   "platforms": {
     "macos": "macOS",
@@ -5266,6 +5353,60 @@
     "signedOutTitle": "coderouter를 승인하려면 로그인하세요",
     "signedOutBody": "명령줄 애플리케이션이 로그인을 기다리고 있습니다. cmux 계정으로 로그인하면 이 터미널 연결이 완료됩니다. 이 요청을 시작하지 않았다면 이 페이지를 닫으세요.",
     "signInButton": "로그인"
+  },
+  "cmuxSignIn": {
+    "signInTitle": "cmux에 로그인",
+    "signInSubtitle": "앱, cloud, 대시보드를 하나의 계정으로.",
+    "signUpTitle": "cmux 계정 만들기",
+    "signUpSubtitle": "앱, cloud, 대시보드를 하나의 계정으로.",
+    "continueWithProvider": "{provider}(으)로 계속",
+    "signInWithPasskey": "패스키로 로그인",
+    "orContinueWith": "또는 다음으로 계속",
+    "emailLabel": "이메일",
+    "emailPlaceholder": "you@company.com",
+    "continueWithEmail": "이메일로 계속",
+    "emailCodeTab": "이메일",
+    "emailPasswordTab": "이메일 & 비밀번호",
+    "passwordLabel": "비밀번호",
+    "repeatPasswordLabel": "비밀번호 확인",
+    "signInButton": "로그인",
+    "createAccountButton": "계정 만들기",
+    "forgotPassword": "비밀번호를 잊으셨나요?",
+    "noAccount": "계정이 없으신가요?",
+    "signUpLink": "가입하기",
+    "haveAccount": "이미 계정이 있으신가요?",
+    "signInLink": "로그인",
+    "checkEmailTitle": "이메일을 확인하세요",
+    "checkEmailBody": "{email}(으)로 보낸 6자 영숫자 코드를 입력하세요.",
+    "codeLabel": "코드",
+    "back": "뒤로",
+    "resendCode": "코드 다시 보내기",
+    "chooseAccountTitle": "계정 선택",
+    "chooseAccountSubtitle": "cmux로 계속하려면",
+    "useAnotherAccount": "다른 계정 사용",
+    "forgetAccount": "이 목록에서 {account} 삭제",
+    "signedOut": "로그아웃됨",
+    "signingInAs": "{account}(으)로 로그인하는 중…",
+    "sessionEnded": "이 계정은 로그아웃되었습니다. 계속하려면 다시 로그인하세요.",
+    "redirecting": "로그인하는 중…",
+    "lastUsed": "최근 사용",
+    "legal": "계속하면 {terms} 및 {privacy}에 동의하게 됩니다.",
+    "termsOfService": "이용약관",
+    "privacyPolicy": "개인정보 처리방침",
+    "signUpDisabled": "지금은 새 계정을 만들 수 없습니다.",
+    "noMethods": "지금은 로그인할 수 없습니다. 나중에 다시 시도하세요.",
+    "embeddedDisabled": "삽입된 페이지에서는 로그인 버튼이 비활성화됩니다. 이 페이지를 새 탭에서 여세요.",
+    "errorInvalidEmail": "올바른 이메일 주소를 입력하세요.",
+    "errorPasswordRequired": "비밀번호를 입력하세요.",
+    "errorPasswordTooShort": "{min}자 이상 입력하세요.",
+    "errorPasswordTooLong": "{max}자 이하로 입력하세요.",
+    "errorPasswordsDontMatch": "비밀번호가 일치하지 않습니다.",
+    "errorWrongPassword": "이메일 또는 비밀번호가 올바르지 않습니다.",
+    "errorInvalidCode": "유효하지 않은 코드입니다. 이메일을 확인하고 다시 시도하세요.",
+    "errorInvalidTotp": "유효하지 않은 2단계 인증 코드입니다.",
+    "errorSignUpNotAllowed": "지금은 새 계정을 만들 수 없습니다.",
+    "errorPasskey": "패스키 로그인이 완료되지 않았습니다. 다시 시도하거나 다른 방법을 사용하세요.",
+    "errorGeneric": "문제가 발생했습니다. 다시 시도하세요."
   },
   "MobileRelease106": {
     "title": "1.0.6의 새로운 기능",

@@ -6,19 +6,14 @@ Regression test: `cmux claude-teams` supports Claude's tmux teammate flow.
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
 import threading
 from pathlib import Path
 
-from claude_teams_test_utils import (
-    resolve_cmux_cli,
-    socket_request_method,
-    stable_tmux_numeric_id,
-    strip_capability_envelope,
-)
+from claude_teams_test_utils import resolve_cmux_cli, socket_request_method, stable_tmux_numeric_id
+from fake_socket_env import cli_environment, unwrap_capability
 
 INITIAL_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 INITIAL_WINDOW_ID = "22222222-2222-4222-8222-222222222222"
@@ -268,13 +263,7 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             line = self.rfile.readline()
             if not line:
                 return
-            decoded_line = strip_capability_envelope(line.decode("utf-8").rstrip("\r\n"))
-            if decoded_line is None:
-                self.wfile.write(b"ERROR: malformed capability envelope\n")
-                self.wfile.flush()
-                continue
-
-            request = json.loads(decoded_line)
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
             method = socket_request_method(request)
             if method is None:
                 self.wfile.write(b"ERROR: malformed request\n")
@@ -341,8 +330,7 @@ tmux kill-session -t "$window_target"
 """,
         )
 
-        env = os.environ.copy()
-        env["HOME"] = str(home)
+        env = cli_environment(home=home)
         env["PATH"] = f"{real_bin}:/usr/bin:/bin"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
         env["CMUX_WORKSPACE_ID"] = INITIAL_WORKSPACE_ID

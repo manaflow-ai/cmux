@@ -187,6 +187,7 @@ extension CmuxSettingsFileStore {
         "fileEditor.currentLineHighlight",
         "fileEditor.tabWidth",
         "fileExplorer.doubleClickAction",
+        "agentMessages.enabled",
         "shortcuts.bindings",
         "shortcuts.showModifierHoldHints",
     ]

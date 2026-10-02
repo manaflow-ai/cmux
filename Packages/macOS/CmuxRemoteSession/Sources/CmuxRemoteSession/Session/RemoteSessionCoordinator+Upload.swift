@@ -59,6 +59,8 @@ extension RemoteSessionCoordinator {
         var uploadedRemotePaths: [String] = []
         do {
             try operation.throwIfCancelled()
+            // Mark before preparing: a failed prepare may still leave the directory.
+            hasTouchedRemotePasteDirectory = true
             try prepareRemotePasteDirectoryLocked()
             for localURL in fileURLs {
                 try operation.throwIfCancelled()

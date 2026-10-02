@@ -91,7 +91,8 @@ extension CloudTreeOutlineView.Coordinator {
         case .surfaceResources(let group):
             return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: policy)
         case .surface:
-            return policy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
+            guard let app = AppDelegate.shared else { return policy.rejection(for: nil) }
+            return app.ownershipRejection(forBonsplitTab: transfer.tabId, policy: policy)
         case .vaultSession, .filePreview, .rightSidebarTool:
             return policy.rejection(for: .local)
         }

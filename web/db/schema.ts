@@ -91,6 +91,12 @@ export const coderouterPools = pgTable("coderouter_pools", {
   uniqueIndex("coderouter_pools_default_unique").on(table.teamId).where(sql`${table.isDefault}`),
 ]);
 
+/** Records that a VM pool has received its initial team-account snapshot. */
+export const coderouterPoolInitializations = pgTable("coderouter_pool_initializations", {
+  poolId: uuid("pool_id").primaryKey().references(() => coderouterPools.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const cloudVms = pgTable(
   "cloud_vms",
   {
@@ -121,6 +127,15 @@ export const cloudVms = pgTable(
     failureCode: text("failure_code"),
     failureMessage: text("failure_message"),
     providerMetadata: jsonb("provider_metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    // Outbound network policy (services/vms/networkPolicy.ts). Null means the
+    // historical default, full Internet. Control-plane owned; the driver
+    // reconciles the provider's firewall and TLS rules to it.
+    networkPolicy: jsonb("network_policy").$type<Record<string, unknown>>(),
+    // Last reconcile outcome for networkPolicy: { state, error?, appliedAt }.
+    networkPolicyStatus: jsonb("network_policy_status").$type<Record<string, unknown>>(),
+    // Coding-agent updates (services/vms/guestAgentUpdates.ts). "latest" updates
+    // the baked agents to npm's latest on attach; null keeps the image's pins.
+    agentUpdates: text("agent_updates").$type<"latest">(),
   },
   (table) => [
     foreignKey({ columns: [table.ownerTeamId, table.coderouterPoolId], foreignColumns: [coderouterPools.teamId, coderouterPools.id], name: "cloud_vms_coderouter_pool_team_fk" }),
@@ -2561,4 +2576,116 @@ export const hexclaveWebhookEvents = pgTable("hexclave_webhook_events", {
 }, (table) => [
   check("hexclave_webhook_events_outcome_check", sql`${table.outcome} in ('processed', 'ignored', 'invalid', 'failed')`),
   index("hexclave_webhook_events_received_idx").on(table.receivedAt),
+]);
+
+/**
+ * iOS in-app purchases (docs/billing/ios-in-app-purchases.md). The server is
+ * the source of truth: every Apple transaction and App Store Server
+ * Notification is verified, recorded here, and mirrored into the same
+ * `cmuxPlan` entitlement Stripe fulfillment writes.
+ */
+export const APPLE_SUBSCRIPTION_STATUSES = [
+  "active",
+  "grace_period",
+  "billing_retry",
+  "expired",
+  "revoked",
+] as const;
+export type AppleSubscriptionStatus = (typeof APPLE_SUBSCRIPTION_STATUSES)[number];
+
+/** One `appAccountToken` per cmux user, minted by the server and sent with every purchase. */
+export const appleAccountTokens = pgTable("apple_account_tokens", {
+  userId: text("user_id").primaryKey(),
+  appAccountToken: uuid("app_account_token").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("apple_account_tokens_app_account_token_unique").on(table.appAccountToken),
+]);
+
+/**
+ * Current state of one Apple subscription (one original transaction). The
+ * row only moves forward: `state_signed_at` is the Apple `signedDate` of the
+ * data that produced it, and an older signed payload never overwrites it.
+ */
+export const appleSubscriptions = pgTable("apple_subscriptions", {
+  originalTransactionId: text("original_transaction_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  appAccountToken: uuid("app_account_token"),
+  bundleId: text("bundle_id").notNull(),
+  environment: text("environment").notNull(),
+  productId: text("product_id").notNull(),
+  planId: text("plan_id").notNull(),
+  status: text("status").$type<AppleSubscriptionStatus>().notNull(),
+  autoRenewEnabled: boolean("auto_renew_enabled"),
+  autoRenewProductId: text("auto_renew_product_id"),
+  purchaseDate: timestamp("purchase_date", { withTimezone: true }),
+  originalPurchaseDate: timestamp("original_purchase_date", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  gracePeriodExpiresAt: timestamp("grace_period_expires_at", { withTimezone: true }),
+  storefront: text("storefront"),
+  currency: text("currency"),
+  priceMilliunits: bigint("price_milliunits", { mode: "number" }),
+  lastTransactionId: text("last_transaction_id"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revocationReason: integer("revocation_reason"),
+  stateSignedAt: timestamp("state_signed_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("apple_subscriptions_user_id_idx").on(table.userId),
+  index("apple_subscriptions_expires_at_idx").on(table.expiresAt),
+  check(
+    "apple_subscriptions_status_check",
+    sql`${table.status} in ('active', 'grace_period', 'billing_retry', 'expired', 'revoked')`,
+  ),
+]);
+
+/** One row per Apple transaction (purchase, renewal, upgrade); refunds set `revoked_at`. */
+export const appleTransactions = pgTable("apple_transactions", {
+  transactionId: text("transaction_id").primaryKey(),
+  originalTransactionId: text("original_transaction_id").notNull(),
+  userId: text("user_id").notNull(),
+  productId: text("product_id").notNull(),
+  planId: text("plan_id"),
+  environment: text("environment").notNull(),
+  type: text("type"),
+  purchaseDate: timestamp("purchase_date", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  priceMilliunits: bigint("price_milliunits", { mode: "number" }),
+  currency: text("currency"),
+  storefront: text("storefront"),
+  offerType: integer("offer_type"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("apple_transactions_original_transaction_id_idx").on(table.originalTransactionId),
+  index("apple_transactions_user_id_idx").on(table.userId),
+  index("apple_transactions_purchase_date_idx").on(table.purchaseDate),
+]);
+
+/**
+ * App Store Server Notifications V2 ledger, idempotent on `notification_uuid`.
+ * The row is written before any state change. A failed application keeps
+ * `processed_at` null and records `error`; the retry job re-applies those
+ * rows. A notification that can never apply (no linked cmux account, an
+ * unknown product) is closed with `processed_at` and an `error` explaining
+ * why, so it is not retried forever.
+ */
+export const appleNotifications = pgTable("apple_notifications", {
+  notificationUuid: text("notification_uuid").primaryKey(),
+  notificationType: text("notification_type").notNull(),
+  subtype: text("subtype"),
+  environment: text("environment").notNull(),
+  originalTransactionId: text("original_transaction_id"),
+  signedDate: timestamp("signed_date", { withTimezone: true }).notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  error: text("error"),
+}, (table) => [
+  index("apple_notifications_original_transaction_id_idx").on(table.originalTransactionId),
+  index("apple_notifications_pending_idx")
+    .on(table.receivedAt)
+    .where(sql`${table.processedAt} is null`),
 ]);

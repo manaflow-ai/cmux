@@ -375,7 +375,10 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 
 
 # Workflows whose queued macOS jobs a pull request must not take a pool from.
-RESERVED_POOL_WORKFLOW = re.compile(r"release|nightly", re.IGNORECASE)
+# Match the workflow path only.  CI run names include routing metadata such as
+# ``release=arm64``; looking at the combined name and path made every ordinary
+# pull-request run look like a release reservation.
+RESERVED_POOL_WORKFLOW = re.compile(r"(?:^|/)(?:release|nightly)\.yml$", re.IGNORECASE)
 POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
 POOL_LOAD_VERSION = 1
 # Environment variable -> snapshot settings key, for pr_runner_pool.py.
@@ -504,7 +507,7 @@ def pool_load_snapshot(
     oldest: dict[str, dt.datetime] = {}
     committed: dict[str, int] = {}
     for run in runs:
-        reserved = bool(RESERVED_POOL_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"))
+        reserved = bool(RESERVED_POOL_WORKFLOW.search(str(run.get("path") or "")))
         seen: dict[str, int] = {}
         for job in jobs_by_run.get(run.get("id"), ()):
             if is_macos_job(job) and owned_label(job) and job.get("status") in (
