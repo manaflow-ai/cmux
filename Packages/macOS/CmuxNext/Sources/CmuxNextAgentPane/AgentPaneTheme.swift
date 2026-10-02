@@ -9,17 +9,17 @@ import Foundation
 /// backdrop doesn't thin them.
 enum AgentPaneTheme {
     static func values(_ tokens: ThemeTokens) -> [String: any Sendable] {
-        let page = tokens.contentBackground
-        var opaquePage = page
+        let page = pageColor(tokens)
+        var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
         return [
             "isDark": tokens.isDark,
             "pageBackground": css(page),
             "surfaceBackground": css(page),
             "surfaceElevatedBackground": css(tokens.elevatedBackground),
-            // The field sits on the page, which already paints the theme's
-            // color; it adds only the hover tint, so a translucent window's
-            // backdrop shows through it as much as through the terminal.
+            // The field sits on the page; it adds only the hover tint, so a
+            // translucent window's backdrop shows through it as much as
+            // through the terminal.
             "inputBackground": css(tokens.hoverFill),
             "border": css(tokens.separator),
             "borderStrong": css(tokens.paneBorder),
@@ -35,11 +35,17 @@ enum AgentPaneTheme {
         ]
     }
 
-    /// The color WebKit shows behind and around the page: clear for a
-    /// translucent theme, where it would stack under the page's own fill (as
-    /// `WebKitTab` does).
+    /// The page's background: the content background where panes paint it
+    /// (an opaque window), clear where the window root paints the one
+    /// translucent sheet (`WindowBackdrop`), as the terminal leaves it.
+    static func pageColor(_ tokens: ThemeTokens) -> ThemeRGB {
+        WindowBackdrop(tokens).panesPaintBackground ? tokens.contentBackground : tokens.contentBackground.withAlpha(0)
+    }
+
+    /// The color WebKit shows behind and around the page, the same as the
+    /// page's own (`WebKitTab` leaves it clear in a translucent window too).
     static func underPageColor(_ tokens: ThemeTokens) -> ThemeRGB {
-        tokens.contentBackground.alpha < 1 ? tokens.contentBackground.withAlpha(0) : tokens.contentBackground
+        pageColor(tokens)
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.
