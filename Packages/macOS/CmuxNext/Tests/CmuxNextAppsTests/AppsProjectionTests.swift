@@ -60,6 +60,20 @@ struct AppsProjectionTests {
         #expect(projection.visible(id)?.hidden == true)
     }
 
+    @Test func aConfirmedRevisionMakesOlderListsStale() throws {
+        var projection = AppsProjection()
+        projection.applyList(Self.base, revision: 3)
+        let id = "cmux/agent-status"
+        projection.enqueue(AppIntent(id: "k1", app: id, change: .hide(true), origin: .user))
+        var committed = try #require(Self.base.first { $0.id == id })
+        committed.hidden = true
+        committed.revision = 4
+        projection.confirm("k1", record: committed)
+        #expect(projection.revision == 4)
+        projection.applyList(Self.base, revision: 3)
+        #expect(projection.visible(id)?.hidden == true)
+    }
+
     @Test func aNewConnectionAcceptsALowerRevision() {
         var projection = AppsProjection()
         projection.applyList(Self.base, revision: 9)

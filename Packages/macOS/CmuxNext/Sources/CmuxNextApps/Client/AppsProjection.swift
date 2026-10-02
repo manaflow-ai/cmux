@@ -74,6 +74,8 @@ public nonisolated struct AppsProjection: Sendable, Hashable {
     public mutating func confirm(_ key: String, record: AppRecord) {
         pending.removeAll { $0.id == key }
         listFloor = nextListRequest
+        // The reply's commit revision: older lists are stale from here on.
+        if let committed = record.revision { revision = max(revision ?? committed, committed) }
         if let index = mirror.firstIndex(where: { $0.id == record.id }) { mirror[index] = record } else { mirror.append(record) }
     }
 

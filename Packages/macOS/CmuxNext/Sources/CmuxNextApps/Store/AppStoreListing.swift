@@ -56,7 +56,7 @@ public nonisolated struct AppStoreListing: Sendable, Hashable, Identifiable {
         scopes = manifest.scopes
         optionalScopes = manifest.optionalScopes
         implementations = manifest.implementations
-        bundleDirectory = AppBundleLocator.directory(for: record.id)
+        bundleDirectory = record.bundleDirectory
     }
 
     /// Matches a store search: name, id, description, publisher, categories, keywords.

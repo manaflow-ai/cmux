@@ -5,8 +5,10 @@ public nonisolated enum AppsTransportEvent: Sendable, Hashable {
     case availability(AppsAvailability)
     /// `apps-changed {revision}`: the install mirror moved; list again.
     case changed(revision: UInt64?)
-    /// `apps-scene {mount_id, ops}`.
-    case scene(mountID: String, ops: [AppSceneOp])
+    /// `apps-scene {mount_id, ops, reset?}`. `reset` (the supervisor
+    /// restarted the app host and re-mounted, after a crash or a grant
+    /// change) means: drop the mount's tree and apply `ops` to an empty one.
+    case scene(mountID: String, ops: [AppSceneOp], reset: Bool = false)
     /// `apps-mount-failed {mount_id, reason}`.
     case mountFailed(mountID: String, reason: String)
     /// `apps-host {app, state, reason?}`.

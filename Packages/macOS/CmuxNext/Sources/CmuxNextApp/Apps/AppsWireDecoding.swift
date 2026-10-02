@@ -46,7 +46,7 @@ enum AppsEventDecoding {
             return .changed(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) })
         case "apps-scene":
             guard let mount = json["mount_id"]?.stringValue else { return nil }
-            return .scene(mountID: mount, ops: AppSceneOp.batch(json["ops"] ?? .array([])))
+            return .scene(mountID: mount, ops: AppSceneOp.batch(json["ops"] ?? .array([])), reset: json["reset"]?.boolValue == true)
         case "apps-mount-failed":
             guard let mount = json["mount_id"]?.stringValue else { return nil }
             return .mountFailed(mountID: mount, reason: json["reason"]?.stringValue ?? "mount failed")

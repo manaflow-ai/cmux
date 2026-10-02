@@ -36,7 +36,7 @@ struct AppInstalledRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.space2) {
             HStack(spacing: Metrics.space3) {
-                AppIconView(icon: app.manifest.icon, bundleDirectory: AppBundleLocator.directory(for: app.id), size: 32)
+                AppIconView(icon: app.manifest.icon, bundleDirectory: app.bundleDirectory, size: 32)
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: Metrics.space2) {
                         Text(app.manifest.name.resolved()).font(Font(Typography.bodyEmphasized)).foregroundStyle(colors.primary)

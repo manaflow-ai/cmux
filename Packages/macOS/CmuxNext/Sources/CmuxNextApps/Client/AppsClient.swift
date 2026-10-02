@@ -148,8 +148,10 @@ public final class AppsClient {
             }
         case .changed:
             refresh()
-        case let .scene(mountID, ops):
-            mounts[mountID]?.model.apply(ops)
+        case let .scene(mountID, ops, reset):
+            guard let model = mounts[mountID]?.model else { return }
+            if reset { model.reset() }
+            model.apply(ops)
         case let .mountFailed(mountID, reason):
             mounts[mountID]?.model.status = .failed(reason)
         case let .host(app, state, reason):

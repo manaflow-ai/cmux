@@ -50,7 +50,7 @@ extension AppsClient {
     public func mount(_ app: String, implementation: AppImplementation, surface: String, preview: Bool = false) -> AppMount {
         let mount = AppMount(id: "mnt-\(keyPrefix)-\(nextMount)", appID: app,
                              implementation: implementation, isPreview: preview, surface: surface,
-                             bundleDirectory: AppBundleLocator.directory(for: app), client: self)
+                             bundleDirectory: self.app(app)?.bundleDirectory ?? AppBundleLocator.directory(for: app), client: self)
         nextMount += 1
         mounts[mount.id] = mount
         send(mount)
