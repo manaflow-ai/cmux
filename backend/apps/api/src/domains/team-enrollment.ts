@@ -137,9 +137,10 @@ export const reduceDeviceRelease = <S extends EnrollmentState>(state: S, params:
   if (device.via === "token" && !isAdmin) return reject("auth.forbidden", "only a team admin may release an install enrolled by an MDM token")
   if (device.user !== ctx.principal.user && !isAdmin) return reject("auth.forbidden", "only the install's user or a team admin may release it")
   const { [d.value.install]: _gone, ...rest } = state.managed_devices ?? {}
+  const { [d.value.install]: _status, ...statusRest } = state.device_status ?? {}
   return {
     ok: true,
-    state: { ...state, managed_devices: rest },
+    state: { ...state, managed_devices: rest, device_status: statusRest },
     value: { install: d.value.install },
     audit: { summary: `install ${d.value.install} released`, detail: { install: d.value.install } }
   }
@@ -174,6 +175,8 @@ export const reduceReportStatus = <S extends EnrollmentState>(state: S, params: 
   if (!d.ok) return d
   const p = ctx.principal
   if (!p.install || !p.user) return reject("auth.forbidden", "team.device.report_status needs an install token")
+  // Only managed installs report: compliance reads nothing else, and TeamDO state is one row.
+  if (state.managed_devices?.[p.install]?.user !== p.user) return reject("selector.not_found", "this install is not managed by this team")
   const prev = state.device_status?.[p.install]
   const next: Status = {
     install: p.install,

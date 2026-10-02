@@ -146,7 +146,7 @@ export const DevicePolicy = def({
   mcp: { expose: "never", group: "team" }
 })
 
-const KeyName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
+const KeyName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128))
 
 export const DeviceStatus = Schema.Struct({
   install: InstallId,
@@ -155,9 +155,9 @@ export const DeviceStatus = Schema.Struct({
   policy_version: Schema.Int,
   app_version: Schema.String.check(Schema.isMaxLength(64)),
   /** Managed preference keys the device's MDM profile sets (names only, never values). */
-  mdm_keys: Schema.Array(KeyName).check(Schema.isMaxLength(200)),
+  mdm_keys: Schema.Array(KeyName).check(Schema.isMaxLength(64)),
   /** Keys where the MDM profile overrode the team policy (decision E2). */
-  conflicts: Schema.Array(KeyName).check(Schema.isMaxLength(200)),
+  conflicts: Schema.Array(KeyName).check(Schema.isMaxLength(64)),
   reported_at: Schema.Int
 }).annotate({ identifier: "DeviceStatus" })
 
@@ -171,8 +171,8 @@ export const DeviceReportStatus = def({
   params: Schema.Struct({
     policy_version: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
     app_version: Schema.String.check(Schema.isMaxLength(64)),
-    mdm_keys: Schema.Array(KeyName).check(Schema.isMaxLength(200)),
-    conflicts: Schema.Array(KeyName).check(Schema.isMaxLength(200))
+    mdm_keys: Schema.Array(KeyName).check(Schema.isMaxLength(64)),
+    conflicts: Schema.Array(KeyName).check(Schema.isMaxLength(64))
   }),
   result: DeviceStatus,
   errors: mutationErrors,

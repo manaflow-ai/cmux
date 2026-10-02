@@ -571,7 +571,7 @@
               "kind": "primitive",
               "name": "string",
               "min_length": 1,
-              "max_length": 200
+              "max_length": 128
             }
           }
         },
@@ -583,7 +583,7 @@
               "kind": "primitive",
               "name": "string",
               "min_length": 1,
-              "max_length": 200
+              "max_length": 128
             }
           }
         },
@@ -18845,18 +18845,18 @@
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "maxLength": 200
+                  "maxLength": 128
                 },
-                "maxItems": 200
+                "maxItems": 64
               },
               "conflicts": {
                 "type": "array",
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "maxLength": 200
+                  "maxLength": 128
                 },
-                "maxItems": 200
+                "maxItems": 64
               },
               "reported_at": {
                 "type": "integer"
@@ -19322,7 +19322,7 @@
                 "kind": "primitive",
                 "name": "string",
                 "min_length": 1,
-                "max_length": 200
+                "max_length": 128
               }
             }
           },
@@ -19334,7 +19334,7 @@
                 "kind": "primitive",
                 "name": "string",
                 "min_length": 1,
-                "max_length": 200
+                "max_length": 128
               }
             }
           },
@@ -19406,18 +19406,18 @@
             "items": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 200
+              "maxLength": 128
             },
-            "maxItems": 200
+            "maxItems": 64
           },
           "conflicts": {
             "type": "array",
             "items": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 200
+              "maxLength": 128
             },
-            "maxItems": 200
+            "maxItems": 64
           }
         },
         "required": [
@@ -19458,18 +19458,18 @@
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "maxLength": 200
+                  "maxLength": 128
                 },
-                "maxItems": 200
+                "maxItems": 64
               },
               "conflicts": {
                 "type": "array",
                 "items": {
                   "type": "string",
                   "minLength": 1,
-                  "maxLength": 200
+                  "maxLength": 128
                 },
-                "maxItems": 200
+                "maxItems": 64
               },
               "reported_at": {
                 "type": "integer"
@@ -20366,6 +20366,19 @@
               "name": "TeamPolicy"
             }
           },
+          "integration_managed_by": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "enum",
+                "values": [
+                  "sso",
+                  "mdm"
+                ]
+              }
+            }
+          },
           "revision": {
             "required": true,
             "type": {
@@ -20425,6 +20438,20 @@
           "policy": {
             "$ref": "#/$defs/TeamPolicy"
           },
+          "integration_managed_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "sso",
+                  "mdm"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revision": {
             "type": "string"
           }
@@ -20432,6 +20459,7 @@
         "required": [
           "team",
           "policy",
+          "integration_managed_by",
           "revision"
         ],
         "additionalProperties": true,

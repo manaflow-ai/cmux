@@ -1135,6 +1135,7 @@ export interface CloudOps {
     readonly result: {
       readonly team: TeamId
       readonly policy: TeamPolicy
+      readonly integration_managed_by: "sso" | "mdm" | null
       readonly revision: string
     }
   }

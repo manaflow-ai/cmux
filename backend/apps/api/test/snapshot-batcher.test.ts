@@ -12,7 +12,7 @@ describe("SnapshotBatcher", () => {
         expect(scheduled).toBeUndefined()
         scheduled = fn
       },
-      viewFor: (user) => {
+      viewFor: (user, _socket) => {
         views += 1
         return `view:${user}`
       },

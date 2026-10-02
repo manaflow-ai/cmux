@@ -113,6 +113,9 @@ describe("enrollment and audit reducer (TeamDO)", () => {
     // Same report again: no change. Agents cannot report.
     expect(teamDomain.reduce(s, "team.device.report_status", { policy_version: 1, app_version: "1.0", mdm_keys: ["ui.animationSpeed"], conflicts: [] }, asInstall(MEMBER, INST))).toMatchObject({ ok: true, changed: false })
     expect(teamDomain.reduce(s, "team.device.report_status", { policy_version: 1, app_version: "1.0", mdm_keys: [], conflicts: [] }, ctx(MEMBER, { kind: "agent", agent: "agent_x", install: INST }))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // Only managed installs report; releasing an install drops its status.
+    expect(teamDomain.reduce(s, "team.device.report_status", { policy_version: 1, app_version: "1", mdm_keys: [], conflicts: [] }, asInstall(MEMBER, "inst_00000000000000000009"))).toMatchObject({ ok: false, code: "selector.not_found" })
+    expect((ok(teamDomain.reduce(s, "team.device.release", { install: INST2 }, ctx(OWNER))).state as TeamState).device_status?.[INST2]).toBeUndefined()
     const memberView = teamSubscriberView({ ...s, members: { ...s.members } }, { identity: `user:${MEMBER}`, user: MEMBER, kind: "session" })
     expect(Object.keys(memberView.device_status ?? {})).toEqual([INST])
   })

@@ -15,7 +15,13 @@ export const TeamPolicyGet = def({
   target: "team_policy",
   principals: ["session", "install"],
   params: Schema.Struct({ version: Schema.optionalKey(PolicyVersionNumber) }),
-  result: Schema.Struct({ team: TeamId, policy: TeamPolicy, revision: Schema.String }),
+  result: Schema.Struct({
+    team: TeamId,
+    policy: TeamPolicy,
+    /** ConnectionDO holds an SSO or MDM lock that overrides the integration keys (reported, E2). */
+    integration_managed_by: Schema.NullOr(Schema.Literals(["sso", "mdm"])),
+    revision: Schema.String
+  }),
   errors: ["auth.unauthenticated", "auth.forbidden", "selector.not_found"],
   docs: "Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys.",
   cli: { path: "team policy get", visible: true },

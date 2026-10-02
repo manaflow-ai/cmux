@@ -11,7 +11,7 @@ export class SnapshotBatcher<Socket> {
   constructor(
     private readonly io: {
       readonly schedule: (flush: () => void) => void
-      readonly viewFor: (user: string) => string
+      readonly viewFor: (user: string, socket: Socket) => string
       readonly send: (socket: Socket, text: string) => void
     }
   ) {}
@@ -24,6 +24,22 @@ export class SnapshotBatcher<Socket> {
     this.io.schedule(() => this.flush())
   }
 
+  /** Whether `socket` waits for a resync snapshot. */
+  has(socket: Socket): boolean {
+    return this.pending.has(socket)
+  }
+
+  /**
+   * Sends `socket`'s pending snapshot now (before a visible event, so the
+   * client sees no seq gap) and drops its mark.
+   */
+  flushOne(socket: Socket) {
+    const user = this.pending.get(socket)
+    if (user === undefined) return
+    this.pending.delete(socket)
+    this.io.send(socket, this.io.viewFor(user, socket))
+  }
+
   flush() {
     this.scheduled = false
     const batch = [...this.pending]
@@ -32,7 +48,7 @@ export class SnapshotBatcher<Socket> {
     for (const [socket, user] of batch) {
       let text = views.get(user)
       if (text === undefined) {
-        text = this.io.viewFor(user)
+        text = this.io.viewFor(user, socket)
         views.set(user, text)
       }
       this.io.send(socket, text)

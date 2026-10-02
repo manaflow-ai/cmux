@@ -95,6 +95,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         this.resyncs.mark(ws, a.principal.identity)
         continue
       }
+      // A visible event after hidden ones: send the pending snapshot first (no seq gap round trip).
+      if (this.resyncs.has(ws)) this.resyncs.flushOne(ws)
       safeSend(ws, text)
     }
   }
@@ -105,9 +107,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    */
   private readonly resyncs = new SnapshotBatcher<WebSocket>({
     schedule: (flush) => void setTimeout(flush, RESYNC_BATCH_MS),
-    viewFor: (identity) => {
-      const socket = this.ctx.getWebSockets().find((ws) => (ws.deserializeAttachment() as Attachment | null)?.principal.identity === identity)
-      const principal = (socket?.deserializeAttachment() as Attachment | null)?.principal
+    viewFor: (_identity, ws) => {
+      const principal = (ws.deserializeAttachment() as Attachment | null)?.principal
       return this.engine && principal ? this.snapshotFor(this.engine, principal, []) : ""
     },
     send: (ws, text) => {
