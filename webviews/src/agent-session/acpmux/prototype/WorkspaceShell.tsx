@@ -1,7 +1,7 @@
 // Sidebar prototype (#16688), dev server only: prototype.html. One stack of open workspaces is the
 // main sidebar; agent history (the pane's project-grouped session list) is a layer opened from the
 // rail, and opening a row there jumps to the tab already showing it instead of opening a copy.
-// Dots at the bottom switch rooms, and links from a terminal open in the mini window
+// Dots at the bottom switch spaces, and links from a terminal open in the mini window
 // until Cmd-O promotes them into the workspace.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AcpmuxApp } from "../App";
@@ -20,20 +20,20 @@ import {
   TerminalIcon,
 } from "./icons";
 import {
-  activeRoom,
+  activeSpace,
   browserProfileById,
   effectiveBrowserProfile,
-  openFromHistoryInRooms,
+  openFromHistoryInSpaces,
   openMini,
   promoteMini,
-  seedRooms,
-  stepRoom,
-  switchRoom,
+  seedSpaces,
+  stepSpace,
+  switchSpace,
   withStack,
   type MiniWindow,
-  type Room,
-  type Rooms,
-} from "./rooms";
+  type Space,
+  type Spaces,
+} from "./spaces";
 import {
   newTerminalWorkspace,
   openSessionIds,
@@ -72,59 +72,63 @@ const params = new URLSearchParams(location.search);
 /** `?style=terminal`: classic cmux. The chrome takes the terminal's font and a new workspace is a
  * terminal; agents and browsers stay available but nothing pushes them. Translucency is untouched. */
 const terminalStyle = params.get("style") === "terminal";
-const roomFromURL = switchRoom(seedRooms, params.get("room") ?? seedRooms.activeId);
-const initialRooms = terminalStyle ? withStack(roomFromURL, terminalFirst(activeRoom(roomFromURL).stack)) : roomFromURL;
+const spaceFromURL = switchSpace(seedSpaces, params.get("space") ?? seedSpaces.activeId);
+const initialSpaces = terminalStyle
+  ? withStack(spaceFromURL, terminalFirst(activeSpace(spaceFromURL).stack))
+  : spaceFromURL;
 
 export function WorkspaceShell() {
-  const [rooms, setRooms] = useState<Rooms>(initialRooms);
+  const [spaces, setSpaces] = useState<Spaces>(initialSpaces);
   const [historyOpen, setHistoryOpen] = useState(() => params.has("history"));
   const [mini, setMini] = useState<MiniWindow | undefined>(() =>
-    params.has("mini") ? openMini(initialRooms, TERMINAL_LINK, { kind: "terminal", label: "upload-retry" }) : undefined,
+    params.has("mini")
+      ? openMini(initialSpaces, TERMINAL_LINK, { kind: "terminal", label: "upload-retry" })
+      : undefined,
   );
   const [flash, setFlash] = useState<string>();
-  const room = activeRoom(rooms);
-  const stack = room.stack;
+  const space = activeSpace(spaces);
+  const stack = space.stack;
   const active = stack.workspaces.find((workspace) => workspace.id === stack.activeId)!;
   const activeTab = active.tabs.find((tab) => tab.id === active.activeTabId)!;
-  const openIds = useMemo(() => new Set(rooms.rooms.flatMap((each) => [...openSessionIds(each.stack)])), [rooms]);
+  const openIds = useMemo(() => new Set(spaces.spaces.flatMap((each) => [...openSessionIds(each.stack)])), [spaces]);
 
-  const showRooms = useCallback((next: Rooms) => {
-    setRooms(next);
-    const stack = activeRoom(next).stack;
+  const showSpaces = useCallback((next: Spaces) => {
+    setSpaces(next);
+    const stack = activeSpace(next).stack;
     const workspace = stack.workspaces.find((candidate) => candidate.id === stack.activeId)!;
     const tab = workspace.tabs.find((candidate) => candidate.id === workspace.activeTabId)!;
     if (tab.sessionId) selectInPane(tab.sessionId);
   }, []);
-  const show = useCallback((next: Stack) => showRooms(withStack(rooms, next)), [rooms, showRooms]);
+  const show = useCallback((next: Stack) => showSpaces(withStack(spaces, next)), [spaces, showSpaces]);
 
   const openSession = useCallback(
     (sessionId: string) => {
-      const result = openFromHistoryInRooms(rooms, historyById.get(sessionId) ?? { sessionId });
-      showRooms(result.rooms);
+      const result = openFromHistoryInSpaces(spaces, historyById.get(sessionId) ?? { sessionId });
+      showSpaces(result.spaces);
       setHistoryOpen(false);
       // A jump points at the workspace it landed on, so the user sees nothing was duplicated.
-      setFlash(activeRoom(result.rooms).stack.activeId);
+      setFlash(activeSpace(result.spaces).stack.activeId);
     },
-    [rooms, showRooms],
+    [spaces, showSpaces],
   );
 
   const promote = useCallback(() => {
     if (!mini) return;
-    const result = promoteMini(rooms, mini);
-    showRooms(result.rooms);
+    const result = promoteMini(spaces, mini);
+    showSpaces(result.spaces);
     setMini(undefined);
     setFlash(mini.workspaceId);
-  }, [mini, rooms, showRooms]);
+  }, [mini, spaces, showSpaces]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      // Ctrl-Opt-1..9 select a room, Cmd-Opt-] and [ step through them (data-model.md 7).
+      // Ctrl-Opt-1..9 select a space, Cmd-Opt-] and [ step through them (data-model.md 7).
       const digit = /^Digit([1-9])$/.exec(event.code);
       if (event.ctrlKey && event.altKey && digit) {
-        const target = rooms.rooms[Number(digit[1]) - 1];
-        if (target) showRooms(switchRoom(rooms, target.id));
+        const target = spaces.spaces[Number(digit[1]) - 1];
+        if (target) showSpaces(switchSpace(spaces, target.id));
       } else if (event.metaKey && event.altKey && (event.code === "BracketRight" || event.code === "BracketLeft")) {
-        showRooms(stepRoom(rooms, event.code === "BracketRight" ? 1 : -1));
+        showSpaces(stepSpace(spaces, event.code === "BracketRight" ? 1 : -1));
       } else if (mini && event.metaKey && event.key.toLowerCase() === "o") {
         promote();
       } else if (mini && (event.key === "Escape" || (event.metaKey && event.key.toLowerCase() === "w"))) {
@@ -134,7 +138,7 @@ export function WorkspaceShell() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [rooms, mini, promote, showRooms]);
+  }, [spaces, mini, promote, showSpaces]);
 
   useEffect(() => {
     if (!flash) return;
@@ -153,7 +157,7 @@ export function WorkspaceShell() {
     <div
       className="proto-window"
       data-history={historyOpen ? "open" : "closed"}
-      style={{ "--room-accent": `var(--proto-${room.color ?? "overlay"})` } as React.CSSProperties}
+      style={{ "--space-accent": `var(--proto-${space.color ?? "overlay"})` } as React.CSSProperties}
       data-style={terminalStyle ? "terminal" : undefined}
     >
       <div className="proto-lights" aria-hidden="true">
@@ -189,10 +193,10 @@ export function WorkspaceShell() {
 
       <nav className="proto-stack" aria-label="Workspaces">
         <div className="proto-stack-label">
-          <span>{room.name}</span>
-          <ProfileChip id={room.browserProfile} />
+          <span>{space.name}</span>
+          <ProfileChip id={space.browserProfile} />
         </div>
-        <ul key={room.id} className="proto-stack-list">
+        <ul key={space.id} className="proto-stack-list">
           {stack.workspaces.map((workspace) => (
             <WorkspaceRow
               key={workspace.id}
@@ -203,7 +207,7 @@ export function WorkspaceShell() {
             />
           ))}
         </ul>
-        <RoomDots rooms={rooms} onSelect={(id) => showRooms(switchRoom(rooms, id))} />
+        <SpaceDots spaces={spaces} onSelect={(id) => showSpaces(switchSpace(spaces, id))} />
       </nav>
 
       {historyOpen && (
@@ -263,22 +267,22 @@ export function WorkspaceShell() {
               onOpenLink={() =>
                 setMini(
                   openMini(
-                    rooms,
+                    spaces,
                     TERMINAL_LINK,
                     { kind: "terminal", label: activeTab.title },
-                    { roomId: room.id, workspaceId: active.id },
+                    { spaceId: space.id, workspaceId: active.id },
                   ),
                 )
               }
             />
           )}
           {activeTab.kind === "browser" && (
-            <BrowserMock tab={activeTab} profile={activeTab.browserProfile ?? effectiveBrowserProfile(room, active)} />
+            <BrowserMock tab={activeTab} profile={activeTab.browserProfile ?? effectiveBrowserProfile(space, active)} />
           )}
         </div>
       </main>
 
-      {mini && <MiniBrowser mini={mini} rooms={rooms} onPromote={promote} onClose={() => setMini(undefined)} />}
+      {mini && <MiniBrowser mini={mini} spaces={spaces} onPromote={promote} onClose={() => setMini(undefined)} />}
     </div>
   );
 }
@@ -419,27 +423,27 @@ function BrowserMock({ tab, profile }: { tab: WorkspaceTab; profile: string }) {
   );
 }
 
-/** The room dots at the bottom of the sidebar: hidden with one room, the current one stronger. */
-function RoomDots({ rooms, onSelect }: { rooms: Rooms; onSelect: (roomId: string) => void }) {
-  if (rooms.rooms.length < 2) return null;
+/** The space dots at the bottom of the sidebar: hidden with one space, the current one stronger. */
+function SpaceDots({ spaces, onSelect }: { spaces: Spaces; onSelect: (spaceId: string) => void }) {
+  if (spaces.spaces.length < 2) return null;
   return (
-    <div className="proto-rooms" role="tablist" aria-label="Rooms">
-      {rooms.rooms.map((room: Room, index) => (
+    <div className="proto-spaces" role="tablist" aria-label="Spaces">
+      {spaces.spaces.map((space: Space, index) => (
         <button
-          key={room.id}
+          key={space.id}
           type="button"
           role="tab"
-          aria-selected={room.id === rooms.activeId}
-          aria-label={room.name}
-          title={`${room.name} (Ctrl-Opt-${index + 1})`}
-          className="proto-room-dot"
-          style={{ "--dot": `var(--proto-${room.color ?? "overlay"})` } as React.CSSProperties}
-          onClick={() => onSelect(room.id)}
+          aria-selected={space.id === spaces.activeId}
+          aria-label={space.name}
+          title={`${space.name} (Ctrl-Opt-${index + 1})`}
+          className="proto-space-dot"
+          style={{ "--dot": `var(--proto-${space.color ?? "overlay"})` } as React.CSSProperties}
+          onClick={() => onSelect(space.id)}
         >
           <i />
         </button>
       ))}
-      <button type="button" className="proto-room-dot proto-room-add" aria-label="New room" title="New room">
+      <button type="button" className="proto-space-dot proto-space-add" aria-label="New space" title="New space">
         <PlusIcon />
       </button>
     </div>
@@ -449,17 +453,17 @@ function RoomDots({ rooms, onSelect }: { rooms: Rooms; onSelect: (roomId: string
 /** The mini window: a small window over the main one, for a link opened from outside a browser tab. */
 function MiniBrowser({
   mini,
-  rooms,
+  spaces,
   onPromote,
   onClose,
 }: {
   mini: MiniWindow;
-  rooms: Rooms;
+  spaces: Spaces;
   onPromote: () => void;
   onClose: () => void;
 }) {
-  const room = rooms.rooms.find((candidate) => candidate.id === mini.roomId)!;
-  const target = room.stack.workspaces.find((candidate) => candidate.id === mini.workspaceId)!;
+  const space = spaces.spaces.find((candidate) => candidate.id === mini.spaceId)!;
+  const target = space.stack.workspaces.find((candidate) => candidate.id === mini.workspaceId)!;
   return (
     <section className="proto-mini" aria-label="Mini window">
       <header>

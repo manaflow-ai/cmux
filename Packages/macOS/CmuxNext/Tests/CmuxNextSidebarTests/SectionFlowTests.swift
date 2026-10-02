@@ -18,19 +18,35 @@ import Testing
         LayoutItem(id: LayoutItemID(id), ref: .url(id), showsLabel: label)
     }
 
-    @Test func defaultBottomLineIsSettingsLeadingAndTheAvatarTrailing() throws {
+    /// Settings at the leading edge; Customize Appearance and the avatar
+    /// (icons only) together at the trailing edge, one gap apart.
+    @Test func defaultBottomLineIsSettingsLeadingAndTheIconsTrailing() throws {
         let bottom = try #require(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))
         #expect(bottom.arrangement == SectionArrangement(layout: .inline, align: .fill))
-        #expect(bottom.items.map(\.showsLabel) == [true, false])
+        #expect(bottom.items.map(\.showsLabel) == [true, false, false])
         let layout = SidebarRegionLayout.make(sections: [bottom], width: 260, look: .quiet, collapsed: [], metrics: m,
                                               labelWidths: [LayoutItemID("itm_settings"): 90])
-        #expect(layout.rows.count == 2)
-        let settings = layout.rows[0], account = layout.rows[1]
+        #expect(layout.rows.count == 3)
+        let settings = layout.rows[0], customize = layout.rows[1], account = layout.rows[2]
         #expect(settings.kind == .chip(LayoutItemID("itm_settings"), section: bottom.id))
+        #expect(customize.kind == .tile(LayoutItemID("itm_customize"), section: bottom.id))
         #expect(account.kind == .tile(LayoutItemID("itm_account"), section: bottom.id))
         #expect(settings.frame.minX == 8 && settings.frame.width == 90)
         #expect(account.frame.maxX == 252 && account.frame.width == 30)
-        #expect(settings.frame.minY == account.frame.minY)
+        #expect(customize.frame.width == 30 && account.frame.minX - customize.frame.maxX == m.tileGap)
+        #expect(settings.frame.minY == customize.frame.minY && settings.frame.minY == account.frame.minY)
+    }
+
+    /// Fill without the labeled-then-icons shape still spreads every item
+    /// to both edges.
+    @Test func fillSpreadsMixedOrAllLabeledLines() {
+        let items = [item("a"), item("b"), item("c")]
+        let widths = Dictionary(uniqueKeysWithValues: items.map { ($0.id, CGFloat(40)) })
+        let placed = SectionFlow.place(section(SectionArrangement(layout: .inline, align: .fill), items: items), mode: .inline(iconsOnly: false), x: 0, y: 0,
+                                       width: 200, labelWidths: widths, metrics: m)
+        let xs = placed.rows.map(\.frame.minX)
+        #expect(xs.first == 0 && placed.rows.last?.frame.maxX == 200)
+        #expect(xs[1] - placed.rows[0].frame.maxX == xs[2] - placed.rows[1].frame.maxX)
     }
 
     @Test func inlineFallsBackToIconsThenWraps() {

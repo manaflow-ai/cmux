@@ -43,7 +43,7 @@ enum DestructiveConfirmation {
                 ? Prompt(title: ConfirmationStrings.deleteGroupTitle(name), body: ConfirmationStrings.groupBody(count), button: ConfirmationStrings.delete)
                 : Prompt(title: ConfirmationStrings.closeGroupWorkspacesTitle(name), body: ConfirmationStrings.groupBody(count),
                          button: ConfirmationStrings.close)
-        case "room.delete":
+        case "space.delete":
             return RoomConfirmation.prompt(invocation, context)
         case "remote.install", "remote.forget":
             return await RemoteConfirmation.prompt(for: id, invocation, context)

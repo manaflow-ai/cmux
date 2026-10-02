@@ -41,6 +41,7 @@ extension SidebarBuiltIn {
         case .history: "clock.arrow.circlepath"
         case .bookmarks: "bookmark"
         case .appStore: "bag"
+        case .customize: "paintbrush"
         }
     }
 
@@ -54,6 +55,7 @@ extension SidebarBuiltIn {
         case .history: SectionStrings.history
         case .bookmarks: SectionStrings.bookmarks
         case .appStore: SectionStrings.appStore
+        case .customize: SectionStrings.customize
         }
     }
 

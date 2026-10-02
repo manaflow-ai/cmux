@@ -9439,127 +9439,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "كل الغرف"
+            "value": "كل المساحات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sve sobe"
+            "value": "Svi prostori"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle rum"
+            "value": "Alle områder"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle Räume"
+            "value": "Alle Spaces"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All rooms"
+            "value": "All spaces"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todas las salas"
+            "value": "Todos los espacios"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Toutes les salles"
+            "value": "Tous les espaces"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tutte le stanze"
+            "value": "Tutti gli spazi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "すべてのルーム"
+            "value": "すべてのスペース"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទប់ទាំងអស់"
+            "value": "លំហទាំងអស់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "모든 룸"
+            "value": "모든 스페이스"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle rom"
+            "value": "Alle områder"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wszystkie pokoje"
+            "value": "Wszystkie obszary"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todas as salas"
+            "value": "Todos os espaços"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Все комнаты"
+            "value": "Все области"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ห้องทั้งหมด"
+            "value": "พื้นที่ทั้งหมด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tüm odalar"
+            "value": "Tüm alanlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Усі кімнати"
+            "value": "Усі простори"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tất cả phòng"
+            "value": "Tất cả không gian"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有房间"
+            "value": "所有空间"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "所有房間"
+            "value": "所有空間"
           }
         }
       }

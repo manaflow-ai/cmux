@@ -201,6 +201,20 @@ extension Motion {
         return step
     }
 
+    /// Steps a layer's `contents` through `frames`, one cycle per `spinner`
+    /// period, or nil when loops are off (the layer keeps its first frame).
+    /// Runs in the render server like `spinAnimation`.
+    public static func framesAnimation(_ frames: [CGImage]) -> CAAnimation? {
+        guard let period = period(.spinner), frames.count >= 2 else { return nil }
+        let step = CAKeyframeAnimation(keyPath: "contents")
+        step.values = frames
+        step.calculationMode = .discrete
+        step.duration = period
+        step.repeatCount = .infinity
+        step.isRemovedOnCompletion = false
+        return step
+    }
+
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.
     public static func pulseAnimation(low: Float) -> CAAnimation? {
         guard let period = period(.pulse) else { return nil }
