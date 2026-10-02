@@ -15,6 +15,7 @@ enum CloudHandlers {
         let reason: @MainActor () -> String? = { cloud.unavailableReason }
         let signedInReason: @MainActor () -> String? = { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }
         bindMachineActions(into: registry, context: context, reason: signedInReason)
+        bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: signedInReason)
         bindAccount(into: registry, context: context, reason: reason)
         registry.bindUnavailable(["palette.mobileConnect"], ActionFailure(message: CloudStrings.mobilePairing))
@@ -98,8 +99,7 @@ enum CloudHandlers {
             // concurrency-allow: the observation task is cancelled by the bounded race below
             let mounted = await withTaskGroup(of: Bool.self) { group -> Bool in
                 group.addTask {
-                    for await ready in Observations({ context.services.paneController(for: pane) != nil }) where ready { return true }
-                    return false
+                    await waitForPaneController(pane, context)
                 }
                 group.addTask {
                     // wakeup-allow: one-shot mount deadline; this task is cancelled when the observation wins
@@ -111,6 +111,14 @@ enum CloudHandlers {
             }
             if mounted, let controller = context.services.paneController(for: pane) { select(controller) }
         }
+    }
+
+    @MainActor
+    private static func waitForPaneController(_ pane: PaneModel, _ context: AppActionContext) async -> Bool {
+        for await ready in Observations({ context.services.paneController(for: pane) != nil }) where ready {
+            return true
+        }
+        return false
     }
 
     /// The machine's first workspace, created (with a terminal) when it has none.

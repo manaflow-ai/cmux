@@ -63,6 +63,16 @@ enum AgentHandlers {
             }
             view.showContinueIn()
         })
+        registry.bind("agentPane.createCheckpoint", run: { invocation in
+            guard invocation.allowsViewChange else {
+                return context.refuse(MiscHandlerStrings.checkpointNeedsFocus)
+            }
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key), view.model.checkpointAvailable else {
+                return context.refuse(MiscHandlerStrings.noAgentChat)
+            }
+            view.showCreateCheckpoint()
+        })
         registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
         registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
         registry.bindUnavailable(

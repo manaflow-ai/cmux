@@ -97,6 +97,7 @@ pub use loopback_forward::{
 mod bookmarks;
 mod browser_profiles;
 mod conversations;
+mod frontend_browser_history;
 mod launch_snapshot;
 mod personal;
 mod responses;
@@ -213,29 +214,26 @@ pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
 /// `set-workspace-metadata` and the `marked_unread` workspace field.
 pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
-/// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the
-/// `tab-changed` delta.
+/// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
 /// Frontend-rendered browser tabs (WebKit or CEF): `new-frontend-browser-tab`,
 /// `update-frontend-browser-tab`, and the `browser_renderer`,
 /// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
 pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
+pub use frontend_browser_history::FRONTEND_BROWSER_HISTORY_CAPABILITY;
 /// Tab drag outcomes as single atomic commands: `move-tab-to-split`,
 /// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
 /// Durable notification acknowledgement decoupled from focus:
-/// `ack-tab-notifications`, `list-notifications`, and the workspace
-/// `unread_count` rollup.
+/// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
-/// Tab groups: the `*-tab-group` commands, `Pane.tab_groups`,
-/// and `Tab.group`.
+/// Tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`.
 pub const TAB_GROUPS_CAPABILITY: &str = "tab-groups-v1";
 /// Saved (pinned) tab groups that outlive their placements.
 pub const SAVED_TAB_GROUPS_CAPABILITY: &str = "saved-tab-groups-v1";
-/// Per-terminal `env` on `new-tab`, `split`, and `create-terminal`, and
-/// `cwd` on `split`.
+/// Per-terminal `env` on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`.
 pub const TERMINAL_ENV_CAPABILITY: &str = "terminal-env-v1";
 /// `identify` carries `session_id` (the durable registry id) and
 /// `machine_name` (plans/cmux-next/data-model.md section 2).
@@ -248,8 +246,7 @@ pub const PROFILES_CAPABILITY: &str = "profiles-v1";
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// Browser profile records in personal state: `browser_profiles` in
-/// `list-personal` and the `*-browser-profile` commands
-/// (plans/cmux-next/data-model.md section 5).
+/// `list-personal` and the `*-browser-profile` commands (plans/cmux-next/data-model.md section 5).
 pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
 pub use bookmarks::BOOKMARKS_CAPABILITY;
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
@@ -401,6 +398,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
+        FRONTEND_BROWSER_HISTORY_CAPABILITY,
         TAB_DRAG_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
@@ -414,6 +412,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         BROWSER_PROFILES_CAPABILITY,
         BOOKMARKS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
+        conversations::CONVERSATION_SEARCH_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
@@ -1414,16 +1413,9 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
-    /// Record a frontend-rendered browser's URL, title, or favicon.
-    UpdateFrontendBrowserTab {
-        surface: SurfaceId,
-        #[serde(default)]
-        url: Option<String>,
-        #[serde(default)]
-        title: Option<String>,
-        #[serde(default, deserialize_with = "present_nullable")]
-        favicon_url: Option<Option<String>>,
-    },
+    UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
+    SetFrontendBrowserHistory(frontend_browser_history::SetParams),
+    GetFrontendBrowserHistory(frontend_browser_history::GetParams),
     NewBrowserTab {
         url: String,
         #[serde(default)]
@@ -2055,6 +2047,7 @@ enum Command {
     ConversationCreate(conversations::CreateParams),
     ConversationSnapshot(conversations::SnapshotParams),
     ConversationHistory(conversations::HistoryParams),
+    ConversationSearch(conversations::SearchParams),
     ConversationOp(conversations::OpParams),
     ConversationTyping(conversations::TypingParams),
     ConversationBind(conversations::BindParams),
@@ -11000,6 +10993,7 @@ fn handle_request_with_cancellation(
         _ => None,
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
+    let mut reason = None;
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
         Ok(data) => Response {
             id,
@@ -11010,6 +11004,7 @@ fn handle_request_with_cancellation(
             error_delivery: None,
         },
         Err(error) => {
+            reason = conversations::error_reason(&error);
             let error_code = response_error_code(&error);
             let error_delivery =
                 error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);
@@ -11024,7 +11019,7 @@ fn handle_request_with_cancellation(
         }
     };
     let response_ok = response.ok;
-    let sent = send_response(writer, response);
+    let sent = responses::send_response_with_reason(writer, response, reason);
     // Flush the successful acknowledgement before making the owning loop
     // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {
@@ -14023,17 +14018,9 @@ fn handle_command_with_cancellation(
                 "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
             }))
         }
-        Command::UpdateFrontendBrowserTab { surface, url, title, favicon_url } => {
-            let (record, changed) =
-                mux.update_frontend_browser_tab(surface, url, title, favicon_url)?;
-            Ok(json!({
-                "surface": surface,
-                "url": record.url,
-                "title": record.title,
-                "favicon_url": record.favicon_url,
-                "changed": changed,
-            }))
-        }
+        Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
+        Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
+        Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
         Command::NewBrowserTab { url, pane, cols, rows } => {
             let surface = mux.new_browser_tab(url, pane, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
@@ -14979,6 +14966,7 @@ fn handle_command_with_cancellation(
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
         Command::ConversationHistory(params) => conversations::history(mux, client, params),
+        Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),

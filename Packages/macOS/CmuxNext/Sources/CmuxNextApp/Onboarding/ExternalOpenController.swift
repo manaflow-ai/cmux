@@ -35,7 +35,14 @@ final class ExternalOpenController {
     func newWorkspace(at path: String, newWindow: Bool) {
         guard case .terminal(let cwd, _) = router.newTabHere(path), let windows = services.windows else { return }
         let target = newWindow ? UUID().uuidString.lowercased() : windows.targetWindow(preferring: windows.active?.state.id)
-        Task { await windows.createWorkspace(cwd: cwd, into: target) }
+        let logger = services.daemon.logger
+        Task {
+            do {
+                _ = try await windows.createWorkspace(WorkspaceSpawn(opening: cwd), into: target)
+            } catch {
+                logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+            }
+        }
         if !services.environment.noActivate { NSApp.activate() }
     }
 

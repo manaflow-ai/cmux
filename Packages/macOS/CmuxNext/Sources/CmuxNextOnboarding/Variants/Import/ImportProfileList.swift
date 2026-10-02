@@ -116,7 +116,7 @@ final class ImportProfileList: NSView {
 final class ImportCheckRow: NSView {
     static let inset: CGFloat = 6
     private let box: NSButton
-    private(set) lazy var hover = OnboardingHover(self)
+    private(set) lazy var hover = ChromeHover(self, tracking: .activeInKeyWindow)
 
     init(title: String, font: NSFont, box: NSButton, separated: Bool) {
         self.box = box

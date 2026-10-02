@@ -34,6 +34,10 @@ enum DestructiveConfirmation {
             return Prompt(title: CloudStrings.killMachineTitle, body: CloudStrings.killMachineBody, button: CloudStrings.kill)
         case "palette.cloud.deleteSnapshot":
             return Prompt(title: CloudStrings.deleteSnapshotTitle, body: CloudStrings.deleteSnapshotBody, button: CloudStrings.deleteSnapshot)
+        case "cloudFileRemove":
+            return Prompt(title: CloudStrings.removeFileTitle, body: CloudStrings.removeFileBody, button: CloudStrings.removeFile)
+        case "cloudFirewallDelete":
+            return Prompt(title: "Delete Cloud Firewall Rule?", body: "This permanently removes the selected firewall rule.", button: "Delete")
         case "workspaceGroup.delete", "workspaceGroup.closeWorkspaces":
             guard let group = try? context.group(invocation) else { return nil }
             let daemon = services.machines.daemons.first { $0.store.group(group.id) === group }

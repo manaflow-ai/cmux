@@ -7,7 +7,7 @@ import Testing
 /// `confirm: true` or is refused with a typed reason.
 @Suite struct DestructiveActionTests {
     static let destructiveIDs: [ActionID] = [
-        "cloudKillMachine", "palette.cloud.deleteSnapshot", "workspaceGroup.delete", "workspaceGroup.closeWorkspaces", "closeWorkspace", "tabGroup.close",
+        "cloudKillMachine", "cloudFileRemove", "palette.cloud.deleteSnapshot", "workspaceGroup.delete", "workspaceGroup.closeWorkspaces", "closeWorkspace", "tabGroup.close",
     ]
 
     @Test func catalogDeclaresDestructiveActionsWithConfirmArgument() throws {

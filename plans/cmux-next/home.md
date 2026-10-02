@@ -88,8 +88,8 @@ Commands:
 | `participants.add` | `participant` | id unique |
 | `title.set` | `title` | 1...200 chars |
 
-Rejects use `error_code` `conversation_rejected` with `data`-free `error` text and a stable reason in
-the message (`not_participant`, `not_author`, `unknown_message`, `invalid_parts`, `idempotency_conflict`,
+Rejects use `error_code` `conversation_rejected`, a structured `reason` field next to it (the stable
+reason code; also the `error` text) (`not_participant`, `not_author`, `unknown_message`, `invalid_parts`, `idempotency_conflict`,
 `cursor_regression`, `unknown_conversation`). Replaying an op with the same idempotency key and the
 same fingerprint returns the stored result with `replayed: true` and emits nothing (invariant 5).
 
@@ -116,9 +116,12 @@ naming anyone but the connection's principal is refused (`actor_mismatch`). The 
 token and hands it to the brain host in a 0600 file (`MUX_AGENT_TOKEN_FILE`). Remaining gap: any
 same-uid process is `user_local` (socket mode `automation`, D16) until the launch credential lands.
 
-Agent turn budget (owner-enforced): an agent `message.send` is refused with `agent_budget` after 4
-agent messages since the last human message in that conversation, and with `agent_rate` within 2 s
-of the last agent message. Replays of committed keys are never refused (the ledger is checked
+Agent turn budget (owner-enforced, head loop guard): the head keeps `agent_text_streak` (agent text
+messages since the last human text message) and `last_agent_text_at`, both omitted on the wire while
+unset; an agent text `message.send` is refused with `agent_budget` at a streak of 4 and with
+`agent_rate` within 2 s of the last agent text. Text-less work cards neither count nor reset it, and
+no row window can be filled with them (home-messaging.md section 20 item 6). The op ledger is keyed
+by (conversation, actor, idempotency key), so two participants never share a key. Replays of committed keys are never refused (the ledger is checked
 first). The brain host retries an `agent_rate` reply once after the gap and drops `agent_budget`.
 
 ## 3. App: mirror, intent log, Home surface

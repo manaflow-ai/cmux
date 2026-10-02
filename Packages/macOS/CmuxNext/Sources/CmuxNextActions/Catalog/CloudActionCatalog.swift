@@ -2,7 +2,7 @@
 
 nonisolated enum CloudActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
-        [
+        var actions: [ActionDescriptor] = [
             ActionDescriptor(
                 id: "newCloudWorkspace",
                 title: String(localized: "action.newCloudWorkspace", defaultValue: "New Cloud Workspace", bundle: .module),
@@ -80,6 +80,63 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], requires: [.cloudWorkspace], arguments: [CatalogArgument.commandString], targets: [.machine],
                 cliName: "cloud exec", startsTerminal: true
             ),
+            ActionDescriptor(
+                id: "cloudFilesList",
+                title: String(localized: "action.cloudFilesList", defaultValue: "List Cloud Files…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "directory", "ls"], category: .cloud, symbol: "folder",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], targets: [.machine],
+                cliName: "cloud files-list"
+            ),
+            ActionDescriptor(
+                id: "cloudFileRead",
+                title: String(localized: "action.cloudFileRead", defaultValue: "Read Cloud File…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "read"], category: .cloud, symbol: "doc.text",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], targets: [.machine],
+                cliName: "cloud file-read"
+            ),
+            ActionDescriptor(
+                id: "cloudFileWrite",
+                title: String(localized: "action.cloudFileWrite", defaultValue: "Write Cloud File…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "write"], category: .cloud, symbol: "square.and.pencil",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString, CatalogArgument.contentsString], targets: [.machine],
+                cliName: "cloud file-write"
+            ),
+            ActionDescriptor(
+                id: "cloudFileMkdir",
+                title: String(localized: "action.cloudFileMkdir", defaultValue: "Create Cloud Directory…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "mkdir"], category: .cloud, symbol: "folder.badge.plus",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], targets: [.machine],
+                cliName: "cloud file-mkdir"
+            ),
+            ActionDescriptor(
+                id: "cloudFileRemove",
+                title: String(localized: "action.cloudFileRemove", defaultValue: "Remove Cloud File…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "rm"], category: .cloud, symbol: "trash",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString, CatalogArgument.confirmBool], targets: [.machine],
+                cliName: "cloud file-remove", destructive: true
+            ),
+            ActionDescriptor(
+                id: "cloudFileStat",
+                title: String(localized: "action.cloudFileStat", defaultValue: "Cloud File Details…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "stat"], category: .cloud, symbol: "info.circle",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], targets: [.machine],
+                cliName: "cloud file-stat"
+            ),
+            ActionDescriptor(
+                id: "cloudPrepareSCP",
+                title: String(localized: "action.cloudPrepareSCP", defaultValue: "Prepare Cloud File Transfer…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "scp", "ssh"], category: .cloud, symbol: "arrow.up.arrow.down",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.publicKeyString], targets: [.machine],
+                cliName: "cloud prepare-scp"
+            ),
+            ActionDescriptor(id: "cloudTunnelAttach", title: "Attach Cloud Tunnel Network", keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "link", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-attach"),
+            ActionDescriptor(id: "cloudTunnelDetach", title: "Detach Cloud Tunnel Network", keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "link.badge.plus", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-detach"),
+            ActionDescriptor(id: "cloudTunnelRotateKey", title: "Rotate Cloud Tunnel Key", keywords: ["cloud", "tunnel", "key"], category: .cloud, symbol: "key", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.publicKeyString], cliName: "cloud tunnel-rotate-key"),
+            ActionDescriptor(id: "cloudNetworkList", title: "List Cloud Networks", keywords: ["cloud", "network", "vpc"], category: .cloud, symbol: "network", surfaces: [.palette, .contextMenu], cliName: "cloud network-list"),
+            ActionDescriptor(id: "cloudFirewallList", title: "List Cloud Firewall Rules", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield", surfaces: [.palette, .contextMenu], cliName: "cloud firewall-list"),
+            ActionDescriptor(id: "cloudFirewallGet", title: "Get Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud firewall-get"),
+            ActionDescriptor(id: "cloudFirewallCreate", title: "Create Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.lefthalf.filled", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud firewall-create"),
+            ActionDescriptor(id: "cloudFirewallDelete", title: "Delete Cloud Firewall Rule", keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.slash", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString, CatalogArgument.confirmBool], cliName: "cloud firewall-delete", destructive: true),
             ActionDescriptor(
                 id: "cloudNewTerminal",
                 title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal on Machine", bundle: .module),
@@ -183,5 +240,15 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], cliName: "cloud open-mobile-pairing"
             ),
         ]
+        let waitsForResult: Set<ActionID> = [
+            "cloudFilesList", "cloudFileRead", "cloudFileWrite", "cloudFileMkdir",
+            "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
+            "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
+            "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete",
+        ]
+        for index in actions.indices where waitsForResult.contains(actions[index].id) {
+            actions[index].waitsForResult = true
+        }
+        return actions
     }
 }

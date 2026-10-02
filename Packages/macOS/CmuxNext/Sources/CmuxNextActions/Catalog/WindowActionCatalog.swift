@@ -8,7 +8,7 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.openSettings", defaultValue: "Settings…", bundle: .module),
                 keywords: ["preferences", "options", "config"], defaultShortcut: Shortcut(",", modifiers: [.command]),
                 category: .window, symbol: "gearshape", surfaces: [.palette, .keyboard, .menu],
-                arguments: [CatalogArgument.settingsSectionChoice], cliName: "app settings",
+                arguments: [CatalogArgument.settingsSectionChoice, CatalogArgument.settingString.optional], cliName: "app settings",
                 mainMenu: .app
             ),
             ActionDescriptor(
