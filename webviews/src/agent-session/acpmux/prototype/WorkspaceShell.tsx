@@ -211,21 +211,23 @@ function WorkspaceRow({
       {active && workspace.tabs.length > 1 && (
         <ul className="proto-workspace-tabs">
           {/* The workspace row stands for its lead tab; the rest list under it. */}
-          {workspace.tabs.filter((tab) => tab !== lead).map((tab) => {
-            const TabIcon = KIND_ICONS[tab.kind];
-            return (
-              <li key={tab.id}>
-                <button
-                  type="button"
-                  className={`proto-workspace-tab${tab.id === workspace.activeTabId ? " is-active" : ""}`}
-                  onClick={() => onSelect(tab.id)}
-                >
-                  <TabIcon size={14} />
-                  <span>{tab.kind === "browser" ? (tab.url ?? tab.title) : tab.title}</span>
-                </button>
-              </li>
-            );
-          })}
+          {workspace.tabs
+            .filter((tab) => tab !== lead)
+            .map((tab) => {
+              const TabIcon = KIND_ICONS[tab.kind];
+              return (
+                <li key={tab.id}>
+                  <button
+                    type="button"
+                    className={`proto-workspace-tab${tab.id === workspace.activeTabId ? " is-active" : ""}`}
+                    onClick={() => onSelect(tab.id)}
+                  >
+                    <TabIcon size={14} />
+                    <span>{tab.kind === "browser" ? (tab.url ?? tab.title) : tab.title}</span>
+                  </button>
+                </li>
+              );
+            })}
         </ul>
       )}
     </li>

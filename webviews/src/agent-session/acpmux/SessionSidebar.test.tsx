@@ -53,9 +53,13 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
     ),
   );
 
-  const projects = [...container.querySelectorAll(".acpmux-sidebar-project")].map((node) => node.textContent);
+  const projects = [...container.querySelectorAll(".acpmux-sidebar-project > span:first-of-type")].map(
+    (node) => node.textContent,
+  );
   expect(projects).toEqual(["web", "app"]);
-  const marks = [...container.querySelectorAll(".acpmux-session-mark")].map((node) => node.getAttribute("title"));
+  const marks = [...container.querySelectorAll(".acpmux-session-row .acpmux-session-mark")].map((node) =>
+    node.getAttribute("title"),
+  );
   expect(marks).toEqual(["Needs input", "Working", "New activity"]);
   // Needs input and working are told apart from the unread dot by their glyphs, not only by colour.
   expect(container.querySelector(".acpmux-session-mark-input svg")).not.toBeNull();
@@ -73,6 +77,11 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
   expect(more.getAttribute("aria-label")).toBe("Show more, 3 hidden");
   expect(container.querySelectorAll(".acpmux-session-row").length).toBe(7);
   await act(async () => more.click());
+  expect(container.querySelectorAll(".acpmux-session-row").length).toBe(10);
+  // A trip to History and back keeps the project expanded.
+  const rail = container.querySelectorAll<HTMLButtonElement>(".acpmux-rail-button");
+  await act(async () => rail[2].click());
+  await act(async () => rail[1].click());
   expect(container.querySelectorAll(".acpmux-session-row").length).toBe(10);
 
   const row = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-session-row")].find((node) =>
@@ -169,12 +178,11 @@ test("search narrows the list, shows every match, and Escape clears it before cl
   const field = container.querySelector<HTMLInputElement>('input[aria-label="Search sessions"]')!;
   const type = async (value: string) =>
     act(async () => {
-      // react-dom first loaded by another test file may have found no DOM and fall back to
-      // watching keyup on the focused field instead of input events, so send both.
-      field.focus();
-      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(field, value);
-      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-      field.dispatchEvent(new dom.window.KeyboardEvent("keyup", { bubbles: true }));
+      // React's change events depend on what react-dom detected when another test file first
+      // loaded it, and CI and local runs differ; call the field's onChange with its new value.
+      field.value = value;
+      const props = Object.entries(field).find(([key]) => key.startsWith("__reactProps$"))![1];
+      props.onChange({ target: field, currentTarget: field });
     });
   const titles = () => [...container.querySelectorAll(".acpmux-session-row")].map((node) => node.textContent);
 
@@ -210,5 +218,62 @@ test("search narrows the list, shows every match, and Escape clears it before cl
   await escape();
   expect(reached).toBe(1);
   dom.window.document.removeEventListener("keydown", onKey);
+  await act(async () => root.unmount());
+});
+
+test("the rail switches the list; the sessions view adds New chat, project marks and the account", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const list: AcpmuxSessionEntry[] = [
+    { sessionId: "ask", displayTitle: "Fix the checkout page", cwd: "/src/web", updatedAt: 50, status: "waiting" },
+    { sessionId: "lost", displayTitle: "Tune the cache", cwd: "/src/api", updatedAt: 40, status: "disconnected" },
+    { sessionId: "done", displayTitle: "Ship the redirect", cwd: "/src/web", updatedAt: 30, status: "closed" },
+  ];
+  let newChats = 0;
+  await act(async () =>
+    root.render(
+      createElement(SessionSidebar, {
+        sessions: list,
+        onSelect: () => undefined,
+        onNewChat: () => {
+          newChats += 1;
+        },
+        account: { name: "leo", detail: "Max" },
+      }),
+    ),
+  );
+
+  const rail = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-rail-button")];
+  expect(rail.map((button) => button.getAttribute("aria-label"))).toEqual([
+    "New chat",
+    "Sessions, needs input",
+    "History",
+    "Pull requests",
+    "Closed sessions",
+  ]);
+  expect(rail[1].getAttribute("aria-current")).toBe("page");
+  // A project repeats its most urgent session's mark: needs input over a lost agent.
+  const projectMarks = [...container.querySelectorAll(".acpmux-sidebar-project .acpmux-session-mark")];
+  expect(projectMarks.map((node) => node.textContent)).toEqual(["Needs input", "Disconnected"]);
+  expect(container.querySelector(".acpmux-account")?.textContent).toBe("LleoMax");
+
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-action")!.click());
+  await act(async () => rail[0].click());
+  expect(newChats).toBe(2);
+
+  await act(async () => rail[2].click());
+  expect(container.querySelector(".acpmux-sidebar-title")?.textContent).toBe("History");
+  const titles = () => [...container.querySelectorAll(".acpmux-session-row-title")].map((node) => node.textContent);
+  expect(titles()).toEqual(["Fix the checkout page", "Tune the cache", "Ship the redirect"]);
+  // The age is part of the row's name, not only drawn.
+  expect(container.querySelector(".acpmux-session-row")?.getAttribute("aria-label")).toMatch(
+    /^Fix the checkout page, (?:\d+[mhdw]|now)/,
+  );
+
+  await act(async () => rail[3].click());
+  expect(container.querySelector(".acpmux-sidebar-empty")?.textContent).toBe("No pull requests yet");
+  await act(async () => rail[4].click());
+  expect(container.querySelector(".acpmux-sidebar-title")?.textContent).toBe("Closed sessions");
+  expect(titles()).toEqual(["Ship the redirect"]);
   await act(async () => root.unmount());
 });

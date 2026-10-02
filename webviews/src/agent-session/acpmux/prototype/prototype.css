@@ -212,13 +212,17 @@ body {
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
 .proto-history .acpmux-sidebar {
-  display: block;
+  display: flex;
   position: static;
   flex: 1;
+  min-height: 0;
   width: auto;
   border: 0;
   background: none;
   box-shadow: none;
+}
+.proto-history .acpmux-sidebar-scroll {
+  padding: 4px 8px 16px;
 }
 /* Rows already open in a tab read at full strength and say so; the rest are history. */
 .proto-history .acpmux-session-row:not(.is-open) {
@@ -307,4 +311,10 @@ body {
 .proto-browser div {
   color: var(--agent-text);
   font-size: 15px;
+}
+/* The history layer is the session list alone: the pane's own rail and New chat stay in the pane. */
+.proto-history .acpmux-rail,
+.proto-history .acpmux-sidebar-action,
+.proto-history .acpmux-account {
+  display: none;
 }
