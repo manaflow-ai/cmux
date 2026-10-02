@@ -39,6 +39,42 @@ import Testing
         #expect(account.products.isEmpty)
     }
 
+    @Test func decodesPurchasesUnavailableReason() throws {
+        let json = Data("""
+        {
+          "appAccountToken": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+          "eligible": false,
+          "reason": "purchases_unavailable",
+          "currentPlan": { "planId": "free", "source": "none" },
+          "products": []
+        }
+        """.utf8)
+        let account = try JSONDecoder().decode(BillingAccount.self, from: json)
+        #expect(account.reason == .purchasesUnavailable)
+        #expect(account.products.isEmpty)
+    }
+
+    @Test func requestCarriesStoreKitEnvironmentWhenKnown() async throws {
+        let sandbox = HTTPBillingAPI(
+            baseURL: "https://cmux.example",
+            bundleID: "dev.cmux.app.beta",
+            credentials: { BillingAPICredentials(accessToken: "access", refreshToken: "refresh") },
+            storeKitEnvironment: { "Sandbox" },
+            session: URLSession(configuration: .ephemeral)
+        )
+        let request = try await sandbox.makeRequest(path: "/api/billing/apple/account-token", body: Data("{}".utf8))
+        #expect(request.value(forHTTPHeaderField: "x-cmux-storekit-environment") == "Sandbox")
+
+        let unknown = HTTPBillingAPI(
+            baseURL: "https://cmux.example",
+            bundleID: "dev.cmux.app.beta",
+            credentials: { BillingAPICredentials(accessToken: "access", refreshToken: "refresh") },
+            session: URLSession(configuration: .ephemeral)
+        )
+        let bare = try await unknown.makeRequest(path: "/api/billing/apple/account-token", body: Data("{}".utf8))
+        #expect(bare.value(forHTTPHeaderField: "x-cmux-storekit-environment") == nil)
+    }
+
     @Test func requestCarriesStackAuthAndBundleHeaders() async throws {
         let api = HTTPBillingAPI(
             baseURL: "https://cmux.example/",

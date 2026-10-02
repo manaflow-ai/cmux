@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { AppleVerificationError } from "../services/billing/apple/verifier";
-import { requestedAppleBundleId } from "../services/billing/apple/accountToken";
+import * as accountTokenModule from "../services/billing/apple/accountToken";
 
 type TestUser = { id: string; isAnonymous: boolean };
 
@@ -22,7 +22,7 @@ mock.module("../app/lib/stack", () => ({
 
 let transactionImpl: (input: { userId: string; signedTransactionInfo: unknown }) => Promise<unknown>;
 let notificationImpl: (payload: unknown) => Promise<string>;
-let accountTokenImpl: (user: TestUser, bundleId: string | null) => Promise<unknown>;
+let accountTokenImpl: (user: TestUser, app: unknown) => Promise<unknown>;
 
 class RejectedError extends Error {
   constructor(readonly reason: string) {
@@ -36,9 +36,10 @@ mock.module("../services/billing/apple/service", () => ({
   receiveAppleNotification: (payload: unknown) => notificationImpl(payload),
 }));
 
+const realAccountToken = { ...accountTokenModule };
 mock.module("../services/billing/apple/accountToken", () => ({
-  appleAccountTokenResponse: (user: TestUser, bundleId: string | null) => accountTokenImpl(user, bundleId),
-  requestedAppleBundleId,
+  ...realAccountToken,
+  appleAccountTokenResponse: (user: TestUser, app: unknown) => accountTokenImpl(user, app),
 }));
 
 const accountTokenRoute = await import("../app/api/billing/apple/account-token/route");
@@ -59,7 +60,7 @@ beforeEach(() => {
   getUserCalls.length = 0;
   transactionImpl = async () => ({ planId: "pro", status: "active", expiresAt: null });
   notificationImpl = async () => "processed";
-  accountTokenImpl = async (user, bundleId) => ({ appAccountToken: `token-${user.id}`, bundleId });
+  accountTokenImpl = async (user, app) => ({ appAccountToken: `token-${user.id}`, app });
 });
 
 describe("Apple billing route auth", () => {
@@ -76,9 +77,13 @@ describe("Apple billing route auth", () => {
       authorization: "Bearer access-token",
       "x-stack-refresh-token": "refresh-token",
       "x-cmux-bundle-id": "dev.cmux.app.beta",
+      "x-cmux-storekit-environment": "Sandbox",
     }));
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ appAccountToken: "token-user-a", bundleId: "dev.cmux.app.beta" });
+    expect(await response.json()).toEqual({
+      appAccountToken: "token-user-a",
+      app: { bundleId: "dev.cmux.app.beta", storeKitEnvironment: "Sandbox" },
+    });
     expect(getUserCalls[0]).toMatchObject({ tokenStore: { accessToken: "access-token" } });
   });
 
