@@ -10,7 +10,14 @@ export default defineConfig({
   // ts-rs emits src/diff/generated; scripts/generate-diff-sidecar-types.sh --check
   // owns it. Stylesheets are inlined verbatim into the shipped agent pane, so
   // reformatting them would change the bundle for no behavior change.
-  ...cmuxCheckConfig({ fmtIgnorePatterns: ["src/diff/generated/**", "**/*.css"] }),
+  // The handoff schema is a published wire fixture; schema.test.ts verifies its exact bytes.
+  ...cmuxCheckConfig({
+    fmtIgnorePatterns: [
+      "src/diff/generated/**",
+      "**/*.css",
+      "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
+    ],
+  }),
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },

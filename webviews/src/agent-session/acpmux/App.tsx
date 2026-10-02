@@ -33,6 +33,7 @@ import { TrustAsk } from "./TrustAsk";
 import { agentName } from "./agents";
 import { t } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
+import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import type { ChangesSource } from "./changes/model";
 import { Counts } from "./changes/Counts";
@@ -750,6 +751,13 @@ function AcpmuxPane() {
     started: !freshChat && snapshot.rows.length > 0,
     prompts: snapshot.rows.filter((row) => row.kind === "user").length,
   });
+  // Search files reads the session's folder through whoever runs the session: the acpmux
+  // client (or the mock daemon), else the native host.
+  const fileRoot = snapshot.summary?.cwd;
+  const searchFiles = useCallback<FileSearchSource>(
+    (query) => callNative("file.search", { ...(fileRoot ? { path: fileRoot } : {}), query, limit: FILE_SEARCH_LIMIT }),
+    [fileRoot],
+  );
   // Turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(
     () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
@@ -1044,6 +1052,12 @@ function AcpmuxPane() {
           "chat.history": () => client.loadOlder(),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
+          "file.search": ({ path, query, limit }) =>
+            client.fileSearch(
+              typeof path === "string" ? path : undefined,
+              String(query ?? ""),
+              typeof limit === "number" ? limit : FILE_SEARCH_LIMIT,
+            ),
           "chat.fork": async ({ throughSeq }) => persistSession(await client.fork(Number(throughSeq))),
           "chat.handoff.prepare": async ({ harness }) => persistSession(await client.continueIn(String(harness))),
           "chat.handoff.get": () => client.refreshHandoff(),
@@ -1247,6 +1261,8 @@ function AcpmuxPane() {
               onSend={(text) => void callNative("chat.send", { text })}
               onStop={() => void callNative("chat.cancel")}
               onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
+              // Without a folder there is nothing to search; the + menu leaves the item out.
+              searchFiles={fileRoot ? searchFiles : undefined}
             />
           )}
         </div>
