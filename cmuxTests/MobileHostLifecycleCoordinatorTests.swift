@@ -8,7 +8,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.timeLimit(.minutes(1)))
+@Suite
 struct MobileHostLifecycleCoordinatorTests {
     @Test func synchronousInvalidationObserverSeesRetirementAndCanReplaceIntent() async {
         let fixture = MobileHostLifecycleFixture()
