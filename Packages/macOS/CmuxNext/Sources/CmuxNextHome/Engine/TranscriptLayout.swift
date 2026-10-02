@@ -134,6 +134,24 @@ struct TranscriptLayout {
         return true
     }
 
+    /// The width changed but bubble text wraps the same (same `maxTextWidth`):
+    /// only x moves (outgoing rows hug the right edge, labels stay centered).
+    mutating func reflow(to g: TranscriptGeometry) {
+        for index in rows.indices {
+            let row = rows[index]
+            switch row.kind {
+            case .separator, .retracted:
+                rows[index].x = ((g.width - row.width) / 2).rounded()
+            case .label(_, _, let outgoing, _):
+                rows[index].x = (outgoing ? g.width - g.sideMargin - row.width : g.sideMargin).rounded()
+            case .typing:
+                rows[index].x = g.sideMargin
+            case .bubble, .work, .fallback:
+                rows[index].x = g.bubbleX(width: row.width, outgoing: row.isOutgoing)
+            }
+        }
+    }
+
     // MARK: Queries
 
     /// First row index for which `predicate` holds (monotonic over rows).
