@@ -16,6 +16,7 @@ struct MobilePrimaryTabScaffold<
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
     let feedNeedsInputCount: Int
+    let feedNeedsInputCountProvider: (@MainActor () -> Int)?
     /// False when the Feed replaces the Notifications tab (CMUX Labs).
     let showsNotificationsTab: Bool
     let taskComposerAction: (() -> Void)?
@@ -30,6 +31,7 @@ struct MobilePrimaryTabScaffold<
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
         feedNeedsInputCount: Int = 0,
+        feedNeedsInputCountProvider: (@MainActor () -> Int)? = nil,
         showsNotificationsTab: Bool = true,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
@@ -42,6 +44,7 @@ struct MobilePrimaryTabScaffold<
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
         self.feedNeedsInputCount = feedNeedsInputCount
+        self.feedNeedsInputCountProvider = feedNeedsInputCountProvider
         self.showsNotificationsTab = showsNotificationsTab
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
@@ -94,7 +97,7 @@ struct MobilePrimaryTabScaffold<
                 feed
                     .tabItem { feedLabel }
                     .tag(MobilePrimaryTab.feed)
-                    .badge(feedNeedsInputCount)
+                    .badge(resolvedFeedNeedsInputCount)
                 if showsNotificationsTab {
                     notifications
                         .tabItem { notificationsLabel }
@@ -107,6 +110,10 @@ struct MobilePrimaryTabScaffold<
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
         }
+    }
+
+    private var resolvedFeedNeedsInputCount: Int {
+        feedNeedsInputCountProvider?() ?? feedNeedsInputCount
     }
 
     /// A tab-view bottom accessory always adds a full-width plate, which is
@@ -184,7 +191,7 @@ struct MobilePrimaryTabScaffold<
         } label: {
             feedLabel
         }
-        .badge(feedNeedsInputCount)
+        .badge(resolvedFeedNeedsInputCount)
 
         if showsNotificationsTab {
             Tab(value: MobilePrimaryTab.notifications) {

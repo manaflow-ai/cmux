@@ -98,7 +98,7 @@ final class AgentFeedProjection {
             }
             guard !Task.isCancelled else { return }
 
-            let worker = Task.detached(priority: .userInitiated) {
+            let worker = Task.detached(priority: .utility) {
                 agentFeedProjectionBuild(
                     items: requestedItems,
                     rowModelCache: requestedRowModelCache,
@@ -134,14 +134,19 @@ private nonisolated func agentFeedProjectionBuild(
     searchText: String
 ) -> AgentFeedProjectionWorkerOutput? {
     var rowModelCache = rowModelCache
-    let preparedRows = rowModelCache.update(items: items)
-    guard !Task.isCancelled else { return nil }
+    guard let preparedRows = rowModelCache.update(
+        items: items,
+        stopIfCancelled: { Task.isCancelled }
+    ) else {
+        return nil
+    }
 
     let projection = agentFeedProjectionBuild(
         preparedRows: preparedRows,
         filter: filter,
         searchText: searchText
     )
+    guard !Task.isCancelled else { return nil }
     return AgentFeedProjectionWorkerOutput(
         projection: projection,
         rowModelCache: rowModelCache

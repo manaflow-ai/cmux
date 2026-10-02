@@ -255,6 +255,21 @@ struct WorkspaceMacSelectionScope {
         }
     }
 
+    /// Applies the shared computer scope to Agent Feed rows without making
+    /// the shell root observe the feed's full retained history.
+    func agentFeedItems(from items: [MobileAgentFeedItem]) -> [MobileAgentFeedItem] {
+        items.filter { includes(macDeviceID: $0.macDeviceID, instanceTag: $0.macInstanceTag) }
+    }
+
+    /// The tab badge's scoped count. Kept as a child-owned read so a new
+    /// telemetry row does not invalidate the shell's workspace presentation.
+    func agentFeedNeedsInputCount(from items: [MobileAgentFeedItem]) -> Int {
+        items.lazy
+            .filter { includes(macDeviceID: $0.macDeviceID, instanceTag: $0.macInstanceTag) }
+            .filter(\.effectiveNeedsInput)
+            .count
+    }
+
     /// Whether foreground-only group mutations such as reorder and create-in-
     /// group are safe for the current picker scope. Rendering is independent:
     /// every Mac's immutable group snapshot can render under All Computers.

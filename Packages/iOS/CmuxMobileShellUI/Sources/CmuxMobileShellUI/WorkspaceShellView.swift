@@ -194,11 +194,6 @@ private struct WorkspaceShellRenderPresentation {
     let notificationUnreadCount: Int
     let notificationFeedStatus: MobileNotificationFeedStatus
     let selectedNotificationFeedMacDeviceIDs: Set<String>?
-    let agentFeedItems: [MobileAgentFeedItem]
-    let agentFeedStatus: MobileNotificationFeedStatus
-    let agentFeedNeedsInputCount: Int
-    let agentFeedPendingReplyRequestIDs: Set<String>
-    let agentFeedPendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
     let toolbarMachineSnapshots: WorkspaceMachineSnapshots
     let canCreateWorkspaceForSelection: Bool
 }
@@ -509,7 +504,11 @@ struct WorkspaceShellView: View {
                     selection: $selectedPrimaryTab,
                     searchCoordinator: primarySearchCoordinator,
                     notificationUnreadCount: presentation.notificationUnreadCount,
-                    feedNeedsInputCount: presentation.agentFeedNeedsInputCount,
+                    feedNeedsInputCountProvider: {
+                        presentation.selectionScope.agentFeedNeedsInputCount(
+                            from: store.agentFeedItems
+                        )
+                    },
                     showsNotificationsTab: !displaySettings.feedReplacesNotifications,
                     taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                         ? nil
@@ -1529,13 +1528,6 @@ struct WorkspaceShellView: View {
         let scope = macSelectionScope
         let selectedMachineIDs = scope.selectedScopeEntries
         let visibleNotificationFeedItems = store.notificationFeedItems(scopedTo: selectedMachineIDs)
-        let selectedFeedOwners = selectedMachineIDs.map(MobileWorkspaceListFilter.parsedMachineEntries)
-        let visibleAgentFeedItems = store.agentFeedItems.filter { item in
-            guard let selectedFeedOwners, !selectedFeedOwners.isEmpty else { return true }
-            return selectedFeedOwners.contains {
-                $0.matches(deviceID: item.macDeviceID, rowTag: item.macInstanceTag)
-            }
-        }
         let notificationUnreadCount = visibleNotificationFeedItems.lazy.filter { !$0.isRead }.count
         var names: [String: String] = [:]
         for workspace in store.workspaces {
@@ -1597,11 +1589,6 @@ struct WorkspaceShellView: View {
             notificationUnreadCount: notificationUnreadCount,
             notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
             selectedNotificationFeedMacDeviceIDs: selectedMachineIDs,
-            agentFeedItems: visibleAgentFeedItems,
-            agentFeedStatus: store.agentFeedStatus,
-            agentFeedNeedsInputCount: visibleAgentFeedItems.lazy.filter(\.effectiveNeedsInput).count,
-            agentFeedPendingReplyRequestIDs: store.agentFeedPendingReplyRequestIDs,
-            agentFeedPendingTerminalReplyItemIDs: store.agentFeedPendingTerminalReplyItemIDs,
             toolbarMachineSnapshots: toolbarMachineSnapshots,
             // The shared gate also covers SSH computers and the computer
             // menu, which the Mac-only selection scope cannot see.
@@ -1615,10 +1602,7 @@ struct WorkspaceShellView: View {
     ) -> AgentFeedStoreView {
         AgentFeedStoreView(
             store: store,
-            items: presentation.agentFeedItems,
-            status: presentation.agentFeedStatus,
-            pendingReplyRequestIDs: presentation.agentFeedPendingReplyRequestIDs,
-            pendingTerminalReplyItemIDs: presentation.agentFeedPendingTerminalReplyItemIDs,
+            selectionScope: presentation.selectionScope,
             isActive: isActive,
             searchCoordinator: primarySearchCoordinator
         )
