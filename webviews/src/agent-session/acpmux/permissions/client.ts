@@ -346,6 +346,12 @@ export class PermissionGroupClient {
   async respond(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
     const sessionId = this.requireAuthoritative();
     const generation = this.generation;
+    if (this.state.uncertain)
+      throw localError(
+        "operation.failed",
+        "Read the current result before retrying this permission answer.",
+        "uncertain",
+      );
     if (!Number.isSafeInteger(revision) || revision < 0)
       throw localError("validation.invalid", "Invalid group revision.");
     const group = this.state.groups.find((candidate) => candidate.groupId === groupId);
@@ -410,7 +416,18 @@ export class PermissionGroupClient {
       await this.refresh();
       if (generation !== this.generation || sessionId !== this.sessionId) throw this.selectionChanged();
       const group = this.state.groups.find((candidate) => candidate.groupId === pending.groupId);
-      if (!group) throw localError("resource.not_found", "Permission group was not found.");
+      if (!group) {
+        await this.clearPending(sessionId);
+        if (generation === this.generation && sessionId === this.sessionId) {
+          this.state = {
+            ...this.state,
+            uncertain: false,
+            error: "Permission group is no longer available. Review the current groups.",
+          };
+          this.changed();
+        }
+        throw localError("resource.not_found", "Permission group was not found.");
+      }
       if ((group.state === "resolved" || group.state === "cancelled") && group.revision >= pending.revision) {
         await this.clearPending(sessionId);
         this.state = { ...this.state, uncertain: false, error: undefined };

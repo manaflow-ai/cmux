@@ -247,6 +247,34 @@ describe("grouped permission protocol", () => {
     expect(storage.values.size).toBe(1);
   });
 
+  test("retry evicted pending group clears its key and allows a later group", async () => {
+    const storage = new MemoryStorage();
+    let current: PermissionGroupList = list;
+    let responseAttempts = 0;
+    const nextGroup = { ...group, groupId: "group-2", revision: 1 };
+    const request: Request = async (method) => {
+      if (method === PERMISSION_GROUP_OPS.groups) {
+        return responseAttempts === 1 ? { ...current, groups: [] } : current;
+      }
+      responseAttempts += 1;
+      if (responseAttempts === 1) throw { code: "native.timed_out", origin: "native" };
+      return { group: nextGroup, replayed: false };
+    };
+    const client = new PermissionGroupClient(request, () => {}, storage);
+    client.configure(true);
+    client.select("session-1");
+    await client.refresh();
+    await expect(client.respond("group-1", 2, "allow_once")).rejects.toMatchObject({ uncertain: true });
+    await expect(client.retry()).rejects.toMatchObject({ code: "resource.not_found" });
+    expect(storage.values.size).toBe(0);
+    expect(client.state.uncertain).toBe(false);
+    current = { ...list, groups: [nextGroup] };
+    responseAttempts = 2;
+    await client.refresh();
+    await client.respond("group-2", 1, "allow_once");
+    expect(client.state.groups[0]?.groupId).toBe("group-2");
+  });
+
   test("a timed out revoke is read before the explicit retry", async () => {
     const calls: string[] = [];
     let revokeAttempts = 0;

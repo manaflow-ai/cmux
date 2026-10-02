@@ -40,13 +40,11 @@ function GroupItems({ group }: { group: PermissionGroup }) {
                 })}
               </ul>
             )}
-            <pre>
-              {typeof tool?.rawInput === "string"
-                ? tool.rawInput
-                : tool?.rawInput !== undefined
-                  ? JSON.stringify(tool.rawInput, null, 2)
-                  : "No additional input was provided."}
-            </pre>
+            {tool?.rawInput !== undefined && (
+              <pre>{typeof tool.rawInput === "string" ? tool.rawInput : JSON.stringify(tool.rawInput, null, 2)}</pre>
+            )}
+            {tool?.content !== undefined && <pre>{JSON.stringify(tool.content, null, 2)}</pre>}
+            {tool?.rawInput === undefined && tool?.content === undefined && <p>No additional input was provided.</p>}
           </details>
         );
       })}
