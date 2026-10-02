@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
-  CHECKPOINT_OPS,
   checkpointList,
   mutationEnvelope,
-  supportsCheckpointCatalog,
+  supportsCheckpointCapability,
   type Checkpoint,
 } from "./protocol";
 
@@ -28,16 +27,11 @@ const checkpoint: Checkpoint = {
 };
 
 describe("checkpoint protocol", () => {
-  test("requires every bound catalog operation and preserves the catalog digest", () => {
-    const catalog = { catalog_sha256: "abc", operations: Object.values(CHECKPOINT_OPS) };
-    expect(supportsCheckpointCatalog(catalog, "abc")).toBe(true);
-    expect(supportsCheckpointCatalog({ ...catalog, catalog_sha256: "different" }, "abc")).toBe(false);
-    expect(supportsCheckpointCatalog({ ...catalog, operations: Object.values(CHECKPOINT_OPS).slice(1) }, "abc")).toBe(
-      false,
-    );
-    expect(supportsCheckpointCatalog({ catalog_sha256: "abc", capabilities: ["git-checkpoints-v1"] }, "abc")).toBe(
-      false,
-    );
+  test("requires a true checkpoint capability from the native connection", () => {
+    expect(supportsCheckpointCapability({checkpoints: true})).toBe(true);
+    expect(supportsCheckpointCapability({checkpoints: false})).toBe(false);
+    expect(supportsCheckpointCapability(undefined)).toBe(false);
+    expect(supportsCheckpointCapability({checkpoints: "true"})).toBe(false);
   });
 
   test("accepts decimal revisions and rejects malformed mutation envelopes", () => {

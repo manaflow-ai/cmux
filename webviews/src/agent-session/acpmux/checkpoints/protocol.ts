@@ -42,7 +42,6 @@ export type CheckpointList = {
   limits: CheckpointLimits;
 };
 export type MutationEnvelope<T> = { result: T; revision: string; replayed: boolean };
-export type CheckpointCatalog = { catalog_sha256: string; operations: string[] };
 export type CheckpointCapability = { checkpoints: boolean };
 
 function object(value: unknown, message = "Invalid checkpoint response."): Record<string, unknown> {
@@ -136,17 +135,6 @@ function checkpoint(value: unknown): Checkpoint {
 export function supportsCheckpointCapability(value: unknown): boolean {
   return !!value && typeof value === "object" && (value as { checkpoints?: unknown }).checkpoints === true;
 }
-/** Kept as a pure parser helper for generated catalog consumers; UI gating uses capabilities(). */
-export function supportsCheckpointCatalog(value: unknown, expectedSha?: string): boolean {
-  const raw = value as { catalog_sha256?: unknown; operations?: unknown } | null;
-  return (
-    !!raw &&
-    typeof raw.catalog_sha256 === "string" &&
-    (!expectedSha || raw.catalog_sha256 === expectedSha) &&
-    Array.isArray(raw.operations) &&
-    Object.values(CHECKPOINT_OPS).every((operation) => (raw.operations as unknown[]).includes(operation))
-  );
-}
 
 export function checkpointRecord(value: unknown): Checkpoint {
   return checkpoint(value);
@@ -225,6 +213,7 @@ export class CheckpointRpcError extends Error {
     this.details = reply.details;
     this.retryable = typeof reply.retryable === "boolean" ? reply.retryable : undefined;
     this.origin = reply.origin === "native" || reply.origin === "session_host" ? reply.origin : undefined;
-    this.uncertain = this.origin === "native" ? this.code === "native.timed_out" : this.origin === undefined;
+    this.uncertain = this.code === "mutation.indeterminate" ||
+      (this.origin === "native" ? this.code === "native.timed_out" : this.origin === undefined);
   }
 }

@@ -25,7 +25,8 @@ export type CheckpointClientState = {
   capabilities?: CheckpointCapability;
   list?: CheckpointList;
   record?: Checkpoint;
-  busy?: "listing" | "creating" | "pinning" | "unpinning";
+  busy?: "listing" | "creating" | "pinning" | "unpinning" | "recovering";
+  pending?: StoredMutation;
   error?: CheckpointRpcError;
 };
 export type CreateInput = {
@@ -46,7 +47,7 @@ export type CheckpointClientOptions = {
   onChange?: () => void;
 };
 
-type StoredMutation = { idempotency_key: string; attempted: boolean };
+type StoredMutation = { idempotency_key: string; attempted: boolean; operation: MutationOperation; body: Record<string, unknown> };
 type MutationOperation = "create" | "pin" | "unpin";
 const fallbackValues = new Map<string, unknown>();
 const defaultPersistence: CheckpointPersistence = {
@@ -114,13 +115,15 @@ function isNotFound(error: unknown): boolean {
 
 /** A small projection/controller for daemon-owned checkpoint records. It never derives record fields locally. */
 export class CheckpointClient {
-  state: CheckpointClientState = { supported: true };
+  state: CheckpointClientState = { supported: false };
   private request: Request;
   private persistence: CheckpointPersistence;
   private key: () => string;
   private capabilityReader: CapabilityReader;
   private online = true;
   private generation = 0;
+  private mutationActive = false;
+  private capabilityGeneration = 0;
   private listeners = new Set<() => void>();
   constructor(
     request: Request,
@@ -133,7 +136,7 @@ export class CheckpointClient {
     this.persistence =
       options?.persistence ?? ("get" in persistenceOrOptions ? persistenceOrOptions : defaultPersistence);
     this.key = key ?? options?.key ?? (() => crypto.randomUUID());
-    this.capabilityReader = capabilities ?? options?.capabilities ?? (async () => ({ checkpoints: true }));
+    this.capabilityReader = capabilities ?? options?.capabilities ?? (async () => ({ checkpoints: false }));
     this.onChange = options?.onChange;
   }
   private onChange?: () => void;
@@ -153,12 +156,11 @@ export class CheckpointClient {
     this.state = { supported: this.state.supported, capabilities: this.state.capabilities, target };
     this.changed();
   }
-  setCatalog(_catalog: unknown, _expectedSha?: string): void {
-    /* v1.1 has no runtime catalog read; retained for generated callers */
-  }
   async refreshCapabilities(): Promise<boolean> {
+    const generation = ++this.capabilityGeneration;
     try {
       const capabilities = await this.capabilityReader();
+      if (generation !== this.capabilityGeneration) return this.state.supported;
       this.state = {
         ...this.state,
         capabilities,
@@ -168,6 +170,7 @@ export class CheckpointClient {
       this.changed();
       return this.state.supported;
     } catch (error) {
+      if (generation !== this.capabilityGeneration) return this.state.supported;
       this.state = { ...this.state, supported: false, error: requestError(error) };
       this.changed();
       return false;
@@ -175,13 +178,16 @@ export class CheckpointClient {
   }
   setOnline(online: boolean): void {
     this.online = online;
-    if (!online) this.state = { ...this.state, busy: undefined };
+    if (!online) {
+      this.capabilityGeneration++;
+      this.state = { ...this.state, supported: false };
+    }
     this.changed();
   }
-  private requireReady(mutation = false): CheckpointTarget {
+  private requireReady(): CheckpointTarget {
     if (!this.state.supported)
       throw new CheckpointRpcError("operation.unsupported", "Checkpoint capture is unavailable.");
-    if (mutation && !this.online)
+    if (!this.online)
       throw new CheckpointRpcError(
         {
           code: "operation.failed",
@@ -245,25 +251,53 @@ export class CheckpointClient {
     const target = this.requireReady();
     return checkpointRecord(await this.call(CHECKPOINT_OPS.get, { ...targetParams(target), ...params }));
   }
-  private mutationStorageKey(
-    operation: MutationOperation,
-    target: CheckpointTarget,
-    body: Record<string, unknown>,
-  ): string {
-    return `cmux.checkpoint.mutation:${operation}:${stable({ target, body })}`;
+  private mutationStorageKey(target: CheckpointTarget): string {
+    return `cmux.checkpoint.pending:${stable(target)}`;
   }
   private async mutationKey(
-    operation: MutationOperation,
-    target: CheckpointTarget,
-    body: Record<string, unknown>,
+    operation: MutationOperation, target: CheckpointTarget, body: Record<string, unknown>,
   ): Promise<{ storageKey: string; record: StoredMutation }> {
-    const storageKey = this.mutationStorageKey(operation, target, body);
+    const storageKey = this.mutationStorageKey(target);
     const stored = await this.persistence.get(storageKey);
-    if (stored && typeof stored === "object" && typeof (stored as StoredMutation).idempotency_key === "string")
-      return { storageKey, record: stored as StoredMutation };
-    const record = { idempotency_key: this.key(), attempted: false };
+    if (stored && typeof stored === "object" && typeof (stored as StoredMutation).idempotency_key === "string") {
+      const record = stored as StoredMutation;
+      if (record.operation !== operation || stable(record.body) !== stable(body))
+        throw new CheckpointRpcError({ code: "idempotency.conflict", origin: "native" });
+      return { storageKey, record };
+    }
+    const record = { idempotency_key: this.key(), attempted: false, operation, body };
     await this.persistence.set(storageKey, record);
     return { storageKey, record };
+  }
+  /** Opening the review only reads the saved intent. Retry is an explicit user action. */
+  async recoverPending(): Promise<void> {
+    const target = this.requireReady();
+    const generation = this.generation;
+    const value = await this.persistence.get(this.mutationStorageKey(target));
+    if (generation !== this.generation || !value || typeof value !== "object") return;
+    const pending = value as StoredMutation;
+    if (!pending.body || typeof pending.idempotency_key !== "string" || !["create", "pin", "unpin"].includes(pending.operation)) return;
+    this.state = { ...this.state, pending, busy: "recovering", error: undefined };
+    this.changed();
+    try {
+      const result = pending.attempted
+        ? await this.reconcile(pending.operation, target, pending.body, pending.idempotency_key)
+        : undefined;
+      if (result) {
+        await this.persistence.delete(this.mutationStorageKey(target));
+        if (generation === this.generation) this.state = { ...this.state, pending: undefined, record: result.result };
+      }
+    } catch (error) {
+      if (generation === this.generation) this.state = { ...this.state, error: requestError(error) };
+      throw error;
+    } finally {
+      if (generation === this.generation) { this.state = { ...this.state, busy: undefined }; this.changed(); }
+    }
+  }
+  async retry(): Promise<MutationEnvelope<Checkpoint>> {
+    const pending = this.state.pending;
+    if (!pending) throw new CheckpointRpcError({code: "validation.invalid", origin: "native"});
+    return this.mutate(pending.operation, pending.body, pending.operation === "create" ? "creating" : pending.operation === "pin" ? "pinning" : "unpinning");
   }
   private async reconcile(
     operation: MutationOperation,
@@ -281,36 +315,45 @@ export class CheckpointClient {
     return undefined;
   }
   private async mutate(
-    operation: MutationOperation,
-    body: Record<string, unknown>,
-    busy: CheckpointClientState["busy"],
+    operation: MutationOperation, body: Record<string, unknown>, busy: CheckpointClientState["busy"],
   ): Promise<MutationEnvelope<Checkpoint>> {
-    const target = this.requireReady(true);
+    const target = this.requireReady();
+    if (this.mutationActive || this.state.busy)
+      throw new CheckpointRpcError({code: "operation.failed", origin: "native", details: {reason: "repository_busy"}});
+    this.mutationActive = true;
     const generation = this.generation;
-    const { storageKey, record } = await this.mutationKey(operation, target, body);
-    if (record.attempted) {
-      const reconciled = await this.reconcile(operation, target, body, record.idempotency_key);
-      if (reconciled) {
-        await this.persistence.delete(storageKey);
-        if (generation === this.generation) this.state = { ...this.state, record: reconciled.result };
-        return reconciled;
-      }
-    }
-    const params = { ...targetParams(target), ...body, idempotency_key: record.idempotency_key };
-    await this.persistence.set(storageKey, { ...record, attempted: true });
     this.state = { ...this.state, busy, error: undefined };
     this.changed();
+    let storageKey: string | undefined;
     try {
+      const saved = await this.mutationKey(operation, target, body);
+      storageKey = saved.storageKey;
+      const record = saved.record;
+      if (generation !== this.generation || !this.online) throw new CheckpointRpcError({code: "native.not_connected", origin: "native"});
+      this.state = { ...this.state, pending: record };
+      if (record.attempted) {
+        const reconciled = await this.reconcile(operation, target, body, record.idempotency_key);
+        if (reconciled) {
+          await this.persistence.delete(storageKey);
+          if (generation === this.generation) this.state = { ...this.state, record: reconciled.result, pending: undefined };
+          return reconciled;
+        }
+      }
+      const params = { ...targetParams(target), ...body, idempotency_key: record.idempotency_key };
+      await this.persistence.set(storageKey, { ...record, attempted: true });
+      if (generation !== this.generation || !this.online) throw new CheckpointRpcError({code: "native.not_connected", origin: "native"});
       const result = mutationEnvelope<Checkpoint>(await this.call(CHECKPOINT_OPS[operation], params));
+      const parsedRecord = checkpointRecord(result.result);
       await this.persistence.delete(storageKey);
-      if (generation === this.generation) this.state = { ...this.state, record: checkpointRecord(result.result) };
-      return { ...result, result: checkpointRecord(result.result) };
+      if (generation === this.generation) this.state = { ...this.state, record: parsedRecord, pending: undefined };
+      return { ...result, result: parsedRecord };
     } catch (error) {
       const parsed = requestError(error);
-      if (!parsed.uncertain) await this.persistence.delete(storageKey);
-      if (generation === this.generation) this.state = { ...this.state, error: parsed };
+      if (!parsed.uncertain && storageKey) await this.persistence.delete(storageKey);
+      if (generation === this.generation) this.state = { ...this.state, error: parsed, pending: parsed.uncertain ? this.state.pending : undefined };
       throw parsed;
     } finally {
+      this.mutationActive = false;
       if (generation === this.generation) {
         this.state = { ...this.state, busy: undefined };
         this.changed();
