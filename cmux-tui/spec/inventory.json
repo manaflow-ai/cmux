@@ -6,6 +6,8 @@
     "agent.list",
     "agent.message.list",
     "agent.message.mark",
+    "agent.message.receiving.get",
+    "agent.message.receiving.set",
     "agent.message.send",
     "agent.report",
     "browser.activate",

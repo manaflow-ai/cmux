@@ -51,7 +51,8 @@
 //!       "command": ["/path/to/agent-plugin"],
 //!       "cwd": "/optional",
 //!       "revision": "sha256-..."
-//!     }
+//!     },
+//!     "messages": { "enabled": true }
 //!   },
 //!   "machine_sidebar": {
 //!     "enabled": false,
@@ -641,6 +642,14 @@ struct RawSidebarPlugin {
 struct RawAgents {
     /// Optional background process that reports generic agent journal events.
     plugin: Option<RawAgentPlugin>,
+    /// `cmux agent message` between agents (plans/feat-agent-rooms).
+    messages: Option<RawAgentMessages>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAgentMessages {
+    enabled: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1064,9 +1073,18 @@ pub struct Sidebar {
 
 /// Background agent integrations. The process is optional and runs outside
 /// the core detector. Its events enter through the journal producer API.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Agents {
     pub plugin: Option<cmux_tui_core::JournalPluginOptions>,
+    /// `agents.messages.enabled`: false refuses every agent message and
+    /// fails the queued ones. On by default.
+    pub messages_enabled: bool,
+}
+
+impl Default for Agents {
+    fn default() -> Self {
+        Self { plugin: None, messages_enabled: true }
+    }
 }
 
 impl Default for Sidebar {
@@ -3545,6 +3563,9 @@ pub fn load() -> Config {
             );
         }
     }
+    if let Some(enabled) = raw.agents.messages.and_then(|messages| messages.enabled) {
+        config.agents.messages_enabled = enabled;
+    }
     if let Some(enabled) = raw.machine_sidebar.enabled {
         config.machine_sidebar.enabled = enabled;
     }
@@ -4108,6 +4129,22 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
     tabs.agents.iter().find(|agent| words.contains(&agent.as_str())).cloned()
 }
 
+/// Keep `agents.messages.enabled` when another part of `agents` is invalid,
+/// so a typo in the plugin block does not turn agent messages back on.
+fn agent_messages_switch(raw: &mut RawConfig, object: &serde_json::Map<String, Value>) {
+    if raw.agents.messages.is_some() {
+        return;
+    }
+    let enabled = object
+        .get("agents")
+        .and_then(|agents| agents.get("messages"))
+        .and_then(|messages| messages.get("enabled"))
+        .and_then(Value::as_bool);
+    if let Some(enabled) = enabled {
+        raw.agents.messages = Some(RawAgentMessages { enabled: Some(enabled) });
+    }
+}
+
 fn load_raw_config() -> RawConfig {
     let Some(path) = platform::config_path() else { return RawConfig::default() };
     let Ok(text) = read_config_text(&path) else { return RawConfig::default() };
@@ -4177,6 +4214,7 @@ fn load_raw_config() -> RawConfig {
     section!(tabs, "tabs");
     section!(sidebar, "sidebar");
     section!(agents, "agents");
+    agent_messages_switch(&mut raw, object);
     section!(machine_sidebar, "machine_sidebar");
     section!(machine_provider, "machine_provider");
     section!(machines, "machines");
@@ -8251,6 +8289,26 @@ mod tests {
         let raw: RawConfig =
             serde_json::from_str(r#"{"machine_provider":{"command":["  "]}}"#).unwrap();
         assert!(raw.machine_provider.command.as_deref().is_some_and(|c| c[0].trim().is_empty()));
+    }
+
+    #[test]
+    fn agent_messages_switch_parses_and_rejects_unknown_fields() {
+        assert!(Agents::default().messages_enabled);
+        let raw: RawConfig =
+            serde_json::from_str(r#"{"agents": {"messages": {"enabled": false}}}"#).unwrap();
+        assert_eq!(raw.agents.messages.and_then(|messages| messages.enabled), Some(false));
+        assert!(
+            serde_json::from_str::<RawConfig>(r#"{"agents": {"messages": {"enable": false}}}"#)
+                .is_err()
+        );
+        // An invalid plugin block drops `agents`, but not the off switch.
+        let value: Value = serde_json::from_str(
+            r#"{"agents": {"plugin": {"bogus": 1}, "messages": {"enabled": false}}}"#,
+        )
+        .unwrap();
+        let mut raw = RawConfig::default();
+        agent_messages_switch(&mut raw, value.as_object().unwrap());
+        assert_eq!(raw.agents.messages.and_then(|messages| messages.enabled), Some(false));
     }
 
     #[test]

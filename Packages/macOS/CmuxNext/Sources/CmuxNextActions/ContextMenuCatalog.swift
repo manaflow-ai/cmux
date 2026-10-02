@@ -165,6 +165,7 @@ public enum ContextMenuCatalog {
         actions("terminalCopy", "terminalPaste", "terminal.selectAll", "useSelectionForFind") + [.separator]
         + actions("splitRight", "splitDown", "splitLeft", "splitUp", "toggleSplitZoom") + [.separator]
         + actions("palette.forkAgentConversationRight", "palette.forkAgentConversationNewTab") + [.separator]
+        + actions("palette.turnOffAgentMessages", "palette.turnOnAgentMessages") + [.separator]
         + actions("clearScreenKeepScrollback", "resetTerminal")
 
     static let browserPage: [ContextMenuEntry] =

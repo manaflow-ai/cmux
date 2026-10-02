@@ -221,16 +221,23 @@ mod inbox {
             print_nothing(delivery);
             return;
         }
-        let text = cmux_tui_core::agent_message_prompt::render(&batch);
-        print_output(&delivery.output(Some(&text)));
+        // Claim the batch before printing it: a recipient that turned
+        // messages off after the list refuses the claim and gets nothing.
         let ids: Vec<&str> = batch.iter().filter_map(|message| message["id"].as_str()).collect();
-        let _ = request(
+        if request(
             socket,
             "agent.message.mark",
             json!({"ids": ids, "recipient": terminal, "state": "delivered", "via": delivery.via()}),
             true,
             deadline,
-        );
+        )
+        .is_err()
+        {
+            print_nothing(delivery);
+            return;
+        }
+        let text = cmux_tui_core::agent_message_prompt::render(&batch);
+        print_output(&delivery.output(Some(&text)));
     }
 
     fn queued(socket: &Path, terminal: &str, deadline: Instant) -> anyhow::Result<Vec<Value>> {

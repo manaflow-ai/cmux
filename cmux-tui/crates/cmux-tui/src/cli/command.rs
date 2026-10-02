@@ -28,6 +28,7 @@ pub(super) enum CommandPlan {
     RawCommand(super::raw::RawCommandPlan),
     AgentMessage(Box<super::agent_message::MessagePlan>),
     AgentInbox(super::agent_message::InboxPlan),
+    AgentReceiving(super::agent_message::ReceivingPlan),
     AgentList(super::agent_list::AgentListPlan),
 }
 
@@ -1590,6 +1591,9 @@ fn parse_agent(
             let limit = flags.take("limit");
             let ack = flags.boolean("ack");
             Ok(CommandPlan::AgentInbox(super::agent_message::parse_inbox(rest, state, limit, ack)?))
+        }
+        ["messages", rest @ ..] => {
+            Ok(CommandPlan::AgentReceiving(super::agent_message::parse_receiving(rest)?))
         }
         ["plugin", tail @ ..] => {
             parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Agent)
@@ -5467,7 +5471,7 @@ mod tests {
 
         assert_eq!(cases.len(), 171);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 181);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 183);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
@@ -5535,12 +5539,15 @@ mod tests {
             .unwrap()
             .keys()
             .filter(|name| {
-                // `agent message` and `agent inbox` send several requests
-                // per command (agent_message.rs, which has its own tests).
+                // `agent message`, `agent inbox` and `agent messages` send
+                // several requests per command (agent_message.rs, which has
+                // its own tests).
                 !matches!(
                     name.as_str(),
                     "agent.message.list"
                         | "agent.message.mark"
+                        | "agent.message.receiving.get"
+                        | "agent.message.receiving.set"
                         | "agent.message.send"
                         | "browser.viewer.release"
                         | "browser.viewer.resize"

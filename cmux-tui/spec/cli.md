@@ -313,6 +313,8 @@ agent list [--terminal <id>] [--state <state>]
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
+agent messages [status]
+agent messages on|off [<agent>]
 agent report --terminal <selector> --state <state> --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
@@ -480,6 +482,15 @@ stored either way, and problems with older messages are reported on stderr.
 `agent inbox` lists messages newest first for `<agent>`, or for the caller's
 own address when it has one, else every message. `--ack` marks the listed
 messages acknowledged for that recipient.
+
+`agent messages off` turns messages off for `<agent>`, or for the caller's own
+address: its queued messages fail with "<address> has messages disabled", and
+later sends to it are refused with the same error instead of being queued.
+`agent messages on` turns them back on. `agent messages` (or `status`) prints
+whether the session accepts messages at all and which recipients turned them
+off. The session switch is the config setting `agents.messages.enabled`; when
+it is `false`, every send fails with "agent messages are turned off" and the
+messages still queued fail when it takes effect.
 
 ## Local agent plugins
 

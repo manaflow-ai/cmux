@@ -371,6 +371,10 @@ pub enum ResourceOperation {
     AgentMessageList,
     #[serde(rename = "agent.message.mark")]
     AgentMessageMark,
+    #[serde(rename = "agent.message.receiving.get")]
+    AgentMessageReceivingGet,
+    #[serde(rename = "agent.message.receiving.set")]
+    AgentMessageReceivingSet,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
@@ -591,6 +595,7 @@ impl ResourceOperation {
                 | Self::NotificationList
                 | Self::AgentList
                 | Self::AgentMessageList
+                | Self::AgentMessageReceivingGet
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::RoomList
@@ -763,6 +768,8 @@ impl ResourceOperation {
             Self::AgentMessageSend => "agent.message.send",
             Self::AgentMessageList => "agent.message.list",
             Self::AgentMessageMark => "agent.message.mark",
+            Self::AgentMessageReceivingGet => "agent.message.receiving.get",
+            Self::AgentMessageReceivingSet => "agent.message.receiving.set",
             Self::SidebarViewGet => "sidebar_view.get",
             Self::SidebarViewEnsure => "sidebar_view.ensure",
             Self::SidebarViewAttach => "sidebar_view.attach",

@@ -998,3 +998,61 @@ fn agent_messages_queue_per_recipient_reply_in_thread_and_survive_a_restart() {
     assert_eq!(thread.as_array().unwrap().len(), 2);
     assert_eq!(thread[0]["id"], reply["id"]);
 }
+
+#[test]
+fn agent_messages_turn_off_for_one_recipient_or_for_the_session() {
+    let session = Session::new("agent-messages-off");
+    let mux = session.open();
+    terminal_tabs(&mux, 1);
+    let terminal = read(&mux, "terminal.list", json!({}))[0]["id"].as_str().unwrap().to_owned();
+    let queued = mutate(
+        &mux,
+        "agent.message.send",
+        json!({"recipients": [terminal, "acp:review"], "body": "one"}),
+        "s1",
+    );
+    let off = mutate(
+        &mux,
+        "agent.message.receiving.set",
+        json!({"recipient": terminal, "enabled": false}),
+        "r1",
+    );
+    assert_eq!(off["failed"], json!([queued["id"]]));
+    let receiving = read(&mux, "agent.message.receiving.get", json!({}));
+    assert_eq!(receiving["enabled"], true);
+    assert_eq!(receiving["disabled_recipients"][0]["recipient"], terminal.as_str());
+    let refused = send(
+        &mux,
+        "agent.message.send",
+        json!({"recipients": [terminal], "body": "two"}),
+        Some("s2"),
+    )
+    .unwrap_err();
+    assert_eq!(refused.code, "validation.invalid");
+    assert!(refused.message.contains("has messages disabled"), "{}", refused.message);
+
+    mux.configure_agent_messages(false);
+    let receipts = read(&mux, "agent.message.list", json!({"recipient": "acp:review"}));
+    assert_eq!(receipts[0]["deliveries"][1]["state"], "failed");
+    let refused = send(
+        &mux,
+        "agent.message.send",
+        json!({"recipients": ["acp:review"], "body": "three"}),
+        Some("s3"),
+    )
+    .unwrap_err();
+    assert!(refused.message.contains("agent messages are turned off"), "{}", refused.message);
+    assert_eq!(read(&mux, "agent.message.receiving.get", json!({}))["enabled"], false);
+    // A delivery path cannot claim a message while messages are off.
+    let claim = send(
+        &mux,
+        "agent.message.mark",
+        json!({"ids": [queued["id"]], "recipient": "acp:review", "state": "delivered"}),
+        Some("m1"),
+    )
+    .unwrap_err();
+    assert!(claim.message.contains("agent messages are turned off"), "{}", claim.message);
+
+    mux.configure_agent_messages(true);
+    mutate(&mux, "agent.message.send", json!({"recipients": ["acp:review"], "body": "four"}), "s4");
+}

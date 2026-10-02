@@ -110,6 +110,7 @@ from the sidebar plugin and never replace the sidebar view.
 | `agents.plugin.command` | array of strings | unset | Absolute argv for the background agent plugin process |
 | `agents.plugin.cwd` | string | unset | Absolute working directory for the agent plugin process |
 | `agents.plugin.revision` | string | unset | Content revision used to restart the process after an artifact update |
+| `agents.messages.enabled` | bool | `true` | Agent messages (`cmux agent message`). `false` refuses every send with "agent messages are turned off" and fails messages still queued, so no sender waits on a delivery that will not come. Applies on config reload. It is kept when another part of `agents` is invalid; a config file that cannot be read at all leaves messages on |
 
 Live sidebar dragging also leaves at least 40 columns for pane content.
 

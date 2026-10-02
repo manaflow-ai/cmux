@@ -41,6 +41,8 @@
         "agent.list",
         "agent.message.list",
         "agent.message.mark",
+        "agent.message.receiving.get",
+        "agent.message.receiving.set",
         "agent.message.send",
         "agent.report",
         "browser.activate",
@@ -224,6 +226,7 @@
         "read": [
           "agent.list",
           "agent.message.list",
+          "agent.message.receiving.get",
           "browser.get",
           "browser.list",
           "client.get",
@@ -278,6 +281,7 @@
         ],
         "mutation": [
           "agent.message.mark",
+          "agent.message.receiving.set",
           "agent.message.send",
           "agent.report",
           "browser.activate",
@@ -431,6 +435,7 @@
               "operation": {
                 "enum": [
                   "agent.message.mark",
+                  "agent.message.receiving.set",
                   "agent.message.send",
                   "agent.report",
                   "browser.activate",

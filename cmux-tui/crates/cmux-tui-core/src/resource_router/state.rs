@@ -80,6 +80,8 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | Op::AgentMessageSend
             | Op::AgentMessageList
             | Op::AgentMessageMark
+            | Op::AgentMessageReceivingGet
+            | Op::AgentMessageReceivingSet
     )
 }
 
@@ -579,6 +581,19 @@ pub(super) fn dispatch(
                     &string(fields, "state").unwrap_or_default(),
                     string(fields, "via").as_deref(),
                     string(fields, "error").as_deref(),
+                )
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::AgentMessageReceivingGet => mux.agent_message_receiving_get(selectors),
+        Op::AgentMessageReceivingSet => {
+            let commit = mux
+                .agent_message_receiving_set(
+                    &mutation(&request)?,
+                    expected_revision(fields)?,
+                    selectors,
+                    &string(fields, "recipient").unwrap_or_default(),
+                    fields.get("enabled").and_then(Value::as_bool).unwrap_or(true),
                 )
                 .map_err(state_error)?;
             state_result(mux, commit)
