@@ -70,6 +70,32 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
+  ...(["team.policy.integration_seed", "team.policy.integration_synced"] as const).map(
+    (name) =>
+      [
+        name,
+        {
+          name,
+          owner: "cloud:TeamDO",
+          class: "mutation",
+          risk: "mutate-shared",
+          target: "team_policy",
+          principals: ["system"],
+          params:
+            name === "team.policy.integration_seed"
+              ? Schema.Struct({ policy: Schema.Unknown })
+              : Schema.Struct({ version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)), slice_hash: Schema.String }),
+          result: Schema.Unknown,
+          errors: [],
+          docs:
+            name === "team.policy.integration_seed"
+              ? "Internal: copy ConnectionDO's integration policy into TeamPolicy before the first push."
+              : "Internal: ConnectionDO acknowledged this integration slice.",
+          cli: { path: "", visible: false },
+          mcp: { expose: "never", group: "internal" }
+        } as CloudOpDef
+      ] as const
+  ),
   ...schedulerInternalOps.map((d) => [d.name, d] as const),
   ...connectionInternalOps.map((d) => [d.name, d] as const),
   ...feedInternalOps.map((d) => [d.name, d] as const)
