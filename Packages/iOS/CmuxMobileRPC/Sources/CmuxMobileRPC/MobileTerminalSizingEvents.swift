@@ -56,14 +56,15 @@ public struct MobileTerminalDetachedEvent: Decodable, Sendable, Equatable {
         let actor = try? container.decodeIfPresent(TerminalDetachActor.self, forKey: .by)
         reason = TerminalDetachReason(wireValue: rawReason, by: actor)
         let rawAt = try? container.decodeIfPresent(String.self, forKey: .at)
-        at = rawAt.flatMap(Self.parseDate)
+        let dateParser = MobileRPCISO8601DateParser(injectedInto: decoder)
+        at = rawAt.flatMap(dateParser.date(from:))
     }
 
     /// Parses ISO 8601 with or without fractional seconds.
     /// - Parameter raw: The wire timestamp.
     /// - Returns: The date, or `nil` when unparseable.
     public static func parseDate(_ raw: String) -> Date? {
-        MobileRPCISO8601Date.parse(raw)
+        MobileRPCISO8601DateParser().date(from: raw)
     }
 
     /// Decodes the event payload.
@@ -71,7 +72,7 @@ public struct MobileTerminalDetachedEvent: Decodable, Sendable, Equatable {
     /// - Returns: The event.
     /// - Throws: A decoding error when the payload is malformed.
     public static func decode(_ data: Data) throws -> MobileTerminalDetachedEvent {
-        try JSONDecoder().decode(Self.self, from: data)
+        try MobileRPCISO8601DateParser().decoder().decode(Self.self, from: data)
     }
 }
 

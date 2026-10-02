@@ -23,7 +23,7 @@ public struct MobileAgentFeedListResponse: Decodable, Equatable, Sendable {
     /// Macs may emit rows this client cannot represent; the feed stays
     /// usable on the rows it can.
     public static func decode(_ data: Data) throws -> MobileAgentFeedListResponse {
-        try JSONDecoder().decode(Self.self, from: data)
+        try MobileRPCISO8601DateParser().decoder().decode(Self.self, from: data)
     }
 
     public init(from decoder: any Decoder) throws {
@@ -205,8 +205,9 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         source = try container.decode(String.self, forKey: .source)
         kind = try container.decode(String.self, forKey: .kind)
         status = try container.decode(String.self, forKey: .status)
-        createdAt = try Self.date(from: container, forKey: .createdAt)
-        updatedAt = try Self.date(from: container, forKey: .updatedAt)
+        let dateParser = MobileRPCISO8601DateParser(injectedInto: decoder)
+        createdAt = try Self.date(from: container, forKey: .createdAt, parser: dateParser)
+        updatedAt = try Self.date(from: container, forKey: .updatedAt, parser: dateParser)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
         requestID = try container.decodeIfPresent(String.self, forKey: .requestID)
@@ -239,10 +240,11 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
     /// that switch to numeric dates.
     private static func date(
         from container: KeyedDecodingContainer<CodingKeys>,
-        forKey key: CodingKeys
+        forKey key: CodingKeys,
+        parser: MobileRPCISO8601DateParser
     ) throws -> Date {
         if let raw = try? container.decode(String.self, forKey: key) {
-            if let date = MobileRPCISO8601Date.parse(raw) {
+            if let date = parser.date(from: raw) {
                 return date
             }
             throw DecodingError.dataCorruptedError(
