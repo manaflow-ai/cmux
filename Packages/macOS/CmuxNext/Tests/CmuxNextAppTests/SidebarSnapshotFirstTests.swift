@@ -148,6 +148,19 @@ import Testing
         #expect(states.rows.allSatisfy { !$0.isEmpty }, "the sidebar went blank between the saved and the live rows")
         Self.closeAll(services)
     }
+
+    /// Nothing saved: the loading local section shows placeholder rows,
+    /// which offer no menu (never a workspace menu for an id the daemon
+    /// does not know), while a saved row's menu is the workspace menu.
+    @Test func aPlaceholderRowHasNoContextMenu() throws {
+        let services = Self.services(file: nil)
+        services.windows.restoreWhenLoaded()
+        let controller = try #require(services.windows.controllers.first)
+        let placeholder = try #require(Self.rows(controller).first)
+        #expect(placeholder.rowState == .placeholder)
+        #expect(controller.sidebar.contextMenu(for: .workspaces([placeholder.id])) == nil)
+        Self.closeAll(services)
+    }
 }
 
 /// Every row list one sidebar model went through.
