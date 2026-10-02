@@ -57,3 +57,21 @@ await userTab.locator("#dl").click();
 emitCmux("user-tab-download-listener", (await userDownload).suggestedFilename());
 await userTab.close();
 await session.configure({ permissions: null });
+// ---- cell cmux-only
+// A run that ends with a key or mouse button still pressed must release
+// them: the page gets keyup and mouseup, so it is not left mid-drag or with
+// Shift held for the user.
+const heldTab = await tabs.open(`${PRIMARY}/input.html?held`);
+await heldTab.keep();
+await heldTab.locator("#keys").click();
+await heldTab.evaluate(() => { window.__log.length = 0; });
+await heldTab.keyboard.down("Shift");
+await heldTab.keyboard.down("KeyA");
+const heldBox = await heldTab.locator("h1").boundingBox();
+await heldTab.mouse.move(heldBox.x + 5, heldBox.y + 5);
+await heldTab.mouse.down();
+// ---- cell cmux-only
+const heldRow = (await tabs.list()).find((t) => t.url.endsWith("?held"));
+const heldAfter = await tabs.use(heldRow.id);
+emitCmux("released-on-session-end", await heldAfter.evaluate(() => window.__log.filter((e) => e.type === "keyup" || e.type === "mouseup").map((e) => `${e.type} ${e.type === "mouseup" ? e.button : e.key} ${e.trusted}`).sort()));
+await heldAfter.close();
