@@ -15,7 +15,7 @@ import Foundation
             destination: "me@host.example.com",
             port: nil,
             identityFile: nil,
-            sshOptions: []
+            sshOptions: [], remotePastePolicy: RemotePasteFileTransferPolicy(sessionID: UUID(uuidString: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff")!)
         )
     }
 
