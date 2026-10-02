@@ -40,6 +40,7 @@ import { DateLine } from "./conversation/DateLine";
 import { SearchChats } from "./SearchChats";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
+import { HostError } from "./HostError";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -806,6 +807,11 @@ function AcpmuxPane() {
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
+  /// in the host's words; cleared once a handshake succeeds.
+  const [hostError, setHostError] = useState<string | undefined>();
+  /// Asks the host again now, after the user fixed what `hostError` says.
+  const retryHost = useRef<(() => void) | undefined>(undefined);
   // The pane keeps the last client's catalog until the next client's arrives;
   // ids only grow, so a new client never reads an older client's cache entry.
   const catalogClientId = useRef(0);
@@ -878,7 +884,10 @@ function AcpmuxPane() {
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     const RECONNECT_MAX_DELAY_MS = 2_000;
     let reconnect = false;
+    let connecting = false;
     const connectHost = async () => {
+      if (connecting) return;
+      connecting = true;
       try {
         const host = await callNative<{
           protocolVersion: number;
@@ -892,6 +901,7 @@ function AcpmuxPane() {
           account?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
+        setHostError(undefined);
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
@@ -955,15 +965,28 @@ function AcpmuxPane() {
       } catch (error) {
         if (!cancelled) {
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
+          setHostError(error instanceof Error ? error.message : String(error));
           // Back off so a host without a daemon is not asked four times a second.
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
         }
+      } finally {
+        connecting = false;
       }
+    };
+    // The user asked: try now, and let the host start a daemon even after one was lost.
+    retryHost.current = () => {
+      if (cancelled || connecting) return;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      retryTimer = undefined;
+      reconnect = false;
+      retryDelay = 250;
+      void connectHost();
     };
     void connectHost();
     return () => {
       cancelled = true;
+      retryHost.current = undefined;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
@@ -1050,11 +1073,16 @@ function AcpmuxPane() {
             <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
           </div>
         )}
+        {hostError && <HostError message={hostError} onRetry={() => retryHost.current?.()} />}
         <Composer
           snapshot={composerSnapshot}
           chips={ComposerChips}
           draft={draft}
-          onSend={(text) => void callNative("chat.send", { text })}
+          onSend={(text) => {
+            // Until acpmux connects nothing takes a prompt; the composer keeps it.
+            if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+            void callNative("chat.send", { text });
+          }}
           onStop={() => void callNative("chat.cancel")}
         />
       </div>

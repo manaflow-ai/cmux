@@ -28,7 +28,8 @@ export const COMPOSER_LABELS = {
 type Props = {
   snapshot: AcpmuxSnapshot;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
-  onSend(text: string): void;
+  /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it.
+  onSend(text: string): boolean | void;
   onStop(): void;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
@@ -115,12 +116,16 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
   const submit = (event: { preventDefault(): void }) => {
     event.preventDefault();
     const prompt = unwrapped().trim();
+    if (!prompt) {
+      plusDraft.current = undefined;
+      return;
+    }
+    const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
+    if (onSend(prompt) === false) return;
     plusDraft.current = undefined;
-    if (!prompt) return;
     edit("", 0);
     sentAt.current = Date.now();
-    refocusSend.current = document.activeElement?.classList.contains("acpmux-send") ?? false;
-    onSend(prompt);
+    refocusSend.current = fromSend;
   };
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   const mention = () => {

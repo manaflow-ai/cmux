@@ -1442,133 +1442,133 @@
         }
       }
     },
-    "agentPane.error.notFound": {
+    "agentPane.error.notInstalled": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لم يتم العثور على acpmux. ثبّت acpmux أو استخدم إصدارًا يتضمنه."
+            "state": "translated",
+            "value": "لم يتم العثور على acpmux. ثبّته في PATH أو في أحد هذه المجلدات: %@."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "acpmux nije pronađen. Instalirajte acpmux ili koristite verziju koja ga uključuje."
+            "state": "translated",
+            "value": "acpmux nije pronađen. Instalirajte ga na PATH ili u jednu od ovih mapa: %@."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "acpmux blev ikke fundet. Installer acpmux, eller brug en version, der indeholder det."
+            "state": "translated",
+            "value": "acpmux blev ikke fundet. Installer det på din PATH eller i en af disse mapper: %@."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "acpmux wurde nicht gefunden. Installiere acpmux oder verwende einen Build, der es enthält."
+            "state": "translated",
+            "value": "acpmux wurde nicht gefunden. Installiere es in deinem PATH oder in einem dieser Ordner: %@."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux was not found. Install acpmux or use a build that bundles it."
+            "value": "acpmux was not found. Install it on your PATH or in one of these folders: %@."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se encontró acpmux. Instala acpmux o usa una compilación que lo incluya."
+            "state": "translated",
+            "value": "No se encontró acpmux. Instálalo en tu PATH o en una de estas carpetas: %@."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "acpmux est introuvable. Installez acpmux ou utilisez une version qui l’inclut."
+            "state": "translated",
+            "value": "acpmux est introuvable. Installez-le dans votre PATH ou dans l’un de ces dossiers : %@."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "acpmux non trovato. Installa acpmux o usa una build che lo include."
+            "state": "translated",
+            "value": "acpmux non trovato. Installalo nel tuo PATH o in una di queste cartelle: %@."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "acpmux が見つかりません。acpmux をインストールするか、同梱されたビルドを使用してください。"
+            "state": "translated",
+            "value": "acpmux が見つかりません。PATH 上か、次のいずれかのフォルダにインストールしてください: %@。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "រកមិនឃើញ acpmux ទេ។ ដំឡើង acpmux ឬប្រើកំណែដែលមានវា។"
+            "state": "translated",
+            "value": "រកមិនឃើញ acpmux ទេ។ ដំឡើងវានៅក្នុង PATH របស់អ្នក ឬក្នុងថតមួយក្នុងចំណោមថតទាំងនេះ៖ %@។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "acpmux를 찾을 수 없습니다. acpmux를 설치하거나 포함된 빌드를 사용하세요."
+            "state": "translated",
+            "value": "acpmux를 찾을 수 없습니다. PATH 또는 다음 폴더 중 하나에 설치하세요: %@."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fant ikke acpmux. Installer acpmux, eller bruk en versjon som inkluderer det."
+            "state": "translated",
+            "value": "Fant ikke acpmux. Installer det i PATH eller i en av disse mappene: %@."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie znaleziono acpmux. Zainstaluj acpmux lub użyj wersji, która go zawiera."
+            "state": "translated",
+            "value": "Nie znaleziono acpmux. Zainstaluj go w PATH lub w jednym z tych folderów: %@."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O acpmux não foi encontrado. Instale o acpmux ou use uma versão que o inclua."
+            "state": "translated",
+            "value": "O acpmux não foi encontrado. Instale-o no seu PATH ou em uma destas pastas: %@."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "acpmux не найден. Установите acpmux или используйте сборку, в которую он входит."
+            "state": "translated",
+            "value": "acpmux не найден. Установите его в PATH или в одну из этих папок: %@."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่พบ acpmux ติดตั้ง acpmux หรือใช้บิลด์ที่มี acpmux รวมอยู่"
+            "state": "translated",
+            "value": "ไม่พบ acpmux ติดตั้งไว้ใน PATH หรือในโฟลเดอร์ใดโฟลเดอร์หนึ่งต่อไปนี้: %@"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "acpmux bulunamadı. acpmux'u yükleyin veya onu içeren bir sürüm kullanın."
+            "state": "translated",
+            "value": "acpmux bulunamadı. PATH'inize veya şu klasörlerden birine yükleyin: %@."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "acpmux не знайдено. Установіть acpmux або використайте збірку, що його містить."
+            "state": "translated",
+            "value": "acpmux не знайдено. Установіть його в PATH або в одну з цих папок: %@."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Không tìm thấy acpmux. Hãy cài đặt acpmux hoặc dùng bản dựng có kèm nó."
+            "state": "translated",
+            "value": "Không tìm thấy acpmux. Hãy cài đặt vào PATH hoặc vào một trong các thư mục sau: %@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未找到 acpmux。请安装 acpmux 或使用内置它的版本。"
+            "state": "translated",
+            "value": "未找到 acpmux。请将其安装到 PATH 中，或安装到以下任一文件夹：%@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "找不到 acpmux。請安裝 acpmux 或使用內建它的版本。"
+            "state": "translated",
+            "value": "找不到 acpmux。請將其安裝到 PATH 中，或安裝到下列任一資料夾：%@。"
           }
         }
       }

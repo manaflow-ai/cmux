@@ -16,6 +16,8 @@ const en = {
   "turn.stopped": "You stopped after {time}",
   "approval.title": "How should the agent's actions be approved?",
   "effort.title": "Effort",
+  "host.retry": "Retry",
+  "host.retrying": "cmux tries again on its own. Your prompt stays here until acpmux connects.",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -34,6 +36,8 @@ const ja: Record<StringKey, string> = {
   "turn.stopped": "{time} 後に停止しました",
   "approval.title": "エージェントの操作をどのように承認しますか？",
   "effort.title": "推論の強さ",
+  "host.retry": "再試行",
+  "host.retrying": "cmux は自動で再試行します。acpmux に接続するまで、プロンプトはここに残ります。",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };
