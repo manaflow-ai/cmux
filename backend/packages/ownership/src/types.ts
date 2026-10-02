@@ -123,6 +123,12 @@ export interface ReduceContext {
   readonly principal: Principal
   readonly now: number
   readonly tx: string
+  /**
+   * The request's channel (absent = cli). Governs view-state rules and, for
+   * ops that need it, whether the caller is automation (an MCP client). It is
+   * not identity: identity is the principal.
+   */
+  readonly origin: Origin
   /** Deterministic id from the transaction, so mirror replay reproduces it. */
   readonly newId: (prefix: string) => string
 }

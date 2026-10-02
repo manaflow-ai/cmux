@@ -10,7 +10,7 @@ const other: Principal = { identity: "session:user_bbbbbbbbbbbbbbbbbbbb", kind: 
 let txn = 0
 const ctx = (principal: Principal, now: number): ReduceContext => {
   const tx = `tx${txn++}`
-  return { principal, now, tx, newId: idFactory(tx) }
+  return { principal, now, tx, origin: "cli", newId: idFactory(tx) }
 }
 
 /** Applies one op like the engine: authorize, then reduce. Throws on reject. */

@@ -167,7 +167,7 @@ export const runSim = (cfg: SimConfig, stats: SimStats = emptyStats()): { steps:
   const replay = (k: number) => {
     let st = domain.initial()
     for (const e of events().slice(0, k)) {
-      const res = domain.reduce(st, e.op, e.params as TabParams, { principal: e.actor, now: e.at, tx: e.tx, newId: () => "x" })
+      const res = domain.reduce(st, e.op, e.params as TabParams, { principal: e.actor, now: e.at, tx: e.tx, origin: e.origin, newId: () => "x" })
       if (!res.ok) throw new Violation("Replay", `committed op rejected on replay at ${e.seq}`)
       st = res.state
     }

@@ -25,6 +25,18 @@ export interface SqlStore {
   transaction<T>(fn: () => T): T
 }
 
+/**
+ * Inputs the owner looked up itself before deciding (for example a release
+ * read from another owner). The engine passes them to the reducer as
+ * `params.resolved` and records them in the event, so mirror replay sees the
+ * same input; they are not part of the idempotency hash, so a retry whose
+ * lookup changed in between still replays the first decision. A `resolved`
+ * key sent by the client is always replaced.
+ */
+export interface SubmitOptions {
+  readonly resolved?: unknown
+}
+
 /** Where committed frames go. `"all"` = every subscriber of the stream. */
 export type Deliver = (target: "all" | string, frame: OwnerFrame) => void
 
@@ -171,7 +183,7 @@ export class OwnerEngine<S, P = unknown> {
   }
 
   /** Handles one op from an authenticated connection. Frames go out through `deliver`. */
-  submit(principalIn: Principal, frame: OpFrame, deliver: Deliver): void {
+  submit(principalIn: Principal, frame: OpFrame, deliver: Deliver, options: SubmitOptions = {}): void {
     const principal = this.options.mutants?.trustClaimedIdentity
       ? claimedPrincipal(principalIn, frame.params)
       : principalIn
@@ -187,6 +199,10 @@ export class OwnerEngine<S, P = unknown> {
     const tx = this.txTag(identity, key)
     const paramsHash = sha256(canonicalJson({ op: frame.op, params: frame.params }))
     const at = this.now()
+    const effectiveParams: unknown =
+      options.resolved === undefined
+        ? frame.params
+        : { ...(frame.params && typeof frame.params === "object" && !Array.isArray(frame.params) ? (frame.params as Record<string, unknown>) : {}), resolved: options.resolved }
 
     const reply = (r: ResultFrame | RejectFrame, sequence: number) => {
       deliver(identity, r)
@@ -220,7 +236,7 @@ export class OwnerEngine<S, P = unknown> {
     }
 
     // 2. Authorization. Not recorded: a later grant may allow the same key.
-    const denied = this.domain.authorize?.(this.state, frame.op, frame.params as P, principal)
+    const denied = this.domain.authorize?.(this.state, frame.op, effectiveParams as P, principal)
     if (denied) return reply(reject(denied.code, denied.message, denied), 0)
 
     // 3. Decide: revision precondition, then the pure reducer.
@@ -233,10 +249,11 @@ export class OwnerEngine<S, P = unknown> {
         })
       }
     } else {
-      const r = this.domain.reduce(this.state, frame.op, frame.params as P, {
+      const r = this.domain.reduce(this.state, frame.op, effectiveParams as P, {
         principal,
         now: at,
         tx,
+        origin,
         newId: idFactory(tx)
       })
       decision = r.ok
@@ -248,7 +265,7 @@ export class OwnerEngine<S, P = unknown> {
     const nextSeq = decision.ok && decision.changed ? this.seq + 1 : this.seq
     const event: EventFrame | undefined =
       decision.ok && decision.changed
-        ? { t: "event", stream: this.stream, seq: nextSeq, tx, op: frame.op, params: frame.params, actor: this.options.eventActor?.(principal) ?? principal, origin, at }
+        ? { t: "event", stream: this.stream, seq: nextSeq, tx, op: frame.op, params: effectiveParams, actor: this.options.eventActor?.(principal) ?? principal, origin, at }
         : undefined
     const sequence = event ? event.seq : 0
     const out: ResultFrame | RejectFrame = decision.ok
@@ -273,7 +290,7 @@ export class OwnerEngine<S, P = unknown> {
           nextSeq,
           tx,
           frame.op,
-          JSON.stringify(frame.params ?? null),
+          JSON.stringify(effectiveParams ?? null),
           JSON.stringify(event!.actor),
           origin,
           at

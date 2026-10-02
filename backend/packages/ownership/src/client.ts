@@ -93,6 +93,7 @@ export class ProjectionClient<S, P = unknown> {
         principal: this.principal,
         now: Date.now(),
         tx: i.idempotency_key,
+        origin: i.origin,
         newId: (prefix) => `${prefix}_pending`
       })
       if (r.ok) s = r.state
@@ -171,6 +172,7 @@ export class ProjectionClient<S, P = unknown> {
       principal: e.actor,
       now: e.at,
       tx: e.tx,
+      origin: e.origin,
       newId: idFactory(e.tx)
     })
     // The owner committed this op with the same pure reducer, so it applies. If it does
