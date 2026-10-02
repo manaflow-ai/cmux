@@ -20,7 +20,10 @@ pub(super) fn rename_workspace(
     snapshot_mutation_result(mux, commit, "workspace.rename", "workspace")
 }
 
-pub(super) fn move_workspace(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
+pub(super) fn move_workspace(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
     let mutation = mutation(&request.envelope)?;
     let index = required_u64(&request.fields, "index")?
         .try_into()

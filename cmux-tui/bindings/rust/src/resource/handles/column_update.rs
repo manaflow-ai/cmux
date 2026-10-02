@@ -32,9 +32,8 @@ impl Screen {
             .optional_string("edge", options.edge)
             .optional_string("mode", options.mode);
         if let Some(width) = options.width {
-            let width = serde_json::Number::from_f64(width).ok_or_else(|| {
-                Error::InvalidArgument("column width must be finite".to_string())
-            })?;
+            let width = serde_json::Number::from_f64(width)
+                .ok_or_else(|| Error::InvalidArgument("column width must be finite".to_string()))?;
             params = params.value("width", Value::Number(width));
         }
         mutation_snapshot(

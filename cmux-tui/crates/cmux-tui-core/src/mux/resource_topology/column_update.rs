@@ -15,6 +15,10 @@ struct ColumnUpdate {
     width: Option<f32>,
 }
 
+fn invalid(field: &str, reason: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::new(ResourceError::validation_invalid(Some(field), reason))
+}
+
 impl ColumnUpdate {
     fn parse(fields: &Map<String, Value>) -> anyhow::Result<Self> {
         let column = SplitPublicId::parse(required_str(fields, "column")?.to_string())
@@ -22,23 +26,54 @@ impl ColumnUpdate {
         let edge = fields.get("edge").and_then(Value::as_str);
         let mode = fields.get("mode").and_then(Value::as_str);
         let sticky = match fields.get("sticky").and_then(Value::as_bool) {
-            Some(sticky) => Some(parse_column_sticky(sticky, edge, mode)?),
-            None => {
-                anyhow::ensure!(edge.is_none() && mode.is_none(), "edge and mode need sticky");
-                None
+            Some(sticky) => Some(
+                parse_column_sticky(sticky, edge, mode)
+                    .map_err(|error| invalid("sticky", error.to_string()))?,
+            ),
+            None if edge.is_some() || mode.is_some() => {
+                return Err(invalid("sticky", "edge and mode need sticky"));
             }
+            None => None,
         };
         let width = fields.get("width").and_then(Value::as_f64).map(|width| width as f32);
-        if let Some(width) = width {
-            anyhow::ensure!(
-                width.is_finite()
-                    && (MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width),
-                "column width is outside the representable range"
-            );
+        if let Some(width) = width
+            && !(width.is_finite()
+                && (MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width))
+        {
+            return Err(invalid("width", "width must be from 0.1 through 1"));
         }
-        anyhow::ensure!(sticky.is_some() || width.is_some(), "column.update needs sticky or width");
+        if sticky.is_none() && width.is_none() {
+            return Err(invalid("sticky", "column.update needs sticky or width"));
+        }
         Ok(Self { column, sticky, width })
     }
+}
+
+/// The pure reducer of `column.update`: the screen's layout and the op give
+/// the layout after the op (`None` when nothing changes) or the reject. Pane
+/// membership, tabs and column order are not touched.
+fn reduce_column_update(
+    layout: &ScreenLayoutSnapshot,
+    index: usize,
+    update: &ColumnUpdate,
+) -> anyhow::Result<Option<ScreenLayoutSnapshot>> {
+    let mut next = layout.clone();
+    if let Some(sticky) = update.sticky {
+        apply_column_sticky(&mut next.layout_columns, index, sticky)
+            .map_err(|error| invalid("sticky", error.to_string()))?;
+    }
+    let width_changed =
+        update.width.is_some_and(|width| (next.layout_columns[index].width - width).abs() > 0.0);
+    if let Some(width) = update.width.filter(|_| width_changed) {
+        next.layout_columns[index].width = width;
+        sync_layout_column_widths(&mut next);
+    }
+    let flags_changed = next
+        .layout_columns
+        .iter()
+        .zip(&layout.layout_columns)
+        .any(|(after, before)| after.sticky != before.sticky);
+    Ok((flags_changed || width_changed).then_some(next))
 }
 
 impl Mux {
@@ -70,28 +105,17 @@ impl Mux {
                 let (workspace, screen) =
                     find_screen(state, screen).context("resolved screen disappeared")?;
                 let current = &state.workspaces[workspace].screens[screen];
-                let column = state
+                let index = state
                     .resource_indexes
                     .splits
                     .get(&update.column)
-                    .copied()
-                    .with_context(|| format!("unknown column {}", update.column))?;
-                let index = current
-                    .layout_columns
-                    .iter()
-                    .position(|candidate| candidate.id == column)
-                    .with_context(|| format!("column {} is not on this screen", update.column))?;
-                let mut layout = current.layout_snapshot();
-                if let Some(sticky) = update.sticky {
-                    apply_column_sticky(&mut layout.layout_columns, index, sticky)?;
-                }
-                if let Some(width) = update.width {
-                    layout.layout_columns[index].width = width;
-                    sync_layout_column_widths(&mut layout);
-                }
-                let changed = layout.layout_columns.iter().zip(&current.layout_columns).any(
-                    |(after, before)| after.sticky != before.sticky || after.width != before.width,
-                );
+                    .and_then(|column| {
+                        current.layout_columns.iter().position(|candidate| candidate.id == *column)
+                    })
+                    .ok_or_else(|| invalid("column", "not a viewport column of this screen"))?;
+                let snapshot = current.layout_snapshot();
+                let changed = reduce_column_update(&snapshot, index, &update)?;
+                let layout = changed.clone().unwrap_or(snapshot);
                 let topology = registry.resource_topology_snapshot()?;
                 let durable = registry_screen_from_layout(
                     state,
@@ -121,9 +145,9 @@ impl Mux {
                     result,
                     deltas,
                     move |state| {
-                        if !changed {
+                        let Some(layout) = changed else {
                             return;
-                        }
+                        };
                         let target = &mut state.workspaces[workspace].screens[screen];
                         let before = target.layout_snapshot();
                         target.root = layout.root;

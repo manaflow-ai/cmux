@@ -8700,9 +8700,10 @@
         "validation.invalid"
       ],
       "constraints": [
-        "At least one of sticky or width is required; edge and mode require sticky.",
+        "At least one of sticky or width is required. edge and mode require the sticky field and apply only when sticky is true.",
         "width is finite, at least 0.1, and at most 1.",
-        "A screen keeps at most one sticky column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid."
+        "A screen keeps at most one sticky column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid.",
+        "The layout document of the resulting ScreenSnapshot does not carry sticky flags; the JSON-lines Screen.columns[].sticky does."
       ]
     },
     "frontend_projection.get": {

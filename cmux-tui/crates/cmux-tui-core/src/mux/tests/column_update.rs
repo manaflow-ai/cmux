@@ -174,7 +174,7 @@ fn column_update_refuses_to_leave_no_scrolling_column() {
         serde_json::json!({"column": columns[0], "sticky": true, "edge": "left"}),
         "column-last",
     );
-    assert!(rejected.is_err(), "{rejected:?}");
+    assert_eq!(rejected.unwrap_err().code, "validation.invalid");
     assert_eq!((flags(&mux), revision(&mux)), before, "a reject changes nothing");
 }
 
@@ -193,7 +193,8 @@ fn column_update_rejects_malformed_requests_without_changes() {
             serde_json::json!({"column": "split_0000000000000000000000000000beef", "sticky": true}),
         ),
     ] {
-        assert!(update(&mux, fields, key).is_err(), "{key} must be rejected");
+        let error = update(&mux, fields, key).expect_err(key);
+        assert_eq!(error.code, "validation.invalid", "{key}: {error:?}");
     }
     assert_eq!((flags(&mux), widths(&mux), revision(&mux)), before);
 }
@@ -271,4 +272,141 @@ fn column_update_sequences_keep_layout_invariants() {
         assert_eq!(replay["result"]["replayed"], true);
         assert_eq!(revision(&mux), committed, "a replay commits nothing");
     }
+}
+
+#[test]
+fn column_update_enforces_revision_and_idempotency_conflicts() {
+    let (mux, _) = column_mux(2);
+    let columns = column_ids(&mux);
+    let stale = update(
+        &mux,
+        serde_json::json!({"column": columns[1], "sticky": true, "expected_revision": "1"}),
+        "column-stale",
+    )
+    .unwrap_err();
+    assert_eq!(stale.code, "revision.conflict", "{stale:?}");
+    assert_eq!(flags(&mux), vec![None, None]);
+
+    update(&mux, serde_json::json!({"column": columns[1], "sticky": true}), "column-key").unwrap();
+    let reused = update(&mux, serde_json::json!({"column": columns[1], "width": 0.4}), "column-key")
+        .unwrap_err();
+    assert_eq!(reused.code, "idempotency.conflict", "{reused:?}");
+    assert!((widths(&mux)[1] - 0.4).abs() > 1e-3, "a conflicting reuse changes nothing");
+}
+
+#[test]
+fn column_update_that_changes_nothing_records_no_undo_entry() {
+    let (mux, _) = column_mux(2);
+    let columns = column_ids(&mux);
+    update(&mux, serde_json::json!({"column": columns[1], "sticky": true}), "column-first")
+        .unwrap();
+    let (undo, layout_revision) = mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        (screen.layout_undo.len(), screen.layout_revision)
+    });
+    update(&mux, serde_json::json!({"column": columns[1], "sticky": true}), "column-again")
+        .unwrap();
+    mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        assert_eq!((screen.layout_undo.len(), screen.layout_revision), (undo, layout_revision));
+    });
+}
+
+#[test]
+fn column_update_refuses_a_column_of_another_screen() {
+    let (mux, _) = column_mux(2);
+    let first_columns = column_ids(&mux);
+    let second = mux.new_screen(None, Some((80, 22))).unwrap();
+    let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+    mux.new_pane_right(second_pane, 0.5, Some((38, 22))).unwrap();
+    // The request names the first screen's column on the second screen.
+    let other_screen = mux.with_state(|state| state.workspaces[0].screens[1].public_id.to_string());
+    let request = serde_json::json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": "column-other",
+        "operation": "column.update",
+        "params": {
+            "machine": "current",
+            "session": "current",
+            "screen": other_screen,
+            "column": first_columns[1],
+            "sticky": true,
+        },
+        "idempotency_key": "column-other",
+    });
+    let error = crate::resource_router::handle_resource_message(&mux, &request.to_string())
+        .unwrap_err();
+    assert_eq!(error.code, "validation.invalid", "{error:?}");
+    assert_eq!(flags(&mux), vec![None, None]);
+}
+
+#[test]
+fn column_update_width_is_undone_by_undo_layout() {
+    let (mux, panes) = column_mux(2);
+    let columns = column_ids(&mux);
+    let before = widths(&mux);
+    update(&mux, serde_json::json!({"column": columns[1], "width": 0.3}), "column-narrow")
+        .unwrap();
+    assert!((widths(&mux)[1] - 0.3).abs() < 1e-6);
+    assert!(matches!(
+        mux.undo_layout(panes[1], None, false).unwrap(),
+        LayoutUndoResult::Undone { .. }
+    ));
+    assert_eq!(widths(&mux), before);
+}
+
+/// The flag and the width a column.update commits are in the screen's
+/// durable viewport record and come back after a daemon restart.
+#[test]
+fn column_update_survives_a_restart() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-column-update-restart-{}", WorkspacePublicId::random().unwrap()));
+    let session = "column-update-restart";
+    let (fixture_snapshot, fixture_topology) = resource_restore_fixture();
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-column-update", "test").unwrap(),
+                "session.restore_fixture",
+                &serde_json::json!({"fixture":"nested-columns"}),
+                None,
+                Some(0),
+                &resource_restore_patch(&fixture_snapshot, &fixture_topology),
+                &serde_json::json!({"restored":true}),
+                &serde_json::json!([{"event":"session.restored"}]),
+            )
+            .unwrap();
+    }
+    let open = || {
+        Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            WorkspaceRegistry::open(&root, session).unwrap(),
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap()
+    };
+    let mux = open();
+    let columns = column_ids(&mux);
+    update(
+        &mux,
+        serde_json::json!({"column": columns[1], "sticky": true, "edge": "left", "width": 0.5}),
+        "column-restart",
+    )
+    .unwrap();
+    mux.shutdown();
+    drop(mux);
+
+    let mux = open();
+    assert_eq!(flags(&mux), vec![None, flag(StickyEdge::Left, StickyMode::Docked)]);
+    assert!((widths(&mux)[1] - 0.5).abs() < 1e-6);
+    mux.with_state(|state| {
+        assert!(state.workspaces[0].screens[0].layout_column_projection_is_consistent());
+    });
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
 }
