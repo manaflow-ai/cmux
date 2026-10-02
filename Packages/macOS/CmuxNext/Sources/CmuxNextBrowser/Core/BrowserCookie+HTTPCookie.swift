@@ -2,7 +2,8 @@ public import Foundation
 
 /// Foundation cookies for a WebKit store. `HTTPCookiePropertyKey` has no
 /// HttpOnly key, so an HttpOnly cookie is parsed from a `Set-Cookie`
-/// header, as the old app's `BrowserCookieBuilder` did (#10530).
+/// header, as the old app's `BrowserCookieBuilder` did (#10530). Parsing
+/// caps its expiry at 400 days from now (RFC 6265bis), as Chromium does.
 nonisolated extension BrowserCookie {
     /// Nil when a field cannot be a cookie (or HttpOnly did not survive).
     public var httpCookie: HTTPCookie? {

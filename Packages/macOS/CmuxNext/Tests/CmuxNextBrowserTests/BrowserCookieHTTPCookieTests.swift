@@ -8,7 +8,8 @@ import Testing
 /// from page scripts).
 @Suite struct BrowserCookieHTTPCookieTests {
     @Test func httpOnlySurvives() throws {
-        let expires = Date(timeIntervalSince1970: 1_900_000_000)
+        // Whole seconds within the 400-day cap Set-Cookie parsing applies.
+        let expires = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 + 30 * 86_400).rounded(.down))
         let cookie = BrowserCookie(name: "sid", value: "abc", domain: ".example.com", path: "/app", expires: expires,
                                    secure: true, httpOnly: true)
         let made = try #require(cookie.httpCookie)
