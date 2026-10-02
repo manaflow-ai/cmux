@@ -125,7 +125,9 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
   }, [harness, current, currentEffort, offersEffort, effortName, settleMs]);
   // A combo for another model sends the model first, then its effort once the
   // agent reports that model and offers the effort; anything else drops it.
-  const pending = useRef<{ sessionId?: string; from?: string; model: string; effort: string; reached?: boolean } | undefined>(undefined);
+  const pending = useRef<
+    { sessionId?: string; from?: string; model: string; effort: string; reached?: boolean } | undefined
+  >(undefined);
   const effortId = effort?.id;
   const effortValues = (effort?.options ?? []).map((option) => option.value).join("\u0000");
   useEffect(() => {
