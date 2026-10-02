@@ -1,4 +1,5 @@
 import CmuxRemoteDaemon
+import CmuxRemoteWorkspace
 import Foundation
 import Testing
 
