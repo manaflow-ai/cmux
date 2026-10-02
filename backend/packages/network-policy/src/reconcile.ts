@@ -1,6 +1,6 @@
 import type { CompiledNetwork } from "./compile.ts"
 import { FreestyleError, type FreestyleNetworkApi, type FsTunnelDetail } from "./freestyle-client.ts"
-import { MANAGED_MARKER, fnv64, planFreestyle, teamTag, tunnelSlug, vpcSlug, type FsAction, type FsActual, type FsPlan, type FsRule, type FsVpc } from "./freestyle-plan.ts"
+import { DEFAULT_TTL_MS, MANAGED_MARKER, fnv64, parseExpiry, planFreestyle, resourceName, rulePrefix, scopeOf, tunnelSlug, vpcSlug, type FsAction, type FsActual, type FsPlan, type FsRule, type FsVpc, type Scope } from "./freestyle-plan.ts"
 import type { Directory } from "./types.ts"
 
 /**
@@ -83,14 +83,14 @@ export interface ActualRead extends FsActual {
   readonly memberVms: ReadonlySet<string>
 }
 
-export const readActual = async (api: FreestyleNetworkApi, team: string, machineIds: ReadonlyArray<string> = []): Promise<ActualRead> => {
+export const readActual = async (api: FreestyleNetworkApi, team: Scope, machineIds: ReadonlyArray<string> = []): Promise<ActualRead> => {
   const [vpc, tunnels, all] = await Promise.all([api.getVpc(vpcSlug(team)), api.listTunnels(`${vpcSlug(team)}-`), api.listAllRules()])
   const memberVms = new Set<string>()
   if (vpc) {
     const nets = await Promise.all(machineIds.map(async (id) => [id, await api.getVmVpcs(id)] as const))
     for (const [id, v] of nets) if (v?.includes(vpc.id)) memberVms.add(id)
   }
-  const prefix = `${MANAGED_MARKER} team=${teamTag(team)} `
+  const prefix = rulePrefix(team)
   const rules = all.filter((r) => r.description.startsWith(prefix))
   const ours = new Set<string>([...(vpc ? [vpc.id] : []), ...tunnels.map((t) => t.tunnelId), ...machineIds])
   const names = (e: FsRule["source"]) => [e.vpcId, e.tunnelId, e.vmId].some((x) => x !== undefined && ours.has(x))
@@ -110,7 +110,7 @@ type Effect =
   | { readonly kind: "tunnel"; readonly tunnel: FsTunnelDetail }
   | { readonly kind: "rule"; readonly rule: FsRule }
 
-const execute = async (api: FreestyleNetworkApi, team: string, a: FsAction): Promise<Effect> => {
+const execute = async (api: FreestyleNetworkApi, team: Scope, a: FsAction): Promise<Effect> => {
   switch (a.op) {
     case "rule.delete":
       await api.deleteRule(a.ruleId)
@@ -121,17 +121,21 @@ const execute = async (api: FreestyleNetworkApi, team: string, a: FsAction): Pro
     case "vpc.delete":
       await api.deleteVpc(a.vpcId)
       return { kind: "none" }
+    case "vpc.refresh":
+    case "tunnel.refresh":
+      // Issued directly by reconcile(), never through a plan.
+      return { kind: "none" }
     case "vpc.create":
-      return { kind: "vpc", vpc: await api.createVpc({ slug: a.slug, displayName: `cmux team network ${teamTag(team)}` }) }
+      return { kind: "vpc", vpc: await api.createVpc({ slug: a.slug, displayName: resourceName(team, "network") }) }
     case "tunnel.create":
-      return { kind: "tunnel", tunnel: await api.createTunnel({ slug: a.slug, displayName: `cmux device ${a.install.slice(0, 12)}`, clientPublicKey: a.publicKey, routes: a.routes, vpcId: a.vpcId }) }
+      return { kind: "tunnel", tunnel: await api.createTunnel({ slug: a.slug, displayName: resourceName(team, `device ${a.install.slice(0, 12)}`), clientPublicKey: a.publicKey, routes: a.routes, vpcId: a.vpcId }) }
     case "tunnel.rotate":
       return { kind: "tunnel", tunnel: await api.rotateTunnelKey(a.tunnelId, a.publicKey) }
     case "tunnel.attach":
       return { kind: "tunnel", tunnel: await api.attachVpc(a.tunnelId, a.vpcId) }
     case "rule.create":
       // The key is stable for the same rule in the same team, so a retried create can be deduplicated server-side if Freestyle honors it.
-      return { kind: "rule", rule: await api.createRule(a.spec, `cmux-np-${fnv64(`${team}:${a.key}`)}`) }
+      return { kind: "rule", rule: await api.createRule(a.spec, `cmux-np-${fnv64(`${scopeOf(team).env ?? "prod"}:${scopeOf(team).team}:${a.key}`)}`) }
   }
 }
 
@@ -166,7 +170,7 @@ const parallel = async <T, R>(items: ReadonlyArray<T>, n: number, fn: (t: T) => 
   return out
 }
 
-export const reconcile = async (api: FreestyleNetworkApi, team: string, compiled: CompiledNetwork, dir: Directory, opts: ReconcileOptions = {}): Promise<ReconcileReport> => {
+export const reconcile = async (api: FreestyleNetworkApi, team: Scope, compiled: CompiledNetwork, dir: Directory, opts: ReconcileOptions = {}): Promise<ReconcileReport> => {
   const now = opts.now ?? Date.now
   const startedAt = now()
   const maxPasses = opts.maxPasses ?? 4
@@ -217,6 +221,31 @@ export const reconcile = async (api: FreestyleNetworkApi, team: string, compiled
     actual = await readActual(api, team, machineIds)
   }
 
+  // Dev/staging: keep live resources' expiry ahead of the cleanup job (refresh when less than half the window is left).
+  const sc = scopeOf(team)
+  if (sc.env) {
+    const nowS = Math.floor((sc.now ?? now)() / 1000)
+    const half = Math.floor((sc.ttlMs ?? DEFAULT_TTL_MS) / 2000)
+    const stale = (name: string | null | undefined) => (parseExpiry(name) ?? 0) < nowS + half
+    const refresh = async (action: FsAction, fn: () => Promise<unknown>) => {
+      const t = now()
+      try {
+        await fn()
+        outcomes.push({ action, ok: true, ms: now() - t })
+      } catch (e) {
+        outcomes.push({ action, ok: false, ms: now() - t, error: errorOf(e) })
+      }
+    }
+    if (actual.vpc && stale(actual.vpc.displayName)) {
+      const id = actual.vpc.id
+      await refresh({ op: "vpc.refresh", vpcId: id }, () => api.updateVpc(id, resourceName(team, "network")))
+    }
+    for (const t of actual.tunnelDetails) {
+      const install = dir.devices.find((d) => tunnelSlug(team, d.install) === t.slug)?.install
+      if (install && stale(t.displayName)) await refresh({ op: "tunnel.refresh", tunnelId: t.tunnelId }, () => api.updateTunnel(t.tunnelId, resourceName(team, `device ${install.slice(0, 12)}`)))
+    }
+  }
+
   const vpc = actual.vpc
   const devices = new Map(dir.devices.map((d) => [tunnelSlug(team, d.install), d.install]))
   const tunnels: Array<DeviceTunnel> = []
@@ -236,7 +265,7 @@ export const reconcile = async (api: FreestyleNetworkApi, team: string, compiled
     })
   }
   return {
-    team,
+    team: scopeOf(team).team,
     passes,
     converged,
     outcomes,
@@ -254,7 +283,7 @@ export const reconcile = async (api: FreestyleNetworkApi, team: string, compiled
  * Tears down everything this reconciler made for a team (team deletion, test
  * cleanup). Touches only marker-tagged rules and team-slug tunnels and VPC.
  */
-export const teardown = async (api: FreestyleNetworkApi, team: string): Promise<ReadonlyArray<ActionOutcome>> => {
+export const teardown = async (api: FreestyleNetworkApi, team: Scope): Promise<ReadonlyArray<ActionOutcome>> => {
   const actual = await readActual(api, team)
   const outcomes: Array<ActionOutcome> = []
   const timed = async (action: FsAction, fn: () => Promise<void>) => {

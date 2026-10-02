@@ -34,6 +34,7 @@ export interface FsRule extends FsRuleSpec {
 export interface FsTunnel {
   readonly tunnelId: string
   readonly slug: string | null
+  readonly displayName?: string | null
   readonly clientPublicKey: string
   readonly attachments: ReadonlyArray<{ readonly vpcId: string; readonly ipv4?: string | null; readonly ipv6?: string | null }>
 }
@@ -41,6 +42,7 @@ export interface FsTunnel {
 export interface FsVpc {
   readonly id: string
   readonly slug: string | null
+  readonly displayName?: string | null
   readonly cidr: string | null
   readonly cidrV6: string
 }
@@ -58,8 +60,11 @@ export type FsAction =
   | { readonly op: "rule.delete"; readonly ruleId: string; readonly why: string }
   | { readonly op: "tunnel.delete"; readonly tunnelId: string; readonly slug: string; readonly why: string }
   | { readonly op: "vpc.create"; readonly slug: string }
-  /** Only teardown issues this; the planner never deletes a VPC. */
+  /** Only teardown and cleanup issue this; the planner never deletes a VPC. */
   | { readonly op: "vpc.delete"; readonly vpcId: string }
+  /** Dev/staging expiry refreshes (display name only). */
+  | { readonly op: "vpc.refresh"; readonly vpcId: string }
+  | { readonly op: "tunnel.refresh"; readonly tunnelId: string }
   | { readonly op: "tunnel.create"; readonly install: string; readonly slug: string; readonly publicKey: string; readonly vpcId: string; readonly routes: ReadonlyArray<string> }
   | { readonly op: "tunnel.rotate"; readonly install: string; readonly tunnelId: string; readonly publicKey: string }
   | { readonly op: "tunnel.attach"; readonly install: string; readonly tunnelId: string; readonly vpcId: string }
@@ -83,12 +88,60 @@ export const fnv64 = (s: string): string => {
   return h.toString(16).padStart(16, "0")
 }
 
+/**
+ * Where a team's resources live in the shared Freestyle account. Production
+ * uses `cmuxnp-<tag>`; development and staging use `cmuxnp-dev-<tag>` and
+ * `cmuxnp-staging-<tag>`, and every resource there carries an expiry (in its
+ * display name or rule description) that reconciles refresh and that the
+ * cleanup job (cleanup.ts) honors. A bare team id string means production.
+ */
+export interface NetworkScope {
+  readonly team: string
+  readonly env?: "dev" | "staging" | null
+  /** Expiry window for dev/staging resources (default 7 days). */
+  readonly ttlMs?: number
+  /** Clock for expiry stamps (default Date.now). */
+  readonly now?: () => number
+}
+export type Scope = string | NetworkScope
+export const DEFAULT_TTL_MS = 7 * 24 * 3600_000
+export const scopeOf = (s: Scope): NetworkScope => (typeof s === "string" ? { team: s, env: null } : s)
+const envPart = (s: Scope) => {
+  const env = scopeOf(s).env
+  return env ? `${env}-` : ""
+}
+/** Seconds since epoch when a resource created or refreshed now expires; null for production (no expiry). */
+export const expiryFor = (s: Scope): number | null => {
+  const sc = scopeOf(s)
+  if (!sc.env) return null
+  return Math.floor(((sc.now ?? Date.now)() + (sc.ttlMs ?? DEFAULT_TTL_MS)) / 1000)
+}
+/** The `exp=<seconds>` stamp in a display name or description, if any. */
+export const parseExpiry = (text: string | null | undefined): number | null => {
+  const m = /(?:^| )exp=(\d{9,12})(?: |$)/.exec(text ?? "")
+  return m ? Number(m[1]) : null
+}
+
 /** Short opaque team tag: the account is shared, so raw team ids never appear in provider slugs. */
-export const teamTag = (team: string) => fnv64(`cmux-np:team:${team}`).slice(0, 12)
-export const vpcSlug = (team: string) => `cmuxnp-${teamTag(team)}`
-export const tunnelSlug = (team: string, install: string) => `cmuxnp-${teamTag(team)}-${fnv64(`cmux-np:tunnel:${team}:${install}`).slice(0, 16)}`
-export const ruleDescription = (team: string, key: string) => `${MANAGED_MARKER} team=${teamTag(team)} rule=${key}`
-export const isManagedRule = (team: string, r: Pick<FsRuleSpec, "description">) => r.description.startsWith(`${MANAGED_MARKER} team=${teamTag(team)} `)
+export const teamTag = (team: Scope) => fnv64(`cmux-np:team:${scopeOf(team).team}`).slice(0, 12)
+export const vpcSlug = (s: Scope) => `cmuxnp-${envPart(s)}${teamTag(s)}`
+export const tunnelSlug = (s: Scope, install: string) => `${vpcSlug(s)}-${fnv64(`cmux-np:tunnel:${scopeOf(s).team}:${install}`).slice(0, 16)}`
+/** Prefix every managed rule of this scope's team starts with. */
+export const rulePrefix = (s: Scope) => {
+  const env = scopeOf(s).env
+  return `${MANAGED_MARKER} ${env ? `env=${env} ` : ""}team=${teamTag(s)} `
+}
+export const ruleDescription = (s: Scope, key: string) => {
+  const exp = expiryFor(s)
+  return `${rulePrefix(s)}${exp ? `exp=${exp} ` : ""}rule=${key}`
+}
+/** Display name for a managed VPC or tunnel; dev/staging names carry the expiry. */
+export const resourceName = (s: Scope, what: string) => {
+  const env = scopeOf(s).env
+  const exp = expiryFor(s)
+  return `cmux-np ${env ? `env=${env} ` : ""}team=${teamTag(s)} ${what}${exp ? ` exp=${exp}` : ""}`
+}
+export const isManagedRule = (s: Scope, r: Pick<FsRuleSpec, "description">) => r.description.startsWith(rulePrefix(s))
 
 /** Canonical identity of a Freestyle rule: its two endpoints (descriptions never affect equality). */
 export const fsRuleIdentity = (r: Pick<FsRuleSpec, "source" | "destination">): string => {
@@ -102,7 +155,7 @@ export interface Bindings {
   readonly machines: ReadonlyMap<string, string>
 }
 
-export const bindingsFrom = (team: string, dir: Directory, actual: FsActual): Bindings => {
+export const bindingsFrom = (team: Scope, dir: Directory, actual: FsActual): Bindings => {
   const bySlug = new Map(actual.tunnels.filter((t) => t.slug).map((t) => [t.slug!, t]))
   const tunnels = new Map<string, string>()
   for (const d of dir.devices) {
@@ -132,7 +185,7 @@ const bindEndpoint = (e: Endpoint, b: Bindings): FsEndpoint | string => {
   }
 }
 
-export const bindRule = (team: string, r: CompiledRule, b: Bindings): FsRuleSpec | string => {
+export const bindRule = (team: Scope, r: CompiledRule, b: Bindings): FsRuleSpec | string => {
   const source = bindEndpoint(r.src, b)
   if (typeof source === "string") return source
   const dst = bindEndpoint(r.dst, b)
@@ -145,7 +198,7 @@ export const bindRule = (team: string, r: CompiledRule, b: Bindings): FsRuleSpec
  * The actions that move Freestyle from `actual` to the compiled policy.
  * Pure; the reconciler executes the actions and plans again until empty.
  */
-export const planFreestyle = (team: string, compiled: CompiledNetwork, dir: Directory, actual: FsActual): FsPlan => {
+export const planFreestyle = (team: Scope, compiled: CompiledNetwork, dir: Directory, actual: FsActual): FsPlan => {
   const actions: Array<FsAction> = []
   const deferred: Array<{ key: string; reason: string }> = []
   const slug = vpcSlug(team)

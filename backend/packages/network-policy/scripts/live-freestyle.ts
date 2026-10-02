@@ -43,7 +43,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // ---- cleanup mode -----------------------------------------------------------
 if (process.argv[2] === "--cleanup") {
   const lines = readFileSync(process.argv[3]!, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { kind: string; id: string })
-  for (const l of lines.filter((x) => x.kind === "team")) log("teardown", l.id, JSON.stringify(await teardown(api, l.id)))
+  for (const l of lines.filter((x) => x.kind === "team")) log("teardown", l.id, JSON.stringify(await teardown(api, { team: l.id, env: "dev" })))
   for (const l of lines.filter((x) => x.kind === "vm")) await raw("DELETE", `/v5/vms/${l.id}`).then(() => log("deleted vm", l.id), (e) => log("vm delete", String(e)))
   process.exit(0)
 }
@@ -58,6 +58,8 @@ const team = `team_${rand(20)}`
 const user = `user_${rand(20)}`
 const install = `inst_${rand(20)}`
 record("team", team)
+// Dev namespace in the shared account: cmuxnp-dev- prefix, 1 h expiry; the hourly cleanup removes leftovers.
+const scope = { team, env: "dev" as const, ttlMs: 3600_000 }
 
 const priv = execFileSync("wg", ["genkey"]).toString().trim()
 const pub = execFileSync("wg", ["pubkey"], { input: priv }).toString().trim()
@@ -136,7 +138,7 @@ const until = async (fn: () => Promise<boolean>, deadlineMs: number, everyMs = 1
 
 try {
   // 1. Network for the team: VPC + tunnel (no machine yet).
-  const r1 = await reconcile(api, team, compile("8081"), directory)
+  const r1 = await reconcile(api, scope, compile("8081"), directory)
   results.first_reconcile = summarize(r1)
   log("reconcile 1", results.first_reconcile)
   if (!r1.vpc) throw new Error("no vpc")
@@ -148,8 +150,9 @@ try {
   // 2. A VM in the VPC with two listeners. TTL makes Freestyle delete it even if this script dies.
   const tVm = Date.now()
   const vm = await raw<{ id: string; vpcs?: Array<{ ipv4?: string; ipv6?: string }> }>("POST", "/v5/vms", {
-    displayName: `cmux-np live ${team.slice(5, 13)}`,
+    displayName: `cmuxnp-dev live ${team.slice(5, 13)}`,
     ttlSeconds: 3600,
+    metadata: { cmuxnp_env: "dev", cmuxnp_team: team.slice(5, 17) },
     firewall: { rules: [] },
     vpcs: [{ vpcId: r1.vpc.id }]
   })
@@ -168,7 +171,7 @@ try {
 
   // 3. Bind the machine and reconcile: rules to vm:22 and vm:8081 only.
   directory = { ...directory, machines: [{ id: "mach_teamvm", provider_id: vm.id, tags: ["team-vm"], ...(vmV4 ? { address: vmV4 } : {}) }] }
-  const r2 = await reconcile(api, team, compile("8081"), directory, { expectConverged: false })
+  const r2 = await reconcile(api, scope, compile("8081"), directory, { expectConverged: false })
   results.bind_machine = summarize(r2)
   log("reconcile 2", results.bind_machine)
 
@@ -229,8 +232,8 @@ try {
   const applies: Array<unknown> = []
   const removes: Array<unknown> = []
   for (let i = 0; i < 5; i++) {
-    applies.push(await flip(8080, true, () => reconcile(api, team, compile("8080,8081"), directory)))
-    removes.push(await flip(8080, false, () => reconcile(api, team, compile("8081"), directory)))
+    applies.push(await flip(8080, true, () => reconcile(api, scope, compile("8080,8081"), directory)))
+    removes.push(await flip(8080, false, () => reconcile(api, scope, compile("8081"), directory)))
   }
   results.firewall_apply = applies
   results.rule_remove = removes
@@ -238,10 +241,10 @@ try {
   log("remove", JSON.stringify(removes))
 
   // Does an established connection survive a rule removal?
-  await reconcile(api, team, compile("8080,8081"), directory)
+  await reconcile(api, scope, compile("8080,8081"), directory)
   await until(async () => (await probe(sock, target, 8080, 1000)).ok, 10_000, 100)
   const held = await probe(sock, target, 8080, 2500, true)
-  await reconcile(api, team, compile("8081"), directory)
+  await reconcile(api, scope, compile("8081"), directory)
   await sleep(1500)
   const alive = async (sk?: Socket) =>
     sk
@@ -260,7 +263,7 @@ try {
   const held2 = await probe(sock, target, 8081, 2500, true)
   const revoke = await flip(8081, false, () => {
     directory = { ...directory, devices: directory.devices.map((d) => ({ ...d, revoked: true })) }
-    return reconcile(api, team, compile("8081"), directory)
+    return reconcile(api, scope, compile("8081"), directory)
   })
   results.revoke = { ...revoke, established_survives: await alive(held2.socket) }
   log("revoke", results.revoke)
@@ -269,7 +272,7 @@ try {
   // 8. Re-join: a new tunnel for the same device key, then a fresh hub.
   directory = { ...directory, devices: directory.devices.map((d) => ({ ...d, revoked: false })) }
   const tJoin = Date.now()
-  const rj = await reconcile(api, team, compile("8081"), directory)
+  const rj = await reconcile(api, scope, compile("8081"), directory)
   const joinReconcile = Date.now() - tJoin
   writeFileSync(conf, rj.tunnels[0]!.clientConfig.replace(/^PrivateKey\s*=.*$/m, `PrivateKey = ${priv}`), { mode: 0o600 })
   const sock2 = join(dir0, "hub2.sock")
@@ -283,16 +286,16 @@ try {
   log("ERROR", results.error)
 } finally {
   hub?.kill("SIGTERM")
-  const td = await teardown(api, team)
+  const td = await teardown(api, scope)
   results.teardown = td.map((o) => `${o.action.op}${o.ok ? "" : "!"} ${o.ms}ms`)
   if (vmId) await raw("DELETE", `/v5/vms/${vmId}`).then(() => (results.vm_deleted = true), (e) => (results.vm_deleted = String(e)))
   // The VPC refuses deletion for a few seconds after its VM goes ("has reserved addresses"); retry.
   for (let i = 0; i < 10; i++) {
-    const again = await teardown(api, team)
+    const again = await teardown(api, scope)
     if (again.every((o) => o.ok)) break
     await sleep(2000)
   }
-  results.leftover = await api.getVpc(vpcSlug(team)).then((v) => (v ? v.id : null))
+  results.leftover = await api.getVpc(vpcSlug(scope)).then((v) => (v ? v.id : null))
   results.calls = Object.entries(
     calls.reduce<Record<string, Array<number>>>((acc, c) => {
       const k = `${c.method} ${c.path.replace(/\?.*$/, "")} ${c.status}`

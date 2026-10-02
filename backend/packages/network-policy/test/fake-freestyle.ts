@@ -38,10 +38,19 @@ export class FakeFreestyle implements FreestyleNetworkApi {
   async getVpc(slug: string) {
     return this.step("getVpc", () => [...this.vpcs.values()].find((v) => v.slug === slug || v.id === slug) ?? null)
   }
-  async createVpc({ slug }: { slug: string }) {
+  async listVpcs(prefix: string) {
+    return this.step("listVpcs", () => [...this.vpcs.values()].filter((v) => v.slug?.startsWith(prefix)))
+  }
+  async updateVpc(id: string, displayName: string) {
+    return this.step("updateVpc", () => void this.vpcs.set(id, { ...this.vpcs.get(id)!, displayName }))
+  }
+  async updateTunnel(id: string, displayName: string) {
+    return this.step("updateTunnel", () => void this.tunnels.set(id, { ...this.tunnels.get(id)!, displayName }))
+  }
+  async createVpc({ slug, displayName }: { slug: string; displayName?: string }) {
     return this.step("createVpc", () => {
       if ([...this.vpcs.values()].some((v) => v.slug === slug)) throw new FreestyleError(409, "conflict", "slug taken", "POST", "/v5/vpcs")
-      const v: FsVpc = { id: this.id("vpc"), slug, cidr: `10.${this.vpcs.size + 20}.0.0/24`, cidrV6: `fd0${this.vpcs.size}::/64` }
+      const v: FsVpc = { id: this.id("vpc"), slug, displayName: displayName ?? null, cidr: `10.${this.vpcs.size + 20}.0.0/24`, cidrV6: `fd0${this.vpcs.size}::/64` }
       this.vpcs.set(v.id, v)
       return v
     }).catch(async (e) => {
@@ -64,13 +73,14 @@ export class FakeFreestyle implements FreestyleNetworkApi {
   async getTunnel(idOrSlug: string) {
     return this.step("getTunnel", () => [...this.tunnels.values()].find((t) => t.tunnelId === idOrSlug || t.slug === idOrSlug) ?? null)
   }
-  async createTunnel(input: { slug: string; clientPublicKey: string; routes: ReadonlyArray<string>; vpcId: string }) {
+  async createTunnel(input: { slug: string; displayName?: string; clientPublicKey: string; routes: ReadonlyArray<string>; vpcId: string }) {
     return this.step("createTunnel", () => {
       if ([...this.tunnels.values()].some((t) => t.slug === input.slug)) throw new FreestyleError(409, "conflict", "slug taken", "POST", "/v5/tunnels")
       const id = this.id("tun")
       const t: FsTunnelDetail = {
         tunnelId: id,
         slug: input.slug,
+        displayName: input.displayName ?? null,
         clientPublicKey: input.clientPublicKey,
         attachments: [{ vpcId: input.vpcId, ipv4: `10.20.0.${this.tunnels.size + 2}`, ipv6: null }],
         clientConfig: `[Interface]\nPrivateKey = \nAddress = 100.64.0.1/32\n\n[Peer]\nPublicKey = SERVER\nAllowedIPs = ${input.routes.join(", ")}\nEndpoint = ${id}.vpn:51820\n`,

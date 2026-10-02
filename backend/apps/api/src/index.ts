@@ -1,8 +1,10 @@
+import { cleanupExpired, createFreestyleClient } from "@cmux/network-policy"
 import { authenticate, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
+import { networkEnv } from "./team-do.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
@@ -45,5 +47,23 @@ export default {
     const providerHook = url.pathname.match(/^\/v1\/hooks\/(github|slack|linear)$/)
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)
+  },
+
+  /**
+   * Hourly (development and staging only): delete EXPIRED `cmuxnp-dev-` /
+   * `cmuxnp-staging-` network resources in the shared Freestyle account.
+   * Never runs in production and never touches anything without that prefix
+   * and an expired stamp (network-policy cleanup.ts).
+   */
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    const ns = networkEnv(env.ENVIRONMENT)
+    if (!ns || !env.FREESTYLE_API_KEY || (env.ENVIRONMENT !== "development" && env.ENVIRONMENT !== "staging")) return
+    const api = createFreestyleClient({ apiKey: env.FREESTYLE_API_KEY, ...(env.FREESTYLE_API_URL ? { baseUrl: env.FREESTYLE_API_URL } : {}) })
+    ctx.waitUntil(
+      cleanupExpired(api, ns).then(
+        (out) => console.log(JSON.stringify({ msg: "network cleanup", env: ns, deleted: out.filter((o) => o.ok).length, failed: out.filter((o) => !o.ok).map((o) => `${o.action.op}: ${o.error?.code}`) })),
+        (e: unknown) => console.error(JSON.stringify({ msg: "network cleanup failed", env: ns, error: String(e) }))
+      )
+    )
   }
 } satisfies ExportedHandler<Env>

@@ -17,6 +17,10 @@ export interface FsTunnelDetail extends FsTunnel {
 
 export interface FreestyleNetworkApi {
   getVpc(slug: string): Promise<FsVpc | null>
+  /** VPCs whose slug starts with `prefix` (fails closed on a partial list). */
+  listVpcs(prefix: string): Promise<ReadonlyArray<FsVpc>>
+  updateVpc(id: string, displayName: string): Promise<void>
+  updateTunnel(id: string, displayName: string): Promise<void>
   createVpc(input: { slug: string; displayName: string }): Promise<FsVpc>
   deleteVpc(id: string): Promise<void>
   /** Tunnels whose slug starts with `prefix`. */
@@ -64,6 +68,7 @@ interface RawTunnel {
   tunnelId?: string
   id: string
   slug?: string | null
+  displayName?: string | null
   clientPublicKey: string
   clientConfig: string
   endpointHost?: string | null
@@ -83,6 +88,7 @@ interface RawRule {
 interface RawVpc {
   id: string
   slug?: string | null
+  displayName?: string | null
   cidr?: string | null
   cidrV6: string
 }
@@ -90,6 +96,7 @@ interface RawVpc {
 const tunnel = (t: RawTunnel): FsTunnelDetail => ({
   tunnelId: t.tunnelId ?? t.id,
   slug: t.slug ?? null,
+  displayName: t.displayName ?? null,
   clientPublicKey: t.clientPublicKey,
   attachments: t.attachments.map((a) => ({ vpcId: a.vpcId, ipv4: a.ipv4 ?? null, ipv6: a.ipv6 ?? null })),
   clientConfig: t.clientConfig,
@@ -99,7 +106,7 @@ const tunnel = (t: RawTunnel): FsTunnelDetail => ({
   routes: t.routes
 })
 
-const vpc = (v: RawVpc): FsVpc => ({ id: v.id, slug: v.slug ?? null, cidr: v.cidr ?? null, cidrV6: v.cidrV6 })
+const vpc = (v: RawVpc): FsVpc => ({ id: v.id, slug: v.slug ?? null, displayName: v.displayName ?? null, cidr: v.cidr ?? null, cidrV6: v.cidrV6 })
 
 /** Drops undefined fields so request bodies and rule identities match Freestyle's echo. */
 const clean = (e: FsEndpoint): FsEndpoint => Object.fromEntries(Object.entries(e).filter(([, v]) => v !== undefined && v !== null)) as FsEndpoint
@@ -142,6 +149,18 @@ export const createFreestyleClient = (opts: FreestyleClientOptions): FreestyleNe
     async getVpc(slug) {
       const r = await call<RawVpc>("GET", `/v5/vpcs/${seg(slug)}`)
       return r.data ? vpc(r.data) : null
+    },
+    async listVpcs(prefix) {
+      const r = await call<{ vpcs: Array<RawVpc>; totalCount?: number }>("GET", "/v5/vpcs?limit=100000")
+      const all = r.data?.vpcs ?? []
+      if (r.data?.totalCount !== undefined && r.data.totalCount > all.length) throw new FreestyleError(0, "partial_list", `vpc list returned ${all.length} of ${r.data.totalCount}`, "GET", "/v5/vpcs")
+      return all.filter((v) => v.slug?.startsWith(prefix)).map(vpc)
+    },
+    async updateVpc(id, displayName) {
+      await call("PATCH", `/v5/vpcs/${seg(id)}`, { displayName })
+    },
+    async updateTunnel(id, displayName) {
+      await call("PATCH", `/v5/tunnels/${seg(id)}`, { displayName })
     },
     async createVpc({ slug, displayName }) {
       try {

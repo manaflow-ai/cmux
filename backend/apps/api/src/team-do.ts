@@ -1,4 +1,4 @@
-import { compileNetwork, createFreestyleClient, reconcile, type FreestyleNetworkApi, type ReconcileReport } from "@cmux/network-policy"
+import { compileNetwork, createFreestyleClient, reconcile, type FreestyleNetworkApi, type NetworkScope, type ReconcileReport } from "@cmux/network-policy"
 import type { Principal, RejectFrame } from "@cmux/ownership"
 import type { ReconcileRecordParams } from "@cmux/protocol"
 import { directoryOf, effectivePolicy, net, networkInUse, readNetwork } from "./domains/network.ts"
@@ -9,6 +9,14 @@ import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 /** Slow server-side drift check (spec "Reconciler": a periodic reconciliation is acceptable server-side). */
 const DRIFT_CHECK_MS = 10 * 60_000
 const MAX_RETRY_MS = 5 * 60_000
+
+/**
+ * Freestyle namespace for this Worker's environment: production uses
+ * `cmuxnp-<team tag>`; staging and everything else (development, local,
+ * previews, tests) use the `cmuxnp-staging-` / `cmuxnp-dev-` prefixes with an
+ * expiry that the hourly cleanup honors (they share the production account).
+ */
+export const networkEnv = (environment: string): NetworkScope["env"] => (environment === "production" ? null : environment === "staging" ? "staging" : "dev")
 
 const rejected = (r: SubmitResult): RejectFrame | undefined => r.frames.find((f): f is RejectFrame => f.t === "reject")
 
@@ -88,7 +96,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     const dir = directoryOf(state)
     let report: ReconcileReport
     try {
-      report = await reconcile(api, team, compileNetwork(effectivePolicy(n), dir), dir, { expectConverged: !pending && Boolean(n.reconcile.last?.converged) })
+      report = await reconcile(api, { team, env: networkEnv(this.env.ENVIRONMENT) }, compileNetwork(effectivePolicy(n), dir), dir, { expectConverged: !pending && Boolean(n.reconcile.last?.converged) })
     } catch (e) {
       // Reads failed (Freestyle unreachable): nothing is known to have changed; back off and retry.
       this.backoff(seq, now)

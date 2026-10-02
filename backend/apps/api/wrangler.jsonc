@@ -24,6 +24,8 @@
   "env": {
     "development": {
       "name": "cmux-api-development",
+      // Hourly expiry cleanup of cmuxnp-dev- network resources (index.ts scheduled).
+      "triggers": { "crons": ["17 * * * *"] },
       "vars": { "ENVIRONMENT": "development", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
         "bindings": [
@@ -40,6 +42,8 @@
     },
     "staging": {
       "name": "cmux-api-staging",
+      // Hourly expiry cleanup of cmuxnp-staging- network resources (index.ts scheduled).
+      "triggers": { "crons": ["17 * * * *"] },
       "workers_dev": true,
       "vars": { "ENVIRONMENT": "staging", "DASHBOARD_ORIGIN": "https://console-staging.cmux.dev", "API_VERSION": "0.1.0", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
