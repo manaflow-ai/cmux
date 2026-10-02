@@ -13,6 +13,7 @@
 pub mod cdp;
 pub mod driver;
 pub mod engines;
+pub mod fs_sandbox;
 pub mod gate;
 pub mod host;
 pub mod mcp;

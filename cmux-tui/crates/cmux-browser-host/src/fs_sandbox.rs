@@ -1,0 +1,253 @@
+//! The REPL's file sandbox (`__cmuxNative.fs`, driver-protocol.md "Native
+//! host contract"): paths resolve against the session root; absolute paths
+//! must stay inside the root or the temporary directory. Results are
+//! `{"ok": value}` or `{"error": {"code", "message"}}`.
+
+use serde_json::{Value, json};
+use std::path::{Component, Path, PathBuf};
+
+pub struct FsSandbox {
+    root: PathBuf,
+    tmp: PathBuf,
+}
+
+fn err(code: &str, message: impl Into<String>) -> Value {
+    json!({"error": {"code": code, "message": message.into()}})
+}
+
+fn io_err(error: &std::io::Error, path: &str) -> Value {
+    use std::io::ErrorKind;
+    let code = match error.kind() {
+        ErrorKind::NotFound => "ENOENT",
+        ErrorKind::PermissionDenied => "EACCES",
+        ErrorKind::AlreadyExists => "EEXIST",
+        ErrorKind::NotADirectory => "ENOTDIR",
+        ErrorKind::IsADirectory => "EISDIR",
+        ErrorKind::DirectoryNotEmpty => "ENOTEMPTY",
+        _ => "EINVAL",
+    };
+    err(code, format!("{error}: {path}"))
+}
+
+/// Lexical normalization (no symlink resolution of missing paths).
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+impl FsSandbox {
+    pub fn new(root: impl Into<PathBuf>) -> FsSandbox {
+        let root = root.into();
+        let _ = std::fs::create_dir_all(&root);
+        let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| normalize(p));
+        FsSandbox { root: canonical(&root), tmp: canonical(&std::env::temp_dir()) }
+    }
+
+    /// The absolute path for `path`, or `EACCES` when it leaves the sandbox.
+    fn resolve(&self, path: &str) -> Result<PathBuf, Value> {
+        let joined =
+            if Path::new(path).is_absolute() { PathBuf::from(path) } else { self.root.join(path) };
+        let mut full = normalize(&joined);
+        // Resolve symlinks of the existing part so a link cannot point out.
+        if let Ok(real) = full.canonicalize() {
+            full = real;
+        } else if let (Some(parent), Some(name)) = (full.parent(), full.file_name())
+            && let Ok(real) = parent.canonicalize()
+        {
+            full = real.join(name);
+        }
+        if full.starts_with(&self.root) || full.starts_with(&self.tmp) {
+            Ok(full)
+        } else {
+            Err(err("EACCES", format!("{path} is outside the session's files")))
+        }
+    }
+
+    pub fn call(&self, op: &str, args: &Value) -> Value {
+        match self.run(op, args) {
+            Ok(value) => json!({"ok": value}),
+            Err(error) => error,
+        }
+    }
+
+    fn run(&self, op: &str, args: &Value) -> Result<Value, Value> {
+        let path_arg = |name: &str| -> String {
+            args.get(name).and_then(Value::as_str).unwrap_or("").to_owned()
+        };
+        let resolved = |name: &str| self.resolve(&path_arg(name));
+        let flag = |name: &str| args.get(name).and_then(Value::as_bool).unwrap_or(false);
+        let shown = path_arg("path");
+        let shown = shown.as_str();
+        match op {
+            "readFile" => {
+                let path = resolved("path")?;
+                let bytes = std::fs::read(&path).map_err(|e| io_err(&e, shown))?;
+                Ok(json!(base64_encode(&bytes)))
+            }
+            "writeFile" => {
+                let path = resolved("path")?;
+                let data = base64_decode(args.get("base64").and_then(Value::as_str).unwrap_or(""))
+                    .ok_or_else(|| err("EINVAL", "writeFile: base64 is not valid"))?;
+                let result = if flag("append") {
+                    use std::io::Write;
+                    std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&path)
+                        .and_then(|mut f| f.write_all(&data))
+                } else {
+                    std::fs::write(&path, &data)
+                };
+                result.map_err(|e| io_err(&e, shown))?;
+                Ok(Value::Null)
+            }
+            "mkdir" => {
+                let path = resolved("path")?;
+                let result = if flag("recursive") {
+                    std::fs::create_dir_all(&path)
+                } else {
+                    std::fs::create_dir(&path)
+                };
+                result.map_err(|e| io_err(&e, shown))?;
+                Ok(Value::Null)
+            }
+            "readdir" => {
+                let path = resolved("path")?;
+                let mut entries: Vec<Value> = std::fs::read_dir(&path)
+                    .map_err(|e| io_err(&e, shown))?
+                    .filter_map(Result::ok)
+                    .map(|entry| {
+                        let kind = entry.file_type().map(|t| file_type(&t)).unwrap_or("other");
+                        json!({"name": entry.file_name().to_string_lossy(), "type": kind})
+                    })
+                    .collect();
+                entries.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+                Ok(Value::Array(entries))
+            }
+            "stat" => {
+                let path = resolved("path")?;
+                let meta = std::fs::symlink_metadata(&path).map_err(|e| io_err(&e, shown))?;
+                let ms = |t: std::io::Result<std::time::SystemTime>| {
+                    t.ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0)
+                };
+                Ok(json!({
+                    "size": meta.len(),
+                    "type": file_type(&meta.file_type()),
+                    "mtimeMs": ms(meta.modified()),
+                    "birthtimeMs": ms(meta.created()),
+                }))
+            }
+            "rm" => {
+                let path = resolved("path")?;
+                if path == self.root || path == self.tmp {
+                    return Err(err(
+                        "EACCES",
+                        "rm: refusing to remove the session root or the temporary directory",
+                    ));
+                }
+                let result = match std::fs::symlink_metadata(&path) {
+                    Ok(meta) if meta.is_dir() => {
+                        if flag("recursive") {
+                            std::fs::remove_dir_all(&path)
+                        } else {
+                            std::fs::remove_dir(&path)
+                        }
+                    }
+                    Ok(_) => std::fs::remove_file(&path),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound && flag("force") => Ok(()),
+                    Err(e) => Err(e),
+                };
+                result.map_err(|e| io_err(&e, shown))?;
+                Ok(Value::Null)
+            }
+            "rename" | "copyFile" => {
+                let from = resolved("from")?;
+                let to = resolved("to")?;
+                let result = if op == "rename" {
+                    std::fs::rename(&from, &to)
+                } else {
+                    std::fs::copy(&from, &to).map(|_| ())
+                };
+                result.map_err(|e| io_err(&e, &path_arg("from")))?;
+                Ok(Value::Null)
+            }
+            "exists" => Ok(json!(resolved("path").map(|p| p.exists()).unwrap_or(false))),
+            "resolve" => Ok(json!(resolved("path")?.display().to_string())),
+            other => Err(err("EINVAL", format!("unknown fs operation {other}"))),
+        }
+    }
+}
+
+fn file_type(t: &std::fs::FileType) -> &'static str {
+    if t.is_symlink() {
+        "symlink"
+    } else if t.is_dir() {
+        "directory"
+    } else if t.is_file() {
+        "file"
+    } else {
+        "other"
+    }
+}
+
+const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+pub fn base64_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let mut acc = 0u32;
+    let mut bits = 0;
+    for c in text.bytes().filter(|c| !c.is_ascii_whitespace() && *c != b'=') {
+        let v = ALPHABET.iter().position(|a| *a == c)? as u32;
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_round_trips() {
+        for sample in [&b""[..], b"h", b"hi", b"hi!", b"\x00\xff\x10binary"] {
+            assert_eq!(base64_decode(&base64_encode(sample)).unwrap(), sample);
+        }
+        assert_eq!(base64_encode(b"hi"), "aGk=");
+        assert!(base64_decode("@@").is_none());
+    }
+}

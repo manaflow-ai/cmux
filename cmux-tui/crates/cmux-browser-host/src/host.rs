@@ -159,6 +159,12 @@ impl Host {
                 .iter()
                 .map(|(f, s)| ((*f).to_owned(), (*s).to_owned()))
                 .collect(),
+            resources: bundle::REPL_SCRIPTS
+                .iter()
+                .chain(bundle::AGENT_SCRIPTS.iter())
+                .map(|(f, s)| ((*f).to_owned(), (*s).to_owned()))
+                .chain(std::iter::once(("guide.md".to_owned(), bundle::GUIDE.to_owned())))
+                .collect(),
         };
         let vm = VmSession::spawn(config, gate.clone())
             .map_err(|e| DriverError::closed(format!("could not start the session: {e}")))?;

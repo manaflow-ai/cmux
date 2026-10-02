@@ -46,6 +46,7 @@ impl VmHost for FakeHost {
         match name {
             "secretSet" => Ok(json!({"__secret": args[0]})),
             "policyNarrow" => Err("the domain policy is locked for this session".into()),
+            "policyCheck" => Ok(Value::Null),
             _ => Ok(json!([])),
         }
     }
@@ -56,7 +57,10 @@ fn session(memory_limit: usize) -> (VmSession, Arc<FakeHost>) {
         Arc::new(FakeHost { calls: Mutex::new(Vec::new()), natives: Mutex::new(Vec::new()) });
     let config = VmConfig {
         session_id: "t".into(),
-        cwd: std::env::temp_dir().join(format!("vm-test-{}", std::process::id())).display().to_string(),
+        cwd: std::env::temp_dir()
+            .join(format!("vm-test-{}", std::process::id()))
+            .display()
+            .to_string(),
         memory_limit,
         capabilities: vec!["cdp".into()],
         scripts: vec![("mini.js".into(), MINI_RUNTIME.into())],
@@ -170,7 +174,7 @@ fn fs_is_sandboxed_to_the_session_root() {
          const read = fs('readFile', {path: 'd/a.txt'}).ok;\n\
          const list = fs('readdir', {path: 'd'}).ok.map((e) => e.name + ':' + e.type);\n\
          const outside = fs('readFile', {path: '/etc/hosts'}).error.code;\n\
-         const up = fs('writeFile', {path: '../escape.txt', base64: ''}).error.code;\n\
+         const up = fs('writeFile', {path: '../../../../../../../../etc/escape.txt', base64: ''}).error.code;\n\
          return [read, list, fs('exists', {path: 'd/a.txt'}).ok, outside, up];",
         Duration::from_secs(5),
     );

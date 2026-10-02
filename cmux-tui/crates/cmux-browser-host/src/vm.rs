@@ -34,6 +34,8 @@ pub struct VmConfig {
     pub capabilities: Vec<String>,
     /// `(file name, source)` in load order (manifest `repl` list).
     pub scripts: Vec<(String, String)>,
+    /// Bundled runtime files for `readResource` (relative path, text).
+    pub resources: Vec<(String, String)>,
 }
 
 /// The result of one `eval`.
@@ -344,6 +346,46 @@ fn install(
     native.set("cwd", config.cwd.clone()).map_err(js)?;
     native.set("capabilities", config.capabilities.clone()).map_err(js)?;
     native.set("tmpdir", std::env::temp_dir().display().to_string()).map_err(js)?;
+    native.set("homedir", std::env::var("HOME").unwrap_or_else(|_| "/".into())).map_err(js)?;
+    let resources: HashMap<String, String> = config.resources.iter().cloned().collect();
+    native
+        .set(
+            "readResource",
+            Function::new(ctx.clone(), move |path: String| -> Option<String> {
+                resources.get(&path).cloned()
+            })
+            .map_err(js)?,
+        )
+        .map_err(js)?;
+    let sandbox = crate::fs_sandbox::FsSandbox::new(&config.cwd);
+    native
+        .set(
+            "fs",
+            Function::new(ctx.clone(), move |op: String, args: String| -> String {
+                let args: Value = serde_json::from_str(&args).unwrap_or(json!({}));
+                sandbox.call(&op, &args).to_string()
+            })
+            .map_err(js)?,
+        )
+        .map_err(js)?;
+    // Native fetch (tab cookies, policy per redirect hop) is not built yet:
+    // answer `unsupported` through the result callback, as an async call does.
+    let fetch_results = tx.clone();
+    native
+        .set(
+            "fetch",
+            Function::new(ctx.clone(), move |call_id: f64, _request: String| {
+                let _ = fetch_results.send(Input::Result {
+                    call_id,
+                    outcome: Err(DriverError::new(
+                        crate::protocol::ErrorCode::Unsupported,
+                        "fetch: the browser host does not fetch yet; use page.evaluate(() => fetch(...))",
+                    )),
+                });
+            })
+            .map_err(js)?,
+        )
+        .map_err(js)?;
 
     let out = shared.clone();
     native
@@ -406,13 +448,21 @@ fn install(
         )
         .map_err(js)?;
 
-    for name in ["secretSet", "secretList", "secretDelete", "policyNarrow", "policyGet"] {
+    for name in [
+        "secretSet",
+        "secretList",
+        "secretDelete",
+        "policyNarrow",
+        "policyGet",
+        "policyLog",
+        "policyCheck",
+    ] {
         let host = host.clone();
         let function = Function::new(
             ctx.clone(),
             move |ctx: Ctx<'_>,
                   args: rquickjs::function::Rest<String>|
-                  -> rquickjs::Result<String> {
+                  -> rquickjs::Result<Option<String>> {
                 // Agreed ABI: secretSet(name, value, optionsJSON), policyNarrow(domainsJSON);
                 // other arguments are plain strings.
                 let json_at: &[usize] = match name {
@@ -436,7 +486,10 @@ fn install(
                 }
                 let args = parsed;
                 match host.native(name, Value::Array(args)) {
-                    Ok(value) => Ok(value.to_string()),
+                    // policyCheck answers a message or null, not JSON.
+                    Ok(Value::Null) if name == "policyCheck" => Ok(None),
+                    Ok(Value::String(message)) if name == "policyCheck" => Ok(Some(message)),
+                    Ok(value) => Ok(Some(value.to_string())),
                     Err(message) => Err(rquickjs::Exception::throw_message(&ctx, &message)),
                 }
             },

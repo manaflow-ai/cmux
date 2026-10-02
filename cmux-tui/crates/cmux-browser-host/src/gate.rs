@@ -28,6 +28,8 @@ pub struct Gate {
     policy: Mutex<Policy>,
     vault: Mutex<Vault>,
     grants: Grants,
+    /// Navigations the policy refused (`session.blockedNavigations()`).
+    log: Mutex<Vec<Value>>,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -44,6 +46,7 @@ impl Gate {
             policy: Mutex::new(Policy::default()),
             vault: Mutex::new(Vault::default()),
             grants,
+            log: Mutex::new(Vec::new()),
         }
     }
 
@@ -119,6 +122,13 @@ impl Gate {
         if let Some(url) = url {
             let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(reason) = policy.navigation_refusal(url) {
+                let at = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                self.log.lock().unwrap_or_else(PoisonError::into_inner).push(json!({
+                    "url": url, "reason": reason, "at": at, "blocked": "before"
+                }));
                 return Err(Self::refuse(format!("{title}: {url} is blocked: {reason}")));
             }
         }
@@ -243,6 +253,11 @@ impl VmHost for Gate {
             "policyGet" => {
                 Ok(effective(&self.policy.lock().unwrap_or_else(PoisonError::into_inner)))
             }
+            "policyLog" => {
+                Ok(Value::Array(self.log.lock().unwrap_or_else(PoisonError::into_inner).clone()))
+            }
+            // The tab's own last after-commit block; none are made yet.
+            "policyCheck" => Ok(Value::Null),
             other => Err(format!("unknown host function {other}")),
         }
     }
