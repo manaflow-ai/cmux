@@ -406,12 +406,64 @@ describe("App Store Server Notifications", () => {
 
   test("the retry job re-derives the plan for users whose subscription expired without a notification", async () => {
     await subscribe();
-    store.subscriptions.set(ORIGINAL, { ...subscription(), expiresAt: new Date(NOW.getTime() - 60_000) });
+    store.subscriptions.set(ORIGINAL, {
+      ...subscription(), expiresAt: new Date(NOW.getTime() - 60_000), updatedAt: new Date(NOW.getTime() - 30 * DAY),
+    });
     applied = [];
     const result = await retryAppleNotifications({}, deps());
     expect(result.lapsedUsers).toBe(1);
     expect(applied).toEqual(["user-a"]);
     expect(grants()).toBe(false);
+  });
+
+  describe("lapse sweep", () => {
+    const longAgo = new Date(NOW.getTime() - 60 * DAY);
+    function setRow(overrides: Partial<ReturnType<typeof subscription>>) {
+      store.subscriptions.set(ORIGINAL, { ...subscription(), updatedAt: longAgo, ...overrides });
+    }
+
+    test("catches a grace period that ended weeks after the expiry", async () => {
+      await subscribe();
+      setRow({ status: "grace_period", expiresAt: new Date(NOW.getTime() - 20 * DAY), gracePeriodExpiresAt: new Date(NOW.getTime() - 60_000) });
+      applied = [];
+      const result = await retryAppleNotifications({}, deps());
+      expect(result.lapsedUsers).toBe(1);
+      expect(applied).toEqual(["user-a"]);
+      expect(subscription().status).toBe("billing_retry");
+    });
+
+    test("leaves a grace period that has not ended", async () => {
+      await subscribe();
+      setRow({ status: "grace_period", expiresAt: new Date(NOW.getTime() - 20 * DAY), gracePeriodExpiresAt: new Date(NOW.getTime() + DAY) });
+      expect((await retryAppleNotifications({}, deps())).lapsedUsers).toBe(0);
+      expect(subscription().status).toBe("grace_period");
+    });
+
+    test("a swept row does not match again", async () => {
+      await subscribe();
+      setRow({ expiresAt: new Date(NOW.getTime() - 60_000) });
+      expect((await retryAppleNotifications({}, deps())).lapsedUsers).toBe(1);
+      expect(subscription().status).toBe("expired");
+      expect((await retryAppleNotifications({}, deps())).lapsedUsers).toBe(0);
+    });
+
+    test("a billing-retry row whose grace ended is swept once", async () => {
+      await subscribe();
+      setRow({ status: "billing_retry", expiresAt: new Date(NOW.getTime() - 40 * DAY), gracePeriodExpiresAt: new Date(NOW.getTime() - 10 * DAY) });
+      expect((await retryAppleNotifications({}, deps())).lapsedUsers).toBe(1);
+      expect(subscription().status).toBe("billing_retry");
+      expect((await retryAppleNotifications({}, deps())).lapsedUsers).toBe(0);
+    });
+
+    test("a failed re-derive is swept again on the next run", async () => {
+      await subscribe();
+      setRow({ expiresAt: new Date(NOW.getTime() - 60_000) });
+      applied = [];
+      applyFailures = 1;
+      expect(await retryAppleNotifications({}, deps())).toMatchObject({ lapsedUsers: 1, lapsedFailures: 1 });
+      expect(await retryAppleNotifications({}, deps())).toMatchObject({ lapsedUsers: 1, lapsedFailures: 0 });
+      expect(applied).toEqual(["user-a"]);
+    });
   });
 
   test("rejects an unsigned or forged notification before writing the ledger", async () => {

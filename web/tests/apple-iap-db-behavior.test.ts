@@ -157,10 +157,33 @@ describe("Apple IAP store", () => {
     expect(await store.pendingNotifications(10)).toEqual([]);
   });
 
-  dbTest("lists users whose granting row expired inside the sweep window", async () => {
-    await store.writeSubscriptionState(state({ expiresAt: new Date(NOW - 60_000) }), { tokenOwner: "user-a" });
-    await store.writeSubscriptionState(state({ originalTransactionId: "otx-2", expiresAt: new Date(NOW + DAY) }), { tokenOwner: "user-b" });
-    await store.writeSubscriptionState(state({ originalTransactionId: "otx-3", status: "expired", expiresAt: new Date(NOW - 60_000) }), { tokenOwner: "user-c" });
-    expect(await store.usersWithLapsedGrants(new Date(NOW), new Date(NOW - 7 * DAY), 10)).toEqual(["user-a"]);
+  dbTest("the lapse sweep lists rows past expiry and grace, oldest lapse first, until swept", async () => {
+    const write = (overrides: Partial<AppleSubscriptionState>, userId: string) =>
+      store.writeSubscriptionState(state(overrides), { tokenOwner: userId });
+    await write({ originalTransactionId: "otx-a", expiresAt: new Date(NOW - 60_000) }, "user-a");
+    await write({
+      originalTransactionId: "otx-b", status: "grace_period",
+      expiresAt: new Date(NOW - 20 * DAY), gracePeriodExpiresAt: new Date(NOW - 60 * 60_000),
+    }, "user-b");
+    await write({
+      originalTransactionId: "otx-c", status: "grace_period",
+      expiresAt: new Date(NOW - 20 * DAY), gracePeriodExpiresAt: new Date(NOW + DAY),
+    }, "user-c");
+    await write({ originalTransactionId: "otx-d", status: "expired", expiresAt: new Date(NOW - 60_000) }, "user-d");
+    await write({
+      originalTransactionId: "otx-e", status: "billing_retry",
+      expiresAt: new Date(NOW - 40 * DAY), gracePeriodExpiresAt: new Date(NOW - 10 * DAY),
+    }, "user-e");
+    // The rows were last written before they lapsed.
+    await sql!`update apple_subscriptions set updated_at = now() - interval '60 days'`;
+
+    const lapsed = await store.lapsedSubscriptions(new Date(NOW), 10);
+    expect(lapsed.map((row) => row.userId)).toEqual(["user-e", "user-b", "user-a"]);
+    await store.markLapseSwept(lapsed.map((row) => row.originalTransactionId), new Date(NOW));
+    expect(await store.lapsedSubscriptions(new Date(NOW), 10)).toEqual([]);
+    const statuses = await sql!`select original_transaction_id, status from apple_subscriptions order by original_transaction_id`;
+    expect(statuses.map((row) => [row.original_transaction_id, row.status])).toEqual([
+      ["otx-a", "expired"], ["otx-b", "billing_retry"], ["otx-c", "grace_period"], ["otx-d", "expired"], ["otx-e", "billing_retry"],
+    ]);
   });
 });
