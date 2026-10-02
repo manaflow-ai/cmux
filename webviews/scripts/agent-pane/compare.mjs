@@ -130,13 +130,14 @@ async function run(browser, name, scenario) {
   }
 }
 
-/// Scrolls the transcript until `anchor.text` starts `anchor.top` px below the top.
-/// The transcript is virtualized, so rows below the fold mount only once scrolled to:
-/// step down a viewport at a time until the text is mounted, then correct.
 function settle(page) {
   return page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 }
 
+/// Scrolls the transcript until `anchor.text` starts `anchor.top` px below the top.
+/// The transcript is virtualized, so rows below the fold mount only once scrolled to:
+/// step down a viewport at a time until the text is mounted, then correct. Scroll offsets
+/// snap to device pixels, so half a CSS pixel off is as close as it gets.
 async function scrollToAnchor(page, anchor) {
   for (let attempt = 0; attempt < 40; attempt++) {
     const delta = await page.evaluate(({ text, top }) => {
@@ -151,7 +152,7 @@ async function scrollToAnchor(page, anchor) {
         range.setEnd(node, at + text.length);
         const delta = range.getBoundingClientRect().top - top;
         scroller.scrollTop += delta;
-        return Math.abs(delta) < 0.5 ? 0 : delta;
+        return Math.abs(delta) <= 0.5 ? 0 : delta;
       }
       const before = scroller.scrollTop;
       scroller.scrollTop += scroller.clientHeight;
