@@ -9,9 +9,13 @@ final class HomePresenter {
     private(set) var view: HomeView?
     private(set) var isShown = false
     private let url: URL
+    private let server: HomeServer?
 
-    init(url: URL = HomeLocation.url()) {
-        self.url = url
+    /// `server` is not started when `CMUX_NEXT_MUX_URL` points elsewhere.
+    init(server: HomeServer, environment: [String: String] = ProcessInfo.processInfo.environment) {
+        let override = HomeLocation.override(environment: environment)
+        url = override ?? HomeLocation.defaultURL
+        self.server = override == nil ? server : nil
     }
 
     /// Shows Home in `root` and gives its page the keyboard.
@@ -19,7 +23,7 @@ final class HomePresenter {
         // The window re-checks what to show on every workspace change; only
         // the first show takes the title and the keyboard.
         if isShown, let view, view.superview != nil { return }
-        let view = view ?? HomeView(url: url)
+        let view = view ?? HomeView(url: url, server: server)
         self.view = view
         root.show(view)
         root.titlebar.title = HomeStrings.title

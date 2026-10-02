@@ -3,16 +3,20 @@ import CmuxNextDesign
 import WebKit
 
 /// Home's content: the mux Messages app in a web view, by default from the
-/// local mux server on this Mac (mux/local: acpmux agents, no sign-in). When
-/// nothing answers, a native message says how to start it and offers Retry.
+/// local mux server on this Mac (mux/local: acpmux agents, no sign-in), which
+/// it starts first. When nothing answers, a native message says how to
+/// install `mux` and offers Retry.
 /// A native Messages view can replace this view behind `HomePresenter`.
 final class HomeView: NSView, WKNavigationDelegate {
     let webView: WKWebView
     private let url: URL
+    private let server: HomeServer?
     private let unavailable = HomeUnavailableView()
+    private var loading: Task<Void, Never>?
 
-    init(url: URL) {
+    init(url: URL, server: HomeServer?) {
         self.url = url
+        self.server = server
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -32,7 +36,12 @@ final class HomeView: NSView, WKNavigationDelegate {
     private func load() {
         unavailable.isHidden = true
         webView.isHidden = false
-        webView.load(URLRequest(url: url))
+        loading?.cancel()
+        loading = Task { [weak self, server] in
+            await server?.ensureRunning()
+            guard let self, !Task.isCancelled else { return }
+            webView.load(URLRequest(url: url))
+        }
     }
 
     override func layout() {

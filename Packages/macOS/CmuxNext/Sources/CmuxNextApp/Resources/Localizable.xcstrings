@@ -4723,127 +4723,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "شغّل خادم mux المحلي في نسخة cmux لديك، ثم أعد المحاولة:"
+            "value": "يحتاج cmux إلى الأمر mux لتشغيل خادم mux المحلي. ثبّته من نسخة cmux لديك، ثم أعد المحاولة:"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokrenite lokalni mux server u svojoj kopiji cmuxa, pa pokušajte ponovo:"
+            "value": "cmux pokreće lokalni mux server naredbom mux. Instalirajte je iz svoje kopije cmuxa, pa pokušajte ponovo:"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start den lokale mux-server i din cmux-checkout, og prøv igen:"
+            "value": "cmux starter den lokale mux-server med kommandoen mux. Installer den fra din cmux-checkout, og prøv igen:"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Starte den lokalen mux-Server in deinem cmux-Checkout und versuche es erneut:"
+            "value": "cmux startet den lokalen mux-Server mit dem Befehl mux. Installiere ihn aus deinem cmux-Checkout und versuche es erneut:"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start the local mux server in your cmux checkout, then retry:"
+            "value": "cmux starts the local mux server with the mux command. Install it from your cmux checkout, then retry:"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicia el servidor local de mux en tu copia de cmux y vuelve a intentarlo:"
+            "value": "cmux inicia el servidor local de mux con el comando mux. Instálalo desde tu copia de cmux y vuelve a intentarlo:"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lancez le serveur mux local dans votre copie de cmux, puis réessayez :"
+            "value": "cmux lance le serveur mux local avec la commande mux. Installez-la depuis votre copie de cmux, puis réessayez :"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avvia il server mux locale nella tua copia di cmux, poi riprova:"
+            "value": "cmux avvia il server mux locale con il comando mux. Installalo dalla tua copia di cmux, poi riprova:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux のチェックアウトでローカル mux サーバーを起動してから再試行してください:"
+            "value": "cmux は mux コマンドでローカル mux サーバーを起動します。cmux のチェックアウトからインストールしてから再試行してください:"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចាប់ផ្ដើមម៉ាស៊ីនមេ mux មូលដ្ឋាននៅក្នុង cmux របស់អ្នក រួចព្យាយាមម្ដងទៀត៖"
+            "value": "cmux ចាប់ផ្ដើមម៉ាស៊ីនមេ mux មូលដ្ឋានដោយប្រើពាក្យបញ្ជា mux។ ដំឡើងវាពី cmux របស់អ្នក រួចព្យាយាមម្ដងទៀត៖"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 체크아웃에서 로컬 mux 서버를 시작한 후 다시 시도하세요:"
+            "value": "cmux는 mux 명령으로 로컬 mux 서버를 시작합니다. cmux 체크아웃에서 설치한 후 다시 시도하세요:"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start den lokale mux-serveren i cmux-kopien din, og prøv igjen:"
+            "value": "cmux starter den lokale mux-serveren med kommandoen mux. Installer den fra cmux-kopien din, og prøv igjen:"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uruchom lokalny serwer mux w swojej kopii cmux i spróbuj ponownie:"
+            "value": "cmux uruchamia lokalny serwer mux poleceniem mux. Zainstaluj je ze swojej kopii cmux i spróbuj ponownie:"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicie o servidor local do mux na sua cópia do cmux e tente novamente:"
+            "value": "O cmux inicia o servidor local do mux com o comando mux. Instale-o a partir da sua cópia do cmux e tente novamente:"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запустите локальный сервер mux в копии cmux и повторите попытку:"
+            "value": "cmux запускает локальный сервер mux командой mux. Установите её из копии cmux и повторите попытку:"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เริ่มเซิร์ฟเวอร์ mux ในเครื่องจาก cmux ของคุณ แล้วลองอีกครั้ง:"
+            "value": "cmux เริ่มเซิร์ฟเวอร์ mux ในเครื่องด้วยคำสั่ง mux ติดตั้งคำสั่งนี้จาก cmux ของคุณ แล้วลองอีกครั้ง:"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux kopyanızda yerel mux sunucusunu başlatın, sonra yeniden deneyin:"
+            "value": "cmux, yerel mux sunucusunu mux komutuyla başlatır. Komutu cmux kopyanızdan kurun, sonra yeniden deneyin:"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запустіть локальний сервер mux у копії cmux і спробуйте ще раз:"
+            "value": "cmux запускає локальний сервер mux командою mux. Установіть її з копії cmux і спробуйте ще раз:"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Khởi động máy chủ mux cục bộ trong bản cmux của bạn rồi thử lại:"
+            "value": "cmux khởi động máy chủ mux cục bộ bằng lệnh mux. Hãy cài lệnh này từ bản cmux của bạn rồi thử lại:"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在你的 cmux 检出中启动本地 mux 服务器，然后重试："
+            "value": "cmux 使用 mux 命令启动本地 mux 服务器。请从你的 cmux 检出中安装它，然后重试："
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在你的 cmux 檢出中啟動本機 mux 伺服器，然後重試："
+            "value": "cmux 使用 mux 指令啟動本機 mux 伺服器。請從你的 cmux 檢出中安裝它，然後重試："
           }
         }
       }

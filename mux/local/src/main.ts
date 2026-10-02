@@ -12,8 +12,10 @@ import { hostAllowed, originAllowed } from "./guard.ts";
 import { MUX_CONVERSATION_ID, MuxView, type AcpmuxEvent } from "./mux-view.ts";
 
 // Home's server: a live Messages view of the one `mux` acpmux session.
-// Start it from a terminal of the cmux app the mux should control: it runs
-// `mux up` with that terminal's environment, which also starts the cmux relay.
+// cmux-next starts it (`mux home`) when Home first opens, with a terminal's
+// environment, so the cmux relay controls that app. It can also run from a
+// cmux terminal. `MUX_EXIT_ON_STDIN_EOF=1`: exit when stdin closes, so the
+// server ends with the app that holds the other end, even after a crash.
 
 const port = Number(process.env.MUX_LOCAL_PORT ?? 47820);
 const dist = normalize(
@@ -228,6 +230,12 @@ async function follow(): Promise<void> {
   }
 }
 
+async function exitOnStdinEnd(): Promise<never> {
+  for await (const _ of Bun.stdin.stream());
+  console.log("mux home: stdin closed; exiting");
+  process.exit(0);
+}
+
 async function serveStatic(path: string): Promise<Response> {
   const file = normalize(join(dist, path));
   if (file.startsWith(dist) && path !== "/") {
@@ -243,7 +251,9 @@ async function serveStatic(path: string): Promise<Response> {
   );
 }
 
-console.log(`mux home: http://127.0.0.1:${port}`);
+// cmux-next waits for this line before it loads Home.
+console.log(`mux home: ready http://127.0.0.1:${server.port}`);
+if (process.env.MUX_EXIT_ON_STDIN_EOF === "1") void exitOnStdinEnd();
 await muxUp();
 void superviseInProcess();
 void follow();

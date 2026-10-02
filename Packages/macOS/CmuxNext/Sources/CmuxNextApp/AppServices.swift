@@ -14,6 +14,8 @@ import CmuxNextUpdater
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
     let environment: AppEnvironment
+    /// The local mux server Home shows; started when Home first opens.
+    lazy var homeServer = HomeServer(environment: environment.terminalEnvironmentProvider())
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// The local daemon. Cloud machines are in `machines`; code acting on a

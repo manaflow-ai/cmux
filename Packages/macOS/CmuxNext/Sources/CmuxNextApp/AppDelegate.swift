@@ -183,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.tabBarButtons.stop()
         settings?.stop()
         services?.mobile.stop()
+        services?.homeServer.stop()
         services?.daemon.shutdownConnection()
     }
 

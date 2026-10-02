@@ -27,7 +27,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
-    let home = HomePresenter()
+    lazy var home = HomePresenter(server: services.homeServer)
     private var startupObservation: Task<Void, Never>?
     /// The room theme: the whole window (sidebar, chrome, and every
     /// workspace without its own theme).

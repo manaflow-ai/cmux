@@ -26,6 +26,7 @@ import { ensureMuxSession, ensureSupervisor, hookSettings, writeSessionDir } fro
 
 const USAGE = `mux                            start (or reattach to) your mux in acpmux
 mux up                         set up the mux session and supervisor without attaching
+mux home                       serve Home (the Messages view of the mux) on 127.0.0.1:47820
 mux install                    put a \`mux\` launcher in ~/.local/bin (the mux's own tools need it)
 mux claude [args...]           a one-off Claude Code with the mux prompt and memory hooks
 mux agents spawn --cwd DIR [--name N] [--harness H] [--policy P] <prompt>
@@ -52,6 +53,10 @@ switch (command) {
     break;
   case "up":
     await up({ supervisor: !rest.includes("--no-supervisor") });
+    break;
+  case "home":
+    // The server lives in @mux/local, which depends on this package.
+    await import(new URL("../../local/src/main.ts", import.meta.url).href);
     break;
   case "install":
     install();

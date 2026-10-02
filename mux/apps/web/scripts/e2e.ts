@@ -22,9 +22,11 @@ try {
   } else {
     await page.goto(`${base}/?dev_user=e2e-${Date.now().toString(36)}`);
   }
-  // A server with one conversation (the local mux) opens it directly.
+  // A server with one conversation (the local mux) redirects to it.
+  const newButton = page.getByRole("button", { name: "New conversation" });
+  await Promise.race([page.waitForURL(/\/c\//), newButton.waitFor()]);
   if (!/\/c\//.test(page.url())) {
-    await page.getByRole("button", { name: "New conversation" }).click();
+    await newButton.click();
     await page.waitForURL(/\/c\//);
   }
   await page.getByPlaceholder("Message").fill(text);

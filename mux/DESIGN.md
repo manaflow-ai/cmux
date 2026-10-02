@@ -171,16 +171,18 @@ Rust link that lets a mux spawn and drive acpmux agents on a Mac.
 
 ## Local form, default for iteration (user 2026-10-01)
 
-cmux next's Home loads the local form by default: `mux/local`, a Bun server on
-127.0.0.1:47820 with no sign-in (`/api/auth/config` mode `none`). Each
-conversation's mux is one acpmux session (`mux-<id>`, harness `claude`,
-policy `approve-all`; `MUX_LOCAL_HARNESS`, `MUX_LOCAL_POLICY`). The first turn
-carries the instructions and the memory tail; acpmux keeps the context after
-that. Chats live in SQLite and memory in a git repo (LOG.txt) under
-`~/.cmux/mux/`; the agent greps older memory itself. Compaction is not wired
-in the local form yet. Because the agent can run commands, the server refuses
-any Host other than its loopback name and any foreign Origin. Staging and
-Stack sign-in stay reachable with `CMUX_NEXT_MUX_URL`.
+cmux next's Home loads the local form by default: `mux home` (mux/local), a
+Bun server on 127.0.0.1:47820 with no sign-in (`/api/auth/config` mode
+`none`). It is a Messages view of the one `mux` acpmux session described
+below. The app starts it when Home first opens (`HomeServer`): the child gets
+a terminal's environment, so its cmux relay controls that app, and the app's
+end of its stdin (`MUX_EXIT_ON_STDIN_EOF=1`), so it exits with the app even
+after a crash; quit also terminates it. Home loads after the server's
+`mux home: ready` line, after the server exits (a server already on the port
+answers), or after 15 s. Because the agent can run commands, the server
+refuses any Host other than its loopback name and any foreign Origin. Staging
+and Stack sign-in stay reachable with `CMUX_NEXT_MUX_URL`, which starts no
+local server.
 
 ## The mux on this Mac: an acpmux session plus a supervisor (user 2026-10-01)
 
