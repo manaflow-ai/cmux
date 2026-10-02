@@ -34,7 +34,7 @@ export type AcpmuxSnapshot = {
   type: "snapshot";
   protocolVersion: number;
   rows: AcpmuxRow[];
-  sessions: { sessionId: string; displayTitle?: string; title?: string; name?: string; status?: string; model?: string }[];
+  sessions: AcpmuxSessionEntry[];
   summary?: { sessionId: string; title?: string; name?: string; harness?: string; model?: string; effort?: string; status?: string; modes?: { availableModes: { id: string; name?: string }[]; currentModeId?: string }; configOptions?: { id: string; name?: string; category?: string; currentValue?: string; options: { value: string; name?: string }[] }[] };
   connection: string;
   sessionId?: string;
@@ -241,3 +241,4 @@ export function visibleLayoutRange(layoutModel: ConversationLayout, scrollTop: n
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
+import type { AcpmuxSessionEntry } from "./sessionList";
