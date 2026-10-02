@@ -214,7 +214,12 @@ export class HandoffClient {
       try {
         receipt = await this.request(HANDOFF_OPS.start, params);
       } catch (error) {
-        if (error instanceof AcpmuxRpcError || !this.state.ready || selection !== this.selection) throw error;
+        if (
+          (error instanceof AcpmuxRpcError && error.reason !== "uncertain_delivery") ||
+          !this.state.ready ||
+          selection !== this.selection
+        )
+          throw error;
         const restored = handoffRecord(await this.request(HANDOFF_OPS.get, { handoffId: record.handoffId }));
         if (selection === this.selection) this.adopt(restored);
         receipt = await this.request(HANDOFF_OPS.start, params);
