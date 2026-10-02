@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1.
+// cmux-tui mux protocol 12, IR 775c143e40049003fdc122b643a0f7d56fee06b3e9c46dff2d40bf7fc9767faa.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2150,6 +2150,8 @@ pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub force: Option<bool>,
     pub generation: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep_layout: Option<bool>,
     pub pid: u32,
 }
 
@@ -3399,6 +3401,10 @@ impl CmuxClient {
         if request.force.is_some() {
             self.require_protocol_field("shutdown-daemon", 10)?;
             self.require_capability_field("shutdown-daemon", "daemon-handoff-force-v1")?;
+        }
+        if request.keep_layout.is_some() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+            self.require_capability_field("shutdown-daemon", "end-terminals-keep-layout-v1")?;
         }
         self.execute(&SHUTDOWN_DAEMON_METADATA, &request)
     }
