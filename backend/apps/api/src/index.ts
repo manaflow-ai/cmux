@@ -4,6 +4,7 @@ import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
+import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
 export { AddressDO } from "./address-do.ts"
@@ -50,6 +51,10 @@ export default {
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)
     if (url.pathname === "/v1/sso/discover") return handleSsoDiscover(request, env)
+    if (url.pathname === "/v1/sso/start") return handleSsoStart(request, env)
+    const ssoCallbackPath = url.pathname.match(/^\/v1\/sso\/callback\/([^/]+)$/)
+    if (ssoCallbackPath) return handleSsoCallback(request, env, ssoCallbackPath[1]!)
+    if (url.pathname === "/v1/sso/redeem") return handleSsoRedeem(request, env)
     const providerHook = url.pathname.match(/^\/v1\/hooks\/(github|slack|linear)$/)
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)

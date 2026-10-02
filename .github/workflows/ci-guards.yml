@@ -465,6 +465,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_workflow_path_filter_parity.py
 
+      - name: Validate the backend migration flow (append-only plan, push-safe guards)
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_backend_migration_flow.py
+
       - name: Lint every workflow
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         env:
