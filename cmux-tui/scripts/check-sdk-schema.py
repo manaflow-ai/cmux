@@ -27,6 +27,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "TerminalDetachActor": "SizeDetachActor",
     "TerminalSizingPolicy": "SizePolicy",
     "ClientIdentityWire": "SizingIdentity",
+    "SplitRespawnRequest": "SplitRespawn",
 }
 
 sys.path.insert(0, str(BINDINGS))

@@ -6,7 +6,7 @@ Status: proposal, 2026-10-02 (lane 12, transport lead). Replaces iroh everywhere
 
 1. One overlay. Every cmux endpoint (the `cmux link` process on a Mac, Mac mini or Linux machine, the cmux server, every Cloud VM and team VM daemon, and the iOS app) runs one userspace WireGuard endpoint with one WireGuard key. A remote link between two endpoints is one end-to-end WireGuard session between them. Relays, Freestyle and Cloudflare carry ciphertext only.
 2. Paths are underlays. A session's datagrams travel on the best working path. The session, its overlay addresses and its TCP streams survive every path change. Which paths exist depends on the target:
-   - to a machine in the team VPC (Cloud VM, team VM, a cmux server hosted there): `via_cloud_region` (the device's Freestyle tunnel), then `do_relay`;
+   - to a machine in the team VPC (Cloud VM, team VM, a cmux server hosted there): `direct_wan` over IPv6 when the device has IPv6 (the VM's public IPv6, opened by a firewall rule for the device's current /128), then `via_cloud_region` (the device's Freestyle tunnel), then `do_relay`;
    - to a Mac, Mac mini or a cmux server outside the VPC: `direct_lan`, then `direct_wan` (a punched IPv4 mapping or IPv6), then `do_relay`.
    Freestyle does not forward between two tunnels (measured, section 13.2), so there is no Mac-to-Mac path through the VPC. This is D38 as decided: same-LAN direct, else the Durable Object relay.
 3. Connect fast, then improve. A dial sends the handshake on every available path at once; the first answer wins; probes then measure each path and the selector moves to the best one (direct first) without a reconnect.
@@ -187,6 +187,27 @@ iOS trade-offs: a packet tunnel would keep a tunnel up while the cmux app is sus
 - "Open window/workspace on session X": the app asks `owner_for(session X)` (data-model.md); the session registry holds X's host id. The app asks `cmux link` to dial that host; the link returns a local Unix socket that speaks the daemon protocol (as `remote connect` does today), and the window or workspace binds to that session. Capabilities that the host's policy refuses are disabled with the reason.
 - iOS has no local session: every session is remote; the phone opens the user's chosen default session.
 
+## 12a. What the overlay offers to local processes
+
+`cmux link` is the only process that holds the WireGuard key on a machine. Local processes of the same user (the app, the CLI, `remote connect` sidecars, the macOS screen agent helper, acpmux) use the overlay through the link's Unix sockets in a user-only directory (0600); the link checks peer credentials (same uid) and, on macOS, the caller's code signature (cmux team id) before it opens a stream or a datagram port. No second process needs or receives the key, so the screen agent helper does not get its own key (remote-desktop.md 19, question 5).
+
+| Service | Shape | Used by |
+| --- | --- | --- |
+| Interactive stream | one overlay TCP connection per link: control frames and `terminal_bytes` channels, Nagle off | session host, workspace store, acpmux (cmux.wire/1) |
+| Bulk stream | a second overlay TCP connection in the same WireGuard session: snapshots, history pages, files, loopback forwards | ghostty-next snapshot channel, file transfer, remote-localhost |
+| Datagrams | unreliable overlay UDP to a registered port on the peer; `cmux link` exposes a Unix datagram socket per local service; payload up to the link's `max_datagram` | remote desktop media (port 4103) |
+| Path events | subscription on the link socket: `path.changed {peer, path, rtt_ms, jitter_ms, loss_pct, max_datagram}` on every switch, plus the same fields every 5 s while the link carries traffic | path badge in the terminal view, remote desktop congestion control |
+
+Scheduling inside one session, strict priority: interactive datagrams (control and terminal bytes) first, then media datagrams, then bulk. The sender pacer applies to bulk only. Media datagrams older than 50 ms in the send queue are dropped (oldest first): media is unreliable by design and must never queue behind a stall. Streams never drop: a full send queue backpressures the writer (TCP window and the app's credit).
+
+Terminal channels (ghostty-next.md sections 2 and 11): live output is an ordered byte stream per terminal on the interactive connection, bounded by the per-viewer credit (`terminal.viewerBacklogBytes`, 256 KiB), so one flooding terminal cannot hold more than its credit in the interactive connection and cannot delay another terminal's echo by more than that backlog. Snapshots and history pages go on the bulk connection. Each frame carries `generation` and `offset`, so a snapshot that arrives on the bulk connection ahead of or behind live bytes is ordered by the viewer (bytes below the snapshot offset are discarded). The `behind` resync is a session host decision on its own credit, not a transport drop. The terminal view reads the path badge and RTT from the path events above.
+
+Inner MTU and `max_datagram`: one session uses one MTU, the smallest over the paths it may take, so a path switch never changes it: 1200 when the host is a VPC member (the Freestyle tunnel MTU is 1280, minus IPv6, UDP and WireGuard headers), else 1380 (room for one more encapsulation on common paths). `max_datagram` is the inner MTU minus 48 bytes (IPv6 and UDP headers): 1152 or 1332. The DO relay carries any size up to its 16 KiB frame, and frames batch several datagrams (landed in `cmux-transport`), so the relay is not the limit.
+
+Ports and policy: a host's overlay endpoint accepts only registered ports: 4100 (link), 4101 (WireGuard on VPC members, outer), 4102 (probes, inside the session), and ports that a local service registers with `cmux link` under a catalog service name (`remote-desktop` on 4103). Everything else is dropped. The network policy names services, not raw ports, for overlay destinations (`tag:desktop:remote-desktop`); the compiler maps service names to ports for host peer maps and to Freestyle firewall rules for VPC members. A peer allowed to reach a host therefore reaches only the services the policy names.
+
+In-process TCP defaults (`cmux-wg`): Nagle off; keepalive probe after 15 s idle; link connections use a 10-minute user timeout (60 s today, being raised); a FIN lost on close is a known bug from the remote desktop prototype, with a regression test in the engine round.
+
 ## 13. Measurements (2026-10-02)
 
 The local development Mac had a load of about 800 on 18 cores, so no timing was taken from it. Ends were Fly.io machines (shared-cpu-1x, 256 MB, sjc unless named), a Freestyle VM (`freestyle/ubuntu-sm`, San Francisco) and a lightly loaded fleet Mac mini behind the office NAT. Raw files and scripts are in the lane's private scratch directory.
@@ -248,9 +269,25 @@ The local development Mac had a load of about 800 on 18 cores, so no timing was 
 | First message after 30 to 75 s idle (object hibernated and rebuilt) | 15.5 ms p50 (n=12) |
 | Message ceiling per object | about 4,000 incoming messages per second; two clients share it; two objects about 7,000 |
 
+### 13.6 Round 2 (2026-10-02 afternoon): IPv6, far regions, first-connect stalls
+
+| Item | Value |
+| --- | --- |
+| Direct IPv6, cloud machine (sjc) to Freestyle VM public IPv6, UDP 64 B | 2.72 to 2.77 / 3.44 to 3.63 ms p50/p99 (n=1000 x2); tunnel path to the same VM 2.80 / 3.34 ms |
+| VM public IPv6 with no firewall rule | silent drop; with an allow rule for the peer's /128 it works on the first probe |
+| Cloud NAT66 to NAT66 (sjc to fra) | needs simultaneous probes (port preserved); then the first probe answers; 141.2 / 144.7 ms |
+| Far device, fra, to the San Francisco VM | tunnel 146.4 / 149.6 ms (kernel), 145.7 / 150.1 ms (in-process); direct IPv6 142.3 / 146.0 ms |
+| Far device, nrt | tunnel 106.3 / 107.7 ms (kernel), 111.8 / 113.9 ms (in-process); direct IPv6 105.4 / 119.1 ms |
+| Far device download, single stream (fra / nrt) | tunnel kernel 14.1 / 20.6 Mbit/s; in-process 11.0 / 15.6 (bounded by the 256 KiB window); direct IPv6 43.9 / 61.6 Mbit/s |
+| Far device cold start to first echo, in-process | fra 547 ms, nrt 459 to 469 ms (handshake ready at 206 ms; the ready signal moves in ~100 ms steps) |
+| First connect on fresh tunnels used at once | 13 of 13 under 2 s (348 to 627 ms create to first good connection); rule to first SYN at the VM 19 to 34 ms; reused addresses behave like fresh ones |
+| First connect on a never-used tunnel idle more than ~5 min | about 15 s in 5 of 6 cases (and the round 1 outlier): the handshake completes, the gateway drops the session's data, and WireGuard re-handshakes only after 15 s; a forced second handshake connects in 156 ms. Tunnels used once and then idle 12 min were fast (4 of 4) |
+
+Consequences: the engine forces a new handshake when no authenticated packet arrives within about 1 s of sending data on a new session (instead of waiting 15 s), and this goes on the Freestyle ask list as a gateway bug with the repro. VPC hosts gain a direct IPv6 path for devices that have IPv6: same RTT as the tunnel in San Francisco, but 3 to 4 times the single-stream throughput at 100 to 150 ms RTT, where the tunnel path is slower even with kernel WireGuard (cause not known). The firewall rule for that path follows the device's current IPv6 /128 from its published candidates (rules take effect in 19 to 34 ms).
+
 ### 13.5 Cost of the measurements
 
-Freestyle VM about $0.11; Fly.io about $0.03 across all helpers (no IP addresses allocated); Cloudflare within the included plan. Every resource was created with the `cmuxnp-dev-tp-` prefix and deleted (Fly apps, Freestyle VPC, VM, three tunnels and their rules verified 404, the Worker and its Durable Object class).
+Round 1: Freestyle VM about $0.11, Fly.io about $0.03; round 2: about $0.18 (Freestyle VM $0.16, Fly $0.02) (no IP addresses allocated); Cloudflare within the included plan. Every resource was created with the `cmuxnp-dev-tp-` prefix and deleted (Fly apps, Freestyle VPC, VM, three tunnels and their rules verified 404, the Worker and its Durable Object class).
 
 ## 14. Replacing iroh
 
@@ -278,6 +315,6 @@ Verification beyond unit tests: a TLA+ model of dial, path switch, roaming and r
 
 - The in-process stack has measured defects that block shipping: uploads above about 1 MiB fail through the Freestyle tunnel (no congestion control; datagrams dropped when the UDP send queue is full), a 5 s stall after sleep, a fixed 250 ms timer when idle, no rebind, and a 60 s TCP timeout that kills suspended phones' links. smoltcp also has no SACK. If the fixed stack still falls short, bulk moves to QUIC streams inside the session (one more layer) or the host side uses kernel WireGuard on VMs.
 - About half of office-to-cloud pairs get no direct path; they stay on the relay (7.8 ms in one metro, 40 Mbit/s unbatched). Hole punching with many ports and router port mapping can raise the rate later.
-- Freestyle has one tunnel endpoint in San Francisco: users far from it pay that round trip to reach VMs (which are in San Francisco too, so this costs nothing extra today). Ask list for Freestyle: regional endpoints, tunnel-to-tunnel forwarding (or a documented no), firewall evaluate that matches the data plane, the 15 s first-connection outlier, limits on tunnels and rules per VPC.
+- Freestyle has one tunnel endpoint in San Francisco: users far from it pay that round trip to reach VMs (which are in San Francisco too, so this costs nothing extra today). Ask list for Freestyle: regional endpoints, tunnel-to-tunnel forwarding (or a documented no), firewall evaluate that matches the data plane, the gateway that drops the first session's data on a never-used tunnel idle for more than ~5 min (repro in section 13.6), lower single-stream throughput through the gateway at high RTT, limits on tunnels and rules per VPC.
 - TCP inside the relay WebSocket: under loss two TCP layers retransmit. Acceptable for a fallback; the selector leaves the relay as soon as UDP works.
 - Durable Object placement can drift if Cloudflare moves objects; the host re-measures its relay object RTT on start and re-picks when it is more than 10 ms worse than at enrollment.

@@ -101,6 +101,7 @@ mod launch_snapshot;
 mod personal;
 mod responses;
 mod screen_json;
+mod split_respawn;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
@@ -109,6 +110,7 @@ use responses::{
     send_bad_request, send_request_error, send_request_error_with_delivery, send_response,
 };
 use screen_json::screen_json;
+use split_respawn::{SplitRespawnRequest, placement_spawn_options, shell_argv, split_tab};
 mod terminal_create;
 mod terminal_resources;
 mod url_open;
@@ -222,6 +224,7 @@ pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
 /// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
+pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
 /// Durable notification acknowledgement decoupled from focus:
 /// `ack-tab-notifications`, `list-notifications`, and the workspace
 /// `unread_count` rollup.
@@ -399,6 +402,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         TAB_DRAG_CAPABILITY,
+        TAB_SPLIT_RESPAWN_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
         TAB_GROUPS_CAPABILITY,
         SAVED_TAB_GROUPS_CAPABILITY,
@@ -1973,6 +1977,8 @@ enum Command {
         edge: String,
         #[serde(default)]
         ratio: Option<f32>,
+        #[serde(default)]
+        respawn: Option<SplitRespawnRequest>,
         #[serde(default)]
         transaction: Option<String>,
     },
@@ -14671,11 +14677,11 @@ fn handle_command_with_cancellation(
             let (workspace, pane) = surface_placement(mux, surface);
             Ok(json!({"surface": surface, "workspace": workspace, "pane": pane, "undoable": false}))
         }
-        Command::MoveTabToSplit { surface, pane, edge, ratio, transaction } => {
+        Command::MoveTabToSplit { surface, pane, edge, ratio, respawn, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;
             let edge = crate::TabDropEdge::parse(&edge)?;
-            let outcome = mux.move_tab_to_split(surface, pane, edge, ratio, transaction)?;
+            let outcome = split_tab(mux, surface, pane, edge, ratio, respawn, transaction)?;
             Ok(tab_drag_outcome_json(&outcome))
         }
         Command::MoveTabToColumn { surface, pane, screen, after_column, width, transaction } => {
@@ -16235,33 +16241,6 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     workspaces["generation"] = json!(generation);
     workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
     Ok(workspaces)
-}
-
-fn placement_spawn_options(
-    cwd: Option<String>,
-    env: Option<&BTreeMap<String, String>>,
-    terminal_id: Option<String>,
-    shell_args: Option<Vec<String>>,
-) -> anyhow::Result<crate::TerminalSpawnOptions> {
-    let env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
-    let argv = shell_argv(&env, shell_args);
-    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id, argv })
-}
-
-/// `terminal-shell-args-v1`: the shell the terminal would run with no
-/// arguments, given `shell_args`, so a frontend can pass the argv Ghostty's
-/// shell integration needs (bash `--posix` with `ENV`, nushell `--execute`).
-/// The shell is the terminal's own `SHELL` from its `env` (the frontend
-/// chose the arguments for it), else the daemon's default shell. None or an
-/// empty list keeps the plain default shell.
-fn shell_argv(env: &[(String, String)], shell_args: Option<Vec<String>>) -> Option<Vec<String>> {
-    let shell_args = shell_args.filter(|arguments| !arguments.is_empty())?;
-    let shell = env
-        .iter()
-        .find(|(key, value)| key == "SHELL" && !value.is_empty())
-        .map(|(_, value)| value.clone())
-        .unwrap_or_else(platform::default_shell);
-    Some(std::iter::once(shell).chain(shell_args).collect())
 }
 
 /// The reply of a placement command: the new view and the terminal it

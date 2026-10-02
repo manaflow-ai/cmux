@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d";
+inline constexpr std::string_view kProtocolIrSha256 = "714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -132,6 +132,7 @@ enum class SizeReason;
 struct SizeState;
 struct SizingIdentity;
 enum class SplitDirection;
+struct SplitRespawn;
 struct SurfaceResult;
 struct Tab;
 struct TabRef;
@@ -2252,10 +2253,23 @@ struct MoveTabToNewWorkspaceRequest {
     friend bool operator==(const MoveTabToNewWorkspaceRequest&, const MoveTabToNewWorkspaceRequest&) = default;
 };
 
+struct SplitRespawn {
+    Field<std::string> cwd{};
+    Field<std::string> engine{};
+    Field<std::map<std::string, std::string, std::less<>>> env{};
+    std::string kind{};
+    Field<std::string> profile_id{};
+    Field<std::vector<std::string>> shell_args{};
+    Field<std::string> terminal_id{};
+    Field<std::string> url{};
+    friend bool operator==(const SplitRespawn&, const SplitRespawn&) = default;
+};
+
 struct MoveTabToSplitRequest {
     std::string edge{};
     Id pane{};
     Field<float> ratio{};
+    Field<SplitRespawn> respawn{};
     Id surface{};
     Field<std::string> transaction{};
     friend bool operator==(const MoveTabToSplitRequest&, const MoveTabToSplitRequest&) = default;
@@ -4590,6 +4604,12 @@ template <>
 struct Codec<SplitDirection> {
     static Result<Json> encode(const SplitDirection& value);
     static Result<SplitDirection> decode(const Json& value);
+};
+
+template <>
+struct Codec<SplitRespawn> {
+    static Result<Json> encode(const SplitRespawn& value);
+    static Result<SplitRespawn> decode(const Json& value);
 };
 
 template <>

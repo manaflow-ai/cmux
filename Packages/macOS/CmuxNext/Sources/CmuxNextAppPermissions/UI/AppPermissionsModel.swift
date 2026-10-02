@@ -32,6 +32,8 @@ public final class AppPermissionsModel {
     public private(set) var records: [String: AppPermissionRecord] = [:]
     public private(set) var activity: [String: [AppActivityEntry]] = [:]
     public var selectedAppID: String?
+    /// Install state for the pane's "While Hidden" section (nil hides it).
+    public var installs: AppInstallsModel?
     /// The last refused change, shown under the pane until the next change.
     public private(set) var lastRejection: AppGrantRejection?
 

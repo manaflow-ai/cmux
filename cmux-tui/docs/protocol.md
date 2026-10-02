@@ -160,6 +160,16 @@ moves the tab back without closing anything:
 {"id":16,"cmd":"undo-layout","pane":2}
 ```
 
+`tab-split-respawn-v1` adds `respawn` to `move-tab-to-split`. A pane's only
+tab dropped on that pane's own edge then splits the pane: the daemon leaves a
+fresh tab of the given kind (a new terminal, or a new browser tab) in the old
+pane and moves the dragged tab into the new one. The fresh tab copies the
+kind, never the state (no URL, scrollback, or session):
+
+```json
+{"id":17,"cmd":"move-tab-to-split","surface":4,"pane":2,"edge":"right","respawn":{"kind":"terminal","cwd":"/src"}}
+```
+
 `notification-ack-v1` decouples notification acknowledgement from focus.
 `ack-tab-notifications {surface}` clears a tab's unread marker and records the
 acknowledgement durably, so it survives a daemon restart; frontends call it

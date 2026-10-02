@@ -36,7 +36,6 @@ Provenance: images from tagged build `specvis-v1` of feat-cmux-next `1824883286a
 
 These rows describe the target. Code fixes are in progress in separate lanes; ports implement the target.
 
-- Reduce Transparency: the palette, its actions menu and shortcut recorder, hover cards, and the browser find bar, prompt bar and notices call `Glass.makePanel` directly, so they skip the opaque fallback ([design-tokens.md](design-tokens.md#4-materials)).
 - `appearance.borders = none`: the agent pane composer, menu and code block edges still draw ([agent-pane.md](components/agent-pane.md#borders-none)).
 
 ## Open questions for Lawrence (via the coordinator)

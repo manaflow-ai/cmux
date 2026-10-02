@@ -139,3 +139,15 @@ Source: worker review of 6aa4a6e1170, PR 16783 and PR 16774. Failing test commit
 - Lock precedence (coordinator decision, consistent with E2): an SSO- or MDM-managed ConnectionDO lock always wins over TeamPolicy. `integration.policy.apply_managed {source: team_policy}` is a no-op under such a lock; TeamDO copies nothing from it, settles the version without retrying and returns `integration_managed_by` in `team.policy.get`. Tested with a lock committed through ConnectionDO's own system op (nothing writes these locks yet).
 - Snapshot cost: hidden events are coalesced into one filtered snapshot per subscriber per batch (250 ms one-shot timer, one view per identity); `OwnerEngine.snapshot` skips the ledger query for an empty pending list.
 - M2 device compliance landed in the same push.
+
+## Spec proposal: shared teams (for the coordinator; backend lead reviews)
+
+Needed by SSO just-in-time membership, SCIM and every team-admin op (today every session maps to the user's personal team, and team-admin ops refuse shared teams).
+
+1. Membership rows in `TeamDO`: `members: {user -> {role, joined_at, source: personal | invite | sso | scim, status: active | suspended}}`. TeamDO is the single writer; the outbox projects `memberships` (exists). Roles: `owner | admin | member` (the existing enum). Invariants: every team has at least one active owner; the personal team has exactly its user, as owner; a suspended member's ops are refused by every owner.
+2. Ops: `team.create {display_name}` (creates a shared team; the caller is owner), `team.member.invite {email, role}` (admins; Stack team invitation or an invite token), `team.member.provision {user, role, source}` (system: SSO JIT and SCIM, with the source's actor), `team.member.set_role`, `team.member.suspend | remove` (destructive: revokes the member's grants on team resources and team SSH certificates in the same commit; the last owner cannot leave), `team.list` (UserDO read: the user's teams).
+3. Team selection in tokens: the short-lived install JWT gets a `team` claim chosen at mint (`/v1/auth/token {team?}`), default the personal team. UserDO checks membership through a `TeamDO.memberRole(user)` RPC at mint and on refresh (revocation within one token lifetime); session tokens select the team with an `x-cmux-team` header checked the same way. Owners keep checking the role from their own state (owner-side check, never the claim alone).
+4. UserDO keeps the user's team list (projection of TeamDO membership events, written by a system op from TeamDO), so `team.list` and the dashboard's team switcher need no scan.
+5. Migration: personal teams unchanged; the `kind` field (`personal | stack`) gains `shared`; Stack teams mirror into shared teams later through the same `team.member.provision` op.
+
+Strongest objection: a team claim in the token can go stale when a member is removed. Answer: owners check the member row on every op (the claim only routes), and refresh re-checks at mint, so removal takes effect at once for ops and within one token lifetime for routing.

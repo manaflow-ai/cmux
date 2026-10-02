@@ -63,3 +63,12 @@ extension CreateTerminalRequest: ShellIntegrationArgumentCarrying {
         return request
     }
 }
+
+extension MoveTabToSplitRespawnRequest: ShellIntegrationArgumentCarrying {
+    func addingShellIntegrationArguments() -> Self {
+        guard case .terminal(let options) = respawn else { return self }
+        var request = self
+        request.respawn = .terminal(options.addingShellIntegrationArguments())
+        return request
+    }
+}
