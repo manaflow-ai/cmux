@@ -2039,7 +2039,6 @@
         },
         "app": {
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
-          "whatsNew": "cmux 在更新後如何顯示新功能。off 不顯示任何內容，quiet 會在側邊欄說明按鈕上顯示圓點直到你開啟摘要，sheet 會在新版本首次啟動後開啟一次摘要。隨時可從「輔助說明 > cmux 新功能」開啟。",
           "windowTitleTemplate": "可選的 NSWindow 標題範本。留空會保留 cmux 既有的預設標題行為，包括回退到目前目錄。支援的預留位置：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "devWindowDisplay": "僅在 DEBUG 建置中開啟新視窗時使用的顯示器名稱。空值會使用系統預設值。",
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
