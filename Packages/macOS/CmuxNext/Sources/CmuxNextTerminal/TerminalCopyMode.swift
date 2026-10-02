@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCopyMode
+import CmuxNextTerminalFind
 import GhosttyKit
 
 // Keyboard copy mode (Toggle Copy Mode, ⇧⌘M): vim keys over the scrollback,
@@ -148,9 +149,9 @@ final class TerminalCopyMode {
             // The app's find prompt, the same one ⌘F opens.
             _ = view.handleHostAction(.find)
         case .searchNext:
-            for _ in 0..<count { view.searchNext() }
+            for _ in 0..<count { view.session?.navigateSearch(.next) }
         case .searchPrevious:
-            for _ in 0..<count { view.searchPrevious() }
+            for _ in 0..<count { view.session?.navigateSearch(.previous) }
         case .adjustSelection(let move):
             moveCopyModeCursor(move, count: count, surface: surface)
         }
