@@ -26,6 +26,10 @@ final class CloudTreeCellView: NSTableCellView {
     }
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
+    /// Persistent create rows use the same inset hover treatment as inline
+    /// device actions. The outline owns hover tracking, so this remains
+    /// visible even though ordinary row content passes pointer events through.
+    let persistentActionHover = NSView()
     private var portsStatus: CloudPortsStatusContent?
     private var portsStatusTrailingConstraint: NSLayoutConstraint?
     private var portAction: @MainActor (CloudPortsStatusAction, SurfaceMachineID) -> Void = { _, _ in }
@@ -35,6 +39,9 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var showsHoverButtons = false
+    private var showsPersistentActionHover = false {
+        didSet { updatePersistentActionHover() }
+    }
     private var hovered = false {
         didSet {
             // An invisible overlay still participates in AppKit hit testing.
@@ -55,6 +62,10 @@ final class CloudTreeCellView: NSTableCellView {
         self.collaborators = collaborators
         super.init(frame: frameRect)
         identifier = Self.identifier
+        persistentActionHover.wantsLayer = true
+        persistentActionHover.layer?.cornerRadius = 4
+        updatePersistentActionHoverAppearance()
+        persistentActionHover.isHidden = true
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(workspacePresenceDidChange(_:)),
@@ -62,11 +73,17 @@ final class CloudTreeCellView: NSTableCellView {
             object: nil
         )
         displayHost.translatesAutoresizingMaskIntoConstraints = false
+        persistentActionHover.translatesAutoresizingMaskIntoConstraints = false
         addSubview(displayHost)
+        addSubview(persistentActionHover, positioned: .below, relativeTo: displayHost)
         // The outline owns the complete disclosure slot and gap. The hosted
         // content starts at the cell edge, with no second horizontal offset.
         // Content pads its own trailing edge (`style.rowGrid.trailingPadding`).
         NSLayoutConstraint.activate([
+            persistentActionHover.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            persistentActionHover.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            persistentActionHover.topAnchor.constraint(equalTo: topAnchor, constant: 1),
+            persistentActionHover.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -1),
             displayHost.leadingAnchor.constraint(equalTo: leadingAnchor),
             displayHost.topAnchor.constraint(equalTo: topAnchor),
             displayHost.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -151,6 +168,7 @@ final class CloudTreeCellView: NSTableCellView {
         configuredNodeActions = nodeActions
         configuredStyle = style
         self.portAction = portAction
+        showsPersistentActionHover = Self.isPersistentActionRow(node.kind)
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
@@ -226,6 +244,18 @@ final class CloudTreeCellView: NSTableCellView {
         )
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updatePersistentActionHoverAppearance()
+    }
+
+    private func updatePersistentActionHoverAppearance() {
+        let color = NSColor.labelColor
+            .resolvedColor(with: effectiveAppearance)
+            .withAlphaComponent(0.06)
+        persistentActionHover.layer?.backgroundColor = color.cgColor
+    }
+
     private func makeButtonsHost(style: CloudTreeStyle) -> CloudTreeRowControlsHostingView {
         let host = CloudTreeRowControlsHostingView(rootView: AnyView(EmptyView()))
         host.translatesAutoresizingMaskIntoConstraints = false
@@ -269,6 +299,22 @@ final class CloudTreeCellView: NSTableCellView {
     func setHovered(_ hovered: Bool) {
         guard self.hovered != hovered else { return }
         self.hovered = hovered
+        updatePersistentActionHover()
+    }
+
+    private func updatePersistentActionHover() {
+        persistentActionHover.isHidden = !(showsPersistentActionHover && hovered)
+    }
+
+    static func isPersistentActionRow(_ kind: CloudTreeNode.Kind) -> Bool {
+        switch kind {
+        case .createAction:
+            return true
+        case .placeholder(_, let placeholder):
+            return placeholder.style == .createMachine
+        default:
+            return false
+        }
     }
 
     override func prepareForReuse() {
@@ -276,6 +322,7 @@ final class CloudTreeCellView: NSTableCellView {
         machineReorderAccessibilityActions = nil
         configuredNode = nil
         configuredNodeActions = nil
+        showsPersistentActionHover = false
         displayHost.passesThrough = true
         updatePresenceSubscription()
         toolTip = nil

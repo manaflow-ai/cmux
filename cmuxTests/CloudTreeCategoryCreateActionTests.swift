@@ -44,6 +44,61 @@ struct CloudTreeCategoryCreateActionTests {
         #expect(fixture.events.resolvedWorkspaceActionCalled)
     }
 
+    @Test("Persistent create rows expose the shared hover treatment")
+    func persistentCreateRowsUseHoverHighlight() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+
+        fixture.apply(machines: [])
+        let newMachine = try #require(fixture.cloudSection?.children.first { node in
+            if case .createAction(.newCloudVM) = node.kind { return true }
+            return false
+        })
+        let machineCell = try fixture.cell(for: newMachine)
+        machineCell.setHovered(true)
+        #expect(!machineCell.persistentActionHover.isHidden)
+        machineCell.setHovered(false)
+        #expect(machineCell.persistentActionHover.isHidden)
+
+        fixture.apply(machines: [fixture.machine])
+        let workspaces = try #require(fixture.machineNode?.children.first { node in
+            if case .workspacesGroup = node.kind { return true }
+            return false
+        })
+        let newWorkspace = try #require(workspaces.children.last { node in
+            if case .createAction(.newWorkspace(.cloud(fixture.machineID))) = node.kind { return true }
+            return false
+        })
+        let workspaceCell = try fixture.cell(for: newWorkspace)
+        workspaceCell.setHovered(true)
+        #expect(!workspaceCell.persistentActionHover.isHidden)
+
+        let connectingPlaceholder = CloudTreeNode(
+            id: "connecting-placeholder",
+            kind: .placeholder(
+                machine: .cloud("offline"),
+                CloudTreePlaceholder(text: "Connecting", style: .connecting)
+            )
+        )
+        let placeholderCell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        placeholderCell.configure(
+            node: connectingPlaceholder,
+            machineActions: fixture.machineActions,
+            nodeActions: fixture.nodeActions
+        )
+        placeholderCell.setHovered(true)
+        #expect(placeholderCell.persistentActionHover.isHidden)
+
+        #expect(CloudTreeCellView.isPersistentActionRow(.placeholder(
+            machine: .cloud("empty"),
+            CloudTreePlaceholder(text: "New Machine", style: .createMachine)
+        )))
+        #expect(!CloudTreeCellView.isPersistentActionRow(.placeholder(
+            machine: .cloud("offline"),
+            CloudTreePlaceholder(text: "Connecting", style: .connecting)
+        )))
+    }
+
     @Test("Disabled Cloud omits the no-machine workspace fallback")
     func disabledCloudOmitsResolvedWorkspaceAction() throws {
         let fixture = Fixture()
@@ -193,6 +248,8 @@ struct CloudTreeCategoryCreateActionTests {
         let machineID = "footer-machine"
         let machine: MachineSnapshot
         let events: Events
+        let machineActions: MachineRowActions
+        let nodeActions: CloudTreeNodeActions
         let coordinator: CloudTreeOutlineView.Coordinator
         let container: CloudTreeContainerView
 
@@ -225,11 +282,14 @@ struct CloudTreeCategoryCreateActionTests {
                 newMachine: { eventBox.cloudVMActionCalled = true },
                 newWorkspaceOnResolvedMachine: { eventBox.resolvedWorkspaceActionCalled = true }
             )
+            self.nodeActions = actions
+            let machineActions = MachineRowActions(
+                openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
+                confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
+            )
+            self.machineActions = machineActions
             coordinator = CloudTreeOutlineView.Coordinator(
-                machineActions: MachineRowActions(
-                    openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-                    confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
-                ),
+                machineActions: machineActions,
                 nodeActions: actions,
                 expansionStore: CloudTreeExpansionStore(defaults: defaults),
                 tabDragTransferRegistry: { nil }
