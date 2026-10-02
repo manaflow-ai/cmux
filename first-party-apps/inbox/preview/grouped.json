@@ -1,0 +1,327 @@
+{
+  "grant": [
+    "notification:read",
+    "notification:write",
+    "agent:read",
+    "terminal:read",
+    "workspace:read",
+    "workspace:write",
+    "actions:run",
+    "terminal:execute",
+    "integration:github:read"
+  ],
+  "ops": {
+    "notification.list": [
+      {
+        "id": "notification_1",
+        "session_id": "session_1",
+        "title": "Permission needed",
+        "body": "Run npm test -- --runInBand?",
+        "level": "warning",
+        "created_at_ms": "1790937051863",
+        "unread": true,
+        "read_by": [],
+        "terminal_id": "terminal_1",
+        "subtitle": "Allow running the test suite"
+      },
+      {
+        "id": "notification_2",
+        "session_id": "session_1",
+        "title": "Docs build failed",
+        "body": "2 broken links in guides/retries.md",
+        "level": "error",
+        "created_at_ms": "1790935671863",
+        "unread": true,
+        "read_by": [],
+        "terminal_id": "terminal_3"
+      },
+      {
+        "id": "notification_3",
+        "session_id": "session_1",
+        "title": "Disk space low",
+        "body": "Less than 5 GB free on the build volume",
+        "level": "warning",
+        "created_at_ms": "1790926371863",
+        "unread": true,
+        "read_by": []
+      },
+      {
+        "id": "notification_4",
+        "session_id": "session_1",
+        "title": "Preview deployed",
+        "body": "web-dashboard preview is ready",
+        "level": "info",
+        "created_at_ms": "1790843571863",
+        "unread": false,
+        "read_by": []
+      }
+    ],
+    "agent.list": [
+      {
+        "id": "agent_1",
+        "session_id": "session_1",
+        "terminal_id": "terminal_1",
+        "state": "blocked",
+        "source": "hook",
+        "updated_at_ms": "1790937051863",
+        "source_session": "claude"
+      },
+      {
+        "id": "agent_2",
+        "session_id": "session_1",
+        "terminal_id": "terminal_2",
+        "state": "done",
+        "source": "hook",
+        "updated_at_ms": "1790936331863",
+        "source_session": "codex"
+      },
+      {
+        "id": "agent_3",
+        "session_id": "session_1",
+        "terminal_id": "terminal_4",
+        "state": "working",
+        "source": "hook",
+        "updated_at_ms": "1790937111863",
+        "source_session": "claude"
+      }
+    ],
+    "terminal.list": [
+      {
+        "id": "terminal_1",
+        "tab_id": "tab_1",
+        "tab_ids": [
+          "tab_1"
+        ],
+        "title": "fix flaky retry test",
+        "cwd": "~/src/api-server",
+        "cols": 120,
+        "rows": 40,
+        "running": true,
+        "lifecycle": "running"
+      },
+      {
+        "id": "terminal_2",
+        "tab_id": "tab_2",
+        "tab_ids": [
+          "tab_2"
+        ],
+        "title": "dark mode toggle",
+        "cwd": "~/src/web-dashboard",
+        "cols": 120,
+        "rows": 40,
+        "running": true,
+        "lifecycle": "running"
+      },
+      {
+        "id": "terminal_3",
+        "tab_id": "tab_3",
+        "tab_ids": [
+          "tab_3"
+        ],
+        "title": "docs build",
+        "cwd": "~/src/api-server/docs",
+        "cols": 120,
+        "rows": 40,
+        "running": true,
+        "lifecycle": "running"
+      },
+      {
+        "id": "terminal_4",
+        "tab_id": "tab_4",
+        "tab_ids": [
+          "tab_4"
+        ],
+        "title": "refactor charts",
+        "cwd": "~/src/web-dashboard",
+        "cols": 120,
+        "rows": 40,
+        "running": true,
+        "lifecycle": "running"
+      }
+    ],
+    "workspace.list": [
+      {
+        "id": "workspace_1",
+        "session_id": "session_1",
+        "name": "api-server",
+        "index": 0,
+        "focused": true
+      },
+      {
+        "id": "workspace_2",
+        "session_id": "session_1",
+        "name": "web-dashboard",
+        "index": 1,
+        "focused": false
+      }
+    ],
+    "screen.list": [
+      {
+        "id": "screen_1",
+        "workspace_id": "workspace_1",
+        "name": null,
+        "index": 0,
+        "focused": true,
+        "layout": {}
+      },
+      {
+        "id": "screen_2",
+        "workspace_id": "workspace_2",
+        "name": null,
+        "index": 0,
+        "focused": false,
+        "layout": {}
+      }
+    ],
+    "pane.list": [
+      {
+        "id": "pane_1",
+        "screen_id": "screen_1",
+        "name": null,
+        "focused": true,
+        "zoomed": false
+      },
+      {
+        "id": "pane_2",
+        "screen_id": "screen_2",
+        "name": null,
+        "focused": false,
+        "zoomed": false
+      }
+    ],
+    "tab.list": [
+      {
+        "id": "tab_1",
+        "pane_id": "pane_1",
+        "name": null,
+        "index": 0,
+        "focused": true,
+        "content_kind": "terminal",
+        "content_id": "terminal_1"
+      },
+      {
+        "id": "tab_2",
+        "pane_id": "pane_2",
+        "name": null,
+        "index": 0,
+        "focused": false,
+        "content_kind": "terminal",
+        "content_id": "terminal_2"
+      },
+      {
+        "id": "tab_3",
+        "pane_id": "pane_1",
+        "name": null,
+        "index": 1,
+        "focused": false,
+        "content_kind": "terminal",
+        "content_id": "terminal_3"
+      },
+      {
+        "id": "tab_4",
+        "pane_id": "pane_2",
+        "name": null,
+        "index": 1,
+        "focused": false,
+        "content_kind": "terminal",
+        "content_id": "terminal_4"
+      }
+    ],
+    "terminal.screen.read": {
+      "text": "Claude wants to run:\n  npm test -- --runInBand\n\n  1. Yes\n  2. Yes, and don't ask again for npm test\n  3. No, and tell Claude what to do differently\n",
+      "cols": 120,
+      "rows": 40,
+      "cursor_row": 6,
+      "cursor_col": 0,
+      "cursor_visible": true
+    },
+    "app.storage.get": null,
+    "app.storage.set": {},
+    "integration.request": {
+      "$sequence": [
+        {
+          "total_count": 1,
+          "items": [
+            {
+              "number": 412,
+              "title": "Add idempotency keys to refunds",
+              "html_url": "https://github.com/example-org/payments/pull/412",
+              "repository_url": "https://api.github.com/repos/example-org/payments",
+              "updated_at": "2026-10-02T09:52:51.863Z",
+              "draft": false,
+              "user": {
+                "login": "river"
+              },
+              "pull_request": {}
+            }
+          ]
+        },
+        {
+          "total_count": 1,
+          "items": [
+            {
+              "number": 88,
+              "title": "Retry webhook delivery with backoff",
+              "html_url": "https://github.com/example-org/api-server/pull/88",
+              "repository_url": "https://api.github.com/repos/example-org/api-server",
+              "updated_at": "2026-10-02T09:22:51.863Z",
+              "draft": false,
+              "user": {
+                "login": "me"
+              },
+              "pull_request": {}
+            }
+          ]
+        },
+        {
+          "total_count": 1,
+          "items": [
+            {
+              "number": 1203,
+              "title": "Button focus ring contrast",
+              "html_url": "https://github.com/example-org/design-system/pull/1203",
+              "repository_url": "https://api.github.com/repos/example-org/design-system",
+              "updated_at": "2026-10-02T05:32:51.863Z",
+              "draft": false,
+              "user": {
+                "login": "sam"
+              },
+              "pull_request": {}
+            }
+          ]
+        },
+        {
+          "number": 88,
+          "head": {
+            "sha": "4f2a9c1"
+          }
+        },
+        {
+          "total_count": 4,
+          "check_runs": [
+            {
+              "name": "unit tests",
+              "status": "completed",
+              "conclusion": "failure"
+            },
+            {
+              "name": "lint",
+              "status": "completed",
+              "conclusion": "success"
+            },
+            {
+              "name": "integration",
+              "status": "completed",
+              "conclusion": "failure"
+            },
+            {
+              "name": "build",
+              "status": "completed",
+              "conclusion": "success"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
