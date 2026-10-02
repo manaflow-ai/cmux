@@ -209,7 +209,7 @@ extension CEFRuntime {
             guardBlocked: windowGuard.blockedCount,
             guardRecent: windowGuard.recent.map { "\($0.verdict) \($0.className) \"\($0.title)\"" },
             chromiumWindows: started ? windowGuard.offendingWindows().map { "\(NSStringFromClass(type(of: $0))) \"\($0.title)\"" } : [],
-            unplacedTabs: unplaced.count,
+            unplacedTabs: orphans.unplaced.count,
             forkAPIVersion: Int(forkAPIVersion),
             popupWindows: windowRequestLog.popupWindows
         )
