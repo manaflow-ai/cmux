@@ -432,6 +432,82 @@ describe("App Store Server Notifications", () => {
   });
 });
 
+describe("notifications about an older transaction", () => {
+  // Last month's transaction (period-1) and the current renewal (period-2).
+  const first = {
+    transactionId: "period-1",
+    purchaseDate: NOW.getTime() - 31 * DAY,
+    originalPurchaseDate: NOW.getTime() - 31 * DAY,
+    expiresDate: NOW.getTime() - DAY,
+  };
+  const currentExpiry = NOW.getTime() + 29 * DAY;
+  const second = {
+    transactionId: "period-2",
+    purchaseDate: NOW.getTime() - DAY,
+    originalPurchaseDate: NOW.getTime() - 31 * DAY,
+    expiresDate: currentExpiry,
+    transactionReason: "RENEWAL",
+  };
+
+  async function subscribeAndRenew() {
+    await receiveAppleNotification(notification({ type: "SUBSCRIBED", subtype: "INITIAL_BUY", status: 1, tx: first }), deps());
+    await receiveAppleNotification(notification({ type: "DID_RENEW", status: 1, tx: second }), deps());
+    expect(subscription()).toMatchObject({ lastTransactionId: "period-2", status: "active" });
+  }
+
+  test("a refund of last month's transaction keeps the current paid period", async () => {
+    await subscribeAndRenew();
+    expect(await receiveAppleNotification(notification({
+      type: "REFUND", status: 1, tx: { ...first, revocationDate: NOW.getTime(), revocationReason: 0 },
+    }), deps())).toBe("processed");
+    expect(subscription()).toMatchObject({ status: "active", lastTransactionId: "period-2", revokedAt: null });
+    expect(subscription().expiresAt?.getTime()).toBe(currentExpiry);
+    expect(grants()).toBe(true);
+    expect(store.transactions.get("period-1")?.revokedAt).not.toBeNull();
+    expect(store.transactions.get("period-2")?.revokedAt).toBeNull();
+    expect(eventNames()).toEqual(["subscription_started", "subscription_renewed", "subscription_refunded"]);
+  });
+
+  test("REFUND_DECLINED and REFUND_REVERSED for an older transaction leave the current period", async () => {
+    await subscribeAndRenew();
+    await receiveAppleNotification(notification({ type: "REFUND_DECLINED", status: 1, tx: first }), deps());
+    await receiveAppleNotification(notification({ type: "REFUND_REVERSED", status: 1, tx: first }), deps());
+    expect(subscription()).toMatchObject({ status: "active", lastTransactionId: "period-2" });
+    expect(subscription().expiresAt?.getTime()).toBe(currentExpiry);
+  });
+
+  test("a refund of the current transaction revokes", async () => {
+    await subscribeAndRenew();
+    await receiveAppleNotification(notification({
+      type: "REFUND", status: 5, tx: { ...second, revocationDate: NOW.getTime(), revocationReason: 1 },
+    }), deps());
+    expect(subscription()).toMatchObject({ status: "revoked", lastTransactionId: "period-2", revocationReason: 1 });
+    expect(grants()).toBe(false);
+  });
+
+  test("with the Server API configured, the subscription row follows Apple's current state", async () => {
+    await subscribeAndRenew();
+    const lookups: string[] = [];
+    serverApi = {
+      subscriptionStatus: async ({ originalTransactionId }) => {
+        lookups.push(originalTransactionId);
+        return {
+          status: 1,
+          signedTransactionInfo: signer.sign(transaction({ ...second, signedDate: NOW.getTime() })),
+          signedRenewalInfo: signer.sign(renewal({ signedDate: NOW.getTime(), autoRenewStatus: 0 })),
+        };
+      },
+    };
+    await receiveAppleNotification(notification({
+      type: "REFUND", status: 1, tx: { ...first, revocationDate: NOW.getTime(), revocationReason: 0 },
+    }), deps());
+    expect(lookups).toEqual([ORIGINAL]);
+    expect(subscription()).toMatchObject({ status: "active", lastTransactionId: "period-2", autoRenewEnabled: false });
+    expect(subscription().expiresAt?.getTime()).toBe(currentExpiry);
+    expect(store.transactions.get("period-1")?.revokedAt).not.toBeNull();
+  });
+});
+
 describe("subscription ownership", () => {
   // The same Apple ID signs into cmux account B and buys again (upgrade or
   // resubscribe). The newest transaction carries B's appAccountToken, which

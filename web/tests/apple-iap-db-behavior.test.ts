@@ -79,6 +79,22 @@ describe("Apple IAP store", () => {
     expect((await store.subscription("otx-1"))?.status).toBe("expired");
   });
 
+  dbTest("a newer-signed state about an older transaction never overwrites the current one", async () => {
+    await store.writeSubscriptionState(state({ lastTransactionId: "tx-2", purchaseDate: new Date(NOW - DAY) }), { tokenOwner: "user-a" });
+    const refundOfOlder = await store.writeSubscriptionState(state({
+      lastTransactionId: "tx-1", purchaseDate: new Date(NOW - 31 * DAY), expiresAt: new Date(NOW - DAY),
+      status: "revoked", revokedAt: new Date(NOW), stateSignedAt: new Date(NOW),
+    }), { tokenOwner: "user-a" });
+    expect(refundOfOlder.applied).toBe(false);
+    expect(await store.subscription("otx-1")).toMatchObject({ lastTransactionId: "tx-2", status: "active" });
+    const refundOfCurrent = await store.writeSubscriptionState(state({
+      lastTransactionId: "tx-2", purchaseDate: new Date(NOW - DAY), status: "revoked", revokedAt: new Date(NOW),
+      stateSignedAt: new Date(NOW + 1000),
+    }), { tokenOwner: "user-a" });
+    expect(refundOfCurrent.applied).toBe(true);
+    expect((await store.subscription("otx-1"))?.status).toBe("revoked");
+  });
+
   dbTest("concurrent writers for one subscription serialize", async () => {
     const writes = await Promise.all(Array.from({ length: 8 }, (_, index) =>
       store.writeSubscriptionState(state({ stateSignedAt: new Date(NOW + index), lastTransactionId: `tx-${index}` }), { tokenOwner: "user-a" })
