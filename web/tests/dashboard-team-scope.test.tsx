@@ -263,6 +263,32 @@ describe("dashboard team scope", () => {
     }
   });
 
+  test("does not keep the team switch pending while the route refreshes", async () => {
+    let resolveRefresh: (() => void) | undefined;
+    routerRefresh.mockImplementation(() => new Promise<undefined>((resolve) => {
+      resolveRefresh = () => resolve(undefined);
+    }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => Response.json({ json: { selectedTeamId: "confirmed" } })) as typeof fetch;
+    try {
+      const scope = renderReadyScope();
+      const switching = scope.switchTeam(twoTeams.teams[0]!);
+
+      await waitFor(() => resolveRefresh !== undefined);
+      let completed = false;
+      void switching.then(() => { completed = true; });
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+      expect(completed).toBe(true);
+      expect(routerRefresh).toHaveBeenCalledTimes(1);
+      resolveRefresh!();
+      await switching;
+    } finally {
+      globalThis.fetch = originalFetch;
+      routerRefresh.mockImplementation(async () => undefined);
+    }
+  });
+
   test("an older failed switch cannot roll back a newer optimistic switch", async () => {
     const originalFetch = globalThis.fetch;
     const extendedCatalog: Catalog = {
