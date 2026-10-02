@@ -44,9 +44,18 @@ struct CLIExplicitSurfaceRoutingTests {
     }
 
     @Test func vmTreeUsesCloudLinkErrorMessageInHumanOutput() throws {
+        let temporaryHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-vm-tree-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryHome) }
+
         let execution = try runMockCommand(
             arguments: ["vm", "tree"],
-            socketName: "vm-tree-link-error"
+            socketName: "vm-tree-link-error",
+            environmentOverrides: [
+                "CFFIXED_USER_HOME": temporaryHome.path,
+                "HOME": temporaryHome.path,
+            ]
         ) { line in
             guard let request = Self.jsonObject(line),
                   let id = request["id"] as? String,
