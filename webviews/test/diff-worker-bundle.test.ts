@@ -39,7 +39,9 @@ test("the highlight worker is emitted as a Vite entry next to the other chunks",
   expect(existsSync(workerEntry)).toBe(true);
   const chunkNames = readdirSync(chunksDirectory).filter((name) => name.endsWith(".mjs"));
   const spawningChunks = chunkNames.filter((name) =>
-    readFileSync(resolve(chunksDirectory, name), "utf8").includes('new URL("./diff-worker.mjs",import.meta.url)'),
+    /new URL\((["'`])\.\/diff-worker\.mjs\1,import\.meta\.url\)/.test(
+      readFileSync(resolve(chunksDirectory, name), "utf8"),
+    ),
   );
   // Only the diff surface spawns workers, and it resolves the entry as a
   // sibling of its own chunk, so `import.meta.url` must live under `chunks/`.
@@ -56,7 +58,7 @@ test("the worker entry shares shiki with the main thread and stays lazy for gram
   // The worker must not evaluate the main-thread renderer or React.
   expect(closure).not.toContain("diff-vendor.mjs");
   expect(closure).not.toContain("vendor.mjs");
-  expect(readFileSync(workerEntry, "utf8")).toContain('import("./shiki-wasm.mjs")');
+  expect(readFileSync(workerEntry, "utf8")).toMatch(/import\((["'`])\.\/shiki-wasm\.mjs\1\)/);
 });
 
 test("no vendored worker copy remains in Resources", () => {

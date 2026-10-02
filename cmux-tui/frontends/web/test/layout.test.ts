@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { Layout } from "cmux/raw";
 import { layoutToViewModel, visibleStackPanes } from "../src/lib/layout";
 import { clampSplitRatio, splitDividerTarget, splitRatioFromPointer, splitRatioToCommit } from "../src/lib/splitDrag";

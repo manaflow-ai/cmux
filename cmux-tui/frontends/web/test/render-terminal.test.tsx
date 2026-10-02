@@ -1,5 +1,5 @@
 import { fireEvent, render as renderInTestRoot, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { CmuxClient } from "cmux/raw";
 import type { ReactElement } from "react";
 import { RenderGraphicsBudgetProvider } from "../src/components/RenderGraphics";

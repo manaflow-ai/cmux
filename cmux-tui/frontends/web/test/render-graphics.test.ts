@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import {
   RENDER_ATTACH_MAX_ENCODED_CHARS,
   RENDER_GRAPHIC_MAX_DECODED_BYTES,
