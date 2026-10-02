@@ -51,13 +51,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
         <p className="mt-3 text-sm leading-6 text-neutral-400">
           cmux is where people and their AI agents work together.
         </p>
-        <InviteForward origin={origin} code={code} />
-        <a
-          className="mt-8 block rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black"
-          href={target}
-        >
-          Open the invite
-        </a>
+        <InviteForward origin={origin} code={code} href={target} />
       </section>
     </main>
   );
