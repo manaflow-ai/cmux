@@ -57,8 +57,9 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 - `InsertColumn {after_pane, width_permille, new_column: caller id, new_pane: caller id,
   idempotency_key}`; the client resolves `matchCurrent`, `fitScreen` or a fraction to permille
   (viewports are per client, so the store never sees a screen size).
-- `ClosePane {pane, sizing: even|neighbor, idempotency_key}`; the result carries a neighbor hint;
-  each client picks its own focus (focus is client view state).
+- `ClosePane {pane, sizing: even|neighbor, idempotency_key}`; it carries and returns no focus or
+  neighbor hint: each client computes focus from its own before/after projections
+  (`FocusAfterClose`, the focus-after-close lead; ownership lead decision 2026-10-02).
 - No floats on the wire or in the reducer: ratios and widths are integer permille; ratios in a
   column sum to 1000 with a defined remainder rule.
 - Reducer invariants with tests: tab conservation, every column has a pane, ratios sum to 1000,

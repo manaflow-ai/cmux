@@ -34,6 +34,10 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// gives new tabs: a small dot of its color, named in the hover card and
     /// to VoiceOver (plans/cmux-next/data-model.md section 5).
     public var profileBadge: TabProfileBadge?
+    /// A browser tab's page address: the strip shows it in its location
+    /// field while the tab is selected. Nil for every other tab, and for a
+    /// browser tab on the New Tab page or an internal page.
+    public var location: TabLocation?
 
     public init(
         id: TabID,
@@ -46,7 +50,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         status: TabStatus = .none,
         groupID: TabGroupID? = nil,
         tint: GroupColor? = nil,
-        machineBadge: String? = nil
+        machineBadge: String? = nil,
+        location: TabLocation? = nil
     ) {
         self.id = id
         self.title = title
@@ -59,6 +64,7 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         self.groupID = groupID
         self.tint = tint
         self.machineBadge = machineBadge
+        self.location = location
     }
 }
 
