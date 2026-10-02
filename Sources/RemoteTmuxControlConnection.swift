@@ -1371,11 +1371,14 @@ final class RemoteTmuxControlConnection {
                 observers.notifyExit()
                 return
             }
-            // A first attach still has a live stream to tear down; a failed reconnect attempt has
-            // already been torn down by its caller and only needs the next attempt scheduled.
+            // A first attach still has a live stream to tear down. So does a reconnect attempt that
+            // stopped at a prompt: its process is still waiting for an answer, and the next spawn
+            // would replace it without ending it. An attempt that already exited was torn down by
+            // its caller, and tearing down again is a no-op.
             if connectionState == .connecting || connectionState == .connected {
                 beginReconnecting(preservingBackoff: true)
             } else {
+                teardownProcessHandles()
                 scheduleReconnectAttempt()
             }
             return
