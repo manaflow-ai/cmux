@@ -207,26 +207,27 @@ describe("mock transport", () => {
       () => new MockAcpmuxSocket(() => new Promise<void>((resolve) => waiting.push(resolve))) as unknown as WebSocket,
     );
     const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    // The seeded session already holds worked turns; count only the two this test sends.
+    const summaries = () => snapshots.at(-1)?.rows.filter((row) => row.kind === "turnSummary").length ?? 0;
+    const users = () =>
+      snapshots
+        .at(-1)
+        ?.rows.filter((row) => row.kind === "user")
+        .map((row) => row.text) ?? [];
+    for (let tries = 0; tries < 20 && snapshots.length === 0; tries += 1) await tick();
+    const before = summaries();
+    const earlier = users();
     void client.send("first");
     void client.send("second");
     for (let tries = 0; tries < 20 && !snapshots.at(-1)?.queue.length; tries += 1) await tick();
     expect(snapshots.at(-1)?.queue.map((entry) => entry.prompt)).toEqual(["second"]);
     // Let every step of both turns through.
-    for (
-      let tries = 0;
-      tries < 200 && snapshots.at(-1)?.rows.filter((row) => row.kind === "turnSummary").length !== 2;
-      tries += 1
-    ) {
+    for (let tries = 0; tries < 200 && summaries() !== before + 2; tries += 1) {
       waiting.splice(0).forEach((resolve) => resolve());
       await tick();
     }
     expect(snapshots.at(-1)?.queue).toEqual([]);
-    expect(
-      snapshots
-        .at(-1)
-        ?.rows.filter((row) => row.kind === "user")
-        .map((row) => row.text),
-    ).toEqual(["first", "second"]);
+    expect(users()).toEqual([...earlier, "first", "second"]);
     client.close();
   });
 
