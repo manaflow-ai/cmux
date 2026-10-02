@@ -3,9 +3,8 @@ import Testing
 import CmuxSettings
 
 @Suite struct SocketControlModeTests {
-    @Test func allowAllOpensPermissionsOthersRestrict() {
-        #expect(SocketControlMode.allowAll.socketFilePermissions == 0o666)
-        for mode in [SocketControlMode.off, .cmuxOnly, .automation, .password] {
+    @Test func everyModeKeepsSocketOwnerPrivate() {
+        for mode in SocketControlMode.allCases {
             #expect(mode.socketFilePermissions == 0o600)
         }
     }
