@@ -184,7 +184,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             reconfigureVisibleRows()
             if isPinnedToBottom { scrollToBottom() } else { restore(anchor) }
         }
-        composer.maximumFieldHeight = max(28, view.bounds.height * 0.45)
+        composer.maximumFieldHeight = max(28, view.bounds.height * 0.40)
         // Row heights settle in layout passes; a pinned reader stays on the newest message.
         if hasPositioned, isPinnedToBottom, !isLiveScrolling, !isSubmitting { scrollToBottom() }
     }
@@ -268,7 +268,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     private func bubbleTop(_ index: Int) -> CGFloat? {
         guard index < rows.count, case let .message(model) = rows[index] else { return nil }
         let rect = tableView.rect(ofRow: index)
-        return rect.minY + layoutCache.layout(model, width: transcriptWidth).contentFrame.minY
+        return rect.minY + topSpacing(at: index, model) + layoutCache.layout(model, width: transcriptWidth).contentFrame.minY
     }
 
     private func captureAnchor() -> Anchor? {
@@ -505,9 +505,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         switch rows[row] {
         case let .message(model):
             let layout = layoutCache.layout(model, width: transcriptWidth)
-            let spacing = row > 0 && rows[row - 1].isMessage
-                ? (model.isFirstInRun ? MacConversationTheme.runSpacing : MacConversationTheme.groupedSpacing) : 4
-            return layout.height + spacing
+            return layout.height + topSpacing(at: row, model)
         case .timestamp: return MacTimestampRowView.height
         case .loadingOlder: return MacSpinnerRowView.height
         case .conversationStart: return MacConversationStartRowView.height
@@ -541,13 +539,18 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         return view
     }
 
+    /// Space above a message row; it changes when the row above it changes
+    /// kind (a page replacing a date header), so anchors must include it.
+    private func topSpacing(at row: Int, _ model: MacMessageRowModel) -> CGFloat {
+        row > 0 && rows[row - 1].isMessage
+            ? (model.isFirstInRun ? MacConversationTheme.runSpacing : MacConversationTheme.groupedSpacing) : 4
+    }
+
     private func configure(_ view: NSView, row: Int) {
         switch rows[row] {
         case let .message(model):
             guard let view = view as? MacMessageContainerView else { return }
-            let spacing = row > 0 && rows[row - 1].isMessage
-                ? (model.isFirstInRun ? MacConversationTheme.runSpacing : MacConversationTheme.groupedSpacing) : 4
-            view.topSpacing = spacing
+            view.topSpacing = topSpacing(at: row, model)
             view.row.configure(model, layout: layoutCache.layout(model, width: transcriptWidth), text: layoutCache.text(model))
             view.timestampReveal = timestampsRevealed
         case let .timestamp(_, date):

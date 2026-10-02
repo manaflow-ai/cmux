@@ -5,11 +5,15 @@ import AppKit
 enum MacConversationTheme {
     // Measured from macOS 26 Messages at the default text size (2x capture).
     nonisolated(unsafe) static let bodyFont = NSFont.systemFont(ofSize: 13)
-    static let lineHeight: CGFloat = 16
+    /// Measured: 18 pt between lines of a multi-line Messages bubble.
+    static let lineHeight: CGFloat = 18
     /// Text inset from the bubble edge (measured 11.5 to 12).
     static let bubbleHorizontalPadding: CGFloat = 12
-    /// (32 pt single-line body - 16 pt line) / 2.
-    static let bubbleVerticalPadding: CGFloat = 8
+    /// (32 pt single-line body - 18 pt line) / 2.
+    static let bubbleVerticalPadding: CGFloat = 7
+    /// The 18 pt line puts its extra leading above the glyphs, so the text box
+    /// rides 2 pt high to land Messages' ink 10 pt from the bubble top.
+    static let bubbleTextLift: CGFloat = 2
     static let bubbleCornerRadius: CGFloat = 17
     /// macOS tails tuck under the corner, so they add no width.
     static let tailWidth: CGFloat = 0

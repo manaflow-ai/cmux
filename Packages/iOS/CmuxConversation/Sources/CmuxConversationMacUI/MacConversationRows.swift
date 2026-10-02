@@ -304,7 +304,7 @@ extension MacMessageLayout {
             let frame = bubbleRect(bodyWidth: bodyWidth, y: y, height: h)
             bubbleFrame = frame
             let bodyMinX = model.isOutgoing ? frame.minX : frame.minX + t.tailWidth
-            textFrame = CGRect(x: bodyMinX + (bodyWidth - size.width) / 2, y: y + t.bubbleVerticalPadding, width: size.width + 1, height: textHeight)
+            textFrame = CGRect(x: bodyMinX + (bodyWidth - size.width) / 2, y: y + t.bubbleVerticalPadding - t.bubbleTextLift, width: size.width + 1, height: textHeight)
             y += h
         }
 
