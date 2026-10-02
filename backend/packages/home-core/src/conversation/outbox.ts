@@ -38,7 +38,7 @@ export const inviteProjection = (conversation: string, invite: Invite) => ({
   id: invite.id,
   conversation_id: conversation,
   invited_by: invite.invited_by,
-  contact_id: invite.contact,
+  address_id: invite.address,
   channel: invite.channel,
   status: invite.status,
   delivery_state: invite.delivery.state,
@@ -74,11 +74,11 @@ export const fanOutItems = (fan: FanOut, inviterName: string | undefined, kind: 
   }
   for (const delivery of fan.deliveries) {
     items.push({
-      kind: "contact.deliver",
+      kind: "address.deliver",
       entity: `deliver:${delivery.invite}`,
-      // No secret here: the link secret reaches ContactDO another way (see the lane report).
+      // No secret here: the link secret reaches AddressDO another way (see the lane report).
       payload: { ...delivery, conversation_kind: kind ?? "group", ...(inviterName ? { inviter_name: inviterName } : {}) },
-      target: { class: "ContactDO", name: delivery.contact }
+      target: { class: "AddressDO", name: delivery.address }
     })
   }
   return items
@@ -106,7 +106,7 @@ export const projectionItems = (before: ConversationHead | null, commit: Commit,
       payload: participantProjection(head, participant, now, added)
     })
   }
-  // A contact dropped from the head (outside a dm) leaves in the projection.
+  // A address dropped from the head (outside a dm) leaves in the projection.
   for (const old of before?.participants ?? []) {
     if (head.participants.some((participant) => participant.id === old.id)) continue
     items.push({

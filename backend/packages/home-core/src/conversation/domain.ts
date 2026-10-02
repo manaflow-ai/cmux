@@ -3,6 +3,7 @@ import { apply, targetMessageId } from "./apply.ts"
 import { isOpen } from "./cloud.ts"
 import { create, summary } from "./create.ts"
 import type { Domain, Principal, ReduceContext, ReduceResult, RowWrite } from "./engine-types.ts"
+import { rowsOf } from "./engine-types.ts"
 import { formatRfc3339Millis } from "./ids.ts"
 import { commitOutbox, createOutbox } from "./outbox.ts"
 import { actorOf, defaultParticipantPolicy, FALLBACK_NAME, stampParticipant, type ParticipantPolicy } from "./policy.ts"
@@ -42,12 +43,12 @@ export type ConversationParams = Readonly<Record<string, unknown>>
 
 export interface ConversationDomainOptions {
   /**
-   * Contact ids of the principal's verified addresses (HMAC with
-   * HOME_CONTACT_KEY over the normalized `principal.email`), injected by the
+   * Address ids of the principal's verified addresses (HMAC with
+   * HOME_ADDRESS_KEY over the normalized `principal.email`), injected by the
    * DO because the key is a secret. Used only when `principal.email_verified`
    * is true; otherwise a group invite waits for approval.
    */
-  readonly contactIdsFor?: (principal: Principal) => ReadonlyArray<string>
+  readonly addressIdsFor?: (principal: Principal) => ReadonlyArray<string>
   /** Reach rules for `conversation.create`, `dm.open` and `participants.add`. Default: `defaultParticipantPolicy`. */
   readonly participantPolicy?: ParticipantPolicy
 }
@@ -115,9 +116,9 @@ const reduceCreate = (
 const loadInvite = (head: ConversationHead, ctx: ReduceContext, op: Op): Invite | undefined => {
   let id: string | undefined
   if (op.kind === "invite.revoke" || op.kind === "invite.approve_join" || op.kind === "invite.delivery.report") id = op.invite_id
-  if (op.kind === "invite.accept") id = ctx.rows.get<{ invite_id: string }>(TABLE_INVHASH, op.token_hash)?.row.invite_id
+  if (op.kind === "invite.accept") id = rowsOf(ctx).get<{ invite_id: string }>(TABLE_INVHASH, op.token_hash)?.row.invite_id
   if (id === undefined || head.invites?.some((invite) => invite.id === id)) return undefined
-  return ctx.rows.get<Invite>(TABLE_INV, id)?.row
+  return rowsOf(ctx).get<Invite>(TABLE_INV, id)?.row
 }
 
 const inviteWrites = (before: ReadonlyArray<Invite>, after: ReadonlyArray<Invite>): Array<RowWrite> => {
@@ -150,8 +151,8 @@ const prepare = (
     return { op: { kind: "invite.accept", token_hash: hashInviteSecret(proof), display_name: safeDisplayName(ctx.principal.display_name, FALLBACK_NAME) } }
   }
   if (op === "invite.create") {
-    if (typeof rest.invite_id === "string" && ctx.rows.get(TABLE_INV, rest.invite_id)) return "duplicate_invite"
-    if (typeof rest.token_hash === "string" && ctx.rows.get(TABLE_INVHASH, rest.token_hash)) return "duplicate_invite"
+    if (typeof rest.invite_id === "string" && rowsOf(ctx).get(TABLE_INV, rest.invite_id)) return "duplicate_invite"
+    if (typeof rest.token_hash === "string" && rowsOf(ctx).get(TABLE_INVHASH, rest.token_hash)) return "duplicate_invite"
   }
   if (op === "participants.add") {
     const participant = rest.participant
@@ -160,8 +161,10 @@ const prepare = (
     if (!decision.ok) return decision.code
     return { op: { kind: "participants.add", participant: stampParticipant(participant as Participant, decision) }, trusted: true }
   }
-  if (op === "message.send" && typeof rest.client_msg_id === "string" && ctx.rows.get(TABLE_MSGKEY, msgKey(actor, rest.client_msg_id))) {
-    return "idempotency_conflict"
+  if (op === "message.send" && typeof rest.client_msg_id === "string") {
+    // The owner and the client's own intent preview pass the key; mirror replay does not.
+    if (ctx.idempotencyKey !== undefined && ctx.idempotencyKey !== rest.client_msg_id) return "invalid_client_msg_id"
+    if (rowsOf(ctx).get(TABLE_MSGKEY, msgKey(actor, rest.client_msg_id))) return "idempotency_conflict"
   }
   return { op: { ...rest, kind: op } as unknown as Op }
 }
@@ -180,7 +183,7 @@ export const makeConversationDomain = (options: ConversationDomainOptions = {}):
     const head: ConversationHead = loaded ? { ...state, invites: [...(state.invites ?? []), loaded] } : state
     const messageId = targetMessageId(coreOp)
     const replyId = coreOp.kind === "message.send" ? coreOp.reply_to?.message_id : undefined
-    const verified = op === "invite.accept" && ctx.principal.email_verified === true && options.contactIdsFor
+    const verified = op === "invite.accept" && ctx.principal.email_verified === true && options.addressIdsFor
     const request: OpRequest = {
       actor,
       // The engine's ledger owns idempotency; `msgkey` keeps (author, client_msg_id) unique.
@@ -188,11 +191,11 @@ export const makeConversationDomain = (options: ConversationDomainOptions = {}):
       op: coreOp,
       now: formatRfc3339Millis(ctx.now),
       new_message_id: coreOp.kind === "message.send" ? ctx.newId("msg") : "",
-      target: messageId === undefined ? null : (ctx.rows.get<Message>(TABLE_MSG, messageId)?.row ?? null),
-      reply_target: replyId === undefined ? null : (ctx.rows.get<Message>(TABLE_MSG, replyId)?.row ?? null),
+      target: messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null),
+      reply_target: replyId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, replyId)?.row ?? null),
       // The loop guard lives in the head (O(1)); only the newest message is read, for summaries.
-      last_message: ctx.rows.range<Message>(TABLE_MSG, { limit: 1, desc: true })[0]?.row ?? null,
-      actor_contacts: verified ? options.contactIdsFor!(ctx.principal) : null,
+      last_message: rowsOf(ctx).range<Message>(TABLE_MSG, { limit: 1, desc: true })[0]?.row ?? null,
+      actor_addresses: verified ? options.addressIdsFor!(ctx.principal) : null,
       trusted_participant: prepared.trusted ?? null
     }
     const result = apply(head, request)
@@ -217,5 +220,5 @@ export const makeConversationDomain = (options: ConversationDomainOptions = {}):
   }
 })
 
-/** The domain with the default (pure) participant policy and no verified-address binding (tests, self-hosted without the contact key). */
+/** The domain with the default (pure) participant policy and no verified-address binding (tests, self-hosted without the address key). */
 export const conversationDomain = makeConversationDomain()

@@ -69,7 +69,7 @@ const createOrThrow = (request: CreateRequest): ConversationHead => {
     read_cursors: {}
   }
   if (!cloud) return base
-  if (actor.kind === "contact") fail("contact_cannot_act")
+  if (actor.kind === "address") fail("address_cannot_act")
   validateKindShape(request, participants)
   const settings = request.settings === undefined ? DEFAULT_SETTINGS : validateSettings(DEFAULT_SETTINGS, request.settings, false)
   if (request.retention_days !== undefined && (!Number.isInteger(request.retention_days) || request.retention_days < 30)) fail("invalid_settings")
@@ -93,16 +93,16 @@ const createOrThrow = (request: CreateRequest): ConversationHead => {
 }
 
 /**
- * dm: exactly two humans (one may be a contact, invited in the next op) with
+ * dm: exactly two humans (one may be a address, invited in the next op) with
  * the deterministic id. chief: the owner and one chief. group: humans and
- * agents; contacts join through `invite.create`.
+ * agents; addresses join through `invite.create`.
  */
 const validateKindShape = (request: CreateRequest, participants: ReadonlyArray<Participant>): void => {
   const kinds = participants.map((participant) => participant.kind)
   switch (request.kind) {
     case "dm": {
       const [a, b] = participants
-      if (!a || !b || participants.length !== 2 || kinds.includes("agent") || kinds.every((kind) => kind === "contact")) fail("invalid_participant")
+      if (!a || !b || participants.length !== 2 || kinds.includes("agent") || kinds.every((kind) => kind === "address")) fail("invalid_participant")
       if (request.id !== dmConversationId(a!.id, b!.id)) fail("invalid_conversation_id")
       return
     }
@@ -113,7 +113,7 @@ const validateKindShape = (request: CreateRequest, participants: ReadonlyArray<P
       return
     }
     case "group":
-      if (kinds.includes("contact")) fail("invalid_participant")
+      if (kinds.includes("address")) fail("invalid_participant")
       return
     default:
       fail("invalid_participant")
@@ -152,9 +152,9 @@ export const summary = (head: ConversationHead, lastMessage: Message | null | un
   }
 }
 
-/** A typing indicator is accepted only from a current, non-contact participant. */
+/** A typing indicator is accepted only from a current, non-address participant. */
 export const checkTyping = (head: ConversationHead, actor: string): ConversationReject | null => {
   const participant = currentParticipant(head, actor)
   if (!participant) return reject("not_participant")
-  return participant.kind === "contact" ? reject("contact_cannot_act") : null
+  return participant.kind === "address" ? reject("address_cannot_act") : null
 }

@@ -38,7 +38,7 @@ export {
   encodeId,
   formatRfc3339Millis,
   parseRfc3339Millis,
-  validContactId,
+  validAddressId,
   validInviteId,
   validParticipantId,
   validToken
@@ -56,3 +56,4 @@ export { commitOutbox, createOutbox } from "./outbox.ts"
 export { CLOUD_REJECT_CODES, LOCAL_REJECT_CODES, REJECT_CODES, type ConversationReject, type RejectCode } from "./reject.ts"
 export type { ApplyResult, Commit, OpRequest } from "./request.ts"
 export * from "./types.ts"
+export { conversationRedact, PRIVATE_TABLES } from "./redact.ts"

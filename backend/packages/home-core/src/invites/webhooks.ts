@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 
 /**
- * Provider webhooks that feed ContactDO (`contact.suppress`) and
+ * Provider webhooks that feed AddressDO (`address.suppress`) and
  * `invite.delivery.report`. Pure: the Worker passes headers, the raw body and
  * the clock.
  */

@@ -6,8 +6,8 @@ export const ALICE = "user_alice"
 export const BOB = "user_bob"
 export const CAROL = "user_carol"
 export const CHIEF = "agent_alicechief"
-export const CONTACT = `contact_${"0".repeat(25)}1`
-export const CONTACT2 = `contact_${"0".repeat(25)}2`
+export const ADDRESS = `addr_${"0".repeat(25)}1`
+export const ADDRESS2 = `addr_${"0".repeat(25)}2`
 export const INV = `inv_${"0".repeat(25)}1`
 export const INV2 = `inv_${"0".repeat(25)}2`
 
@@ -35,7 +35,7 @@ export const chiefHead = (): ConversationHead => {
 }
 
 export const dmHead = (peer = BOB): ConversationHead => {
-  const peerRecord = peer.startsWith("contact_") ? { id: peer, kind: "contact" as const, display_name: "bob@" } : human(peer, "Bob")
+  const peerRecord = peer.startsWith("addr_") ? { id: peer, kind: "address" as const, display_name: "bob@" } : human(peer, "Bob")
   const result = create({ id: dmConversationId(ALICE, peer), actor: ALICE, title: "", participants: [human(ALICE, "Alice"), peerRecord], now: NOW, kind: "dm" })
   if (!result.ok) throw new Error(result.code)
   return result.head
@@ -44,7 +44,7 @@ export const dmHead = (peer = BOB): ConversationHead => {
 export const inviteOp = (overrides: Partial<InviteCreateParams> = {}): InviteCreateParams => ({
   kind: "invite.create",
   invite_id: INV,
-  contact: CONTACT,
+  address: ADDRESS,
   channel: "email",
   display_name: "Dana",
   token_hash: tokenHash("secret-1"),

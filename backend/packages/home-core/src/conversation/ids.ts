@@ -109,8 +109,8 @@ export const validToken = (token: string): boolean => {
  */
 export const validParticipantId = (id: string): boolean => /^(user|agent)_[A-Za-z0-9_.-]{1,64}$/.test(id)
 
-/** Cloud: `contact_<26 Crockford base32>`. */
-export const validContactId = (id: string): boolean => id.startsWith("contact_") && isCrockford(id.slice(8), 26)
+/** Cloud: `addr_<26 Crockford base32>`. */
+export const validAddressId = (id: string): boolean => id.startsWith("addr_") && isCrockford(id.slice(5), 26)
 
 /** Cloud: `inv_<26 Crockford base32>`. */
 export const validInviteId = (id: string): boolean => id.startsWith("inv_") && isCrockford(id.slice(4), 26)

@@ -22,8 +22,8 @@ through the label flow (staging, then production).
   another chief of the same owner; there is no other difference (IOS2).
 - Conversation: one thread. Kinds: `chief` (owner + one chief, pinned at the top of Home), `dm`
   (exactly two humans), `group` (humans and chiefs, 2 to 64 participants).
-- Contact: an email address or phone number that is not (yet) linked to a cmux user. A contact can
-  be invited; it cannot act.
+- Address: an email address or phone number that is not (yet) linked to a cmux user. An address can
+  be invited; it cannot act. (Product word "Contacts" means relationships, section 16.)
 
 ## 2. Entities and fields
 
@@ -32,14 +32,14 @@ from `cmux-conversation::encode_id` unless stated).
 
 | Entity | Id | Fields |
 | --- | --- | --- |
-| Conversation head | `conv_<26>` (group, chief); `conv_dm_<26>` = base32(sha256("dm\0" + lo + "\0" + hi))[0..26] where lo/hi are the two sorted participant ids (a user id or a contact id) | `kind`, `title`, `team?` (the team whose policy applies; null for personal), `created_by`, `created_at`, `updated_at`, `last_seq`, `rev`, `participants[]`, `invites[]`, `settings {wake_policy, agent_budget {turns, gap_ms}, history_visible: "all"|"since_join"}`, `retention_days?` (from team policy), `state: "active"|"archived"` |
-| Participant | `user_<id>`, `agent_<id>`, `contact_<26>` | `kind: human|agent|contact`, `display_name`, `agent_class?: mux|agent`, `owner_user?` (agents), `role: owner|member`, `joined_seq` (last_seq when added), `added_by`, `left_at?` |
+| Conversation head | `conv_<26>` (group, chief); `conv_dm_<26>` = base32(sha256("dm\0" + lo + "\0" + hi))[0..26] where lo/hi are the two sorted participant ids (a user id or an address id) | `kind`, `title`, `team?` (the team whose policy applies; null for personal), `created_by`, `created_at`, `updated_at`, `last_seq`, `rev`, `participants[]`, `invites[]`, `settings {wake_policy, agent_budget {turns, gap_ms}, history_visible: "all"|"since_join"}`, `retention_days?` (from team policy), `state: "active"|"archived"` |
+| Participant | `user_<id>`, `agent_<id>`, `addr_<26>` | `kind: human|agent|address`, `display_name`, `agent_class?: mux|agent`, `owner_user?` (agents), `role: owner|member`, `joined_seq` (last_seq when added), `added_by`, `left_at?` |
 | Message | `msg_<26>`, `seq` dense per conversation | `client_msg_id`, `author`, `parts[]` (text with runs/mentions, `work`, `approval`, `attachment {hash, mime, size, name}`, refs `task`/`vm`/`pr`), `reply_to? {message_id, part_index}`, `thread_root?`, `created_at`, `edited_at?`, `retracted_at?`, `reactions[] {author, part_index, kind, at}` |
 | Read cursor | (conversation, participant) | `last_read_seq` (monotonic, written only by that participant) |
-| Invite | `inv_<26>` inside its conversation | `contact` (`contact_<26>`), `channel: email|sms`, `display_name`, `invited_by`, `created_at`, `expires_at` (14 days), `token_hash` (sha256 of the 128-bit secret), `status: pending|accepted|revoked|expired`, `accepted_by?`, `accepted_at?`, `delivery {state: queued|sent|delivered|bounced|complained|failed|suppressed|refused_env, provider_id?, at}`, `copy_variant`, `locale` |
+| Invite | `inv_<26>` inside its conversation | `address` (`addr_<26>`), `channel: email|sms`, `display_name`, `invited_by`, `created_at`, `expires_at` (14 days), `token_hash` (sha256 of sha256 of the 128-bit secret), `status: pending|accepted|revoked|expired`, `accepted_by?`, `accepted_at?`, `delivery {state: queued|sent|delivered|bounced|complained|failed|suppressed|refused_env, provider_id?, at}`, `copy_variant`, `locale` |
 | Inbox entry | (user, conversation) | owner-projected (from ConversationDO, guarded by conversation `rev`): `kind`, `title`, `last_seq`, `last_at`, `preview` (240 chars, author + text), `unread` (count after the user's cursor, excluding own messages), `mentions` (unread mentions of the user), `dm_peer?`, `rev`; user-owned: `pinned`, `pin_position`, `muted_until?`, `archived`, `marked_unread` |
 | Chief record | `agent_<26>` | `owner_user`, `team?`, `name`, `avatar?`, `parent?` (subchief), `brain: local|cloud`, `brain_host?` (host id for local), `thread` (its `chief` conversation), `reachability: owner|team|shared` (who may DM it), `grant` (grant id, identity spec 4), `archived_at?` |
-| Contact | `contact_<26>` = base32(HMAC-SHA256(`HOME_CONTACT_KEY`, normalized address))[0..26] | `channel`, `address` (normalized: lowercase email with IDNA host; E.164 phone), `linked_user?`, `suppression? {reason: opted_out|bounced|complained|reported|admin, at}`, rate windows (section 9), delivery ledger |
+| Address | `addr_<26>` = base32(HMAC-SHA256(`HOME_ADDRESS_KEY`, normalized address))[0..26] | `channel`, `address` (normalized: lowercase email with IDNA host; E.164 phone), `linked_user?`, `suppression? {reason: opted_out|bounced|complained|reported|admin, at}`, rate windows (section 9), delivery ledger |
 
 Normalization: email = trim, lowercase, no plus-stripping (a different mailbox for some
 providers). Phone = E.164 with the inviter's region as default; US and Canada only at launch (D-H5),
@@ -54,7 +54,7 @@ toll-free and premium area codes refused.
 | Chief records and their grants (personal) | `UserDO` | `user:<user>` | identity spec 2 and 4; team chiefs in `TeamDO` later |
 | Chief wake queue and cloud brain loop | `MuxDO`, one per chief | `mux:<agent>` | every chief has one; a local brain host subscribes to it over the gateway instead of the cloud loop running |
 | Team membership, who may message whom inside a team, team Home policy | `TeamDO` | `team:<team>` | existing directory; adds `home.*` policy keys (section 10) |
-| Contact state: address, suppression, per-recipient limits, delivery ledger | `ContactDO`, one per contact | `contact:<id>` (no client subscribers) | holds the only copy of the raw address; external sends happen here, after the invite commit |
+| Address state: address, suppression, per-recipient limits, delivery ledger | `AddressDO`, one per address | `address:<id>` (no client subscribers) | holds the only copy of the raw address; external sends happen here, after the invite commit |
 | Search index, conversation index, invite index | PlanetScale `cmux-next` | projection | written only by outbox drains (backend lead's `projection.ts` pattern) |
 | Typing indicators | `ConversationDO` memory | broadcast only | never stored |
 | Open conversation, scroll, draft, Home selection | client | never synced | OWNERSHIP-PRINCIPLES |
@@ -72,20 +72,20 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | Op | Params | Key | Callers | Rules |
 | --- | --- | --- | --- | --- |
 | `conversation.create` | `{kind: group|chief, title?, participants[], first_message?}` | client key; the Worker derives the id `conv_` + base32(sha256(user + key))[0..26], so a retry reaches the same object | session, install, chief (group only) | creator becomes `owner`; participants must pass the add rule below; `chief` kind is created only by `chief.create` (system) |
-| `dm.open` | `{peer: user_id | {email}|{phone}}` | client key; id is deterministic (section 2) | session, install | idempotent by id; a typed address resolves to a related user's profile only (section 16); otherwise it becomes a contact plus an implicit `invite.create`, the same answer whether or not the address has an account |
-| `message.send` | `{client_msg_id, parts, reply_to?, thread_root?}` | must equal `client_msg_id` | participants (human, chief) | `cmux-conversation` rules; agent turn budget; contacts cannot send |
+| `dm.open` | `{peer: user_id | {email}|{phone}}` | client key; id is deterministic (section 2) | session, install | idempotent by id; a typed address resolves to a related user's profile only (section 16); otherwise it becomes an address plus an implicit `invite.create`, the same answer whether or not the address has an account |
+| `message.send` | `{client_msg_id, parts, reply_to?, thread_root?}` | must equal `client_msg_id` | participants (human, chief) | `cmux-conversation` rules; agent turn budget; addresses cannot send |
 | `message.edit` / `message.retract` | `{message_id, parts}` / `{message_id}` | client key | author | not after retraction; retraction clears parts and reactions and removes the search row |
 | `reaction.add` / `reaction.remove` | `{message_id, part_index, reaction}` | client key | participants | one per (author, part, kind) |
 | `read_cursor.set` | `{seq}` | client key (`read:<seq>` recommended) | humans | monotonic, `<= last_seq` |
 | `title.set` | `{title}` | client key | members (group) | not for `dm`, `chief` |
 | `participants.add` | `{participant: user or chief}` | client key | members | a human may be added only when they share a team with the adder or already share a conversation with them; anyone else needs `invite.create`. A chief may be added by its owner, or by anyone when its `reachability` allows. Max 64 |
 | `participants.remove` | `{participant}` | client key | self (leave), conversation owner, chief owner (for their chief) | removing the last human archives the conversation |
-| `invite.create` | `{invite_id, contact, channel, display_name, locale, copy_variant}` | `invite_id` (the Worker derives it from the client key) | members | Worker first runs `contact.ensure` and `invite.quota.take`; commit emits outbox `contact.deliver` (send happens after commit); max 20 pending invites per conversation |
+| `invite.create` | `{invite_id, address, channel, display_name, locale, copy_variant}` | `invite_id` (the Worker derives it from the client key) | members | Worker first runs `address.ensure` and `invite.quota.take`; commit emits outbox `address.deliver` (send happens after commit); max 20 pending invites per conversation |
 | `invite.revoke` | `{invite_id}` | client key | inviter, conversation owner | pending only |
-| `invite.accept` | `{secret}` | client key | session (any signed-in user) | finds the invite by `token_hash`; pending and not expired; replaces the contact participant with the user in one commit, records `accepted_by`. D-H4: `dm` invites admit any holder of the link once; `group` email invites need the principal's verified email to equal the invited address, otherwise the join waits as `pending_approval` |
+| `invite.accept` | `{secret}` | client key | session (any signed-in user) | finds the invite by `token_hash`; pending and not expired; replaces the address participant with the user in one commit, records `accepted_by`. D-H4: `dm` invites admit any holder of the link once; `group` email invites need the principal's verified email to equal the invited address, otherwise the join waits as `pending_approval` |
 | `invite.approve_join` | `{invite_id, approve}` | client key | inviter, conversation owner | decides a `pending_approval` join |
 | `invite.preview` (read) | `{secret}` | n/a | link | inviter name, conversation kind, first message preview (trusted inviters only, section 9); rate limited per conversation and IP |
-| `invite.delivery.report` | `{invite_id, delivery}` | `delivery:<invite>:<state>` | system (ContactDO) | delivery state only moves forward |
+| `invite.delivery.report` | `{invite_id, delivery}` | `delivery:<invite>:<state>` | system (AddressDO) | delivery state only moves forward |
 | `conversation.settings.set` | `{wake_policy?, agent_budget?, history_visible?}` | client key | conversation owner | |
 | `conversation.snapshot` / `conversation.history` (read) | `{tail}` / `{before_seq, limit}` | n/a | participants | `history_visible: since_join` hides seq < `joined_seq` |
 
@@ -104,7 +104,7 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | `invite.quota.take` | `{invite_id, channel}` | `quota:<invite_id>` | system (Worker on the inviter's behalf) | per-user windows (section 9); a refused take refuses the invite |
 | `home.settings.set` | `{discoverable_by_email?, discoverable_by_phone?, allow_dm_from: anyone|teams|contacts}` | client key | session | |
 
-### 4.3 MuxDO, TeamDO, ContactDO
+### 4.3 MuxDO, TeamDO, AddressDO
 
 | Op | Owner | Callers | Notes |
 | --- | --- | --- | --- |
@@ -112,10 +112,10 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | `mux.ack` `{conversation, seq}` | MuxDO | chief (its brain host) | moves the chief's catch-up cursor |
 | `mux.configure` `{brain, brain_host?}` | MuxDO | session (owner) | |
 | `team.policy` keys `home.external_invites`, `home.retention_days`, `home.max_group` | TeamDO | team admin | via the enterprise lead's TeamPolicy (#16774) |
-| `contact.ensure` `{address}` | ContactDO | system (Worker) | stores the normalized address; returns `{contact, linked_user?, suppressed}` |
-| `contact.deliver` `{invite, conversation, channel, rendered}` | ContactDO | system (ConversationDO outbox) | external effect with its own ledger (ConnectionDO pattern: `mutation.indeterminate` when the provider call's outcome is unknown); checks suppression, per-recipient windows and the environment send policy before the provider call |
-| `contact.suppress` `{reason}` | ContactDO | system (provider webhooks, unsubscribe link) | |
-| `contact.unsuppress` | ContactDO | session whose verified address is this contact | |
+| `address.ensure` `{address}` | AddressDO | system (Worker) | stores the normalized address; returns `{id, linked_user?, suppressed}` |
+| `address.deliver` `{invite, conversation, channel, rendered}` | AddressDO | system (ConversationDO outbox) | external effect with its own ledger (ConnectionDO pattern: `mutation.indeterminate` when the provider call's outcome is unknown); checks suppression, per-recipient windows and the environment send policy before the provider call |
+| `address.suppress` `{reason}` | AddressDO | system (provider webhooks, unsubscribe link) | |
+| `address.unsuppress` | AddressDO | session whose Stack-verified email is this address; never an admin block | |
 
 ## 5. Flows
 
@@ -133,12 +133,12 @@ Send in a group (N humans, K chiefs):
 
 Invite by email or phone (compose "just works", IOS2):
 1. Client: `dm.open {peer: {email}}` or `invite.create` in a group, with a client key.
-2. Worker: normalize, `contact.ensure` on ContactDO (refuses suppressed contacts with the same
+2. Worker: normalize, `address.ensure` on AddressDO (refuses suppressed addresses with the same
    answer as success to the inviter, so suppression does not leak), `invite.quota.take` on the
    inviter's UserDO, then the op on ConversationDO.
-3. ConversationDO commits the invite (contact participant + invite record), then its outbox sends
-   `contact.deliver` to ContactDO with the rendered copy.
-4. ContactDO checks suppression, per-recipient windows and the environment policy (staging sends
+3. ConversationDO commits the invite (address participant + invite record), then its outbox sends
+   `address.deliver` to AddressDO with the rendered copy.
+4. AddressDO checks suppression, per-recipient windows and the environment policy (staging sends
    only to the private allow list, refused before the provider call), sends through the provider
    with the invite id as the provider idempotency key, records the result and reports
    `invite.delivery.report`.
@@ -202,7 +202,7 @@ CREATE INDEX home_conversations_team ON home_conversations (team_id, last_at DES
 CREATE TABLE home_participants (
   conversation_id text NOT NULL,
   participant_id  text NOT NULL,
-  kind            text NOT NULL CHECK (kind IN ('human', 'agent', 'contact')),
+  kind            text NOT NULL CHECK (kind IN ('human', 'agent', 'address')),
   visible_from_seq bigint NOT NULL DEFAULT 0,
   joined_at       timestamptz NOT NULL,
   left_at         timestamptz,
@@ -236,7 +236,7 @@ CREATE TABLE home_invites (
   id             text PRIMARY KEY,
   conversation_id text NOT NULL,
   invited_by     text NOT NULL,
-  contact_id     text NOT NULL,                 -- HMAC id, never the address
+  address_id     text NOT NULL,                 -- HMAC id, never the address
   channel        text NOT NULL CHECK (channel IN ('email', 'sms')),
   status         text NOT NULL,
   delivery_state text NOT NULL,
@@ -249,7 +249,7 @@ CREATE TABLE home_invites (
   source_seq     bigint NOT NULL
 );
 CREATE INDEX home_invites_inviter ON home_invites (invited_by, created_at DESC);
-CREATE INDEX home_invites_contact ON home_invites (contact_id, created_at DESC);
+CREATE INDEX home_invites_address ON home_invites (address_id, created_at DESC);
 ```
 
 Outbox kinds (drain statements in `projection.ts`): `home.conversation.upsert`,
@@ -261,7 +261,7 @@ new body. No raw address, token or token hash is ever projected.
 
 - Scope: messages of conversations where the caller is a current human participant, at or after
   `visible_from_seq`. Chiefs search through their owner's grant only when the op is in their
-  grant (`read` class); contacts never search.
+  grant (`read` class); addresses never search.
 - Op: `home.search {q, conversation?, author?, kind?, before?, cursor?, limit<=50}`, owner
   `cloud:Worker` read (Hyperdrive, read-only role). Result: `{hits: [{conversation, seq,
   message_id, author, created_at, snippet, ranges}], cursor?}`; the client opens the hit with
@@ -289,7 +289,7 @@ new body. No raw address, token or token hash is ever projected.
 - Per inviter (UserDO windows): 20 per day, 60 per week; accounts younger than 24 h or without a
   verified email: 5 per day and no custom text in the invite. Team admins may raise limits for
   their team (TeamDO policy).
-- Per contact (ContactDO): at most 1 invite per inviter per 7 days (a repeat attaches to the
+- Per address (AddressDO): at most 1 invite per inviter per 7 days (a repeat attaches to the
   pending invite, no new send), at most 3 distinct inviters per 30 days, at most 1 reminder per
   invite (after 3 days, only if unopened). Opt-out, bounce, complaint or a spam report suppresses
   all future sends.
@@ -300,7 +300,7 @@ new body. No raw address, token or token hash is ever projected.
 - Content: inviter text appears in the invite only for trusted inviters (verified email, account
   at least 24 h old, no prior reports); links in inviter text are not linkified in email and are
   removed from SMS.
-- Environment send policy (in code, ContactDO, before any provider call): production sends to
+- Environment send policy (in code, AddressDO, before any provider call): production sends to
   anyone not suppressed; staging, development and previews send only to addresses in the private
   allow list loaded at runtime from secret storage (never in the repository), and refuse every
   other recipient with `delivery.state = refused_env` and no provider call. A global kill switch
@@ -317,7 +317,7 @@ new body. No raw address, token or token hash is ever projected.
 - Ledger: 7 days (engine default). Events (`own_events`): keep the last 30 days or 10,000 events,
   whichever is more; older resumes take a snapshot (engine need E3).
 - Invites: pending ones expire after 14 days; records are kept 90 days, then reduced to counts.
-- Contacts: suppression is kept forever (a suppressed address must stay suppressed); the raw
+- Addresses: suppression is kept forever (a suppressed address must stay suppressed); the raw
   address is deleted after 180 days without an invite unless suppressed.
 - A conversation with no human participant for 30 days deletes its DO storage.
 
@@ -350,14 +350,14 @@ new body. No raw address, token or token hash is ever projected.
   coalesces per (target, conversation).
 - E5: the UserDO gateway carries `user:<id>` and `inbox:<id>`; an open conversation uses
   `GET /v1/wire/conv/<id>`; ConversationDO checks participation and closes the stream on removal.
-- E6: secrets per environment `HOME_CONTACT_KEY`, `HOME_INVITE_ALLOWLIST_EMAILS`,
+- E6: secrets per environment `HOME_ADDRESS_KEY`, `HOME_INVITE_ALLOWLIST_EMAILS`,
   `HOME_INVITE_ALLOWLIST_PHONES` (non-production), kill switch `HOME_INVITES_SEND`; Cloudflare
   rate-limit bindings for `invite.create`, `dm.open` by address and `invite.preview`.
 
 File boundaries: lane 15 writes `backend/packages/home-core/**` (reducers for conversation,
-inbox, mux and contact; invite links, limits, policy and copy; the conformance corpus) and this
-file. The backend lead writes the DO classes and bindings (ConversationDO, MuxDO, ContactDO, the
-UserDO second stream), `/v1/wire/conv/<id>`, op routing, rate limits, the ContactDO provider
+inbox, mux and address; invite links, limits, policy and copy; the conformance corpus) and this
+file. The backend lead writes the DO classes and bindings (ConversationDO, MuxDO, AddressDO, the
+UserDO second stream), `/v1/wire/conv/<id>`, op routing, rate limits, the AddressDO provider
 sends (it may import `deliverInvite` from `@cmux/home-core/invites`), the accept route, migration
 `0005_home.sql` and every deploy.
 
@@ -465,8 +465,8 @@ of one, so "share this Mac with Austin" is a grant to Austin's user, not an org 
   the caller's relationships and org co-members visible to the caller's role.
 - A typed full email or phone that belongs to an unrelated user returns the same answer as an
   unknown address: "invite will be sent". The inviter learns nothing about the address.
-- That user receives a message request in Home (and, by their setting, an email or text), not a
-  silent join. Accepting creates the relationship and moves the conversation into their inbox;
+- That user receives a message request in Home and an email (on by default, R2), not a silent
+  join. Accepting creates the relationship and moves the conversation into their inbox;
   declining or blocking ends it. Until acceptance the sender sees no delivery or read state.
 - Unknown addresses get the invite flow (sections 5 and 9). Accepting a one-to-one invite also
   creates the relationship (consent by both).
@@ -504,7 +504,7 @@ of one, so "share this Mac with Austin" is a grant to Austin's user, not an org 
 | Pair relationship `{state: none|requested|connected, requested_by?, blocked_by[], since}` | DM ConversationDO of the pair | `relation.request` (implicit in `dm.open` and DM invites), `relation.accept`, `relation.decline`, `relation.remove`, `relation.block`, `relation.unblock` | each side's UserDO (`relations` rows, outbox with target), Postgres `home_relations (user_id, other_id, state)` for server-side checks |
 | Org membership and roles | TeamDO | `org.invite`, `org.invite.accept`, `org.invite.revoke`, `org.member.role.set`, `org.member.remove`, `org.leave` | UserDO memberships, Postgres `memberships` (exists, `role` gains `guest` and `billing`) |
 | Grants | UserDO or TeamDO (issuer) | identity spec section 4 | the resource owners check by grant id |
-| Profile and discovery settings | UserDO | `profile.set`, `home.settings.set {allow_requests_from: anyone|orgs|nobody, email_requests: on|off}` | TeamDOs and pair objects of the user |
+| Profile and discovery settings | UserDO | `profile.set`, `home.settings.set {allow_requests_from: anyone|teams|nobody, email_requests: on (default)|off}` | TeamDOs and pair objects of the user |
 
 Checks: a group ConversationDO accepts `participants.add` of a human only when the adder and the
 addee are connected or share an org where the adder's role may add people, read from the adder's
@@ -518,30 +518,33 @@ migration). Existing team members keep their roles. No relationships exist yet; 
 between two existing org members creates their relationship only when both send a message
 (implicit consent), so org departures do not erase working DMs.
 
-### 16.9 Open questions for Lawrence
+### 16.9 Decisions (Lawrence, 2026-10-02)
 
-- R1. Name the organization primitive: keep "team", or "org", or "workspace"? (proposal: keep
-  "team" in product copy, `team_` ids unchanged; this section says org only to separate it from
-  relationships).
-- R2. Should a message request from an unrelated user ever send an email or a text, or stay
-  in-app only? (proposal: in-app only, email opt-in).
-- R3. Naming clash: the backend's `ContactDO` (an email or phone address) versus the product
-  word "Contacts" (relationships). Proposal: rename the address owner to `AddressDO` and
-  participants `addr_<26>` before either lands in production.
+- R1: the three primitives are accepted: Contacts (relationships), Grants, and Team with the roles guest, member, admin, owner and billing. The product and code keep the name "Team" (`team_` ids); "org" in this section only separates it from relationships.
+- R2: message requests from unrelated users show in Home AND send an email (on by default; the recipient can turn email off in `home.settings.set {email_requests}`).
+- R3: the address owner is `AddressDO`, participants `addr_<26>`, secret `HOME_ADDRESS_KEY` (backend and home-core renamed).
 
-## 17. Open engine and flow questions (from building home-core)
+## 17. Engine and flow questions (answered by the backend lead, 2026-10-02)
 
 - Q1. The invite secret never enters a reducer, event or outbox (only its hash does), so
-  ContactDO cannot build the link from `contact.deliver`. Proposal: the Worker generates the
-  secret, stores it in ContactDO (`contact.stash_secret {invite, secret}`, system, deleted after
-  the send) before `invite.create`, and ContactDO renders the copy when the `contact.deliver`
-  item arrives.
+  AddressDO cannot build the link from `address.deliver`. Proposal: the Worker generates the
+  secret, stores it in AddressDO (`address.stash_secret {invite, secret}`, system, deleted after
+  the send) before `invite.create`, and AddressDO renders the copy when the `address.deliver`
+  item arrives. Accepted: `address.stash_secret` keeps it in a side table outside op state,
+  deleted after the provider accepts or after 24 h, never logged; AddressDO renders with
+  home-core's builder.
 - Q2. After a contact accepts a one-to-one invite, the conversation id is the contact-based
   `conv_dm_` id, not `dmConversationId(inviter, user)`. Proposal: `dm.open` first looks up the
-  caller's inbox `dm_peer` index (UserDO) and uses the hash only when no DM exists.
+  caller's inbox `dm_peer` index (UserDO) and uses the hash only when no DM exists. Built:
+  inbox table `peer` and `dmPeer(rows, peer)`; the backend wires the lookup.
 - Q3. `reduce` does not receive the idempotency key, so the Domain enforces `client_msg_id`
   uniqueness through the `msgkey` table instead of `client_msg_id == key`. Proposal: add
-  `idempotency_key` to `ReduceContext`.
+  `idempotency_key` to `ReduceContext`. Done: `ctx.idempotencyKey` (owner and own intent
+  preview, absent in mirror replay); the Domain checks `client_msg_id === key` when present.
 - Q4. Invite token hashes appear in `invite.create` event params and `inv` rows that participants
   can read. A hash cannot accept (accept hashes the presented secret), but the engine could keep
-  them out of events with a per-op event redaction hook.
+  them out of events with a per-op event redaction hook. Done: `EngineOptions.redact`;
+  home-core exports `conversationRedact` (token hashes, accept proofs) and `PRIVATE_TABLES`
+  (`invhash`, whose row keys are hashes: keep its writes out of subscriber effects). The accept
+  op takes `proof = sha256(secret)` and invites store `token_hash = sha256(proof)`, so no event
+  carries a value that can accept.

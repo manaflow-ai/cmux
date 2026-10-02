@@ -6,7 +6,7 @@ import { ALICE, BOB, CAROL, CHIEF, groupHead, tokenHash } from "./support/cloud.
 
 const SEEDS = Number(process.env.CONVERSATION_SEEDS ?? 300)
 const STEPS = 150
-const CONTACTS = [1, 2, 3].map((n) => `contact_${"0".repeat(25)}${n}`)
+const ADDRESSES = [1, 2, 3].map((n) => `addr_${"0".repeat(25)}${n}`)
 const INVITES = [1, 2, 3, 4, 5, 6].map((n) => `inv_${"0".repeat(25)}${n}`)
 const USERS = [ALICE, BOB, CAROL, "user_dave"]
 const REACTIONS: Array<ReactionKind> = [{ tapback: "love" }, { tapback: "laugh" }, { emoji: "🎉" }]
@@ -38,13 +38,13 @@ const randomOp = (rng: Rng, host: CoreHost, key: string): Op => {
     case 9:
       return { kind: "participants.add", participant: human(rng.pick(USERS), "Someone") }
     case 10:
-      return { kind: "participants.remove", participant: rng.pick([...USERS, CHIEF, ...CONTACTS]) }
+      return { kind: "participants.remove", participant: rng.pick([...USERS, CHIEF, ...ADDRESSES]) }
     case 11: {
       const index = rng.below(INVITES.length)
       return {
         kind: "invite.create",
         invite_id: INVITES[index]!,
-        contact: rng.pick(CONTACTS),
+        address: rng.pick(ADDRESSES),
         channel: rng.pick(["email", "email", "email", "sms"] as const),
         display_name: "Guest",
         token_hash: tokenHash(`secret-${index}`),
@@ -84,25 +84,25 @@ describe("conversation reducer under random op sequences", () => {
       const acceptedBy = new Map<string, string>()
       for (let step = 0; step < STEPS; step++) {
         const where = `seed ${seed} step ${step}`
-        const actor = rng.pick([ALICE, BOB, CAROL, "user_dave", CHIEF, ...CONTACTS, SYSTEM_ACTOR])
+        const actor = rng.pick([ALICE, BOB, CAROL, "user_dave", CHIEF, ...ADDRESSES, SYSTEM_ACTOR])
         const key = `k${seed}-${step}`
         const op = randomOp(rng, host, key)
         const before: ConversationHead = host.head
         const wasCurrent = before.participants.some((p) => p.id === actor && p.left_at === undefined)
-        const request = host.request(actor, key, op, rng.below(2) === 0 ? { actor_contacts: CONTACTS } : {})
+        const request = host.request(actor, key, op, rng.below(2) === 0 ? { actor_addresses: ADDRESSES } : {})
         const result = host.run(actor, key, op, request)
         if (rng.below(5) === 0) host.advance(rng.below(3) === 0 ? 3 * 24 * 3600_000 : 1_500)
         if (!result.ok) {
           expect(host.head, `${where}: a reject changes nothing`).toBe(before)
-          if (actor.startsWith("contact_") && wasCurrent && op.kind !== "invite.accept" && op.kind !== "invite.delivery.report") {
-            expect(result.code, where).toBe("contact_cannot_act")
+          if (actor.startsWith("addr_") && wasCurrent && op.kind !== "invite.accept" && op.kind !== "invite.delivery.report") {
+            expect(result.code, where).toBe("address_cannot_act")
           }
           continue
         }
         commits++
         const { commit } = result
         expect(commit.head.rev, `${where}: rev +1`).toBe(before.rev + 1)
-        expect(actor.startsWith("contact_"), `${where}: a contact committed`).toBe(false)
+        expect(actor.startsWith("addr_"), `${where}: a address committed`).toBe(false)
         if (op.kind !== "invite.accept" && op.kind !== "invite.delivery.report") expect(wasCurrent, `${where}: outsider committed ${op.kind}`).toBe(true)
         if (op.kind === "message.send") {
           expect(commit.head.last_seq).toBe(before.last_seq + 1)
@@ -131,7 +131,7 @@ describe("conversation reducer under random op sequences", () => {
       expect(head.participants.filter((p) => p.role === "owner" && p.left_at === undefined).length, `seed ${seed}: owners`).toBeLessThanOrEqual(1)
       host.messages.forEach((message, index) => {
         expect(message.seq, `seed ${seed}: seq dense`).toBe(index + 1)
-        expect(message.author.startsWith("contact_"), `seed ${seed}: contact authored`).toBe(false)
+        expect(message.author.startsWith("addr_"), `seed ${seed}: address authored`).toBe(false)
         message.reactions.forEach((reaction, position) => {
           expect(reaction.part_index).toBeLessThan(message.parts.length)
           const duplicate = message.reactions

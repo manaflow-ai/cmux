@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { create, dmConversationId, SYSTEM_ACTOR, type Op } from "../src/conversation/index.ts"
 import { CoreHost, human, NOW, text } from "./support/harness.ts"
-import { ALICE, BOB, CAROL, CHIEF, chiefHead, CONTACT, CONTACT2, dmHead, groupHead, INV, INV2, inviteOp, tokenHash } from "./support/cloud.ts"
+import { ALICE, BOB, CAROL, CHIEF, chiefHead, ADDRESS, ADDRESS2, dmHead, groupHead, INV, INV2, inviteOp, tokenHash } from "./support/cloud.ts"
 
 const code = (result: { ok: boolean; code?: string }) => (result.ok ? "ok" : result.code)
 const accept = (secret: string, name = "Dana"): Op => ({ kind: "invite.accept", token_hash: tokenHash(secret), display_name: name })
@@ -29,9 +29,9 @@ describe("cloud create", () => {
     expect(make("dm", dmConversationId(ALICE, CHIEF), [human(ALICE), { id: CHIEF, kind: "agent", display_name: "c", agent_class: "mux" }])).toBe(
       "invalid_participant"
     )
-    expect(make("dm", dmConversationId(ALICE, CONTACT), [human(ALICE), { id: CONTACT, kind: "contact", display_name: "d" }])).toBe("ok")
+    expect(make("dm", dmConversationId(ALICE, ADDRESS), [human(ALICE), { id: ADDRESS, kind: "address", display_name: "d" }])).toBe("ok")
     expect(make("chief", "conv_C", [human(ALICE), human(BOB)])).toBe("invalid_participant")
-    expect(make("group", "conv_G", [human(ALICE), { id: CONTACT, kind: "contact", display_name: "d" }])).toBe("invalid_participant")
+    expect(make("group", "conv_G", [human(ALICE), { id: ADDRESS, kind: "address", display_name: "d" }])).toBe("invalid_participant")
     expect(make("group", "conv_G", [human(ALICE)], "")).toBe("ok")
     expect(code(create({ id: "conv_L", actor: ALICE, title: "", participants: [human(ALICE)], now: NOW }))).toBe("invalid_title")
   })
@@ -46,12 +46,12 @@ describe("cloud rules on local ops", () => {
     }
   })
 
-  it("participants.add stamps the joiner and refuses contacts", () => {
+  it("participants.add stamps the joiner and refuses addresses", () => {
     const host = new CoreHost(groupHead())
     host.send(ALICE, "c1", "hi")
     expect(code(host.run(BOB, "p1", { kind: "participants.add", participant: { ...human(CAROL), role: "owner" } }))).toBe("ok")
     expect(host.head.participants.at(-1)).toEqual({ id: CAROL, kind: "human", display_name: "Alice", role: "member", joined_seq: 1, added_by: BOB })
-    expect(code(host.run(ALICE, "p2", { kind: "participants.add", participant: { id: CONTACT, kind: "contact", display_name: "d" } }))).toBe(
+    expect(code(host.run(ALICE, "p2", { kind: "participants.add", participant: { id: ADDRESS, kind: "address", display_name: "d" } }))).toBe(
       "invalid_participant"
     )
   })
@@ -79,34 +79,34 @@ describe("participants.remove", () => {
 })
 
 describe("invites", () => {
-  it("create adds a contact that cannot act, and a pending invite with a 14 day expiry", () => {
+  it("create adds a address that cannot act, and a pending invite with a 14 day expiry", () => {
     const host = new CoreHost(groupHead())
     expect(code(host.run(ALICE, "i1", inviteOp()))).toBe("ok")
-    expect(host.head.participants.at(-1)).toMatchObject({ id: CONTACT, kind: "contact", role: "member", added_by: ALICE })
+    expect(host.head.participants.at(-1)).toMatchObject({ id: ADDRESS, kind: "address", role: "member", added_by: ALICE })
     expect(host.head.invites?.[0]).toMatchObject({ id: INV, status: "pending", expires_at: "2026-10-15T12:00:00.000Z", delivery: { state: "queued" } })
     for (const op of [
       { kind: "message.send", client_msg_id: "k", parts: [text("x")] },
       { kind: "read_cursor.set", seq: 0 },
       { kind: "title.set", title: "x" }
     ] as Array<Op>) {
-      expect(code(host.run(CONTACT, "k", op))).toBe("contact_cannot_act")
+      expect(code(host.run(ADDRESS, "k", op))).toBe("address_cannot_act")
     }
-    expect(code(host.run(CHIEF, "i2", inviteOp({ invite_id: INV2, contact: CONTACT2, token_hash: tokenHash("s2") })))).toBe("forbidden")
+    expect(code(host.run(CHIEF, "i2", inviteOp({ invite_id: INV2, address: ADDRESS2, token_hash: tokenHash("s2") })))).toBe("forbidden")
     expect(code(host.run(BOB, "i3", inviteOp({ invite_id: INV2, token_hash: tokenHash("s2") })))).toBe("duplicate_invite")
-    expect(code(host.run(BOB, "i4", inviteOp({ invite_id: INV2, contact: CONTACT2, token_hash: "short" })))).toBe("invalid_invite")
+    expect(code(host.run(BOB, "i4", inviteOp({ invite_id: INV2, address: ADDRESS2, token_hash: "short" })))).toBe("invalid_invite")
     expect(code(new CoreHost(chiefHead()).run(ALICE, "i", inviteOp()))).toBe("kind_forbids")
   })
 
-  it("accept is single use, checks expiry, and replaces the contact in place", () => {
+  it("accept is single use, checks expiry, and replaces the address in place", () => {
     const host = new CoreHost(groupHead())
     host.run(ALICE, "i1", inviteOp())
     host.send(ALICE, "c1", "welcome")
     expect(code(host.run(ALICE, "a0", accept("secret-1")))).toBe("invite_self")
     expect(code(host.run(CAROL, "a1", accept("wrong")))).toBe("unknown_invite")
-    expect(code(host.run(CAROL, "a2", accept("secret-1", "Carol"), { actor_contacts: [CONTACT] }))).toBe("ok")
+    expect(code(host.run(CAROL, "a2", accept("secret-1", "Carol"), { actor_addresses: [ADDRESS] }))).toBe("ok")
     const carol = host.head.participants.find((p) => p.id === CAROL)
     expect(carol).toEqual({ id: CAROL, kind: "human", display_name: "Carol", role: "member", joined_seq: 0, added_by: ALICE })
-    expect(host.head.participants.some((p) => p.id === CONTACT)).toBe(false)
+    expect(host.head.participants.some((p) => p.id === ADDRESS)).toBe(false)
     expect(host.head.invites?.[0]).toMatchObject({ status: "accepted", accepted_by: CAROL })
     expect(code(host.run("user_dave", "a3", accept("secret-1")))).toBe("invite_not_pending")
     const late = new CoreHost(groupHead())
@@ -129,13 +129,13 @@ describe("invites", () => {
     expect(host.head.invites?.[0]).not.toHaveProperty("requested_by")
     const verified = new CoreHost(groupHead())
     verified.run(ALICE, "i1", inviteOp())
-    expect(code(verified.run(CAROL, "a", accept("secret-1", "Carol"), { actor_contacts: [CONTACT] }))).toBe("ok")
+    expect(code(verified.run(CAROL, "a", accept("secret-1", "Carol"), { actor_addresses: [ADDRESS] }))).toBe("ok")
     expect(verified.head.invites?.[0]?.status).toBe("accepted")
   })
 
   it("a dm invite binds any holder once", () => {
-    const host = new CoreHost(dmHead(CONTACT))
-    expect(code(host.run(ALICE, "i1", inviteOp({ invite_id: INV2, contact: CONTACT2 })))).toBe("kind_forbids")
+    const host = new CoreHost(dmHead(ADDRESS))
+    expect(code(host.run(ALICE, "i1", inviteOp({ invite_id: INV2, address: ADDRESS2 })))).toBe("kind_forbids")
     expect(code(host.run(ALICE, "i2", inviteOp()))).toBe("ok")
     expect(code(host.run(CAROL, "a", accept("secret-1", "Carol")))).toBe("ok")
     expect(host.head.participants.map((p) => p.id)).toEqual([ALICE, CAROL])
@@ -152,13 +152,13 @@ describe("invites", () => {
     expect(delivered.ok && "token_hash" in (delivered.commit.change as { invite: object }).invite).toBe(false)
     expect(code(host.run(BOB, "v1", { kind: "invite.revoke", invite_id: INV }))).toBe("forbidden")
     expect(code(host.run(ALICE, "v2", { kind: "invite.revoke", invite_id: INV }))).toBe("ok")
-    // A departed contact outside a dm is dropped from the head.
-    expect(host.head.participants.some((p) => p.id === CONTACT)).toBe(false)
+    // A departed address outside a dm is dropped from the head.
+    expect(host.head.participants.some((p) => p.id === ADDRESS)).toBe(false)
     expect(code(host.run(CAROL, "a", accept("secret-1")))).toBe("invite_not_pending")
     host.run(ALICE, "i2", inviteOp({ invite_id: INV2, token_hash: tokenHash("s2") }))
-    expect(host.head.participants.find((p) => p.id === CONTACT)?.left_at).toBeUndefined()
+    expect(host.head.participants.find((p) => p.id === ADDRESS)?.left_at).toBeUndefined()
     expect(code(host.run(SYSTEM_ACTOR, "dn", { kind: "invite.delivery.report", invite_id: INV2, delivery: { state: "sent", provider_id: null as never } }))).toBe("invalid_invite")
-    expect(code(host.run(ALICE, "rm", { kind: "participants.remove", participant: CONTACT }))).toBe("ok")
+    expect(code(host.run(ALICE, "rm", { kind: "participants.remove", participant: ADDRESS }))).toBe("ok")
     expect(host.head.invites?.find((i) => i.id === INV2)?.status).toBe("revoked")
   })
 
@@ -166,10 +166,10 @@ describe("invites", () => {
     const host = new CoreHost(groupHead())
     for (let i = 0; i < 20; i++) {
       const suffix = `0${"0123456789ABCDEFGHJKMNPQRSTVWXYZ"[i]}`
-      const r = host.run(ALICE, `i${i}`, inviteOp({ invite_id: `inv_${"0".repeat(24)}${suffix}`, contact: `contact_${"0".repeat(24)}${suffix}`, token_hash: tokenHash(`s${i}`) }))
+      const r = host.run(ALICE, `i${i}`, inviteOp({ invite_id: `inv_${"0".repeat(24)}${suffix}`, address: `addr_${"0".repeat(24)}${suffix}`, token_hash: tokenHash(`s${i}`) }))
       expect(code(r)).toBe("ok")
     }
-    const extra = inviteOp({ invite_id: `inv_${"1".repeat(26)}`, contact: `contact_${"1".repeat(26)}`, token_hash: tokenHash("x") })
+    const extra = inviteOp({ invite_id: `inv_${"1".repeat(26)}`, address: `addr_${"1".repeat(26)}`, token_hash: tokenHash("x") })
     expect(code(host.run(ALICE, "over", extra))).toBe("invite_limit")
     host.now = "2026-10-16T00:00:00.000Z"
     expect(code(host.run(ALICE, "later", extra))).toBe("ok")
@@ -220,14 +220,14 @@ describe("cloud agent rules", () => {
 })
 
 describe("join approval", () => {
-  it("group sms invites always wait; decline closes the invite and drops the contact; approval expires", () => {
+  it("group sms invites always wait; decline closes the invite and drops the address; approval expires", () => {
     const host = new CoreHost(groupHead())
     host.run(ALICE, "i1", inviteOp({ channel: "sms" }))
-    expect(code(host.run(CAROL, "a1", accept("secret-1", "Carol"), { actor_contacts: [CONTACT] }))).toBe("ok")
+    expect(code(host.run(CAROL, "a1", accept("secret-1", "Carol"), { actor_addresses: [ADDRESS] }))).toBe("ok")
     expect(host.head.invites?.[0]?.status).toBe("pending_approval")
     expect(code(host.run(ALICE, "d", { kind: "invite.approve_join", invite_id: INV, approve: false }))).toBe("ok")
     expect(host.head.invites?.[0]?.status).toBe("revoked")
-    expect(host.head.participants.some((p) => p.id === CONTACT || p.id === CAROL)).toBe(false)
+    expect(host.head.participants.some((p) => p.id === ADDRESS || p.id === CAROL)).toBe(false)
     const late = new CoreHost(groupHead())
     late.run(ALICE, "i1", inviteOp())
     late.run(CAROL, "a1", accept("secret-1", "Carol"))

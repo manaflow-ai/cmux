@@ -9,14 +9,14 @@
  * cloud (or self-hosted) conversation and adds the cloud rules.
  */
 
-export type ParticipantKind = "human" | "agent" | "contact"
+export type ParticipantKind = "human" | "agent" | "address"
 export type AgentClass = "mux" | "agent"
 export type ParticipantRole = "owner" | "member"
 export type ConversationKind = "chief" | "dm" | "group"
 export type ConversationState = "active" | "archived"
 
 export interface Participant {
-  /** `user_<id>`, `agent_<name>` or `contact_<26 base32>` (cloud). */
+  /** `user_<id>`, `agent_<name>` or `addr_<26 base32>` (cloud). */
   readonly id: string
   readonly kind: ParticipantKind
   readonly display_name: string
@@ -90,7 +90,7 @@ export interface Message {
 export type InviteChannel = "email" | "sms"
 /**
  * `pending_approval`: a group invite was opened by an account without a
- * verified email matching the invited contact (SMS invites always, since no
+ * verified email matching the invited address (SMS invites always, since no
  * principal carries a verified phone); the inviter or the owner approves or
  * declines the join (D-H4, decided 2026-10-02).
  */
@@ -115,8 +115,8 @@ export interface Delivery {
 export interface Invite {
   /** `inv_<26>`. */
   readonly id: string
-  /** `contact_<26>`. */
-  readonly contact: string
+  /** `addr_<26>`. */
+  readonly address: string
   readonly channel: InviteChannel
   readonly display_name: string
   readonly invited_by: string
@@ -217,10 +217,10 @@ export type LocalOp =
 export interface InviteCreateParams {
   readonly kind: "invite.create"
   readonly invite_id: string
-  /** The contact id from `contact.ensure`. */
-  readonly contact: string
+  /** The address id from `address.ensure`. */
+  readonly address: string
   readonly channel: InviteChannel
-  /** How the inviter named the contact (never the raw address). */
+  /** How the inviter named the address (never the raw address). */
   readonly display_name: string
   /** sha256 of the secret, computed by the host. */
   readonly token_hash: string

@@ -18,13 +18,13 @@ export const validName = (name: unknown): boolean =>
 
 /**
  * Departs a participant; an owner who leaves hands the role to the earliest
- * remaining human. A departing contact outside a dm is dropped from the head
+ * remaining human. A departing address outside a dm is dropped from the head
  * (nothing refers to it once its invites are closed), so the head stays
- * bounded; a dm keeps its contact peer, which defines the dm.
+ * bounded; a dm keeps its address peer, which defines the dm.
  */
 export const depart = (head: ConversationHead, participants: ReadonlyArray<Participant>, id: string, now: string): ReadonlyArray<Participant> => {
   const leaving = participants.find((participant) => participant.id === id)
-  if (leaving?.kind === "contact" && head.kind !== undefined && head.kind !== "dm") return participants.filter((participant) => participant.id !== id)
+  if (leaving?.kind === "address" && head.kind !== undefined && head.kind !== "dm") return participants.filter((participant) => participant.id !== id)
   let out = participants.map((participant) => (participant.id === id ? { ...participant, role: "member" as const, left_at: now } : participant))
   if (leaving?.role === "owner") {
     const heir = out.find((participant) => participant.kind === "human" && participant.left_at === undefined)
@@ -49,9 +49,9 @@ export const removeParticipant = (head: ConversationHead, next: Draft, request: 
   const allowed = target.id === actor.id || actor.role === "owner" || (target.kind === "agent" && target.owner_user === actor.id)
   if (!allowed) fail("forbidden")
   next.participants = depart(head, head.participants, target.id, request.now)
-  // A removed contact cannot accept: its pending invites end with it.
-  if (target.kind === "contact" && head.invites) {
-    next.invites = head.invites.map((invite) => (invite.contact === target.id && isOpen(invite) ? { ...invite, status: "revoked" as const } : invite))
+  // A removed address cannot accept: its pending invites end with it.
+  if (target.kind === "address" && head.invites) {
+    next.invites = head.invites.map((invite) => (invite.address === target.id && isOpen(invite) ? { ...invite, status: "revoked" as const } : invite))
   }
   if (head.kind !== undefined) archiveIfEmpty(next)
   next.updated_at = request.now

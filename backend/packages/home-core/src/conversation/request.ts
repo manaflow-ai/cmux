@@ -22,11 +22,11 @@ export interface OpRequest {
   /** When present, a `message.send` also passes `checkAgentBudget`, after every other rule. */
   readonly recent?: ReadonlyArray<Message> | null
   /**
-   * Cloud `invite.accept`: the contact ids of the actor's verified addresses,
-   * computed by the host (HMAC with the contact key). A group email invite
-   * binds at once only when its contact is in this list.
+   * Cloud `invite.accept`: the address ids of the actor's verified addresses,
+   * computed by the host (HMAC with the address key). A group email invite
+   * binds at once only when its address is in this list.
    */
-  readonly actor_contacts?: ReadonlyArray<string> | null
+  readonly actor_addresses?: ReadonlyArray<string> | null
   /**
    * Cloud `participants.add`: the host's participant policy approved this
    * participant (reach rules), and its `owner_user` and `display_name` are the

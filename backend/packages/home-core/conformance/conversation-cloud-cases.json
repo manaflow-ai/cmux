@@ -2,13 +2,13 @@
  "format": "cmux-conversation-conformance/1",
  "notes": [
   "Each case is {name, head, request, expect} or {name, create, expect}. expect is {commit}, {head} (create) or {reject: code}.",
-  "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, last_message) plus recent (newest first) and actor_contacts.",
+  "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, last_message) plus recent (newest first) and actor_addresses.",
   "A runner calls apply(head, request); when request.recent is an array and the op is message.send, it also runs check_agent_budget(head, actor, parts, recent, parse(now)) after every other rule passes.",
   "Compare JSON values: optional fields are omitted when absent; object key order does not matter.",
   "Commit = {head, message?, change}; change kinds: message, message-updated, read-cursor, conversation, invite.",
   "Cloud heads (with kind) keep the agent loop guard in the head (agent_text_streak, last_agent_text_at) and ignore request.recent; local heads use the Rust row window. Same limits; the head guard also counts a retracted agent message and applies the gap to the last agent text message however old.",
   "Cloud participants.add of an agent: only its owner (a stored record's owner_user wins over the op's), unless request.trusted_participant is true (the host's reach policy approved it and stamped owner_user and display_name).",
-  "Cloud invite.accept: request.actor_contacts holds the contact ids of the actor's verified emails; the host passes it only when the email is verified. Group invites bind at once only for email with a matching contact; otherwise status pending_approval.",
+  "Cloud invite.accept: request.actor_addresses holds the address ids of the actor's verified emails; the host passes it only when the email is verified. Group invites bind at once only for email with a matching address; otherwise status pending_approval.",
   "The host derives token_hash: invite.create stores hash(hash(secret)), and the Domain hashes the accept proof hash(secret), so no event carries a value that can accept."
  ],
  "cases": [
@@ -147,7 +147,7 @@
    }
   },
   {
-   "name": "create group: contacts join only by invite",
+   "name": "create group: addresses join only by invite",
    "create": {
     "id": "conv_01J00000000000000000GROUP",
     "actor": "user_alice",
@@ -161,8 +161,8 @@
       "display_name": "Alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "dana@"
      }
     ]
@@ -339,13 +339,13 @@
    }
   },
   {
-   "name": "create dm: with a contact peer",
+   "name": "create dm: with a address peer",
    "create": {
     "actor": "user_alice",
     "title": "",
     "now": "2026-10-01T12:00:00.000Z",
     "kind": "dm",
-    "id": "conv_dm_VWREYM7HNJ8HWSY343A292R45Q",
+    "id": "conv_dm_J0H2S768THV5SGT7G3SDSAZP4X",
     "participants": [
      {
       "id": "user_alice",
@@ -353,15 +353,15 @@
       "display_name": "Alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "dana@"
      }
     ]
    },
    "expect": {
     "head": {
-     "id": "conv_dm_VWREYM7HNJ8HWSY343A292R45Q",
+     "id": "conv_dm_J0H2S768THV5SGT7G3SDSAZP4X",
      "title": "",
      "participants": [
       {
@@ -373,8 +373,8 @@
        "added_by": "user_alice"
       },
       {
-       "id": "contact_00000000000000000000000001",
-       "kind": "contact",
+       "id": "addr_00000000000000000000000001",
+       "kind": "address",
        "display_name": "dana@",
        "role": "member",
        "joined_seq": 0,
@@ -914,7 +914,7 @@
    }
   },
   {
-   "name": "participants.add: a contact",
+   "name": "participants.add: a address",
    "head": {
     "id": "conv_GROUP",
     "title": "Team",
@@ -980,8 +980,8 @@
     "op": {
      "kind": "participants.add",
      "participant": {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "dana@"
      }
     },
@@ -2594,7 +2594,7 @@
    }
   },
   {
-   "name": "invite.create: email to a new contact",
+   "name": "invite.create: email to a new address",
    "head": {
     "id": "conv_GROUP",
     "title": "Team",
@@ -2682,7 +2682,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000001",
-     "contact": "contact_00000000000000000000000001",
+     "address": "addr_00000000000000000000000001",
      "channel": "email",
      "display_name": "Dana",
      "token_hash": "9-fDbkWOgOa2osZ9Cp7Am9cY2t17-o1r9uetUm5Gwvc",
@@ -2773,8 +2773,8 @@
         "added_by": "user_carol"
        },
        {
-        "id": "contact_00000000000000000000000001",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000001",
+        "kind": "address",
         "display_name": "Dana",
         "role": "member",
         "joined_seq": 1,
@@ -2800,7 +2800,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -2883,8 +2883,8 @@
          "added_by": "user_carol"
         },
         {
-         "id": "contact_00000000000000000000000001",
-         "kind": "contact",
+         "id": "addr_00000000000000000000000001",
+         "kind": "address",
          "display_name": "Dana",
          "role": "member",
          "joined_seq": 1,
@@ -2925,7 +2925,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_bob",
@@ -2946,7 +2946,7 @@
    }
   },
   {
-   "name": "send: a contact cannot act",
+   "name": "send: a address cannot act",
    "head": {
     "id": "conv_GROUP",
     "title": "Team",
@@ -3009,8 +3009,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -3036,7 +3036,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -3055,7 +3055,7 @@
     "agent_text_streak": 0
    },
    "request": {
-    "actor": "contact_00000000000000000000000001",
+    "actor": "addr_00000000000000000000000001",
     "idempotency_key": "m3",
     "op": {
      "kind": "message.send",
@@ -3088,7 +3088,7 @@
     }
    },
    "expect": {
-    "reject": "contact_cannot_act"
+    "reject": "address_cannot_act"
    }
   },
   {
@@ -3155,8 +3155,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -3182,7 +3182,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -3206,7 +3206,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000002",
-     "contact": "contact_00000000000000000000000002",
+     "address": "addr_00000000000000000000000002",
      "channel": "email",
      "display_name": "Dana",
      "token_hash": "rTKIRqoYsyozWBY3RRHKwQY8cEuMV5meUdqfkIKQp6Q",
@@ -3238,7 +3238,7 @@
    }
   },
   {
-   "name": "invite.create: the contact already has an open invite",
+   "name": "invite.create: the address already has an open invite",
    "head": {
     "id": "conv_GROUP",
     "title": "Team",
@@ -3301,8 +3301,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -3328,7 +3328,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -3352,7 +3352,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000002",
-     "contact": "contact_00000000000000000000000001",
+     "address": "addr_00000000000000000000000001",
      "channel": "email",
      "display_name": "Dana",
      "token_hash": "rTKIRqoYsyozWBY3RRHKwQY8cEuMV5meUdqfkIKQp6Q",
@@ -3447,8 +3447,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -3474,7 +3474,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -3498,7 +3498,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000002",
-     "contact": "contact_00000000000000000000000002",
+     "address": "addr_00000000000000000000000002",
      "channel": "email",
      "display_name": "Dana",
      "token_hash": "short",
@@ -3593,8 +3593,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -3620,7 +3620,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -3736,8 +3736,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -3763,7 +3763,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -3880,8 +3880,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -3907,7 +3907,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -4020,8 +4020,8 @@
         "added_by": "user_carol"
        },
        {
-        "id": "contact_00000000000000000000000001",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000001",
+        "kind": "address",
         "display_name": "Dana",
         "role": "member",
         "joined_seq": 1,
@@ -4047,7 +4047,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -4071,7 +4071,7 @@
       "conversation": "conv_GROUP",
       "invite": {
        "id": "inv_00000000000000000000000001",
-       "contact": "contact_00000000000000000000000001",
+       "address": "addr_00000000000000000000000001",
        "channel": "email",
        "display_name": "Dana",
        "invited_by": "user_bob",
@@ -4154,8 +4154,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -4181,7 +4181,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -4298,8 +4298,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -4325,7 +4325,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -4440,8 +4440,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -4467,7 +4467,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -4582,8 +4582,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -4609,7 +4609,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -4720,8 +4720,8 @@
         "added_by": "user_carol"
        },
        {
-        "id": "contact_00000000000000000000000001",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000001",
+        "kind": "address",
         "display_name": "Dana",
         "role": "member",
         "joined_seq": 1,
@@ -4747,7 +4747,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -4834,8 +4834,8 @@
          "added_by": "user_carol"
         },
         {
-         "id": "contact_00000000000000000000000001",
-         "kind": "contact",
+         "id": "addr_00000000000000000000000001",
+         "kind": "address",
          "display_name": "Dana",
          "role": "member",
          "joined_seq": 1,
@@ -4876,7 +4876,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_bob",
@@ -4964,8 +4964,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -4991,7 +4991,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -5109,8 +5109,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -5136,7 +5136,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -5253,8 +5253,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -5280,7 +5280,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -5398,8 +5398,8 @@
       "added_by": "user_carol"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -5425,7 +5425,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -5565,7 +5565,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -5693,7 +5693,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_bob",
@@ -5807,7 +5807,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -5860,7 +5860,7 @@
    }
   },
   {
-   "name": "invite.create: sms to another contact",
+   "name": "invite.create: sms to another address",
    "head": {
     "id": "conv_GROUP",
     "title": "Team",
@@ -5950,7 +5950,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -5977,7 +5977,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000002",
-     "contact": "contact_00000000000000000000000002",
+     "address": "addr_00000000000000000000000002",
      "channel": "sms",
      "display_name": "Dana",
      "token_hash": "rTKIRqoYsyozWBY3RRHKwQY8cEuMV5meUdqfkIKQp6Q",
@@ -6076,8 +6076,8 @@
         "added_by": "user_bob"
        },
        {
-        "id": "contact_00000000000000000000000002",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000002",
+        "kind": "address",
         "display_name": "Dana",
         "role": "member",
         "joined_seq": 1,
@@ -6103,7 +6103,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -6123,7 +6123,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -6214,8 +6214,8 @@
          "added_by": "user_bob"
         },
         {
-         "id": "contact_00000000000000000000000002",
-         "kind": "contact",
+         "id": "addr_00000000000000000000000002",
+         "kind": "address",
          "display_name": "Dana",
          "role": "member",
          "joined_seq": 1,
@@ -6256,7 +6256,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_bob",
@@ -6275,7 +6275,7 @@
         },
         {
          "id": "inv_00000000000000000000000002",
-         "contact": "contact_00000000000000000000000002",
+         "address": "addr_00000000000000000000000002",
          "channel": "sms",
          "display_name": "Dana",
          "invited_by": "user_carol",
@@ -6367,8 +6367,8 @@
       "added_by": "user_bob"
      },
      {
-      "id": "contact_00000000000000000000000002",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000002",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -6394,7 +6394,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -6414,7 +6414,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -6464,7 +6464,7 @@
    }
   },
   {
-   "name": "invite.revoke: the owner; the contact is dropped from the head",
+   "name": "invite.revoke: the owner; the address is dropped from the head",
    "head": {
     "id": "conv_GROUP",
     "title": "Team",
@@ -6535,8 +6535,8 @@
       "added_by": "user_bob"
      },
      {
-      "id": "contact_00000000000000000000000002",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000002",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 1,
@@ -6562,7 +6562,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -6582,7 +6582,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -6718,7 +6718,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -6738,7 +6738,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -6863,7 +6863,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_bob",
@@ -6882,7 +6882,7 @@
         },
         {
          "id": "inv_00000000000000000000000002",
-         "contact": "contact_00000000000000000000000002",
+         "address": "addr_00000000000000000000000002",
          "channel": "sms",
          "display_name": "Dana",
          "invited_by": "user_carol",
@@ -6993,7 +6993,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -7013,7 +7013,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -7154,7 +7154,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -7174,7 +7174,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -7314,7 +7314,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -7334,7 +7334,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -7473,7 +7473,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -7493,7 +7493,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -7632,7 +7632,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -7652,7 +7652,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -7777,7 +7777,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_bob",
@@ -7796,7 +7796,7 @@
         },
         {
          "id": "inv_00000000000000000000000002",
-         "contact": "contact_00000000000000000000000002",
+         "address": "addr_00000000000000000000000002",
          "channel": "sms",
          "display_name": "Dana",
          "invited_by": "user_carol",
@@ -7907,7 +7907,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -7927,7 +7927,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -8069,7 +8069,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -8089,7 +8089,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -8235,7 +8235,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -8255,7 +8255,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -8399,7 +8399,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -8419,7 +8419,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -8567,7 +8567,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -8587,7 +8587,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -8731,7 +8731,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -8751,7 +8751,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -8897,7 +8897,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -8917,7 +8917,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -9061,7 +9061,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -9081,7 +9081,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -9229,7 +9229,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -9249,7 +9249,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -9394,7 +9394,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -9414,7 +9414,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -9562,7 +9562,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -9582,7 +9582,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -9727,7 +9727,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -9747,7 +9747,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -9895,7 +9895,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -9915,7 +9915,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -10060,7 +10060,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -10080,7 +10080,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -10228,7 +10228,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -10248,7 +10248,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -10393,7 +10393,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -10413,7 +10413,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -10561,7 +10561,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -10581,7 +10581,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -10726,7 +10726,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -10746,7 +10746,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -10894,7 +10894,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -10914,7 +10914,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -11062,7 +11062,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -11082,7 +11082,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -11226,7 +11226,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -11246,7 +11246,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -11392,7 +11392,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -11412,7 +11412,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -11555,7 +11555,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -11575,7 +11575,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -11721,7 +11721,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -11741,7 +11741,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -11879,7 +11879,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -11899,7 +11899,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -12026,7 +12026,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_bob",
@@ -12045,7 +12045,7 @@
         },
         {
          "id": "inv_00000000000000000000000002",
-         "contact": "contact_00000000000000000000000002",
+         "address": "addr_00000000000000000000000002",
          "channel": "sms",
          "display_name": "Dana",
          "invited_by": "user_carol",
@@ -12157,7 +12157,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -12177,7 +12177,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -12316,7 +12316,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -12336,7 +12336,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -12464,7 +12464,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_bob",
@@ -12483,7 +12483,7 @@
         },
         {
          "id": "inv_00000000000000000000000002",
-         "contact": "contact_00000000000000000000000002",
+         "address": "addr_00000000000000000000000002",
          "channel": "sms",
          "display_name": "Dana",
          "invited_by": "user_carol",
@@ -12596,7 +12596,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -12616,7 +12616,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -12756,7 +12756,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -12776,7 +12776,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -12905,7 +12905,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_bob",
@@ -12924,7 +12924,7 @@
         },
         {
          "id": "inv_00000000000000000000000002",
-         "contact": "contact_00000000000000000000000002",
+         "address": "addr_00000000000000000000000002",
          "channel": "sms",
          "display_name": "Dana",
          "invited_by": "user_carol",
@@ -13038,7 +13038,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -13058,7 +13058,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -13199,7 +13199,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_bob",
@@ -13219,7 +13219,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_carol",
@@ -13349,7 +13349,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_bob",
@@ -13368,7 +13368,7 @@
         },
         {
          "id": "inv_00000000000000000000000002",
-         "contact": "contact_00000000000000000000000002",
+         "address": "addr_00000000000000000000000002",
          "channel": "sms",
          "display_name": "Dana",
          "invited_by": "user_carol",
@@ -13483,7 +13483,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_bob",
@@ -13503,7 +13503,7 @@
      },
      {
       "id": "inv_00000000000000000000000002",
-      "contact": "contact_00000000000000000000000002",
+      "address": "addr_00000000000000000000000002",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_carol",
@@ -13618,7 +13618,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000001",
-     "contact": "contact_00000000000000000000000001",
+     "address": "addr_00000000000000000000000001",
      "channel": "email",
      "display_name": "Dana",
      "token_hash": "9-fDbkWOgOa2osZ9Cp7Am9cY2t17-o1r9uetUm5Gwvc",
@@ -13665,8 +13665,8 @@
         "added_by": "user_alice"
        },
        {
-        "id": "contact_00000000000000000000000001",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000001",
+        "kind": "address",
         "display_name": "Dana",
         "role": "member",
         "joined_seq": 0,
@@ -13692,7 +13692,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -13745,8 +13745,8 @@
          "added_by": "user_alice"
         },
         {
-         "id": "contact_00000000000000000000000001",
-         "kind": "contact",
+         "id": "addr_00000000000000000000000001",
+         "kind": "address",
          "display_name": "Dana",
          "role": "member",
          "joined_seq": 0,
@@ -13772,7 +13772,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -13826,8 +13826,8 @@
       "added_by": "user_alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 0,
@@ -13853,7 +13853,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_alice",
@@ -13884,8 +13884,8 @@
     "target": null,
     "reply_target": null,
     "last_message": null,
-    "actor_contacts": [
-     "contact_00000000000000000000000001"
+    "actor_addresses": [
+     "addr_00000000000000000000000001"
     ]
    },
    "expect": {
@@ -13949,7 +13949,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -14031,7 +14031,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -14112,7 +14112,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000001",
-     "contact": "contact_00000000000000000000000001",
+     "address": "addr_00000000000000000000000001",
      "channel": "sms",
      "display_name": "Dana",
      "token_hash": "9-fDbkWOgOa2osZ9Cp7Am9cY2t17-o1r9uetUm5Gwvc",
@@ -14159,8 +14159,8 @@
         "added_by": "user_alice"
        },
        {
-        "id": "contact_00000000000000000000000001",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000001",
+        "kind": "address",
         "display_name": "Dana",
         "role": "member",
         "joined_seq": 0,
@@ -14186,7 +14186,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -14239,8 +14239,8 @@
          "added_by": "user_alice"
         },
         {
-         "id": "contact_00000000000000000000000001",
-         "kind": "contact",
+         "id": "addr_00000000000000000000000001",
+         "kind": "address",
          "display_name": "Dana",
          "role": "member",
          "joined_seq": 0,
@@ -14266,7 +14266,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "sms",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -14320,8 +14320,8 @@
       "added_by": "user_alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 0,
@@ -14347,7 +14347,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_alice",
@@ -14378,8 +14378,8 @@
     "target": null,
     "reply_target": null,
     "last_message": null,
-    "actor_contacts": [
-     "contact_00000000000000000000000001"
+    "actor_addresses": [
+     "addr_00000000000000000000000001"
     ]
    },
    "expect": {
@@ -14416,8 +14416,8 @@
         "added_by": "user_alice"
        },
        {
-        "id": "contact_00000000000000000000000001",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000001",
+        "kind": "address",
         "display_name": "Dana",
         "role": "member",
         "joined_seq": 0,
@@ -14443,7 +14443,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -14499,8 +14499,8 @@
          "added_by": "user_alice"
         },
         {
-         "id": "contact_00000000000000000000000001",
-         "kind": "contact",
+         "id": "addr_00000000000000000000000001",
+         "kind": "address",
          "display_name": "Dana",
          "role": "member",
          "joined_seq": 0,
@@ -14526,7 +14526,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "sms",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -14583,8 +14583,8 @@
       "added_by": "user_alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 0,
@@ -14610,7 +14610,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_alice",
@@ -14649,7 +14649,7 @@
    }
   },
   {
-   "name": "invite.create: closes the expired invite and drops its contact",
+   "name": "invite.create: closes the expired invite and drops its address",
    "head": {
     "id": "conv_GROUP",
     "title": "Team",
@@ -14682,8 +14682,8 @@
       "added_by": "user_alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 0,
@@ -14709,7 +14709,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_alice",
@@ -14736,7 +14736,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000002",
-     "contact": "contact_00000000000000000000000002",
+     "address": "addr_00000000000000000000000002",
      "channel": "email",
      "display_name": "Dana",
      "token_hash": "rTKIRqoYsyozWBY3RRHKwQY8cEuMV5meUdqfkIKQp6Q",
@@ -14783,8 +14783,8 @@
         "added_by": "user_alice"
        },
        {
-        "id": "contact_00000000000000000000000002",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000002",
+        "kind": "address",
         "display_name": "Dana",
         "role": "member",
         "joined_seq": 0,
@@ -14810,7 +14810,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -14830,7 +14830,7 @@
        },
        {
         "id": "inv_00000000000000000000000002",
-        "contact": "contact_00000000000000000000000002",
+        "address": "addr_00000000000000000000000002",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -14883,8 +14883,8 @@
          "added_by": "user_alice"
         },
         {
-         "id": "contact_00000000000000000000000002",
-         "kind": "contact",
+         "id": "addr_00000000000000000000000002",
+         "kind": "address",
          "display_name": "Dana",
          "role": "member",
          "joined_seq": 0,
@@ -14910,7 +14910,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "sms",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -14929,7 +14929,7 @@
         },
         {
          "id": "inv_00000000000000000000000002",
-         "contact": "contact_00000000000000000000000002",
+         "address": "addr_00000000000000000000000002",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -15008,7 +15008,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000001",
-     "contact": "contact_00000000000000000000000001",
+     "address": "addr_00000000000000000000000001",
      "channel": "email",
      "display_name": "Dana",
      "token_hash": "9-fDbkWOgOa2osZ9Cp7Am9cY2t17-o1r9uetUm5Gwvc",
@@ -15055,8 +15055,8 @@
         "added_by": "user_alice"
        },
        {
-        "id": "contact_00000000000000000000000001",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000001",
+        "kind": "address",
         "display_name": "Dana",
         "role": "member",
         "joined_seq": 0,
@@ -15082,7 +15082,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -15135,8 +15135,8 @@
          "added_by": "user_alice"
         },
         {
-         "id": "contact_00000000000000000000000001",
-         "kind": "contact",
+         "id": "addr_00000000000000000000000001",
+         "kind": "address",
          "display_name": "Dana",
          "role": "member",
          "joined_seq": 0,
@@ -15162,7 +15162,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -15216,8 +15216,8 @@
       "added_by": "user_alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 0,
@@ -15243,7 +15243,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_alice",
@@ -15309,8 +15309,8 @@
         "added_by": "user_alice"
        },
        {
-        "id": "contact_00000000000000000000000001",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000001",
+        "kind": "address",
         "display_name": "Dana",
         "role": "member",
         "joined_seq": 0,
@@ -15336,7 +15336,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -15392,8 +15392,8 @@
          "added_by": "user_alice"
         },
         {
-         "id": "contact_00000000000000000000000001",
-         "kind": "contact",
+         "id": "addr_00000000000000000000000001",
+         "kind": "address",
          "display_name": "Dana",
          "role": "member",
          "joined_seq": 0,
@@ -15419,7 +15419,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -15476,8 +15476,8 @@
       "added_by": "user_alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 0,
@@ -15503,7 +15503,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_alice",
@@ -15591,7 +15591,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -15663,7 +15663,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -15736,7 +15736,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_alice",
@@ -15830,7 +15830,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000001",
-     "contact": "contact_00000000000000000000000001",
+     "address": "addr_00000000000000000000000001",
      "channel": "sms",
      "display_name": "Dana",
      "token_hash": "9-fDbkWOgOa2osZ9Cp7Am9cY2t17-o1r9uetUm5Gwvc",
@@ -15877,8 +15877,8 @@
         "added_by": "user_alice"
        },
        {
-        "id": "contact_00000000000000000000000001",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000001",
+        "kind": "address",
         "display_name": "Dana",
         "role": "member",
         "joined_seq": 0,
@@ -15904,7 +15904,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "sms",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -15957,8 +15957,8 @@
          "added_by": "user_alice"
         },
         {
-         "id": "contact_00000000000000000000000001",
-         "kind": "contact",
+         "id": "addr_00000000000000000000000001",
+         "kind": "address",
          "display_name": "Dana",
          "role": "member",
          "joined_seq": 0,
@@ -15984,7 +15984,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "sms",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -16038,8 +16038,8 @@
       "added_by": "user_alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "Dana",
       "role": "member",
       "joined_seq": 0,
@@ -16065,7 +16065,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "sms",
       "display_name": "Dana",
       "invited_by": "user_alice",
@@ -16102,9 +16102,9 @@
    }
   },
   {
-   "name": "dm: invite a contact that is not the peer",
+   "name": "dm: invite a address that is not the peer",
    "head": {
-    "id": "conv_dm_VWREYM7HNJ8HWSY343A292R45Q",
+    "id": "conv_dm_J0H2S768THV5SGT7G3SDSAZP4X",
     "title": "",
     "participants": [
      {
@@ -16116,8 +16116,8 @@
       "added_by": "user_alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "bob@",
       "role": "member",
       "joined_seq": 0,
@@ -16149,7 +16149,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000002",
-     "contact": "contact_00000000000000000000000002",
+     "address": "addr_00000000000000000000000002",
      "channel": "email",
      "display_name": "Dana",
      "token_hash": "9-fDbkWOgOa2osZ9Cp7Am9cY2t17-o1r9uetUm5Gwvc",
@@ -16167,9 +16167,9 @@
    }
   },
   {
-   "name": "dm: invite the contact peer",
+   "name": "dm: invite the address peer",
    "head": {
-    "id": "conv_dm_VWREYM7HNJ8HWSY343A292R45Q",
+    "id": "conv_dm_J0H2S768THV5SGT7G3SDSAZP4X",
     "title": "",
     "participants": [
      {
@@ -16181,8 +16181,8 @@
       "added_by": "user_alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "bob@",
       "role": "member",
       "joined_seq": 0,
@@ -16214,7 +16214,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000001",
-     "contact": "contact_00000000000000000000000001",
+     "address": "addr_00000000000000000000000001",
      "channel": "email",
      "display_name": "Dana",
      "token_hash": "9-fDbkWOgOa2osZ9Cp7Am9cY2t17-o1r9uetUm5Gwvc",
@@ -16230,7 +16230,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_dm_VWREYM7HNJ8HWSY343A292R45Q",
+      "id": "conv_dm_J0H2S768THV5SGT7G3SDSAZP4X",
       "title": "",
       "participants": [
        {
@@ -16242,8 +16242,8 @@
         "added_by": "user_alice"
        },
        {
-        "id": "contact_00000000000000000000000001",
-        "kind": "contact",
+        "id": "addr_00000000000000000000000001",
+        "kind": "address",
         "display_name": "bob@",
         "role": "member",
         "joined_seq": 0,
@@ -16269,7 +16269,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -16290,7 +16290,7 @@
      "change": {
       "kind": "conversation",
       "conversation": {
-       "id": "conv_dm_VWREYM7HNJ8HWSY343A292R45Q",
+       "id": "conv_dm_J0H2S768THV5SGT7G3SDSAZP4X",
        "owner": "cloud",
        "title": "",
        "participants": [
@@ -16303,8 +16303,8 @@
          "added_by": "user_alice"
         },
         {
-         "id": "contact_00000000000000000000000001",
-         "kind": "contact",
+         "id": "addr_00000000000000000000000001",
+         "kind": "address",
          "display_name": "bob@",
          "role": "member",
          "joined_seq": 0,
@@ -16330,7 +16330,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -16353,7 +16353,7 @@
   {
    "name": "dm: any holder binds once",
    "head": {
-    "id": "conv_dm_VWREYM7HNJ8HWSY343A292R45Q",
+    "id": "conv_dm_J0H2S768THV5SGT7G3SDSAZP4X",
     "title": "",
     "participants": [
      {
@@ -16365,8 +16365,8 @@
       "added_by": "user_alice"
      },
      {
-      "id": "contact_00000000000000000000000001",
-      "kind": "contact",
+      "id": "addr_00000000000000000000000001",
+      "kind": "address",
       "display_name": "bob@",
       "role": "member",
       "joined_seq": 0,
@@ -16392,7 +16392,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_alice",
@@ -16427,7 +16427,7 @@
    "expect": {
     "commit": {
      "head": {
-      "id": "conv_dm_VWREYM7HNJ8HWSY343A292R45Q",
+      "id": "conv_dm_J0H2S768THV5SGT7G3SDSAZP4X",
       "title": "",
       "participants": [
        {
@@ -16466,7 +16466,7 @@
       "invites": [
        {
         "id": "inv_00000000000000000000000001",
-        "contact": "contact_00000000000000000000000001",
+        "address": "addr_00000000000000000000000001",
         "channel": "email",
         "display_name": "Dana",
         "invited_by": "user_alice",
@@ -16489,7 +16489,7 @@
      "change": {
       "kind": "conversation",
       "conversation": {
-       "id": "conv_dm_VWREYM7HNJ8HWSY343A292R45Q",
+       "id": "conv_dm_J0H2S768THV5SGT7G3SDSAZP4X",
        "owner": "cloud",
        "title": "",
        "participants": [
@@ -16529,7 +16529,7 @@
        "invites": [
         {
          "id": "inv_00000000000000000000000001",
-         "contact": "contact_00000000000000000000000001",
+         "address": "addr_00000000000000000000000001",
          "channel": "email",
          "display_name": "Dana",
          "invited_by": "user_alice",
@@ -16554,7 +16554,7 @@
   {
    "name": "dm: title.set",
    "head": {
-    "id": "conv_dm_VWREYM7HNJ8HWSY343A292R45Q",
+    "id": "conv_dm_J0H2S768THV5SGT7G3SDSAZP4X",
     "title": "",
     "participants": [
      {
@@ -16593,7 +16593,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_alice",
@@ -16633,7 +16633,7 @@
   {
    "name": "dm: participants.remove",
    "head": {
-    "id": "conv_dm_VWREYM7HNJ8HWSY343A292R45Q",
+    "id": "conv_dm_J0H2S768THV5SGT7G3SDSAZP4X",
     "title": "",
     "participants": [
      {
@@ -16672,7 +16672,7 @@
     "invites": [
      {
       "id": "inv_00000000000000000000000001",
-      "contact": "contact_00000000000000000000000001",
+      "address": "addr_00000000000000000000000001",
       "channel": "email",
       "display_name": "Dana",
       "invited_by": "user_alice",
@@ -16826,7 +16826,7 @@
     "op": {
      "kind": "invite.create",
      "invite_id": "inv_00000000000000000000000001",
-     "contact": "contact_00000000000000000000000001",
+     "address": "addr_00000000000000000000000001",
      "channel": "email",
      "display_name": "Dana",
      "token_hash": "9-fDbkWOgOa2osZ9Cp7Am9cY2t17-o1r9uetUm5Gwvc",

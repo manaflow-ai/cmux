@@ -30,7 +30,7 @@ export const actorOf = (principal: Principal): string | null => {
 
 /**
  * The rules that need no outside data: the caller themself (name from the
- * principal); a contact (its id comes from `contact.ensure` in the Worker); a
+ * principal); a address (its id comes from `address.ensure` in the Worker); a
  * former participant of this conversation (its stored record is trusted); a
  * departed agent only when the caller is its stored owner. Everyone else is
  * refused: an injected policy decides those.
@@ -38,7 +38,7 @@ export const actorOf = (principal: Principal): string | null => {
 export const defaultParticipantPolicy: ParticipantPolicy = (principal, participant, head) => {
   const actor = actorOf(principal)
   const known = head?.participants.find((candidate) => candidate.id === participant.id)
-  if (participant.kind === "contact") return { ok: true, display_name: safeDisplayName(participant.display_name, FALLBACK_NAME) }
+  if (participant.kind === "address") return { ok: true, display_name: safeDisplayName(participant.display_name, FALLBACK_NAME) }
   if (participant.kind === "agent") {
     if (known?.owner_user !== undefined && known.owner_user === actor) return { ok: true, owner_user: known.owner_user, display_name: known.display_name }
     return { ok: false, code: "forbidden" }

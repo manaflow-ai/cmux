@@ -8,7 +8,7 @@ import {
   isTrustedInviter,
   parseAllowlist,
   recordAcceptFailure,
-  takeContactQuota,
+  takeAddressQuota,
   takeInviterQuota,
   type InviterWindow
 } from "../src/invites/index.ts"
@@ -52,17 +52,17 @@ describe("inviter quota", () => {
 
 describe("recipient quota", () => {
   it("sends once per inviter per week and attaches repeats", () => {
-    const first = takeContactQuota({ lastByInviter: {} }, "user_a", NOW)
+    const first = takeAddressQuota({ lastByInviter: {} }, "user_a", NOW)
     expect(first).toMatchObject({ ok: true, send: true })
     if (!first.ok) return
-    expect(takeContactQuota(first.window, "user_a", NOW + DAY)).toMatchObject({ ok: true, send: false, reason: "repeat" })
-    expect(takeContactQuota(first.window, "user_a", NOW + 8 * DAY)).toMatchObject({ ok: true, send: true })
+    expect(takeAddressQuota(first.window, "user_a", NOW + DAY)).toMatchObject({ ok: true, send: false, reason: "repeat" })
+    expect(takeAddressQuota(first.window, "user_a", NOW + 8 * DAY)).toMatchObject({ ok: true, send: true })
   })
 
   it("allows at most 3 distinct inviters per 30 days", () => {
     const window = { lastByInviter: { user_a: NOW - 10 * DAY, user_b: NOW - 5 * DAY, user_c: NOW - DAY } }
-    expect(takeContactQuota(window, "user_d", NOW)).toEqual({ ok: false, code: "invite.recipient_limited", retry_at: NOW + 20 * DAY })
-    expect(takeContactQuota(window, "user_d", NOW + 21 * DAY)).toMatchObject({ ok: true, send: true })
+    expect(takeAddressQuota(window, "user_d", NOW)).toEqual({ ok: false, code: "invite.recipient_limited", retry_at: NOW + 20 * DAY })
+    expect(takeAddressQuota(window, "user_d", NOW + 21 * DAY)).toMatchObject({ ok: true, send: true })
   })
 
   it("locks acceptance after 10 failures in an hour", () => {

@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto"
 import { crockford } from "./base32.ts"
 
 /**
- * Contact addresses (home-messaging.md section 2). The normalized address is
+ * Address addresses (home-messaging.md section 2). The normalized address is
  * the only form that is stored, compared or hashed. Plus addressing is kept:
  * for many providers `a+b@x` is a different mailbox.
  */
@@ -81,14 +81,14 @@ export const normalizeAddress = (input: string, region = "US"): Address | Normal
 export const isAddress = (value: Address | NormalizeError): value is Address => typeof value !== "string"
 
 /**
- * `contact_<26>`: HMAC-SHA256 with the per-environment secret
- * `HOME_CONTACT_KEY`, so the id cannot be reversed by hashing guessed
+ * `addr_<26>`: HMAC-SHA256 with the per-environment secret
+ * `HOME_ADDRESS_KEY`, so the id cannot be reversed by hashing guessed
  * addresses without the key.
  */
-export const contactId = (key: string, address: Address): string => {
-  if (key.length < 32) throw new Error("HOME_CONTACT_KEY must have at least 32 characters")
+export const addressId = (key: string, address: Address): string => {
+  if (key.length < 32) throw new Error("HOME_ADDRESS_KEY must have at least 32 characters")
   const mac = createHmac("sha256", key).update(`${address.channel}\u0000${address.value}`).digest()
-  return `contact_${crockford(mac, 26)}`
+  return `addr_${crockford(mac, 26)}`
 }
 
 /** For other members' views and logs: `l***@example.com`, `+1 *** *** 0123`. */

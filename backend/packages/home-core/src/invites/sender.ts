@@ -5,7 +5,7 @@ import { resendMessageId, resendRequest, type ProviderRequest, type ResendConfig
 import { sendblueFailed, sendblueMessageId, sendblueRequest, type SendblueConfig } from "./providers/sendblue.ts"
 
 /**
- * The only path to a provider (ContactDO `contact.deliver`). Order: channel
+ * The only path to a provider (AddressDO `address.deliver`). Order: channel
  * check, environment policy and suppression (decideSend), then exactly one
  * provider call. Nothing here logs an address or a secret.
  */

@@ -1,22 +1,22 @@
 import { dmConversationId } from "../src/conversation/ids.ts"
 import { SYSTEM_ACTOR, type Op } from "../src/conversation/types.ts"
 import { agent, CoreHost, human, NOW, text } from "../test/support/harness.ts"
-import { ALICE, BOB, CAROL, CHIEF, chiefHead, CONTACT, CONTACT2, dmHead, groupHead, INV, INV2, inviteOp, tokenHash } from "../test/support/cloud.ts"
+import { ALICE, BOB, CAROL, CHIEF, chiefHead, ADDRESS, ADDRESS2, dmHead, groupHead, INV, INV2, inviteOp, tokenHash } from "../test/support/cloud.ts"
 import type { Corpus } from "./generate.ts"
 
-/** Cloud extensions: kinds, roles, contacts, leave/remove, invites, delivery, settings. */
+/** Cloud extensions: kinds, roles, addresses, leave/remove, invites, delivery, settings. */
 export const cloudCases = (c: Corpus): void => {
-  const contact = (id: string) => ({ id, kind: "contact" as const, display_name: "dana@" })
+  const address = (id: string) => ({ id, kind: "address" as const, display_name: "dana@" })
   const group = { id: "conv_01J00000000000000000GROUP", actor: ALICE, title: "Team", now: NOW, kind: "group" as const }
   c.create("create group: roles, settings, state", { ...group, participants: [human(ALICE, "Alice"), human(BOB, "Bob"), agent(CHIEF, ALICE)] }, "commit")
   c.create("create group: untitled is allowed", { ...group, title: "", participants: [human(ALICE)] }, "commit")
-  c.create("create group: contacts join only by invite", { ...group, participants: [human(ALICE), contact(CONTACT)] }, "invalid_participant")
+  c.create("create group: addresses join only by invite", { ...group, participants: [human(ALICE), address(ADDRESS)] }, "invalid_participant")
   c.create("create group: custom settings", { ...group, participants: [human(ALICE)], settings: { wake_policy: "mentions", history_visible: "since_join" } }, "commit")
   c.create("create group: bad settings", { ...group, participants: [human(ALICE)], settings: { wake_policy: "loud" as never } }, "invalid_settings")
   const dm = { actor: ALICE, title: "", now: NOW, kind: "dm" as const }
   c.create("create dm: deterministic id", { ...dm, id: dmConversationId(ALICE, BOB), participants: [human(ALICE), human(BOB)] }, "commit")
   c.create("create dm: wrong id", { ...dm, id: "conv_dm_WRONG", participants: [human(ALICE), human(BOB)] }, "invalid_conversation_id")
-  c.create("create dm: with a contact peer", { ...dm, id: dmConversationId(ALICE, CONTACT), participants: [human(ALICE), contact(CONTACT)] }, "commit")
+  c.create("create dm: with a address peer", { ...dm, id: dmConversationId(ALICE, ADDRESS), participants: [human(ALICE), address(ADDRESS)] }, "commit")
   c.create("create dm: three people", { ...dm, id: dmConversationId(ALICE, BOB), participants: [human(ALICE), human(BOB), human(CAROL)] }, "invalid_participant")
   c.create("create chief: owner and one mux", { id: "conv_CHIEF", actor: ALICE, title: "Chief", now: NOW, kind: "chief", participants: [human(ALICE), agent(CHIEF, ALICE)] }, "commit")
   c.create("create chief: no agent", { id: "conv_CHIEF", actor: ALICE, title: "Chief", now: NOW, kind: "chief", participants: [human(ALICE), human(BOB)] }, "invalid_participant")
@@ -25,7 +25,7 @@ export const cloudCases = (c: Corpus): void => {
   const send = (key: string, body: string): Op => ({ kind: "message.send", client_msg_id: key, parts: [text(body)] })
   c.op(host, "send: by a member", BOB, "m1", send("m1", "hello"), "commit")
   c.op(host, "participants.add: stamps role, joined_seq, added_by", BOB, "p1", { kind: "participants.add", participant: human(CAROL, "Carol") }, "commit")
-  c.op(host, "participants.add: a contact", BOB, "p2", { kind: "participants.add", participant: contact(CONTACT) }, "invalid_participant")
+  c.op(host, "participants.add: a address", BOB, "p2", { kind: "participants.add", participant: address(ADDRESS) }, "invalid_participant")
   c.op(host, "participants.remove: a member may not remove another", BOB, "r1", { kind: "participants.remove", participant: CAROL }, "forbidden")
   c.op(host, "participants.remove: unknown participant", ALICE, "r2", { kind: "participants.remove", participant: "user_nobody" }, "unknown_participant")
   c.op(host, "participants.remove: the chief's owner removes the chief", ALICE, "r3", { kind: "participants.remove", participant: CHIEF }, "commit")
@@ -37,11 +37,11 @@ export const cloudCases = (c: Corpus): void => {
     trusted_participant: true
   })
   c.op(host, "participants.add: the chief's owner re-adds it", ALICE, "p7", { kind: "participants.add", participant: agent(CHIEF, ALICE) }, "commit")
-  c.op(host, "invite.create: email to a new contact", BOB, "i1", inviteOp(), "commit")
-  c.op(host, "send: a contact cannot act", CONTACT, "m3", send("m3", "hi"), "contact_cannot_act")
-  c.op(host, "invite.create: a chief cannot invite", CHIEF, "i2", inviteOp({ invite_id: INV2, contact: CONTACT2, token_hash: tokenHash("s2") }), "forbidden")
-  c.op(host, "invite.create: the contact already has an open invite", ALICE, "i3", inviteOp({ invite_id: INV2, token_hash: tokenHash("s2") }), "duplicate_invite")
-  c.op(host, "invite.create: malformed token hash", ALICE, "i4", inviteOp({ invite_id: INV2, contact: CONTACT2, token_hash: "short" }), "invalid_invite")
+  c.op(host, "invite.create: email to a new address", BOB, "i1", inviteOp(), "commit")
+  c.op(host, "send: a address cannot act", ADDRESS, "m3", send("m3", "hi"), "address_cannot_act")
+  c.op(host, "invite.create: a chief cannot invite", CHIEF, "i2", inviteOp({ invite_id: INV2, address: ADDRESS2, token_hash: tokenHash("s2") }), "forbidden")
+  c.op(host, "invite.create: the address already has an open invite", ALICE, "i3", inviteOp({ invite_id: INV2, token_hash: tokenHash("s2") }), "duplicate_invite")
+  c.op(host, "invite.create: malformed token hash", ALICE, "i4", inviteOp({ invite_id: INV2, address: ADDRESS2, token_hash: "short" }), "invalid_invite")
   c.op(host, "invite.delivery.report: by a user", ALICE, "d0", { kind: "invite.delivery.report", invite_id: INV, delivery: { state: "sent" } }, "forbidden")
   c.op(host, "invite.delivery.report: provider_id null", SYSTEM_ACTOR, "d1", { kind: "invite.delivery.report", invite_id: INV, delivery: { state: "sent", provider_id: null as never } }, "invalid_invite")
   c.op(host, "invite.delivery.report: sent", SYSTEM_ACTOR, "d1", { kind: "invite.delivery.report", invite_id: INV, delivery: { state: "sent", provider_id: "re_123" } }, "commit")
@@ -54,9 +54,9 @@ export const cloudCases = (c: Corpus): void => {
   c.op(host, "invite.approve_join: malformed approve", BOB, "ap1", { kind: "invite.approve_join", invite_id: INV, approve: "yes" as never }, "invalid_invite")
   c.op(host, "invite.approve_join: the inviter", BOB, "ap2", { kind: "invite.approve_join", invite_id: INV }, "commit")
   c.op(host, "invite.revoke: an accepted invite", ALICE, "v0", { kind: "invite.revoke", invite_id: INV }, "invite_not_pending")
-  c.op(host, "invite.create: sms to another contact", CAROL, "i5", inviteOp({ invite_id: INV2, contact: CONTACT2, channel: "sms", token_hash: tokenHash("s2") }), "commit")
+  c.op(host, "invite.create: sms to another address", CAROL, "i5", inviteOp({ invite_id: INV2, address: ADDRESS2, channel: "sms", token_hash: tokenHash("s2") }), "commit")
   c.op(host, "invite.revoke: a member who is not the inviter", BOB, "v1", { kind: "invite.revoke", invite_id: INV2 }, "forbidden")
-  c.op(host, "invite.revoke: the owner; the contact is dropped from the head", ALICE, "v2", { kind: "invite.revoke", invite_id: INV2 }, "commit")
+  c.op(host, "invite.revoke: the owner; the address is dropped from the head", ALICE, "v2", { kind: "invite.revoke", invite_id: INV2 }, "commit")
   c.op(host, "invite.accept: by an agent", CHIEF, "a4", { kind: "invite.accept", token_hash: tokenHash("s2"), display_name: "Chief" }, "invalid_participant")
   c.op(host, "settings: a member", BOB, "s0", { kind: "conversation.settings.set", wake_policy: "all" }, "forbidden")
   c.op(host, "settings: nothing to set", ALICE, "s1", { kind: "conversation.settings.set" }, "invalid_settings")
@@ -80,16 +80,16 @@ export const cloudCases = (c: Corpus): void => {
   c.op(verified, "invite.create: email", ALICE, "i1", inviteOp(), "commit")
   verified.now = "2026-10-02T12:00:00.000Z"
   c.op(verified, "invite.accept: verified address binds at once", CAROL, "a1", { kind: "invite.accept", token_hash: tokenHash("secret-1"), display_name: "Carol" }, "commit", {
-    actor_contacts: [CONTACT]
+    actor_addresses: [ADDRESS]
   })
   const approval = new CoreHost(groupHead())
   c.op(approval, "invite.create: sms in a group", ALICE, "i1", inviteOp({ channel: "sms" }), "commit")
   c.op(approval, "invite.accept: a group sms invite always waits for approval", CAROL, "a1", { kind: "invite.accept", token_hash: tokenHash("secret-1"), display_name: "Carol" }, "commit", {
-    actor_contacts: [CONTACT]
+    actor_addresses: [ADDRESS]
   })
   approval.now = "2026-10-15T12:00:00.000Z"
   c.op(approval, "invite.approve_join: after the expiry", ALICE, "ap1", { kind: "invite.approve_join", invite_id: INV }, "invite_expired")
-  c.op(approval, "invite.create: closes the expired invite and drops its contact", ALICE, "i2", inviteOp({ invite_id: INV2, contact: CONTACT2, token_hash: tokenHash("s2") }), "commit")
+  c.op(approval, "invite.create: closes the expired invite and drops its address", ALICE, "i2", inviteOp({ invite_id: INV2, address: ADDRESS2, token_hash: tokenHash("s2") }), "commit")
   const decline = new CoreHost(groupHead())
   c.op(decline, "decline: invite.create email", ALICE, "i1", inviteOp(), "commit")
   c.op(decline, "decline: invite.accept unverified", CAROL, "a1", { kind: "invite.accept", token_hash: tokenHash("secret-1"), display_name: "Carol" }, "commit")
@@ -100,9 +100,9 @@ export const cloudCases = (c: Corpus): void => {
   late.now = "2026-10-15T12:00:00.000Z"
   c.op(late, "invite.accept: at the expiry", CAROL, "a1", { kind: "invite.accept", token_hash: tokenHash("secret-1"), display_name: "Carol" }, "invite_expired")
 
-  const dmHost = new CoreHost(dmHead(CONTACT))
-  c.op(dmHost, "dm: invite a contact that is not the peer", ALICE, "i0", inviteOp({ invite_id: INV2, contact: CONTACT2 }), "kind_forbids")
-  c.op(dmHost, "dm: invite the contact peer", ALICE, "i1", inviteOp(), "commit")
+  const dmHost = new CoreHost(dmHead(ADDRESS))
+  c.op(dmHost, "dm: invite a address that is not the peer", ALICE, "i0", inviteOp({ invite_id: INV2, address: ADDRESS2 }), "kind_forbids")
+  c.op(dmHost, "dm: invite the address peer", ALICE, "i1", inviteOp(), "commit")
   c.op(dmHost, "dm: any holder binds once", CAROL, "a1", { kind: "invite.accept", token_hash: tokenHash("secret-1"), display_name: "Carol" }, "commit")
   c.op(dmHost, "dm: title.set", ALICE, "t1", { kind: "title.set", title: "x" }, "kind_forbids")
   c.op(dmHost, "dm: participants.remove", ALICE, "r1", { kind: "participants.remove", participant: CAROL }, "kind_forbids")

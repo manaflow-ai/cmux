@@ -5,14 +5,14 @@
  * owner, including the Rust `cmux-conversation`, on one protocol.
  *
  * Owners: conversation -> ConversationDO, inbox -> UserDO stream `inbox:`,
- * mux -> MuxDO, contact -> ContactDO. Each is also a package subpath.
+ * mux -> MuxDO, address -> AddressDO. Each is also a package subpath.
  */
 export * as conversation from "./conversation/index.ts"
 export * as inbox from "./inbox/index.ts"
 export * as mux from "./mux/index.ts"
-export * as contact from "./contact/index.ts"
+export * as address from "./address/index.ts"
 export * as invites from "./invites/index.ts"
 export { conversationDomain } from "./conversation/index.ts"
 export { inboxDomain } from "./inbox/index.ts"
 export { muxDomain } from "./mux/index.ts"
-export { contactDomain } from "./contact/index.ts"
+export { addressDomain } from "./address/index.ts"

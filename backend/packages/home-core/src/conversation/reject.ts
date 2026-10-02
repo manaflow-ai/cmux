@@ -26,8 +26,8 @@ export const LOCAL_REJECT_CODES = [
 ] as const
 
 export const CLOUD_REJECT_CODES = [
-  /** A contact (not yet a user) tried to act. */
-  "contact_cannot_act",
+  /** A address (not yet a user) tried to act. */
+  "address_cannot_act",
   /** The conversation is archived (no human participant is left). */
   "archived",
   /** The actor may not run this op (not the owner, inviter, or system). */
@@ -46,7 +46,7 @@ export const CLOUD_REJECT_CODES = [
   "invite_expired",
   /** The inviter tried to accept their own invite. */
   "invite_self",
-  /** The invite id exists, or the contact already has a pending invite here. */
+  /** The invite id exists, or the address already has a pending invite here. */
   "duplicate_invite",
   /** Too many pending invites in this conversation. */
   "invite_limit",

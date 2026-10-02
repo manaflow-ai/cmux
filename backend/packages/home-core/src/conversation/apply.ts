@@ -58,7 +58,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   }
   const actor = currentParticipant(head, request.actor)
   if (!actor) return fail("not_participant")
-  if (actor.kind === "contact") fail("contact_cannot_act")
+  if (actor.kind === "address") fail("address_cannot_act")
   if (head.state === "archived") fail("archived")
   const now = request.now
   switch (op.kind) {
@@ -147,7 +147,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
     case "participants.add": {
       if (head.kind === "dm" || head.kind === "chief") fail("kind_forbids")
       const participant = validateParticipant(op.participant, cloud)
-      if (participant.kind === "contact") fail("invalid_participant")
+      if (participant.kind === "address") fail("invalid_participant")
       if (currentParticipant(head, participant.id)) fail("duplicate_participant")
       // A departed participant (cloud only) rejoins; locally every id is current.
       if (!cloud && findParticipant(head, participant.id)) fail("duplicate_participant")

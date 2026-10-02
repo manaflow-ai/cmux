@@ -1,4 +1,5 @@
-import type { Domain, Principal, Reject, ReduceResult, RowWrite } from "../conversation/engine-types.ts"
+import type { Domain, Principal, Reject, ReduceResult, RowReader, RowWrite } from "../conversation/engine-types.ts"
+import { rowsOf } from "../conversation/engine-types.ts"
 import { bumpEntry, INITIAL_INBOX_HEAD, USER_OPS, userOp, validBump, type InboxEntry, type InboxHead } from "./reducer.ts"
 
 /**
@@ -9,6 +10,8 @@ import { bumpEntry, INITIAL_INBOX_HEAD, USER_OPS, userOp, validBump, type InboxE
  * the rows, read by the adapter. An op that changes nothing is `changed: false`.
  */
 export const TABLE_ENTRY = "entry"
+/** One row per DM peer (key = peer participant id): the caller's DM with that peer, if any. */
+export const TABLE_PEER = "peer"
 
 export type InboxParams = Readonly<Record<string, unknown>>
 
@@ -36,18 +39,33 @@ export const inboxDomain: Domain<InboxHead, InboxParams> = {
       if (!validBump(params)) return refuse("invalid_params")
       if (params.user !== undefined && head.user !== undefined && params.user !== head.user) return refuse("forbidden")
       const nextHead: InboxHead = head.user === undefined && params.user !== undefined ? { ...head, user: params.user } : head
-      const current = ctx.rows.get<InboxEntry>(TABLE_ENTRY, params.conversation)?.row
+      const current = rowsOf(ctx).get<InboxEntry>(TABLE_ENTRY, params.conversation)?.row
       const { user: _user, ...bump } = params
       const next = bumpEntry(current, bump)
+      // The first DM per peer wins the index, so a later address-based DM never hides an older one.
+      const peer = next.dm_peer
+      const indexPeer = peer !== undefined && rowsOf(ctx).get(TABLE_PEER, peer) === undefined
+      const writes: Array<RowWrite> = [
+        ...(current && same(current, next) ? [] : [write(next)]),
+        ...(indexPeer ? [{ table: TABLE_PEER, op: "upsert" as const, key: peer!, n: null, row: { conversation: next.conversation } }] : [])
+      ]
       // A stale or duplicate bump is a valid no-op: no event, no write.
-      if (current && same(current, next) && nextHead === head) return { ok: true, state: head, value: next, changed: false }
-      return { ok: true, state: nextHead, value: next, writes: current && same(current, next) ? [] : [write(next)] }
+      if (writes.length === 0 && nextHead === head) return { ok: true, state: head, value: next, changed: false }
+      return { ok: true, state: nextHead, value: next, writes }
     }
     const conversation = params.conversation
-    const current = typeof conversation === "string" ? ctx.rows.get<InboxEntry>(TABLE_ENTRY, conversation)?.row : undefined
+    const current = typeof conversation === "string" ? rowsOf(ctx).get<InboxEntry>(TABLE_ENTRY, conversation)?.row : undefined
     const result = userOp(head, current, op, params, ctx.now)
     if (!result.ok) return refuse(result.code)
     if (same(current, result.value.entry) && same(head, result.value.head)) return { ok: true, state: head, value: current, changed: false }
     return { ok: true, state: result.value.head, value: result.value.entry, writes: [write(result.value.entry)] }
   }
 }
+
+/**
+ * Read `inbox.dm_peer {peer}` (design section 17 Q2): the caller's existing DM with
+ * `peer`, which may have a address-based id after an invite was accepted. The
+ * Worker calls it before it derives a DM id with dmConversationId.
+ */
+export const dmPeer = (rows: RowReader, peer: string): string | null =>
+  rows.get<{ conversation: string }>(TABLE_PEER, peer)?.row.conversation ?? null

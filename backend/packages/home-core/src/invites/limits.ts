@@ -1,7 +1,7 @@
 /**
  * Invite rate limits as pure functions over stored timestamps
  * (home-messaging.md section 9). The inviter's UserDO keeps `InviterWindow`,
- * the recipient's ContactDO keeps `ContactWindow`; both persist what these
+ * the recipient's AddressDO keeps `AddressWindow`; both persist what these
  * functions return. Times are Unix milliseconds from the host.
  */
 export const HOUR = 3_600_000
@@ -17,7 +17,7 @@ export interface InviterPolicy {
 
 export const DEFAULT_INVITER_POLICY: InviterPolicy = { perDay: 20, perWeek: 60, newAccountPerDay: 5, newAccountAge: DAY }
 
-export interface ContactPolicy {
+export interface AddressPolicy {
   /** One send per inviter per this period; a repeat joins the pending invite. */
   readonly perInviterPeriod: number
   /** At most this many distinct inviters per `distinctPeriod`. */
@@ -25,7 +25,7 @@ export interface ContactPolicy {
   readonly distinctPeriod: number
 }
 
-export const DEFAULT_CONTACT_POLICY: ContactPolicy = { perInviterPeriod: 7 * DAY, distinctInviters: 3, distinctPeriod: 30 * DAY }
+export const DEFAULT_ADDRESS_POLICY: AddressPolicy = { perInviterPeriod: 7 * DAY, distinctInviters: 3, distinctPeriod: 30 * DAY }
 
 export interface InviterWindow {
   /** Send times in the last week, oldest first. */
@@ -70,22 +70,22 @@ export const takeInviterQuota = (
   return { ok: true, window: { sent: [...week, now] } }
 }
 
-export interface ContactWindow {
+export interface AddressWindow {
   /** Last send time per inviter user id. */
   readonly lastByInviter: Readonly<Record<string, number>>
 }
 
-export type ContactDecision =
-  | { readonly ok: true; readonly send: true; readonly window: ContactWindow }
+export type AddressDecision =
+  | { readonly ok: true; readonly send: true; readonly window: AddressWindow }
   /** A repeat inside the per-inviter period: attach to the pending invite, send nothing. */
-  | { readonly ok: true; readonly send: false; readonly reason: "repeat"; readonly window: ContactWindow }
+  | { readonly ok: true; readonly send: false; readonly reason: "repeat"; readonly window: AddressWindow }
   | { readonly ok: false; readonly code: "invite.recipient_limited"; readonly retry_at: number }
 
 /**
  * Per-recipient limits. The refusal is internal: the inviter sees the same
  * answer as for a sent invite, so recipient limits and suppression never leak.
  */
-export const takeContactQuota = (window: ContactWindow, inviter: string, now: number, policy = DEFAULT_CONTACT_POLICY): ContactDecision => {
+export const takeAddressQuota = (window: AddressWindow, inviter: string, now: number, policy = DEFAULT_ADDRESS_POLICY): AddressDecision => {
   const recent = Object.fromEntries(Object.entries(window.lastByInviter).filter(([, t]) => t > now - policy.distinctPeriod))
   const last = recent[inviter]
   if (last !== undefined && now - last < policy.perInviterPeriod) return { ok: true, send: false, reason: "repeat", window: { lastByInviter: recent } }

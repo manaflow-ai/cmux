@@ -1,4 +1,4 @@
-import { validContactId, validParticipantId } from "./ids.ts"
+import { validAddressId, validParticipantId } from "./ids.ts"
 import { fail } from "./reject.ts"
 import {
   MAX_DISPLAY_NAME_CHARS,
@@ -55,7 +55,7 @@ const validAscii = (value: unknown, max: number): boolean => {
 }
 
 /**
- * The Rust participant rule. `cloud` also admits contacts (`contact_<26>`, no
+ * The Rust participant rule. `cloud` also admits addresses (`addr_<26>`, no
  * agent fields) and checks the cloud-only fields' types.
  */
 export const validateParticipant = (participant: unknown, cloud: boolean): Participant => {
@@ -64,7 +64,7 @@ export const validateParticipant = (participant: unknown, cloud: boolean): Parti
   let prefixMatches: boolean
   if (kind === "human") prefixMatches = id.startsWith("user_") && agent_class === undefined && validParticipantId(id)
   else if (kind === "agent") prefixMatches = id.startsWith("agent_") && validParticipantId(id)
-  else if (kind === "contact" && cloud) prefixMatches = validContactId(id) && agent_class === undefined && acp_session === undefined
+  else if (kind === "address" && cloud) prefixMatches = validAddressId(id) && agent_class === undefined && acp_session === undefined
   else prefixMatches = false
   const classOk = agent_class === undefined || agent_class === "mux" || agent_class === "agent"
   const sessionOk = acp_session === undefined || validAscii(acp_session, 256)

@@ -19,7 +19,7 @@ import {
 } from "../src/conversation/index.ts"
 import { utf8Bytes } from "../src/conversation/validate.ts"
 import { agent, CoreHost, DomainHost, human, text } from "./support/harness.ts"
-import { ALICE, BOB, CAROL, CHIEF, CONTACT, groupHead, INV, inviteOp, tokenHash } from "./support/cloud.ts"
+import { ALICE, BOB, CAROL, CHIEF, ADDRESS, groupHead, INV, inviteOp, tokenHash } from "./support/cloud.ts"
 
 const session = (user: string, name: string): Principal => ({ identity: `${user}:s`, user, kind: "session", display_name: name })
 const SYSTEM: Principal = { identity: "system:test", kind: "system" }
@@ -33,7 +33,7 @@ const DIRECTORY: Record<string, { name: string; owner?: string }> = {
   [CHIEF]: { name: "Chief", owner: ALICE }
 }
 const testPolicy: ParticipantPolicy = (principal, participant) => {
-  if (participant.kind === "contact") return { ok: true, display_name: participant.display_name }
+  if (participant.kind === "address") return { ok: true, display_name: participant.display_name }
   const entry = DIRECTORY[participant.id]
   if (!entry) return { ok: false, code: "forbidden" }
   if (entry.owner && entry.owner !== principal.user) return { ok: false, code: "forbidden" }
@@ -41,7 +41,7 @@ const testPolicy: ParticipantPolicy = (principal, participant) => {
 }
 const testDomain = makeConversationDomain({
   participantPolicy: testPolicy,
-  contactIdsFor: (principal) => (principal.email === "carol@example.com" ? [CONTACT] : [])
+  addressIdsFor: (principal) => (principal.email === "carol@example.com" ? [ADDRESS] : [])
 })
 
 const newGroup = (domain = testDomain) => {
@@ -138,10 +138,10 @@ describe("conversation Domain", () => {
     const op = inviteOp()
     const { kind: _kind, ...params } = op
     expect(host.run(session(ALICE, "Alice"), "invite.create", params, "i1")).toMatchObject({ ok: true })
-    const deliver = host.outbox.find((item) => item.kind === "contact.deliver")
-    expect(deliver).toMatchObject({ entity: `deliver:${INV}`, target: { class: "ContactDO", name: CONTACT } })
+    const deliver = host.outbox.find((item) => item.kind === "address.deliver")
+    expect(deliver).toMatchObject({ entity: `deliver:${INV}`, target: { class: "AddressDO", name: ADDRESS } })
     expect(Object.keys(deliver!.payload as object)).toEqual(
-      expect.arrayContaining(["invite", "conversation", "contact", "channel", "locale", "copy_variant", "invited_by"])
+      expect.arrayContaining(["invite", "conversation", "address", "channel", "locale", "copy_variant", "invited_by"])
     )
     for (const item of host.outbox) expect(JSON.stringify(item)).not.toContain(op.token_hash)
     // The stored hash cannot accept: the Domain hashes the proof.

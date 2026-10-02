@@ -8,7 +8,7 @@
     "./conversation": "./src/conversation/index.ts",
     "./inbox": "./src/inbox/index.ts",
     "./mux": "./src/mux/index.ts",
-    "./contact": "./src/contact/index.ts",
+    "./address": "./src/address/index.ts",
     "./invites": "./src/invites/index.ts"
   },
   "scripts": {
@@ -19,5 +19,8 @@
     "@types/node": "26.6.2",
     "typescript": "7.0.2",
     "vitest": "4.1.11"
+  },
+  "dependencies": {
+    "@cmux/ownership": "workspace:*"
   }
 }

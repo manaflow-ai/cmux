@@ -1,5 +1,5 @@
 import { depart, isOpen, validName, type OpOf } from "./cloud.ts"
-import { formatRfc3339Millis, parseRfc3339Millis, validContactId, validInviteId, validParticipantId, validToken } from "./ids.ts"
+import { formatRfc3339Millis, parseRfc3339Millis, validAddressId, validInviteId, validParticipantId, validToken } from "./ids.ts"
 import { fail } from "./reject.ts"
 import { conversationChanged, upsertParticipant, type Commit, type Draft, type OpRequest } from "./request.ts"
 import { INVITE_TTL_MS, MAX_PARTICIPANTS, MAX_PENDING_INVITES, type ConversationHead, type DeliveryState, type Invite, type Participant } from "./types.ts"
@@ -34,22 +34,22 @@ export const isExpired = (invite: Invite, now: string): boolean => millis(now) >
 const replaceInvite = (invites: ReadonlyArray<Invite>, invite: Invite): ReadonlyArray<Invite> =>
   invites.map((candidate) => (candidate.id === invite.id ? invite : candidate))
 
-/** A contact with no open invite left departs (and outside a dm is dropped). */
-const releaseContact = (head: ConversationHead, next: Draft, contact: string, now: string): void => {
-  const open = (next.invites ?? []).some((invite) => invite.contact === contact && isOpen(invite))
-  const record = next.participants.find((participant) => participant.id === contact)
-  if (!open && record && record.left_at === undefined) next.participants = depart(head, next.participants, contact, now)
+/** A address with no open invite left departs (and outside a dm is dropped). */
+const releaseAddress = (head: ConversationHead, next: Draft, address: string, now: string): void => {
+  const open = (next.invites ?? []).some((invite) => invite.address === address && isOpen(invite))
+  const record = next.participants.find((participant) => participant.id === address)
+  if (!open && record && record.left_at === undefined) next.participants = depart(head, next.participants, address, now)
 }
 
-/** Open invites past their expiry become `expired` in this commit; their contacts are released. */
+/** Open invites past their expiry become `expired` in this commit; their addresses are released. */
 const closeExpired = (head: ConversationHead, next: Draft, now: string): void => {
   const expired = (next.invites ?? []).filter((invite) => isOpen(invite) && isExpired(invite, now))
   if (expired.length === 0) return
   next.invites = (next.invites ?? []).map((invite) => (expired.includes(invite) ? { ...invite, status: "expired" as const } : invite))
-  for (const invite of expired) releaseContact(head, next, invite.contact, now)
+  for (const invite of expired) releaseAddress(head, next, invite.address, now)
 }
 
-/** `invite.create`: adds (or re-adds) the contact participant and a pending invite. */
+/** `invite.create`: adds (or re-adds) the address participant and a pending invite. */
 export const createInvite = (head: ConversationHead, next: Draft, request: OpRequest, actor: Participant, op: OpOf<"invite.create">): Commit => {
   if (head.kind === "chief") fail("kind_forbids")
   if (actor.kind !== "human") fail("forbidden")
@@ -57,8 +57,8 @@ export const createInvite = (head: ConversationHead, next: Draft, request: OpReq
   const valid =
     typeof op.invite_id === "string" &&
     validInviteId(op.invite_id) &&
-    typeof op.contact === "string" &&
-    validContactId(op.contact) &&
+    typeof op.address === "string" &&
+    validAddressId(op.address) &&
     (op.channel === "email" || op.channel === "sms") &&
     validName(op.display_name) &&
     typeof op.token_hash === "string" &&
@@ -70,17 +70,17 @@ export const createInvite = (head: ConversationHead, next: Draft, request: OpReq
   closeExpired(head, next, now)
   const invites = next.invites ?? []
   if (invites.some((invite) => invite.id === op.invite_id || invite.token_hash === op.token_hash)) fail("duplicate_invite")
-  if (invites.some((invite) => invite.contact === op.contact && isOpen(invite))) fail("duplicate_invite")
+  if (invites.some((invite) => invite.address === op.address && isOpen(invite))) fail("duplicate_invite")
   if (invites.filter(isOpen).length >= MAX_PENDING_INVITES) fail("invite_limit")
-  const existing = next.participants.find((participant) => participant.id === op.contact)
-  // A dm invites only its own contact peer (dm.open created it).
+  const existing = next.participants.find((participant) => participant.id === op.address)
+  // A dm invites only its own address peer (dm.open created it).
   if (head.kind === "dm" && !existing) fail("kind_forbids")
-  if (existing && existing.kind !== "contact") fail("invalid_invite")
+  if (existing && existing.kind !== "address") fail("invalid_invite")
   if (!existing || existing.left_at !== undefined) {
     if (next.participants.filter((participant) => participant.left_at === undefined).length >= MAX_PARTICIPANTS) fail("invalid_participant")
     next.participants = upsertParticipant(next.participants, {
-      id: op.contact,
-      kind: "contact",
+      id: op.address,
+      kind: "address",
       display_name: op.display_name,
       role: "member",
       joined_seq: head.last_seq,
@@ -89,7 +89,7 @@ export const createInvite = (head: ConversationHead, next: Draft, request: OpReq
   }
   const invite: Invite = {
     id: op.invite_id,
-    contact: op.contact,
+    address: op.address,
     channel: op.channel,
     display_name: op.display_name,
     invited_by: actor.id,
@@ -106,7 +106,7 @@ export const createInvite = (head: ConversationHead, next: Draft, request: OpReq
   return conversationChanged(next, request)
 }
 
-/** `invite.revoke`: inviter or conversation owner; open invites only. The contact leaves with its last open invite. */
+/** `invite.revoke`: inviter or conversation owner; open invites only. The address leaves with its last open invite. */
 export const revokeInvite = (head: ConversationHead, next: Draft, request: OpRequest, actor: Participant, op: OpOf<"invite.revoke">): Commit => {
   const target = (head.invites ?? []).find((candidate) => candidate.id === op.invite_id)
   if (!target) return fail("unknown_invite")
@@ -115,19 +115,19 @@ export const revokeInvite = (head: ConversationHead, next: Draft, request: OpReq
   const invite = (next.invites ?? []).find((candidate) => candidate.id === op.invite_id)!
   if (!isOpen(invite)) fail("invite_not_pending")
   next.invites = replaceInvite(next.invites ?? [], { ...invite, status: "revoked" })
-  releaseContact(head, next, invite.contact, request.now)
+  releaseAddress(head, next, invite.address, request.now)
   next.updated_at = request.now
   return conversationChanged(next, request)
 }
 
 /**
- * Binds `user` to an invite: the user replaces the contact participant in
+ * Binds `user` to an invite: the user replaces the address participant in
  * place (keeping its `joined_seq`, so history since the invite is visible) and
  * the invite becomes `accepted`. A user who is already a participant (invited
- * under two addresses) only consumes the invite; the contact leaves.
+ * under two addresses) only consumes the invite; the address leaves.
  */
 const bindUser = (head: ConversationHead, next: Draft, invite: Invite, user: string, name: string, now: string): void => {
-  const contact = currentParticipant(next as ConversationHead, invite.contact)
+  const address = currentParticipant(next as ConversationHead, invite.address)
   let participants = next.participants
   if (!currentParticipant(next as ConversationHead, user)) {
     // A departed record of the same user is replaced, so ids stay unique.
@@ -137,17 +137,17 @@ const bindUser = (head: ConversationHead, next: Draft, invite: Invite, user: str
       kind: "human",
       display_name: name,
       role: "member",
-      joined_seq: contact?.joined_seq ?? head.last_seq,
+      joined_seq: address?.joined_seq ?? head.last_seq,
       added_by: invite.invited_by
     }
-    if (contact) {
-      participants = participants.map((participant) => (participant.id === contact.id ? joined : participant))
+    if (address) {
+      participants = participants.map((participant) => (participant.id === address.id ? joined : participant))
     } else {
       if (participants.filter((participant) => participant.left_at === undefined).length >= MAX_PARTICIPANTS) fail("invalid_participant")
       participants = [...participants, joined]
     }
-  } else if (contact) {
-    participants = depart(head, participants, contact.id, now)
+  } else if (address) {
+    participants = depart(head, participants, address.id, now)
   }
   next.participants = participants
   const { requested_by: _by, requested_name: _name, requested_at: _at, ...rest } = invite
@@ -159,7 +159,7 @@ const bindUser = (head: ConversationHead, next: Draft, invite: Invite, user: str
  * `invite.accept`: any signed-in user holding the link (the host passes the
  * token hash). Single use: pending and not expired. A dm invite binds any
  * holder once. A group invite binds at once only for an email invite whose
- * contact is one of the actor's verified addresses (`actor_contacts`);
+ * address is one of the actor's verified addresses (`actor_addresses`);
  * otherwise, and always for SMS (no principal carries a verified phone), it
  * waits for `invite.approve_join` (D-H4).
  */
@@ -174,7 +174,7 @@ export const acceptInvite = (head: ConversationHead, next: Draft, request: OpReq
   if (isExpired(invite, request.now)) fail("invite_expired")
   if (invite.invited_by === user) fail("invite_self")
   closeExpired(head, next, request.now)
-  const verified = invite.channel === "email" && (request.actor_contacts?.includes(invite.contact) ?? false)
+  const verified = invite.channel === "email" && (request.actor_addresses?.includes(invite.address) ?? false)
   if (head.kind === "group" && !verified) {
     next.invites = replaceInvite(next.invites ?? [], { ...invite, status: "pending_approval", requested_by: user, requested_name: op.display_name, requested_at: request.now })
     return conversationChanged(next, request)
@@ -199,7 +199,7 @@ export const approveJoin = (head: ConversationHead, next: Draft, request: OpRequ
   if (op.approve === false) {
     const { requested_by: _by, requested_name: _name, requested_at: _at, ...rest } = invite
     next.invites = replaceInvite(next.invites ?? [], { ...rest, status: "revoked" })
-    releaseContact(head, next, invite.contact, request.now)
+    releaseAddress(head, next, invite.address, request.now)
     next.updated_at = request.now
     return conversationChanged(next, request)
   }
@@ -208,7 +208,7 @@ export const approveJoin = (head: ConversationHead, next: Draft, request: OpRequ
 }
 
 /**
- * `invite.delivery.report` (system, from ContactDO): the delivery state only
+ * `invite.delivery.report` (system, from AddressDO): the delivery state only
  * moves forward. `provider_id` is optional (absent, never null).
  */
 export const reportDelivery = (head: ConversationHead, next: Draft, request: OpRequest, op: OpOf<"invite.delivery.report">): Commit => {

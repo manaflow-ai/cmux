@@ -1,4 +1,4 @@
-export { inboxDomain, TABLE_ENTRY, type InboxParams } from "./domain.ts"
+export { dmPeer, inboxDomain, TABLE_ENTRY, TABLE_PEER, type InboxParams } from "./domain.ts"
 export {
   bumpEntry,
   emptyInbox,

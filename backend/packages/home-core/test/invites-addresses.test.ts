@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   acceptUrlPattern,
-  contactId,
+  addressId,
   inviteOrigin,
   hashInviteSecret,
   inviteLink,
@@ -14,7 +14,7 @@ import {
   secretMatches
 } from "../src/invites/index.ts"
 
-const KEY = "test-contact-key-0123456789abcdefghijkl"
+const KEY = "test-address-key-0123456789abcdefghijkl"
 
 describe("addresses", () => {
   it("normalizes email to lowercase and keeps plus addressing", () => {
@@ -43,13 +43,13 @@ describe("addresses", () => {
     expect(normalizeAddress("4155550123")).toEqual({ channel: "sms", value: "+14155550123" })
   })
 
-  it("derives a stable keyed contact id", () => {
-    const a = contactId(KEY, { channel: "email", value: "a@example.com" })
-    expect(a).toMatch(/^contact_[0-9A-HJKMNP-TV-Z]{26}$/)
-    expect(contactId(KEY, { channel: "email", value: "a@example.com" })).toBe(a)
-    expect(contactId(`${KEY}x`, { channel: "email", value: "a@example.com" })).not.toBe(a)
-    expect(contactId(KEY, { channel: "sms", value: "a@example.com" })).not.toBe(a)
-    expect(() => contactId("short", { channel: "email", value: "a@example.com" })).toThrow()
+  it("derives a stable keyed address id", () => {
+    const a = addressId(KEY, { channel: "email", value: "a@example.com" })
+    expect(a).toMatch(/^addr_[0-9A-HJKMNP-TV-Z]{26}$/)
+    expect(addressId(KEY, { channel: "email", value: "a@example.com" })).toBe(a)
+    expect(addressId(`${KEY}x`, { channel: "email", value: "a@example.com" })).not.toBe(a)
+    expect(addressId(KEY, { channel: "sms", value: "a@example.com" })).not.toBe(a)
+    expect(() => addressId("short", { channel: "email", value: "a@example.com" })).toThrow()
   })
 
   it("masks addresses for other members", () => {

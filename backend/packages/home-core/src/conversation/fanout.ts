@@ -56,7 +56,7 @@ export type SearchIntent = { readonly op: "upsert"; readonly row: SearchRow } | 
 export interface DeliveryIntent {
   readonly invite: string
   readonly conversation: string
-  readonly contact: string
+  readonly address: string
   readonly channel: "email" | "sms"
   readonly locale: string
   readonly copy_variant: string
@@ -252,7 +252,7 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
       deliveries.push({
         invite: invite.id,
         conversation: head.id,
-        contact: invite.contact,
+        address: invite.address,
         channel: invite.channel,
         locale: invite.locale,
         copy_variant: invite.copy_variant,

@@ -71,13 +71,13 @@ export class Corpus {
 
 const NOTES = [
   "Each case is {name, head, request, expect} or {name, create, expect}. expect is {commit}, {head} (create) or {reject: code}.",
-  "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, last_message) plus recent (newest first) and actor_contacts.",
+  "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, last_message) plus recent (newest first) and actor_addresses.",
   "A runner calls apply(head, request); when request.recent is an array and the op is message.send, it also runs check_agent_budget(head, actor, parts, recent, parse(now)) after every other rule passes.",
   "Compare JSON values: optional fields are omitted when absent; object key order does not matter.",
   "Commit = {head, message?, change}; change kinds: message, message-updated, read-cursor, conversation, invite.",
   "Cloud heads (with kind) keep the agent loop guard in the head (agent_text_streak, last_agent_text_at) and ignore request.recent; local heads use the Rust row window. Same limits; the head guard also counts a retracted agent message and applies the gap to the last agent text message however old.",
   "Cloud participants.add of an agent: only its owner (a stored record's owner_user wins over the op's), unless request.trusted_participant is true (the host's reach policy approved it and stamped owner_user and display_name).",
-  "Cloud invite.accept: request.actor_contacts holds the contact ids of the actor's verified emails; the host passes it only when the email is verified. Group invites bind at once only for email with a matching contact; otherwise status pending_approval.",
+  "Cloud invite.accept: request.actor_addresses holds the address ids of the actor's verified emails; the host passes it only when the email is verified. Group invites bind at once only for email with a matching address; otherwise status pending_approval.",
   "The host derives token_hash: invite.create stores hash(hash(secret)), and the Domain hashes the accept proof hash(secret), so no event carries a value that can accept."
 ]
 
