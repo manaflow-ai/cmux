@@ -233,3 +233,16 @@ Shape (decided, first example Tasks in plans/cmux-next/tasks.md section 13): `se
 ### 10.3 What native panes change for the gap list
 
 A native pane removes the editor gap (N1) for notes and the keyboard list gap (N5) for search panes, but only for first-party apps; the scene API still needs them for everyone else and for the sidebar sections. The prototypes keep their scene-tree panes so the public API stays proven; a native notes editor is the one exception recommended now.
+
+## 11. Email as a feed source (Lawrence 2026-10-02: email is mostly part of the feed)
+
+There is no mail store and no mail app with its own model. Mail reaches the user as feed items, owned by the feed (lane 9); this section is the lane 3 proposal to the feed lead.
+
+- Source: a mail connection in the one integration model (`ConnectionDO`, provider Gmail or IMAP/JMAP; credentials stay in the gateway). A feed source (`cmux.feed.source/1`, run by the integrations side or an app server with `instances: user`) receives provider push (Gmail watch, JMAP push, IMAP IDLE in the server; never polling from a client) and posts one feed item per thread.
+- Item kind: `notify mail.thread` for threads that need no answer, `request reply` when the user's rules or an agent mark the thread as needing a reply. Fields beyond the feed item: `thread {provider_thread_id, subject, participants (display names; addresses only on open), message_count, last_message_at, labels}`, a snippet, attachments as handles, and `unsubscribe` metadata.
+- Thread updates replace the item's content and bump its revision (one item per thread, `thread` group key = provider thread id), so the feed never shows one row per message.
+- Triage actions are feed actions mapped to provider ops by the source: done (archive), snooze (the feed owner wakes it; the source only mirrors the label), mark read (provider seen flag), label, mute thread, unsubscribe.
+- Reply: `feed.respond {item, value: {body, reply_all?, attachments?: handles}}`, origin user; the source sends through the gateway (`send-external`, never an agent tool without approval). Agents may draft: `feed.draft {item, body}` creates a draft visible in the item, which the user edits and sends.
+- Reading a message body: `cmux.viewer/1` for `message/rfc822` (sanitized HTML in a sandboxed web view with remote images blocked until the user allows them per sender) opened from the item.
+- Search: the mail source implements `cmux.search.provider/1` against the provider's search API.
+- Questions for the feed lead: (1) does the feed item support a replaceable body and a per-thread group key with revision bumps; (2) does `feed.respond` carry rich values (body + attachment handles); (3) who owns drafts (feed owner vs mail source); (4) per-source triage action mapping (done = archive) declared by the source; (5) privacy: addresses and bodies fetched on open only, not stored in the feed.
