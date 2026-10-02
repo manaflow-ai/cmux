@@ -7,7 +7,7 @@
 #   scripts/cmux-next/build-agent-pane-web.sh --check  # fail if it is stale
 set -eu
 
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 SRC="$ROOT/webviews/src/agent-session"
 OUT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 MODE="${1:-build}"
@@ -56,7 +56,7 @@ CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; 
 
 if [ "$MODE" = "--check" ]; then
   if ! cmp -s "$WORK/index.html" "$OUT/index.html"; then
-    echo "error: $OUT/index.html is stale; run scripts/cmux-next/build-agent-pane-web.sh" >&2
+    echo "error: $OUT/index.html is stale; run scripts/cmux-next/build-agent-pane-web.sh (after merging feat-cmux-next: scripts/cmux-next/regenerate-web-bundles.sh)" >&2
     exit 1
   fi
   echo "agent pane web bundle is current"

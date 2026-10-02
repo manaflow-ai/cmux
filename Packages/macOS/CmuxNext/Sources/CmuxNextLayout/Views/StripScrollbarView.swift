@@ -33,14 +33,15 @@ final class StripScrollbarView: NSView {
     private var isHovered = false
     private var drag: (grab: CGFloat, width: CGFloat)?
     private(set) var isShown = false
-    private let hideTimer = DemandTimer(owner: "Layout.stripScrollbar.hide")
+    private let hideTimer: DemandTimer
 
-    /// Idle time before `auto` fades out (tests lengthen it so a slow run
-    /// does not fade the thumb before the check).
-    var idleDelay: Duration = .milliseconds(1200)
+    /// Idle time before `auto` fades out.
+    static let idleDelay: Duration = .milliseconds(1200)
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
+    /// `hideClock` runs the `auto` fade-out deadline.
+    init(hideClock: any Clock<Duration>) {
+        hideTimer = DemandTimer(owner: "Layout.stripScrollbar.hide", clock: hideClock)
+        super.init(frame: .zero)
         wantsLayer = true
         layer?.addSublayer(thumb)
         thumb.opacity = 0
@@ -105,7 +106,7 @@ final class StripScrollbarView: NSView {
             hideTimer.cancel()
             return
         }
-        hideTimer.schedule(after: idleDelay) { @MainActor [weak self] in
+        hideTimer.schedule(after: Self.idleDelay) { @MainActor [weak self] in
             guard let self, self.input?.mode == .auto, !self.isHovered, self.drag == nil else { return }
             self.setShown(false)
         }
