@@ -19,10 +19,6 @@
         await box.press("Enter");
         await t.sleep(300);
       }
-      const tsvCell = (v) => {
-        const s = v === null || v === undefined ? "" : String(v);
-        return /[\t\n"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-      };
       function writeCells(action, sheet, range, values, options) {
         const name = `googleSheets.${action}`;
         if (typeof sheet === "string" && /^draft-\d+-[0-9a-f]+$/.test(sheet)) return ed.edit("googleSheets", action, name, null, sheet, range);
@@ -35,20 +31,31 @@
         const r0 = Number(m[2]);
         const width = Math.max(...values.map((row) => row.length));
         const target = `${start}:${ed.colName(c0 + width - 1)}${r0 + values.length - 1}`;
-        const tsv = values.map((row) => row.map(tsvCell).join("\t")).join("\n");
+        if (values.some((row) => row.some((v) => /[\n\t]/.test(String(v === null || v === undefined ? "" : v))))) throw new S.SiteError("invalid", `${name}: a value contains a tab or a line break; Sheets cells are typed and cannot hold one this way`);
+        const rowOps = [];
         return ed.edit("googleSheets", action, name, r, { range: target }, options, () => ({
           summary: `Write ${values.length} row(s) at ${target} in Google Sheet ${r.id}`,
           preview: { file: sheet, range: target, values },
           run: async (page) => {
+            // Typed keys, cell by cell (Tab moves right, Enter starts the
+            // next row): Sheets' cell editor ignores a paste or inserted text.
             await selectRange(page, start);
-            await page.clipboard.writeText(tsv);
-            await page.keyboard.press("Meta+V");
+            for (const row of values) {
+              row.forEach((v, j) => {
+                rowOps.push([String(v === null || v === undefined ? "" : v), j < row.length - 1]);
+              });
+              for (const [text, tab] of rowOps.splice(0)) {
+                if (text) await page.keyboard.type(text);
+                if (tab) await page.keyboard.press("Tab");
+              }
+              await page.keyboard.press("Enter");
+            }
             await ed.saved(page);
             const want = new Map();
             values.forEach((row, i) => row.forEach((v, j) => want.set(`${ed.colName(c0 + j)}${r0 + i}`, v === null || v === undefined ? "" : String(v))));
             const verified = await ed.verify(async () => {
               const got = new Map((await api.cells(sheet, { ...(options || {}), range: target })).cells.map((c) => [c.cell, c]));
-              return [...want].every(([cell, v]) => (v === "" ? !got.has(cell) : got.has(cell) && (v.startsWith("=") ? got.get(cell).formula === v : got.get(cell).value === v)));
+              return [...want].every(([cell, v]) => v === "" || (got.has(cell) && (v.startsWith("=") ? got.get(cell).formula === v : got.get(cell).value === v)));
             });
             return { status: "written", range: target, verified };
           },
@@ -142,7 +149,8 @@
           return hits.sort((a, b) => (a.sheet + a.cell).localeCompare(b.sheet + b.cell));
         },
         // Writes a 2D array of values (a string starting with = is a
-        // formula) at the range's top-left cell, in the tab of the URL's gid.
+        // formula) at the range's top-left cell, in the tab of the URL's gid,
+        // typed cell by cell; an empty value leaves its cell as it is.
         // Private sheet: at once; otherwise a draft that write(draftId, { confirm: true }) applies.
         // { status: "written", range, verified }.
         write(sheet, range, values, options) {
