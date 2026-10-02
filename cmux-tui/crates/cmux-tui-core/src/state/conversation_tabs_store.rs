@@ -133,20 +133,6 @@ pub(crate) fn browser_for_mutation(
         .optional()?)
 }
 
-/// The record of browser content `browser_id`, if it is a conversation tab.
-pub(crate) fn conversation_tab(
-    connection: &Connection,
-    browser_id: &str,
-) -> anyhow::Result<Option<ConversationTabRecord>> {
-    Ok(connection
-        .query_row(
-            "SELECT conversation, owner FROM conversation_tabs WHERE browser_id = ?1",
-            [browser_id],
-            |row| Ok(ConversationTabRecord { conversation: row.get(0)?, owner: row.get(1)? }),
-        )
-        .optional()?)
-}
-
 /// Every conversation tab record, keyed by browser id (the presentation
 /// snapshot the raw tree reads).
 pub(crate) fn read_conversation_tabs(
