@@ -7,6 +7,53 @@ import Foundation
 /// rejects stale async bind results with a lifecycle revision, and exposes
 /// non-sensitive state through ``events()``.
 public actor CmxIrohEndpointSupervisor {
+    private final class ActivationWaiter: @unchecked Sendable {
+        private enum Outcome {
+            case success(any CmxIrohEndpoint)
+            case failure(any Error)
+        }
+
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<any CmxIrohEndpoint, any Error>?
+        private var outcome: Outcome?
+
+        func install(
+            _ continuation: CheckedContinuation<any CmxIrohEndpoint, any Error>
+        ) {
+            lock.lock()
+            if let outcome {
+                lock.unlock()
+                resume(continuation, with: outcome)
+            } else {
+                self.continuation = continuation
+                lock.unlock()
+            }
+        }
+
+        func resolve(_ outcome: Outcome) {
+            lock.lock()
+            guard self.outcome == nil, let continuation = self.continuation else {
+                if self.outcome == nil { self.outcome = outcome }
+                lock.unlock()
+                return
+            }
+            self.continuation = nil
+            self.outcome = outcome
+            lock.unlock()
+            resume(continuation, with: outcome)
+        }
+
+        private func resume(
+            _ continuation: CheckedContinuation<any CmxIrohEndpoint, any Error>,
+            with outcome: Outcome
+        ) {
+            switch outcome {
+            case let .success(endpoint): continuation.resume(returning: endpoint)
+            case let .failure(error): continuation.resume(throwing: error)
+            }
+        }
+    }
+
     private struct RelayReadinessWaiter {
         let generation: UInt64
         let continuation: CheckedContinuation<Void, any Error>
@@ -14,6 +61,7 @@ public actor CmxIrohEndpointSupervisor {
 
     private let factory: any CmxIrohEndpointFactory
     private var configuration: CmxIrohEndpointConfiguration
+    private let activationTimeout: Duration
     private var endpoint: (any CmxIrohEndpoint)?
     private var bindingOperation: (
         revision: UInt64,
@@ -41,12 +89,16 @@ public actor CmxIrohEndpointSupervisor {
     /// - Parameters:
     ///   - factory: The concrete Iroh binding seam.
     ///   - configuration: The stable key, ALPN, relay allowlist, and current tokens.
+    ///   - activationTimeout: Maximum time a native endpoint bind may remain
+    ///     unresolved before the generation is failed and retried.
     public init(
         factory: any CmxIrohEndpointFactory,
-        configuration: CmxIrohEndpointConfiguration
+        configuration: CmxIrohEndpointConfiguration,
+        activationTimeout: Duration = .seconds(15)
     ) {
         self.factory = factory
         self.configuration = configuration
+        self.activationTimeout = activationTimeout
     }
 
     /// Returns an event stream beginning with the current lifecycle snapshot.
@@ -114,7 +166,10 @@ public actor CmxIrohEndpointSupervisor {
         }
 
         do {
-            let candidate = try await operation.task.value
+            let candidate = try await awaitBinding(
+                operation.task,
+                timeout: activationTimeout
+            )
             if endpoint != nil,
                snapshot.state == .active,
                snapshot.runtimeGeneration == operation.generation {
@@ -154,6 +209,41 @@ public actor CmxIrohEndpointSupervisor {
                 )
             }
             throw error
+        }
+    }
+
+    private func awaitBinding(
+        _ operation: Task<any CmxIrohEndpoint, any Error>,
+        timeout: Duration
+    ) async throws -> any CmxIrohEndpoint {
+        let waiter = ActivationWaiter()
+        let completionTask = Task {
+            do {
+                waiter.resolve(.success(try await operation.value))
+            } catch {
+                waiter.resolve(.failure(error))
+            }
+        }
+        let timeoutTask = Task {
+            do {
+                try await ContinuousClock().sleep(for: timeout)
+            } catch {
+                return
+            }
+            operation.cancel()
+            waiter.resolve(.failure(CmxIrohEndpointSupervisorError.activationTimedOut))
+        }
+        defer {
+            completionTask.cancel()
+            timeoutTask.cancel()
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                waiter.install(continuation)
+            }
+        } onCancel: {
+            operation.cancel()
+            waiter.resolve(.failure(CancellationError()))
         }
     }
 

@@ -56,6 +56,29 @@ struct CmxIrohEndpointSupervisorTests {
         }
     }
 
+    @Test("a wedged native bind becomes a classified activation failure")
+    func activationTimesOutAndCancelsTheBind() async throws {
+        let endpoint = TestIrohEndpoint(identity: identity)
+        let factory = TestBlockingIrohEndpointFactory(endpoint: endpoint)
+        let supervisor = try CmxIrohEndpointSupervisor(
+            factory: factory,
+            configuration: endpointConfiguration(),
+            activationTimeout: .milliseconds(20)
+        )
+        var started = await factory.bindStartedEvents().makeAsyncIterator()
+        let activation = Task { try await supervisor.activate() }
+        _ = await started.next()
+
+        await #expect(throws: CmxIrohEndpointSupervisorError.activationTimedOut) {
+            try await activation.value
+        }
+        #expect((await supervisor.snapshot()).state == .failed)
+
+        // Let the cancelled bind return so its candidate cleanup can run.
+        await factory.release()
+        #expect(await endpoint.observedCloseCallCount() == 1)
+    }
+
     @Test
     func concurrentActivationSharesOneBindOperation() async throws {
         let endpoint = TestIrohEndpoint(identity: identity)
