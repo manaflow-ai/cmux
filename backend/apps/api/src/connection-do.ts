@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { canonicalJson, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
+import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
 import { cloudOpByName, type Connection, type IntegrationProvider } from "@cmux/protocol"
 import { connectionsDomain, mayUse, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
@@ -62,6 +62,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     sql.exec(`CREATE TABLE IF NOT EXISTS external_calls (
       identity TEXT NOT NULL, idempotency_key TEXT NOT NULL, op TEXT NOT NULL, params_hash TEXT NOT NULL,
       status TEXT NOT NULL, reply TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (identity, idempotency_key))`)
+    sql.exec(`CREATE INDEX IF NOT EXISTS external_calls_created ON external_calls (created_at)`)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -76,6 +77,16 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   protected maySubscribe(state: ConnectionsState, principal: Principal): boolean {
     return Boolean(principal.team && (state.owner === null || state.owner === principal.team))
+  }
+
+  /** The external-effect ledger keeps the same 7-day replay window as the op ledger. */
+  protected override onPrune(before: number): void {
+    this.ctx.storage.sql.exec(`DELETE FROM external_calls WHERE created_at < ?`, before)
+  }
+
+  protected override nextWakeAt(_state: ConnectionsState, _now: number): number | null {
+    const oldest = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(created_at) AS at FROM external_calls`).toArray()[0]?.at
+    return oldest === null || oldest === undefined ? null : Number(oldest) + LEDGER_RETENTION_MS
   }
 
   /** Revocation deletes the credential at once and unlinks the account from webhook routing. */

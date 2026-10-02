@@ -27,13 +27,8 @@ export interface RunReport {
 }
 
 const MAX_RETRY_MS = 5 * 60_000
-/**
- * Server-side watchdog for started runs: a Workflow that Cloudflare stopped, or
- * whose final report failed, would hold its concurrency slot for ever. Each
- * started run's instance status is checked at most this often while the run is
- * not terminal (a bounded server check, not client polling).
- */
-export const WATCHDOG_MS = 15 * 60_000
+/** How long a delivery id is remembered for dedupe (longer than any provider's redelivery window). */
+export const DELIVERY_RETENTION_MS = 30 * 24 * 3600_000
 /** Trigger payloads kept for a run's input; larger ones are replaced by a truncation marker. */
 const MAX_INPUT_BYTES = 256 * 1024
 
@@ -50,9 +45,6 @@ const alreadyExists = (e: unknown) => /already exists|already_exists|duplicate/i
  */
 export class SchedulerDO extends OwnerDO<SchedulerState> {
   /** Backoff for fires and dispatches that failed in this instance's lifetime (a scheduling hint, not entity state). */
-  private readonly retry = new Map<string, { attempts: number; at: number }>()
-  /** When each started run's Workflow status was last checked. */
-  private readonly checked = new Map<string, number>()
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, schedulerDomain, "scheduler", (p) => ({
@@ -65,6 +57,13 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     }))
     // Trigger payloads wait here between the delivery and the Workflow start. They are
     // inputs, not entity state: never in events, snapshots or the ledger.
+    // Backoff for failed fires, dispatches and deadline checks: persisted, so a restarted object
+    // waits out the backoff instead of retrying at once.
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS retry_state (key TEXT PRIMARY KEY, attempts INTEGER NOT NULL, at INTEGER NOT NULL)`)
+    // Webhook and provider-event dedupe, independent of the request ledger (7-day window):
+    // providers may redeliver later (GitHub signs no timestamp), so delivery keys live 30 days.
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS seen_deliveries (key TEXT PRIMARY KEY, run TEXT, at INTEGER NOT NULL)`)
+    ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS seen_deliveries_at ON seen_deliveries (at)`)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS run_inputs (run TEXT PRIMARY KEY, json TEXT NOT NULL, created_at INTEGER NOT NULL)`)
   }
 
@@ -105,13 +104,40 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
   }
 
   private retryAt(key: string): number | undefined {
-    return this.retry.get(key)?.at
+    const row = this.ctx.storage.sql.exec<{ at: number }>(`SELECT at FROM retry_state WHERE key = ?`, key).toArray()[0]
+    return row ? Number(row.at) : undefined
   }
 
   private failed(key: string, now: number, error: unknown) {
-    const attempts = (this.retry.get(key)?.attempts ?? 0) + 1
-    this.retry.set(key, { attempts, at: now + Math.min(MAX_RETRY_MS, 1000 * 2 ** attempts) })
+    const prior = this.ctx.storage.sql.exec<{ attempts: number }>(`SELECT attempts FROM retry_state WHERE key = ?`, key).toArray()[0]
+    const attempts = Number(prior?.attempts ?? 0) + 1
+    this.ctx.storage.sql.exec(
+      `INSERT INTO retry_state (key, attempts, at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET attempts = excluded.attempts, at = excluded.at`,
+      key,
+      attempts,
+      now + Math.min(MAX_RETRY_MS, 1000 * 2 ** attempts)
+    )
     console.error(JSON.stringify({ msg: "scheduler step failed", stream: this.boundEngine?.stream, key, attempts, error: String(error) }))
+  }
+
+  private seen(key: string): { run: string | null } | undefined {
+    const row = this.ctx.storage.sql.exec<{ run: string | null }>(`SELECT run FROM seen_deliveries WHERE key = ?`, key).toArray()[0]
+    return row ? { run: row.run } : undefined
+  }
+
+  private remember(key: string, run: string | undefined) {
+    this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO seen_deliveries (key, run, at) VALUES (?, ?, ?)`, key, run ?? null, Date.now())
+  }
+
+  private succeeded(key: string) {
+    this.ctx.storage.sql.exec(`DELETE FROM retry_state WHERE key = ?`, key)
+  }
+
+  /** Inputs of runs that never dispatched, and stale backoff rows, leave with the replay window. */
+  protected override onPrune(before: number): void {
+    this.ctx.storage.sql.exec(`DELETE FROM run_inputs WHERE created_at < ?`, before)
+    this.ctx.storage.sql.exec(`DELETE FROM retry_state WHERE at < ?`, before)
+    this.ctx.storage.sql.exec(`DELETE FROM seen_deliveries WHERE at < ?`, Date.now() - DELIVERY_RETENTION_MS)
   }
 
   protected override nextWakeAt(state: SchedulerState, now: number): number | null {
@@ -127,50 +153,60 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       }
     }
     for (const r of dispatchable(state)) take(this.retryAt(dispatchKey(r.id)) ?? now)
-    for (const r of Object.values(state.runs)) if (r.dispatched && !TERMINAL.has(r.state)) take((this.checked.get(r.id) ?? r.created_at) + WATCHDOG_MS)
+    const oldestSeen = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM seen_deliveries`).toArray()[0]?.at
+    if (oldestSeen !== null && oldestSeen !== undefined) take(Number(oldestSeen) + DELIVERY_RETENTION_MS)
+    // One wake per open run at its deadline; a run that reports its end never causes it.
+    for (const r of Object.values(state.runs)) if (r.deadline_at !== undefined && !TERMINAL.has(r.state)) take(this.retryAt(deadlineKey(r.id)) ?? r.deadline_at)
     return at
   }
 
-  /** Marks started runs dead when their Workflow ended without a final report, and enforces the wall-clock budget. */
-  private async watchdog(now: number) {
+  /**
+   * Runs past their deadline (set at dispatch from the budget or the body's
+   * sleeps). A Workflow still going is terminated and the run fails; one that
+   * ended without its final report (killed, or the report failed) is dead.
+   */
+  private async enforceDeadlines(now: number) {
     const engine = this.boundEngine!
-    const due = Object.values(engine.currentState.runs).filter((r) => r.dispatched && !TERMINAL.has(r.state) && (this.checked.get(r.id) ?? r.created_at) + WATCHDOG_MS <= now)
+    const due = Object.values(engine.currentState.runs).filter((r) => r.deadline_at !== undefined && r.deadline_at <= now && !TERMINAL.has(r.state))
     for (const r of due.slice(0, 20)) {
-      this.checked.set(r.id, now)
-      const budget = engine.currentState.automations[r.automation]?.budget.wall_clock_seconds
+      const key = deadlineKey(r.id)
+      if ((this.retryAt(key) ?? 0) > now) continue
       let status: string
       try {
         const instance = await this.env.AUTOMATION_RUN.get(r.id)
-        if (budget !== undefined && r.started_at !== null && r.started_at + budget * 1000 < now) {
-          await instance.terminate().catch(() => undefined)
-          this.submitSystem("run.report", { run: r.id, state: "failed", step: r.step, error: { code: "budget.wall_clock", message: `ran longer than ${budget} s` } }, `report:${r.id}:failed:budget`)
+        status = (await instance.status()).status
+        if (status === "queued" || status === "running" || status === "paused" || status === "waiting" || status === "waitingForPause") {
+          await instance.terminate()
+          status = "terminated_at_deadline"
+        }
+      } catch (e) {
+        if (!/not.?found/i.test(String(e))) {
+          this.failed(key, now, e)
           continue
         }
-        status = (await instance.status()).status
-      } catch (e) {
-        status = /not.?found/i.test(String(e)) ? "unknown" : "check_failed"
+        status = "unknown"
       }
-      if (status === "errored" || status === "terminated" || status === "complete" || status === "unknown") {
-        this.submitSystem(
-          "run.report",
-          { run: r.id, state: "dead", step: r.step, error: { code: "run.dead", message: `the run's Workflow is ${status} without a final report` } },
-          `report:${r.id}:dead:${r.step}`
-        )
-        this.checked.delete(r.id)
-      }
+      const budget = engine.currentState.automations[r.automation]?.budget.wall_clock_seconds
+      const report =
+        status === "terminated_at_deadline"
+          ? { run: r.id, state: "failed", step: r.step, error: budget !== undefined ? { code: "budget.wall_clock", message: `ran longer than ${budget} s` } : { code: "run.deadline", message: "ran past its deadline" } }
+          : { run: r.id, state: "dead", step: r.step, error: { code: "run.dead", message: `the run's Workflow is ${status} without a final report` } }
+      const res = this.submitSystem("run.report", report, `report:${r.id}:deadline`)
+      if (res.frames.some((f) => f.t === "reject")) this.failed(key, now, "deadline report refused")
+      else this.succeeded(key)
     }
   }
 
   protected override async onWake(now: number): Promise<void> {
     const engine = this.boundEngine
     if (!engine) return
-    await this.watchdog(now)
+    await this.enforceDeadlines(now)
     for (const f of dueFires(engine.currentState, now)) {
       const key = fireKey(f.automation, f.trigger, f.scheduled_at)
       if ((this.retryAt(key) ?? 0) > now) continue
       const r = rejected(this.submitSystem("automation.fire", f, key))
       if (r) this.failed(key, now, `${r.code}: ${r.message}`)
-      else this.retry.delete(key)
+      else this.succeeded(key)
     }
     for (const run of dispatchable(engine.currentState)) {
       const key = dispatchKey(run.id)
@@ -196,7 +232,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       const r = rejected(this.submitSystem("run.dispatched", { run: run.id }, key))
       if (r) this.failed(key, now, `${r.code}: ${r.message}`)
       else {
-        this.retry.delete(key)
+        this.succeeded(key)
         this.ctx.storage.sql.exec(`DELETE FROM run_inputs WHERE run = ?`, run.id)
       }
     }
@@ -213,11 +249,15 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     const engine = this.bind(entity)
     const a = Object.values(engine.currentState.automations).find((x) => x.triggers.some((t) => t.id === trigger && t.spec.type === "webhook"))
     if (!a) return { status: "unknown" }
-    const res = this.submitSystem("automation.deliver", { automation: a.id, trigger, delivery_id: delivery }, deliverKey(a.id, trigger, delivery))
+    const key = deliverKey(a.id, trigger, delivery)
+    const prior = this.seen(key)
+    if (prior) return { status: "duplicate", ...(prior.run ? { run: prior.run } : {}) }
+    const res = this.submitSystem("automation.deliver", { automation: a.id, trigger, delivery_id: delivery }, key)
     const out = res.frames.find((f): f is ResultFrame => f.t === "result")
     if (!out) return { status: "disabled" }
     const value = out.value as { id?: string; state?: string; stale?: boolean }
     if (value.stale) return { status: "disabled" }
+    this.remember(key, value.id)
     if (out.replayed) return { status: "duplicate", ...(value.id ? { run: value.id } : {}) }
     if (value.state === "skipped") return { status: "skipped", ...(value.id ? { run: value.id } : {}) }
     if (value.id) this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO run_inputs (run, json, created_at) VALUES (?, ?, ?)`, value.id, JSON.stringify(input ?? null), Date.now())
@@ -240,9 +280,12 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     let runs = 0
     for (const { automation, trigger } of matchingEventTriggers(engine.currentState, ev)) {
       const delivery = `${ev.connection}:${ev.delivery_id}`
-      const res = this.submitSystem("automation.deliver", { automation, trigger, delivery_id: delivery }, deliverKey(automation, trigger, delivery))
+      const key = deliverKey(automation, trigger, delivery)
+      if (this.seen(key)) continue
+      const res = this.submitSystem("automation.deliver", { automation, trigger, delivery_id: delivery }, key)
       const out = res.frames.find((f): f is ResultFrame => f.t === "result")
       const value = out?.value as { id?: string; state?: string; stale?: boolean } | undefined
+      if (out && !value?.stale) this.remember(key, value?.id)
       if (!out || out.replayed || !value?.id || value.stale || value.state === "skipped") continue
       runs++
       const text = JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, body: ev.payload })
@@ -265,3 +308,4 @@ const fireKey = (automation: string, trigger: string, scheduledAt: number) => `f
 export const deliverKey = (automation: string, trigger: string, delivery: string) =>
   `deliver:${automation}:${trigger}:${createHash("sha256").update(delivery).digest("base64url").slice(0, 32)}`
 const dispatchKey = (run: string) => `dispatch:${run}`
+const deadlineKey = (run: string) => `deadline:${run}`
