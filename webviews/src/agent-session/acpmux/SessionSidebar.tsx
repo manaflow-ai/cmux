@@ -50,10 +50,10 @@ const VIEW_TITLES: Record<Exclude<SidebarView, "sessions">, string> = {
   closed: "Closed sessions",
 };
 
-/** The pane's sidebar: an icon rail, the list it switches, and the account at the bottom. */
 /** Sessions already open in a tab, when the list is a history layer beside them. */
 const OpenSessions = createContext<ReadonlySet<string> | undefined>(undefined);
 
+/** The pane's sidebar: an icon rail, the list it switches, and the account at the bottom. */
 export function SessionSidebar({
   sessions,
   selectedId,
@@ -413,7 +413,7 @@ const SessionRow = memo(function SessionRow({
         aria-current={selected ? "true" : undefined}
         aria-label={
           mark || place || trailing || open
-            ? [title, open && "Open in a tab", trailing, placeLabel, mark && MARK_LABELS[mark]]
+            ? [title, open && "Already open in a tab", trailing, placeLabel, mark && MARK_LABELS[mark]]
                 .filter(Boolean)
                 .join(", ")
             : undefined

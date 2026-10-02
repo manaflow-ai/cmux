@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '775c143e40049003fdc122b643a0f7d56fee06b3e9c46dff2d40bf7fc9767faa'
+IR_SHA256 = '1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0'
 
 
 @dataclass(frozen=True)
@@ -1951,6 +1951,21 @@ COMMANDS = {
             'enabled': CommandFieldMetadata(None, None),
             'exclusive': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-column-sticky': CommandMetadata(
+        'set-column-sticky',
+        'control',
+        12,
+        'sticky-columns-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'edge': CommandFieldMetadata(None, None),
+            'mode': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'sticky': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
         },
     ),
     'set-default-colors': CommandMetadata(

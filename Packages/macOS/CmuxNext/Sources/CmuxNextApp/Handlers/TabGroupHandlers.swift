@@ -50,15 +50,16 @@ enum TabGroupHandlers {
         GroupOwnership.pane(holdingTabGroup: group, machines: ctx.services.machines)?.pane
     }
 
-    /// Runs a group command with a transaction and an optimistic patch;
-    /// a rejection re-pushes daemon truth into the pane's strip.
-    static func run(_ label: String, pane: PaneModel?, patch: OptimisticPatch = .custom { _ in }, _ ctx: AppActionContext,
+    /// Runs a group command with a transaction, shown at once through the
+    /// store's intent log when it has an `intent`; a rejection re-pushes
+    /// daemon truth into the pane's strip.
+    static func run(_ label: String, pane: PaneModel?, intent: Intent? = nil, _ ctx: AppActionContext,
                     _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         // The pane's own machine, not the active window's daemon.
         let daemon = pane.map { ctx.services.daemon(for: $0) } ?? ctx.services.activeDaemon
         guard daemon.connection ?? ctx.refuse(MiscHandlerStrings.daemonOffline) != nil else { return }
         Task {
-            let ok = await daemon.perform(label, patch: patch, expectEcho: false, body)
+            let ok = await daemon.runGroupCommand(label, intent: intent, body)
             if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
         }
     }
@@ -160,7 +161,7 @@ enum TabGroupHandlers {
                 controller.select(next)
             }
         }
-        run("update-tab-group", pane: pane, patch: .setTabGroupCollapsed(group, collapsed: collapsed), ctx) { c, t in
+        run("update-tab-group", pane: pane, intent: .setTabGroupCollapsed(group, collapsed: collapsed), ctx) { c, t in
             _ = try await c.updateTabGroup(group, collapsed: collapsed, transaction: t)
         }
     }
