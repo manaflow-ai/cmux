@@ -28,7 +28,18 @@ echo running > "$OUT"
 exec 9> "$(dirname "$RUN")/lock"
 flock -n 9 || finish "SKIP busy another upgrade run holds the lock"
 
-daemon_pid() { pgrep -f "cmux-tui server start --session cloud" | head -1; }
+# The supervisor may be a `runuser` wrapper whose command line contains the
+# daemon's argv.  Select the process that is actually running the binary so
+# hash checks and the SIGTERM handoff target the daemon, not its launcher.
+daemon_pid() {
+  for pid in $(pgrep -f "cmux-tui server [s]tart --session cloud" 2>/dev/null); do
+    if [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = cmux-tui ]; then
+      echo "$pid"
+      return 0
+    fi
+  done
+  return 1
+}
 host_pids() { ps -eo pid=,args= | awk '$2 ~ /(cmux-tui|\/proc\/self\/exe)$/ && $3=="__terminal-host"{print $1}' | sort -n | tr '\n' ' '; }
 term_count() { if [ "$H" = /root ]; then U=root; else U=cmux; fi; sudo -n -u "$U" env HOME="$H" "$BIN" --session cloud --json terminal list 2>/dev/null | python3 -c 'import json,sys
 d=json.load(sys.stdin); print(len(d if isinstance(d,list) else (d.get("terminals") or [])))' 2>/dev/null || echo "?"; }
