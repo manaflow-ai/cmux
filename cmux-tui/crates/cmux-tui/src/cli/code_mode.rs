@@ -92,4 +92,13 @@ mod tests {
         assert_eq!(resolve_runner(Some(root.join("cmux"))), installed);
         fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn docs_help_routes_before_code_mode_commands() {
+        let args = ["help".to_owned(), "docs".to_owned()];
+        assert!(matches!(
+            crate::cli::parse(&args),
+            Ok(crate::cli::ParsedCommand::Help(Some(scope))) if scope == "docs"
+        ));
+    }
 }
