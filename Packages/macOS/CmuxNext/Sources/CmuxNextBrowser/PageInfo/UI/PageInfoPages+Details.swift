@@ -100,7 +100,7 @@ extension PageInfoPages {
         }
     }
 
-    /// Chrome draws a crossed-out icon for a blocked permission.
+    /// A blocked permission gets a crossed-out icon.
     static func symbol(_ kind: SitePermissionKind, blocked: Bool) -> String {
         switch kind {
         case .location: blocked ? "location.slash" : "location"

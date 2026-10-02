@@ -31,9 +31,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 <!-- generated: action surfaces -->
 
-## Counts (706 actions)
+## Counts (708 actions)
 
-Palette 703, CLI verbs 408, right-click 400, MCP tools 354.
+Palette 705, CLI verbs 410, right-click 402, MCP tools 356.
 
 ## Menus
 
@@ -56,7 +56,7 @@ Palette 703, CLI verbs 408, right-click 400, MCP tools 354.
 - **bookmarksBar**: bookmark.addPage bookmark.newFolder bookmark.addAllTabs | bookmark.toggleBar bookmark.manager
 - **screenBar**: screen.new screen.newWith screen.reopenClosed
 - **notification**: notificationOpen | notificationToggleRead | notificationCopy | notificationDismiss
-- **sidebarItem**: sidebar.item.toggleLabel | sidebar.item.remove
+- **sidebarItem**: sidebar.item.toggleLabel | sidebar.item.removeEverywhere sidebar.item.remove sidebar.item.hideApp
 - **sidebarSection**: sidebar.section.add sidebar.item.add | sidebar.section.rename [appearance] > (sidebar.section.useBuiltInLook sidebar.section.useListLook sidebar.section.toggleTitle sidebar.section.layoutList sidebar.section.layoutInline sidebar.section.layoutGrid sidebar.section.setAlignment sidebar.section.setGap sidebar.section.setColumns) [options] > (sidebar.section.toggleRoomScope sidebar.section.setMaxRows) | sidebar.section.toggleCollapsed | [move] > (sidebar.section.moveToTop sidebar.section.moveToScrolling sidebar.section.moveToBottom) | sidebar.section.remove
 
 ## Exemptions: palette

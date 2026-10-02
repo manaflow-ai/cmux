@@ -63,7 +63,7 @@ export function serve(port = 0) {
 }
 
 function loadPlaywright() {
-  const dirs = [process.env.PARITY_PLAYWRIGHT_DIR, "/Applications/ChatGPT.app/Contents/Resources/cua_node/lib/node_modules"].filter(Boolean);
+  const dirs = [process.env.PARITY_PLAYWRIGHT_DIR].filter(Boolean);
   for (const d of dirs) {
     try {
       return require(path.join(d, "playwright"));

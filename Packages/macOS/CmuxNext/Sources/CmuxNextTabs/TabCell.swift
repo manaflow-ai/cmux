@@ -351,7 +351,7 @@ final class TabCell {
         if visibility.showsTitle {
             // The title always spans to the trailing inset, so it never moves
             // or resizes when the x appears; the x overlays its end and the
-            // title fades out before it (Chrome, Safari).
+            // title fades out before it.
             let titleX = iconFrame.maxX + m.iconTitleSpacing
             let span = max(0, bounds.width - m.contentTrailingInset - titleX)
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)

@@ -138,7 +138,7 @@
       "default" : [
 
       ],
-      "description" : "Hosts such as mail.google.com or *.figma.com.",
+      "description" : "Hosts such as mail.google.com or *.example.com.",
       "items" : {
         "type" : "string"
       },

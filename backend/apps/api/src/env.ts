@@ -2,6 +2,7 @@ import type { AddressDO } from "./address-do.ts"
 import type { ConversationDO } from "./conversation-do.ts"
 import type { MuxDO } from "./mux-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
+import type { DomainDO } from "./domain-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
@@ -30,6 +31,8 @@ export interface Env {
   readonly FEED_DO: DurableObjectNamespace<FeedDO>
   /** One AccountIndexDO per provider account key: which team connections a webhook goes to. */
   readonly ACCOUNT_INDEX_DO: DurableObjectNamespace<AccountIndexDO>
+  /** One DomainDO per lowercased email domain: which team verified it (enterprise SSO). */
+  readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
   /** Where provider redirects land (the dashboard's /integrations/callback). */
   readonly DASHBOARD_ORIGIN?: string
   /** Secret: 32-byte base64 key that wraps credential data keys. Integrations refuse to connect without it. */

@@ -293,7 +293,7 @@ describe("acpmux transcript accessibility", () => {
     }
   });
 
-  /// A prompt draws as typed in one bubble, as Codex draws it: no Markdown, so a blank line is
+  /// A prompt draws as typed in one bubble: no Markdown, so a blank line is
   /// one blank line and not an empty paragraph of two newlines.
   test("a prompt draws as typed in one bubble", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
@@ -1466,7 +1466,7 @@ describe("acpmux turn diff", () => {
       await click(eye());
       expect(eye().getAttribute("aria-pressed")).toBe("true");
       expect(panel.querySelector(".acpmux-diff-file diffs-container")).toBeNull();
-      // The menu lists the scopes in Codex's order, in three groups, and opens on the chosen one.
+      // The menu lists the scopes in a fixed order, in three groups, and opens on the chosen one.
       pill.focus();
       await click(pill);
       expect(pill.getAttribute("aria-expanded")).toBe("true");
@@ -1497,7 +1497,7 @@ describe("acpmux turn diff", () => {
       const failure = panel.querySelector('[role="alert"]');
       expect(failure?.querySelector("strong")?.textContent).toBe("Couldn't load changes");
       expect(paths()).toEqual([]);
-      // With no files the pill names the scope only, as in Codex.
+      // With no files the pill names the scope only.
       expect(pill.querySelector(".acpmux-diff-counts")).toBeNull();
       const retryButton = [...failure!.querySelectorAll<HTMLElement>("button")].find(
         (button) => button.textContent === "Retry",
@@ -1639,7 +1639,7 @@ describe("acpmux turn counts", () => {
 });
 
 describe("acpmux new chat", () => {
-  /// A new chat drew an empty transcript; it now names the project, as Codex's home and new-chat screens do.
+  /// A new chat drew an empty transcript; it now names the project.
   test("an attached session with no turns shows the hero with its folder; rows, turns, a queued prompt, a lost daemon or a missing summary hide it", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window;
@@ -1786,7 +1786,7 @@ describe("acpmux tool runs", () => {
     tool: { id, title: id, kind, status },
   });
 
-  /// In an ended turn's open "Worked for", Codex folds a run of calls under one summary line.
+  /// In an ended turn's open "Worked for", a run of calls folds under one summary line.
   test("a run in an ended turn shows one summary line and opens to its calls", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
@@ -1909,7 +1909,7 @@ describe("acpmux shell calls", () => {
 });
 
 describe("acpmux timestamp lines", () => {
-  /// Codex dates a turn that starts over an hour after the last answer; the pane showed no
+  /// A turn that starts over an hour after the last answer gets a date; the pane showed no
   /// date at all.
   test("a turn over an hour after the previous answer draws its time above it", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
@@ -1946,7 +1946,7 @@ describe("acpmux timestamp lines", () => {
 });
 
 describe("acpmux edit diffs", () => {
-  /// An edit inside an opened "Worked for" was a dead row: Codex opens it to the change.
+  /// An edit inside an opened "Worked for" was a dead row: it now opens to the change.
   test("an edit in an opened fold opens to its diff", async () => {
     const restore = fakeViewport({ width: 760, height: 900 });
     const root = createRoot(dom.window.document.getElementById("root")!);

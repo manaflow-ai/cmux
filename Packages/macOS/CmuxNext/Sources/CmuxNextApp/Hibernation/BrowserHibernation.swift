@@ -7,8 +7,8 @@ import CmuxNextWakeups
 import Observation
 import os
 
-/// Hibernates hidden browser pages and restores them when shown (Chrome's
-/// Memory Saver; plans/cmux-next/tab-lifecycle.md). Configured by
+/// Hibernates hidden browser pages and restores them when shown
+/// (plans/cmux-next/tab-lifecycle.md). Configured by
 /// `browser.hibernation`; "off" disables it completely.
 ///
 /// Triggers are events only: a page hides (a one-shot deadline for the
@@ -288,7 +288,7 @@ struct PageProbe {
     }
 
     /// Unmuted media playing, or form fields whose value differs from the
-    /// page's default (Chrome's "form interaction"). A page that does not
+    /// page's default (form interaction). A page that does not
     /// answer within the deadline is treated as busy and kept.
     static let script = """
     (() => {

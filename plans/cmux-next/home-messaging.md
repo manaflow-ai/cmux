@@ -548,3 +548,139 @@ between two existing org members creates their relationship only when both send 
   (`invhash`, whose row keys are hashes: keep its writes out of subscriber effects). The accept
   op takes `proof = sha256(secret)` and invites store `token_hash = sha256(proof)`, so no event
   carries a value that can accept.
+
+## 18. First contact over text (decisions, 2026-10-02)
+
+- Contact card name: "cmux" now; "Chief · cmux" once texting Chief works (section 19).
+- Sequence for the first text to a number (AddressDO `first_text`): 1. the cmux contact card
+  (vCard 3.0, `FN:cmux`, the sending line, `URL:https://cmux.com`, embedded JPEG photo of the
+  app icon; `renderVCard`), hosted as a `.vcf` and sent as media; 2. only after the card's
+  provider status is SENT or DELIVERED (status callback), the invite text with the invite card
+  image attached (`media_url = <accept origin>/og/invite/<code>.png`, `inviteImageUrl`) and the
+  link alone on the last line. Later invites to the same number: the text with the image, no
+  card. Builder: `textSendPlan` (home-core); the adapter (AddressDO, backend lead) runs the
+  steps and waits on the callback between them.
+- Why the image is attached: message apps may show "Tap to Load Preview" for links from a
+  sender that is not a saved contact; an attached image always shows. Preview behavior is
+  measured later with real users (the 13:41Z test showed the card with the icon; previews
+  appeared at once for one link and needed a tap for another).
+- Invite card image: `/og/invite/<code>.png`, 1200x630 PNG, public cache 1 day when
+  personalized (first name and avatar or initial only), 5 min generic. Three designs
+  (conversation default, terminal, minimal) in `invite-card-variants.tsx`; Lawrence picks.
+  Privacy: personalization by the code alone is acceptable because invite codes are
+  unguessable (group ids carry 80 random bits; address DMs are keyed HMACs); strongest
+  objection: anyone who sees a forwarded link learns the inviter's first name and avatar,
+  which is also what the link's recipient sees. `/v1/invites/card/<code>` must answer only for
+  codes with an open invite and never for user-to-user DMs.
+
+## 19. Text Chief over the phone (proposal)
+
+Goal: a person texts the cmux line and talks to their Chief; Chief replies in the same thread.
+
+- Inbound: `POST /v1/hooks/sendblue` in the Worker. The provider sends the shared secret in a
+  header (no signature, no timestamp), so: constant-time secret check, accept only messages to
+  our own lines, refuse `date_sent` older than 10 minutes, dedupe by `message_handle` in the
+  AddressDO ledger (`inbound:<handle>`, 7 days), 2xx at once and process from the AddressDO
+  outbox. Inbound media URLs expire after 30 days at the provider; copy to R2 only when kept.
+- Phone linking (decision T1, built in `address/text-link.ts`): the user asks in the app; the
+  Worker generates a 128-bit code and commits `address.text_link.request {user, code_hash}`;
+  AddressDO texts a sign-in link on the fixed origin (`https://console.cmux.dev/link#<code>`, no
+  shortener, the link alone on the last line, "expires in 10 minutes; ignore it if you did not
+  ask"). Opening it signs in with Stack (or uses the signed-in session) and sends
+  `address.text_link.confirm {proof}` (`proof = sha256(code)`; AddressDO stores
+  `sha256(proof)`). It binds only when the signed-in account is the one that asked, within 10
+  minutes, once; another account burns the link (forwarded links), five wrong proofs burn it, 3
+  requests per number per hour. A number bound to one account cannot be requested by another
+  until it is unlinked. STOP ends the binding. A binding lasts 180 days and needs a new link
+  after 90 days without inbound texts.
+- Limits (security review): 3 link requests per hour per (number, account), 6 per day per
+  number, plus per-account limits in the Worker (5 per day, 2 numbers per day); one pending
+  link per account, so a stranger's request never replaces the owner's link. The Worker answers
+  every request the same way ("if this number can be linked, we sent a text"), so a refusal does
+  not reveal whether a number is bound, suppressed or rate limited. A text never revives an
+  idle or expired binding. The binding is separate from `linked_user` (invite routing), so a
+  wrong binder never owns the address. STOP ends the binding; START or UNSTOP (or YES while
+  suppressed) from the same number lifts only that opt-out (`address.resubscribe`); a late STOP
+  still applies.
+- Link page (backend lead): never confirm on load; show the masked number and the signed-in
+  account, and require a button press; `Referrer-Policy: no-referrer`, no third-party scripts;
+  keep the code out of sign-in redirect URLs (session storage) and remove the fragment with
+  `history.replaceState`; a fresh idempotency key per click, and read `value.linked`. The text
+  names the masked account that asked ("for the cmux account l***@example.com"), so a person
+  who did not ask can tell. Link previews cannot use the code (the fragment never reaches a
+  server, and a preview has no session).
+- Residual risks (it is not foolproof; texts are a weak channel):
+  - Forwarded link or login CSRF: an attacker asks for a link to the victim's number, then
+    gets the victim to forward it or to open it in a browser signed in to the attacker's
+    account. The victim's texts to cmux then reach the attacker's Chief. Mitigations: the text
+    and the page name the requesting account; the button press; nothing else.
+  - SIM swap, port-out or a recycled number BEFORE linking: an attacker who receives the
+    user's texts can bind the number only to the account that asked (their own), so they cannot
+    take the user's account, but they receive what the victim texts to cmux. Not built yet: a
+    notice to the previous account when a number is relinked.
+  - SIM swap, a stolen unlocked phone or a recycled number AFTER linking: whoever controls the
+    number texts with the user's Chief authority (the strongest objection to the full default,
+    below). After a SIM swap the attacker can also register the number for iMessage, so the
+    iMessage rule does not help then. Carrier-change signals are not exposed by the provider
+    (UNVERIFIED); the 90-day idle rule and the 180-day expiry limit the window only partly.
+  - Forged sender numbers: some gateways can forge an SMS sender, so texts that arrive as plain
+    SMS get read and reply only, and in group threads the authority is read and reply too.
+  - The webhook secret: the provider sends a shared secret, not a signature. Anyone who learns
+    it can forge an iMessage from any bound number with full authority. Mitigation to build:
+    before acting with full authority, fetch the message from the provider API by its handle and
+    compare it.
+  - Phishing look-alikes: one fixed cmux domain and never a shortener, but users can still be
+    fooled by a look-alike domain in a fake text.
+  - The account itself: a stolen Stack session can link any number the attacker controls.
+  - The unlinked-number auto-reply goes to any sender, including forged ones (once per day per
+    number).
+- Routing: an inbound text from a bound number becomes a `message.send` in the user's chief
+  conversation, authored by the user with `origin: remote` and part metadata `via: sms`; MuxDO
+  wakes the Chief; the Chief's reply in that conversation goes back out through AddressDO.
+  Unbound numbers get one reply per day: "This number is not linked to cmux. Open cmux to link
+  it: <link>".
+- Group threads: a provider `group_id` maps to one group conversation (Chief plus the bound
+  members; unbound members appear as `addr_` participants that cannot act). The Chief answers in
+  a group only when named or replied to (existing wake rules and turn budget).
+- Limits: inbound 30 per minute and 500 per day per number; Chief replies 200 per day per user;
+  the conversation turn budget applies; the line's provider limits are global.
+- STOP, HELP, START: STOP suppresses the address and pauses texting (the account stays); HELP
+  returns a fixed text; START resumes. Keywords are answered before any routing.
+- Privacy: texts are Home messages with the chief thread's retention; nothing else is stored
+  beyond the dedupe key and delivery state.
+- What the Chief may do from a text (decision T3): everything the Chief can do in the cloud, by
+  default; a per-user setting `text_channel_scope: full | read_reply | off` restricts it
+  (`textAuthority`). Never in a text: secrets, tokens, passwords, codes, other people's invite
+  secrets; anything that would show one opens the app. Strongest objection: with the full
+  default, a SIM swap, a stolen phone or a recycled number gives full Chief power by text.
+  DECISION (not built): require an in-app confirmation for destructive or irreversible actions
+  requested by text. RECOMMEND yes, because it closes the worst case of the full default at
+  the cost of one tap.
+
+Decisions (Lawrence, 2026-10-02): T1 a texted Stack sign-in link (above), not reverse
+verification; T2 texts land in the main chief conversation marked `via: sms`; T3 full Chief
+authority by default with a per-user restriction setting. Invite card: the minimal design is the
+default (`?v=` keeps the others), `?s=square` renders 1200x1200.
+
+## 20. One op vocabulary: reconciling home-core with `cmux-conversation`
+
+Contract: `backend/packages/home-core/conformance/conversation-cases.json` (64 cases) is the
+op-level contract both owners run; `conversation-cloud-cases.json` (84) covers cloud-only rules.
+The Rust owner adds a cargo test that replays the local file (on a testbox). Framing stays per
+transport (daemon line commands, `cmux.wire/1` frames); the op names, params, commits and reject
+reasons are the same.
+
+| # | Difference | Rust local owner today | home-core cloud | Recommendation |
+| --- | --- | --- | --- | --- |
+| 1 | Command names | `conversation-create/-op/-snapshot/-history/-list/-typing` | ops `conversation.create`, `message.*`, reads `conversation.snapshot/history`, `inbox.list` | Same op kinds inside `conversation-op`; map the five daemon commands 1:1 to the cloud ops and reads; no renames needed in Rust |
+| 2 | rev and seq | `rev` +1 per committed op; message `seq` dense | head `rev` +1 per commit; engine stream seq per changed op | Keep both; document that a cloud head's `rev` equals the engine stream seq (both skip no-ops) |
+| 3 | Ledger scope | `op_ledger (conversation, idempotency_key)`: two actors with one key collide | engine ledger per (identity, key) inside the conversation's object | Rust adds the actor to the ledger key (bug: one participant can block another's `client_msg_id`) |
+| 4 | `client_msg_id == idempotency_key` | required | required when the engine passes the key (owner and own intent preview) | Same rule; corpus covers it |
+| 5 | Reject transport | `error_code: conversation_rejected`, reason in the message text | `code` = the reason | Rust adds a structured `reason` field (same 20 local codes); cloud keeps `code` = reason; corpus asserts reasons |
+| 6 | Agent budget | window of the newest 5 rows; text-less work cards fill the window, so two agents can loop forever with work cards | head counters `agent_text_streak`, `last_agent_text_at`, O(1) | Rust adopts the head counters (fixes the loop bypass); the local corpus notes describe the two edge differences until then |
+| 7 | Typing | `conversation-typing` command, ephemeral event | ConversationDO memory broadcast | One non-op frame `typing {conversation, on}` and event `conversation-typing` on both; never stored, not in the corpus |
+| 8 | Agent identity | `conversation-agent-token` + `conversation-bind` (local token) | principal from the Worker (agent token, grant) | Transport auth, not ops; stays local-only; not in the corpus |
+| 9 | Participants | `user_local`, `user_<id>`, `agent_<name>` | plus `addr_<26>` (kind `address`), roles, `joined_seq`, `left_at` | Local stays a subset; `conversation.promote` maps `user_local` to the account's `user_<id>` |
+| 10 | Message ids | ULID `msg_<26>` | engine `newId("msg")` | Both accept any `msg_` id; the corpus passes `new_message_id` |
+| 11 | Events | `conversation-changed {rev, transaction, change}` | engine event `{seq, tx, op, params, effects}` | Clients map both to the corpus `Change`; ConversationDO also returns `change` in the op result |
+| 12 | Summary owner | `"local"` | `"cloud"` | Keep; the client shows "this Mac only" for local |

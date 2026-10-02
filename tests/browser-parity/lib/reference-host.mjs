@@ -3,8 +3,8 @@
 // the Rust `cmux browser host` sits (plans/cmux-next/browser-host.md,
 // section 4). It wraps a driver (the dev driver here) and the native host the
 // runtime gets, so the conformance suite checks the runtime against the same
-// contract the Rust host implements. Contract, agreed with the browser-use
-// lead (2026-10-01):
+// contract the Rust host implements. Contract
+// (2026-10-01):
 //
 // - natives: secretSet(name, value, {domains, totp}) (agent-known),
 //   secretList(), secretDelete(name), policyNarrow({allowed?, prohibited?,

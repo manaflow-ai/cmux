@@ -27,7 +27,7 @@ Bar height 24 compact / 28 comfortable; toolbar height bar + 6 (padding 3). Butt
 | button | disabled | clear, whole button opacity 0.35 | ChromeButtons.swift:68 (`ChromeIconButton.isEnabled`) |
 | chip / star | hover | hoverFill | OmnibarStyle.swift:87 (`chipHoverFill`) |
 | loading | | progress line alpha(focusRing, 0.8) | ProgressLineView.swift:61 (`ProgressLineView.updateColor`) |
-| find bar, prompt bar, notices | | glass, radius panelCornerRadius, padding 8, height tabStripHeight. Material target: the overlay fallbacks (opaque under Reduce Transparency); they call `Glass.makePanel` directly today, code fix in progress in a separate lane | BrowserMetrics.swift:28-35 (`BrowserMetrics`); FindBarView.swift:38, PromptBarView.swift:36 |
+| find bar, prompt bar, notices | | glass, radius panelCornerRadius, padding 8, height tabStripHeight. Material: the overlay fallbacks (opaque under Reduce Transparency) through `Glass.makeOverlayPanel` | BrowserMetrics.swift:28-35 (`BrowserMetrics`); FindBarView.swift, PromptBarView.swift, BrowserNoticeView.swift (`glass`) |
 
 ![Omnibar hover, dark](../images/browser/dark-omnibar-hover.png)
 ![Omnibar hover, light](../images/browser/light-omnibar-hover.png)

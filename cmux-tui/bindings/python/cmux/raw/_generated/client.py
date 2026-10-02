@@ -312,8 +312,8 @@ class GeneratedClientMixin:
     def move_tab_to_new_workspace(self, surface: Id, *, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('move-tab-to-new-workspace', MoveTabToNewWorkspaceRequest(surface=surface, group=group, index=index, transaction=transaction))
 
-    def move_tab_to_split(self, surface: Id, pane: Id, edge: str, *, ratio: Union[float, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('move-tab-to-split', MoveTabToSplitRequest(surface=surface, pane=pane, edge=edge, ratio=ratio, transaction=transaction))
+    def move_tab_to_split(self, surface: Id, pane: Id, edge: str, *, ratio: Union[float, None, MissingType] = MISSING, respawn: Union[SplitRespawn, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('move-tab-to-split', MoveTabToSplitRequest(surface=surface, pane=pane, edge=edge, ratio=ratio, respawn=respawn, transaction=transaction))
 
     def move_tab_to_workspace(self, surface: Id, *, workspace: Union[Id, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('move-tab-to-workspace', MoveTabToWorkspaceRequest(surface=surface, workspace=workspace, transaction=transaction))

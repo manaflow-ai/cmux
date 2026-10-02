@@ -596,6 +596,13 @@
         }
       }
     },
+    "EmailDomain": {
+      "kind": "primitive",
+      "name": "string",
+      "max_length": 253,
+      "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+      "description": "A lowercase DNS name such as acme.com."
+    },
     "EnrollmentToken": {
       "kind": "object",
       "fields": {
@@ -2170,6 +2177,67 @@
           }
         }
       ]
+    },
+    "TeamDomain": {
+      "kind": "object",
+      "fields": {
+        "domain": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "EmailDomain"
+          }
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "pending",
+              "verified",
+              "lost"
+            ]
+          }
+        },
+        "record_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "record_value": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "requested_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "expires_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "verified_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      }
     },
     "TeamId": {
       "kind": "primitive",
@@ -8459,6 +8527,588 @@
             "type": "string",
             "pattern": "^trg_[a-z0-9]{20}$",
             "description": "One trigger of an automation; assigned by the owner."
+          }
+        }
+      }
+    },
+    "domain.claim": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "domain": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "EmailDomain"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TeamDomain"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "policy.invalid",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team domain claim",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "$ref": "#/$defs/EmailDomain"
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/TeamDomain",
+        "$defs": {
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          },
+          "TeamDomain": {
+            "type": "object",
+            "properties": {
+              "domain": {
+                "$ref": "#/$defs/EmailDomain"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "verified",
+                  "lost"
+                ]
+              },
+              "record_name": {
+                "type": "string"
+              },
+              "record_value": {
+                "type": "string"
+              },
+              "requested_at": {
+                "type": "integer"
+              },
+              "expires_at": {
+                "type": "integer"
+              },
+              "verified_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "domain",
+              "state",
+              "record_name",
+              "record_value",
+              "requested_at",
+              "expires_at",
+              "verified_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "domain.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "domains": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "TeamDomain"
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team domain list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "The team's claimed and verified email domains (owners and admins).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/TeamDomain"
+            }
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "domains",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          },
+          "TeamDomain": {
+            "type": "object",
+            "properties": {
+              "domain": {
+                "$ref": "#/$defs/EmailDomain"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "verified",
+                  "lost"
+                ]
+              },
+              "record_name": {
+                "type": "string"
+              },
+              "record_value": {
+                "type": "string"
+              },
+              "requested_at": {
+                "type": "integer"
+              },
+              "expires_at": {
+                "type": "integer"
+              },
+              "verified_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "domain",
+              "state",
+              "record_name",
+              "record_value",
+              "requested_at",
+              "expires_at",
+              "verified_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "domain.release": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "domain": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "EmailDomain"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "domain": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "EmailDomain"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team domain release",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Give up a claimed or verified domain (owners and admins). Another team may then verify it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "$ref": "#/$defs/EmailDomain"
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "$ref": "#/$defs/EmailDomain"
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          }
+        }
+      }
+    },
+    "domain.verify": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "domain": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "EmailDomain"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TeamDomain"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "domain.not_verified",
+        "domain.taken",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team domain verify",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Check the TXT record through two DNS-over-HTTPS resolvers and, when both see it, make the team the domain's owner (owners and admins).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "$ref": "#/$defs/EmailDomain"
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/TeamDomain",
+        "$defs": {
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          },
+          "TeamDomain": {
+            "type": "object",
+            "properties": {
+              "domain": {
+                "$ref": "#/$defs/EmailDomain"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "verified",
+                  "lost"
+                ]
+              },
+              "record_name": {
+                "type": "string"
+              },
+              "record_value": {
+                "type": "string"
+              },
+              "requested_at": {
+                "type": "integer"
+              },
+              "expires_at": {
+                "type": "integer"
+              },
+              "verified_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "domain",
+              "state",
+              "record_name",
+              "record_value",
+              "requested_at",
+              "expires_at",
+              "verified_at"
+            ],
+            "additionalProperties": true
           }
         }
       }

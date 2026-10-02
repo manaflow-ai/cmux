@@ -152,7 +152,7 @@ void RememberPopup(int opener, int disposition, const CefPopupFeatures& features
 // features ("x,y,width,height" or ""). Takes the opener's oldest popup.
 int64_t TakePopup(CefRefPtr<CefBrowser> browser, std::string* features);
 void ForgetPopups(int opener);
-// Chrome commands that would open a window of Chromium's own.
+// Chromium commands that would open a window of Chromium's own.
 bool IsWindowCommand(int command_id);
 // Binds the host's window request handler to the fork (API 8).
 void InstallWindowRequestHandler();

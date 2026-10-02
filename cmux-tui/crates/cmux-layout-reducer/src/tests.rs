@@ -90,11 +90,69 @@ fn move_tab_reorders_moves_and_collapses_the_emptied_pane() {
     );
 }
 
+/// User requirement 2026-10-02: a pane's only tab dropped on one of its own
+/// pane's edges splits the pane, and a fresh tab of the same kind takes its
+/// place (the respawn, created by the same op).
+#[test]
+fn a_split_with_respawn_moves_the_only_tab_and_keeps_a_fresh_one() {
+    let (state, next_id) = build(&[vec![vec![vec![2, 1]]]]);
+    let fresh = NewTab {
+        tab: next_id + 1,
+        content: TabContent { runtime: 999, terminal: None, dead: false },
+    };
+    let split = LayoutOpKind::MoveTabToSplit {
+        tab: 7,
+        pane: 6,
+        edge: Edge::Right,
+        new_pane: next_id,
+        respawn: Some(fresh.clone()),
+    };
+    let (next, events) = apply(&state, &op("respawn", split.clone())).unwrap();
+    assert_eq!(tabs_of(&next, 6), vec![next_id + 1]);
+    assert_eq!(tabs_of(&next, next_id), vec![7]);
+    assert_eq!(next.workspaces[0].screens[0].columns[0].panes, vec![3, 6, next_id]);
+    assert_eq!(next.tabs[&(next_id + 1)], fresh.content);
+    assert!(events.contains(&LayoutEvent::TabCreated { tab: next_id + 1, pane: 6 }));
+    assert_eq!(split.created_tabs(), BTreeSet::from([next_id + 1]));
+
+    // A respawn is only for the pane's only tab, split out of its own pane.
+    let not_alone = LayoutOpKind::MoveTabToSplit {
+        tab: 4,
+        pane: 3,
+        edge: Edge::Left,
+        new_pane: next_id,
+        respawn: Some(fresh.clone()),
+    };
+    assert_eq!(apply(&state, &op("x", not_alone)), Err(Reject::RespawnNotNeeded));
+    let other_pane = LayoutOpKind::MoveTabToSplit {
+        tab: 7,
+        pane: 3,
+        edge: Edge::Left,
+        new_pane: next_id,
+        respawn: Some(fresh.clone()),
+    };
+    assert_eq!(apply(&state, &op("y", other_pane)), Err(Reject::RespawnNotNeeded));
+    // The fresh tab's id must be unused.
+    let reused = LayoutOpKind::MoveTabToSplit {
+        tab: 7,
+        pane: 6,
+        edge: Edge::Left,
+        new_pane: next_id,
+        respawn: Some(NewTab { tab: 4, content: fresh.content }),
+    };
+    assert_eq!(apply(&state, &op("z", reused)), Err(Reject::IdInUse(4)));
+}
+
 #[test]
 fn split_and_column_drops_create_a_pane_and_reject_the_own_only_tab() {
     let (state, next_id) = build(&[vec![vec![vec![2, 1]]]]);
-    let split =
-        LayoutOpKind::MoveTabToSplit { tab: 5, pane: 3, edge: Edge::Left, new_pane: next_id };
+    let split = LayoutOpKind::MoveTabToSplit {
+        tab: 5,
+        pane: 3,
+        edge: Edge::Left,
+        new_pane: next_id,
+        respawn: None,
+    };
     let (next, _) = apply(&state, &op("split", split)).unwrap();
     assert_eq!(next.workspaces[0].screens[0].columns[0].panes, vec![next_id, 3, 6]);
     assert_eq!(tabs_of(&next, next_id), vec![5]);
@@ -108,7 +166,8 @@ fn split_and_column_drops_create_a_pane_and_reject_the_own_only_tab() {
                     tab: 7,
                     pane: 6,
                     edge: Edge::Top,
-                    new_pane: next_id
+                    new_pane: next_id,
+                    respawn: None
                 }
             )
         ),
@@ -119,7 +178,13 @@ fn split_and_column_drops_create_a_pane_and_reject_the_own_only_tab() {
             &state,
             &op(
                 "dup",
-                LayoutOpKind::MoveTabToSplit { tab: 5, pane: 3, edge: Edge::Top, new_pane: 3 }
+                LayoutOpKind::MoveTabToSplit {
+                    tab: 5,
+                    pane: 3,
+                    edge: Edge::Top,
+                    new_pane: 3,
+                    respawn: None
+                }
             )
         ),
         Err(Reject::IdInUse(3))
@@ -315,6 +380,7 @@ enum Step {
         tab: usize,
         pane: usize,
         edge: Edge,
+        respawn: bool,
     },
     Column {
         tab: usize,
@@ -353,8 +419,8 @@ fn step() -> impl Strategy<Value = Step> {
     prop_oneof![
         4 => (pick.clone(), pick.clone(), index)
             .prop_map(|(tab, pane, index)| Step::MoveTab { tab, pane, index }),
-        3 => (pick.clone(), pick.clone(), edge())
-            .prop_map(|(tab, pane, edge)| Step::Split { tab, pane, edge }),
+        3 => (pick.clone(), pick.clone(), edge(), any::<bool>())
+            .prop_map(|(tab, pane, edge, respawn)| Step::Split { tab, pane, edge, respawn }),
         2 => (pick.clone(), pick.clone(), prop::option::of(pick.clone()))
             .prop_map(|(tab, pane, after)| Step::Column { tab, pane, after }),
         1 => (pick.clone(), prop::option::of(0..4usize))
@@ -402,12 +468,21 @@ fn concrete(
         Step::MoveTab { tab: t, pane: p, index } => {
             LayoutOpKind::MoveTab { tab: tab(*t)?, pane: pane(*p)?, index: *index }
         }
-        Step::Split { tab: t, pane: p, edge } => LayoutOpKind::MoveTabToSplit {
-            tab: tab(*t)?,
-            pane: pane(*p)?,
-            edge: *edge,
-            new_pane: fresh(),
-        },
+        Step::Split { tab: t, pane: p, edge, respawn } => {
+            let tab = tab(*t)?;
+            // A respawn targets the tab's own pane (the only place it is
+            // valid), so the property test reaches it often.
+            let pane = if *respawn { state.pane_of(tab)? } else { pane(*p)? };
+            let new_pane = fresh();
+            let respawn = respawn.then(|| {
+                let id = fresh();
+                NewTab {
+                    tab: id,
+                    content: TabContent { runtime: id * 10, terminal: None, dead: false },
+                }
+            });
+            LayoutOpKind::MoveTabToSplit { tab, pane, edge: *edge, new_pane, respawn }
+        }
         Step::Column { tab: t, pane: p, after } => {
             let anchor = pane(*p)?;
             let columns = state
@@ -498,9 +573,15 @@ proptest! {
                 Ok((next, next_ledger, events)) => {
                     // I1-I3 hold absolutely: every generated layout starts clean.
                     prop_assert!(check_state(&next).is_empty(), "{:?}", check_state(&next));
+                    // I1: only the op's explicit creations appear (none on a replay).
+                    let created = if replayed { BTreeSet::new() } else { op.kind.created_tabs() };
                     let conservation =
-                        check_conservation(&state, &next, &op.kind.closed_tabs());
+                        check_conservation_creating(&state, &next, &op.kind.closed_tabs(), &created);
                     prop_assert!(conservation.is_empty(), "{conservation:?}");
+                    // A respawning split keeps the source pane, holding the fresh tab.
+                    if let (false, LayoutOpKind::MoveTabToSplit { pane, respawn: Some(respawn), .. }) = (replayed, &op.kind) {
+                        prop_assert_eq!(next.panes.get(pane), Some(&vec![respawn.tab]));
+                    }
                     // I5: a replay changes nothing and reports nothing.
                     if replayed {
                         prop_assert_eq!(&next, &state);

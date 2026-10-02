@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d. */
+/* cmux-tui mux protocol 12, IR 714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d" as const;
+export const SDK_IR_SHA256 = "714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1170,7 +1170,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "tab-drag-v1",
-    "fields": {},
+    "fields": {
+      "respawn": {
+        "since": 12,
+        "capability": "tab-split-respawn-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -7514,6 +7519,89 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "down"
     ]
   },
+  "SplitRespawn": {
+    "additional_properties": false,
+    "fields": {
+      "cwd": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "engine": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "env": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "map",
+          "values": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "profile_id": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "shell_args": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "terminal_id": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "SurfaceResult": {
     "additional_properties": false,
     "fields": {
@@ -13107,6 +13195,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "float32"
+          }
+        },
+        "respawn": {
+          "capability": "tab-split-respawn-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "SplitRespawn"
           }
         },
         "surface": {

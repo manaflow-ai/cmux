@@ -1186,6 +1186,19 @@ class SizingIdentity:
 
 
 @dataclass(frozen=True)
+class SplitRespawn:
+    __cmux_schema_path__: ClassVar[str] = 'types/SplitRespawn'
+    kind: str
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    engine: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    profile_id: Union[str, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SurfaceResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SurfaceResult'
     surface: Id
@@ -2286,6 +2299,7 @@ class MoveTabToSplitRequest:
     pane: Id
     edge: str
     ratio: Union[float, None, MissingType] = field(default=MISSING)
+    respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -3979,6 +3993,7 @@ __all__ = [
     'SizePolicy',
     'SizeState',
     'SizingIdentity',
+    'SplitRespawn',
     'SurfaceResult',
     'Tab',
     'TerminalColorOverrides',

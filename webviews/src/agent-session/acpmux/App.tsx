@@ -121,7 +121,7 @@ const MessageRow = memo(
   (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
 );
 
-/// Tool calls and thoughts as Codex's quiet rows (inside an open "Worked for", or live).
+/// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
 const ToolActivityRow = memo(
   function ToolActivityRow({ row }: RowProps) {
     return <ToolRows row={row} />;
@@ -199,7 +199,7 @@ const PermissionRow = memo(
 );
 const EDITED_FILES_SHOWN = 3;
 
-/// "Edited N files", after Codex's card (EditedFilesCard in codex-atlas-clone's
+/// "Edited N files", ported from EditedFilesCard in the reference prototype's
 /// src/conversation/cards.tsx): totals, View changes, and the first files with their counts;
 /// each file opens the changes at that file. One edited file is named in the title instead.
 const EditedFilesRow = memo(
@@ -691,9 +691,9 @@ function AcpmuxPane() {
       forkable ? { fork: (throughSeq) => void callNative("chat.fork", { throughSeq }).catch(() => undefined) } : {},
     [forkable],
   );
-  // A new chat centers its composer under the hero, as Codex's home does.
+  // A new chat centers its composer under the hero.
   const freshChat = isNewChat(snapshot);
-  // Codex's turn shape: work folds under "Worked for" until opened.
+  // Turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(
     () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
     [snapshot.rows, expanded, snapshot.isWorking],

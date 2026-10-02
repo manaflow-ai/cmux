@@ -36,7 +36,7 @@ public final class TerminalSession {
         didSet { surfaceView.ownsGeometry = ownsGeometry }
     }
 
-    /// Pauses rendering while the terminal is scrolled off-screen (niri
+    /// Pauses rendering while the terminal is scrolled off-screen (strip
     /// columns) or its tab is not selected. Output keeps being parsed.
     public var isRenderingSuspended = false {
         didSet { surfaceView.isRenderingSuspended = isRenderingSuspended }

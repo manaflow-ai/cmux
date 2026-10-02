@@ -11,7 +11,7 @@ public nonisolated struct BrowserProfileRecord: Codable, Hashable, Sendable, Ide
 
     public var id: String
     public var name: String
-    /// One of the 9 Chrome color names (`GroupColor`), or nil.
+    /// One of the 9 group color names (`GroupColor`), or nil.
     public var color: String?
     /// An SF Symbol name or one emoji, or nil (the name's first letter shows).
     public var icon: String?

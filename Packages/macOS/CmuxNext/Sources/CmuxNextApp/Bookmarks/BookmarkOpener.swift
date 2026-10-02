@@ -30,7 +30,7 @@ struct BookmarkOpener {
         pane.newBrowserTab(url: url, background: disposition == .backgroundTab, profile: profile)
     }
 
-    /// Every bookmark directly in `folder`, each in a new tab (Chrome's Open All).
+    /// Every bookmark directly in `folder`, each in a new tab (Open All).
     func openAll(in folder: String, profile: String, fromTab key: String? = nil) {
         let nodes = services.bookmarks.tree(profile).children(of: folder).filter { !$0.isFolder }
         for (index, node) in nodes.enumerated() {

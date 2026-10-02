@@ -235,7 +235,7 @@ pub struct PresentationSnapshot {
     /// (`browser_...`). Rows exist before their browser commits, so a
     /// pending creation is already known when its surface spawns.
     pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
-    /// Chrome-style tab groups of every pane.
+    /// Tab groups of every pane.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
     pub saved_tab_groups: Vec<SavedTabGroupRecord>,
@@ -247,7 +247,7 @@ pub struct PresentationSnapshot {
     pub kept_tabs: HashMap<String, super::KeptTabRecord>,
 }
 
-/// Chrome's tab group colors. Frontends render them as muted tints.
+/// The nine tab group colors. Frontends render them as muted tints.
 pub const TAB_GROUP_COLORS: [&str; 9] =
     ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 
@@ -260,7 +260,7 @@ pub fn validate_tab_group_color(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A tab group name may be empty (Chrome shows the color dot only).
+/// A tab group name may be empty (the strip then shows only the color dot).
 pub fn validate_tab_group_name(value: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         value.chars().count() <= MAX_PRESENTATION_TEXT_CHARS,

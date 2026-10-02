@@ -2,7 +2,8 @@
   "grant": [
     "feed:read",
     "feed:write",
-    "actions:run"
+    "actions:run",
+    "workspace:read"
   ],
   "scopes": {
     "feed.list": {
@@ -17,7 +18,15 @@
       "scope": "feed:read",
       "class": "read"
     },
-    "feed.mark": {
+    "feed.read": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.archive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.unarchive": {
       "scope": "feed:write",
       "class": "mutation"
     },
@@ -25,7 +34,11 @@
       "scope": "feed:write",
       "class": "mutation"
     },
-    "feed.respond": {
+    "feed.answer": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.cancel": {
       "scope": "feed:write",
       "class": "mutation"
     }
@@ -33,34 +46,47 @@
   "ops": {
     "feed.list": {
       "items": [],
-      "cursor": null,
-      "revision": "1",
-      "counts": {
-        "unseen": 0,
-        "open": 0,
-        "needsResponse": 0,
-        "urgent": 0,
-        "snoozed": 0
-      }
+      "next": null,
+      "revision": ""
     },
     "feed.counts": {
-      "unseen": 0,
-      "open": 0,
-      "needsResponse": 0,
-      "urgent": 0,
-      "snoozed": 0
+      "open_requests": 0,
+      "unread": 0,
+      "by_priority": {},
+      "by_poster_kind": {}
     },
-    "feed.get": null,
-    "feed.mark": {
-      "revision": "2"
+    "feed.read": {
+      "items": []
+    },
+    "feed.archive": {
+      "items": []
     },
     "feed.snooze": {
-      "revision": "2"
+      "items": []
     },
-    "feed.respond": {
-      "revision": "2"
+    "feed.answer": {
+      "item": null
+    },
+    "feed.cancel": {
+      "item": null
     },
     "action.run": null,
+    "workspace.list": [
+      {
+        "id": "workspace_1",
+        "session_id": "session_1",
+        "name": "api-server",
+        "index": 0,
+        "focused": true
+      },
+      {
+        "id": "workspace_2",
+        "session_id": "session_1",
+        "name": "web-dashboard",
+        "index": 1,
+        "focused": false
+      }
+    ],
     "app.storage.get": null,
     "app.storage.set": {}
   }

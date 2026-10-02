@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
+import { keywordOf } from "../address/inbound.ts"
 
 /**
  * Provider webhooks that feed AddressDO (`address.suppress`) and
@@ -66,15 +67,11 @@ export const verifySendblueWebhook = (secret: string, headers: Readonly<Record<s
   return Boolean(secret) && typeof presented === "string" && safeEqual(presented, secret)
 }
 
-/** Opt-out keywords (CTIA list) for inbound texts. */
-const STOP_WORDS = new Set(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT", "停止"])
-
 export const sendblueWebhookEffects = (payload: unknown): ReadonlyArray<WebhookEffect> => {
   const p = payload as { is_outbound?: boolean; content?: string; number?: string; message_handle?: string; status?: string; opted_out?: boolean } | null
   if (!p) return [{ kind: "ignore" }]
   if (p.is_outbound === false) {
-    const word = (p.content ?? "").trim().toUpperCase()
-    if (p.number && (STOP_WORDS.has(word) || p.opted_out === true)) return [{ kind: "suppress", address: p.number, reason: "opted_out" }]
+    if (p.number && (keywordOf(p.content ?? "") === "stop" || p.opted_out === true)) return [{ kind: "suppress", address: p.number, reason: "opted_out" }]
     return [{ kind: "ignore" }]
   }
   if (!p.message_handle) return [{ kind: "ignore" }]

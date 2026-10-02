@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d.
+// cmux-tui mux protocol 12, IR 714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1321,6 +1321,8 @@ pub struct MoveTabToSplitRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ratio: Optional<f32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub respawn: Optional<T::SplitRespawn>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -3190,6 +3192,10 @@ impl CmuxClient {
     }
 
     pub fn move_tab_to_split(&mut self, request: MoveTabToSplitRequest) -> Result<MoveTabToSplitResult> {
+        if !request.respawn.is_missing() {
+            self.require_protocol_field("move-tab-to-split", 12)?;
+            self.require_capability_field("move-tab-to-split", "tab-split-respawn-v1")?;
+        }
         self.execute(&MOVE_TAB_TO_SPLIT_METADATA, &request)
     }
 

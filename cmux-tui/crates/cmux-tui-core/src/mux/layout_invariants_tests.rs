@@ -64,6 +64,7 @@ fn projection_is_valid_and_transitions_are_checked_against_the_reducer() {
         pane: other,
         edge: cmux_layout_reducer::Edge::Left,
         new_pane: u64::MAX,
+        respawn: None,
     })
     .unwrap_err();
     let error = error.downcast_ref::<ResourceError>().unwrap();

@@ -1,5 +1,5 @@
 //! Bookmarks of the home session (capability `bookmarks-v1`,
-//! plans/cmux-next/bookmarks.md sections 1 and 2.1): one Chrome-style tree
+//! plans/cmux-next/bookmarks.md sections 1 and 2.1): one bookmark tree
 //! per browser profile. The two roots, the Bookmarks Bar (`bar`) and Other
 //! Bookmarks (`other`), are reserved parent values, not rows. Every other
 //! node is a row with a dense 0-based `position` among its siblings.

@@ -64,7 +64,7 @@ import Testing
         h.bar.debugType("typo")
         await h.settle()
         let editor = (h.editor as? NSTextView) ?? NSTextView()
-        // Chrome: the first Escape closes the card, the second reverts to
+        // The first Escape closes the card, the second reverts to
         // the display text, the third returns focus to the page.
         _ = h.bar.control(NSTextField(), textView: editor, doCommandBy: #selector(NSResponder.cancelOperation(_:)))
         #expect(h.bar.isEditing)
@@ -83,7 +83,7 @@ import Testing
         guard let directory = ProcessInfo.processInfo.environment["OMNIBAR_SNAPSHOT_DIR"] else { return }
         let history = [
             ("https://github.com/manaflow-ai/cmux", "manaflow-ai/cmux: The terminal for coding agents"),
-            ("https://github.com/imputnet/helium", "imputnet/helium: Private, fast, and honest web browser"),
+            ("https://github.com/manaflow-ai/ghostty", "manaflow-ai/ghostty: cmux fork of Ghostty"),
             ("https://gist.github.com/", "Discover gists"),
         ]
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
