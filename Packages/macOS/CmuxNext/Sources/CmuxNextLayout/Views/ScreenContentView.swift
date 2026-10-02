@@ -69,8 +69,7 @@ final class ScreenContentView: NSView {
     /// in place on screen, then fits it (niri `update_config`).
     private func reconcileAndScroll() {
         reconcile(animated: false)
-        syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: false,
-                   showsScrollbarOnSnap: false)
+        syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: false)
     }
 
     // MARK: Model updates

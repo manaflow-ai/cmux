@@ -151,7 +151,7 @@ struct StickyColumnViewTests {
         let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto)
         defer { window.close() }
         let screen = view.screenViews["s"]!
-        screen.syncScroll(focused: "a", source: .programmatic, mode: .never, animated: !reduceMotion)
+        screen.syncScroll(focused: "a", source: .programmatic, mode: .never, animated: !reduceMotion, showsScrollbarOnSnap: true)
         runToRest(view)
         #expect(screen.scroll.value == 0)
         #expect(screen.scrollbar?.isShown == false)
