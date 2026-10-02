@@ -782,20 +782,35 @@ impl Mux {
         let browser_id = self.frontend_browser_id(&runtime).ok_or_else(|| {
             anyhow::anyhow!("surface {surface} is not a frontend-rendered browser")
         })?;
-        let (record, changed) = {
+        if let Some(owner) = &owner {
+            crate::state::window_record_store::validate_key("owner", owner)?;
+        }
+        let (mut record, mut changed) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             let result = registry.update_frontend_browser(
                 browser_id.as_str(),
                 url.as_deref(),
                 title.as_deref(),
                 favicon_url.as_ref().map(Option::as_deref),
-                owner.as_deref(),
             )?;
             if result.1 {
                 self.reload_presentation(&registry)?;
             }
             result
         };
+        // The owner commits on the state path, so the tab's `extra.owner`
+        // reaches `session.events` with the snapshot (invariant 4).
+        if let Some(owner) = owner
+            && record.owner.as_deref() != Some(owner.as_str())
+        {
+            let tab = runtime
+                .resource_identity()
+                .map(|identity| identity.tab_id.to_string())
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} has no public tab id"))?;
+            self.commit_browser_owner(&tab, &owner)?;
+            record.owner = Some(owner);
+            changed = true;
+        }
         if changed {
             if let Some(browser) = runtime.as_browser() {
                 browser.set_frontend_location(url, title.clone());

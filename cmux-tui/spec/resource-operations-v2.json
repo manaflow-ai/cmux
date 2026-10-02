@@ -15871,7 +15871,7 @@
         "extra": false,
         "constraints": [
           "install_id and window_id are 1 to 128 ASCII letters, digits, '-', '_', '.' or ':'; install_unadopted is reserved.",
-          "The first put of a window_id held by install_unadopted adopts that record: its revision continues and the batch deletes the unadopted record."
+          "The first put of a window_id held by install_unadopted adopts that record: expected_revision is compared with the unadopted record's revision (list first), its revision continues, and the batch deletes the unadopted record."
         ]
       },
       "result": {

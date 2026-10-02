@@ -103,7 +103,7 @@ workspace `title`, `color`, `icon`, `ephemeral`; tab `pinned`,
 `tab_group_id`, `zoom`, `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
-null otherwise); screen `pinned`, `color`, `icon`,
+absent otherwise); screen `pinned`, `color`, `icon`,
 `screen_group_id`; terminal `progress` (the parsed OSC 9;4 state and percent
 of every terminal). Other state resources travel as `state_upsert` and
 `state_delete` changes whose `resource` is a `StateResourceKind`, and the

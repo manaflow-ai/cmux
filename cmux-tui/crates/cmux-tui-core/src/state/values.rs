@@ -136,8 +136,11 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
         fields.insert("owner".into(), json!(owner));
     }
     // A keep-layout record (`end-terminals-keep-layout-v1`): restart a shell
-    // in `cwd`. Null for every other tab.
-    fields.insert("relaunch".into(), super::kept_tab_store::relaunch_value(connection, tab_id)?);
+    // in `cwd`. Absent (null) for every other tab, like the other extras.
+    let relaunch = super::kept_tab_store::relaunch_value(connection, tab_id)?;
+    if !relaunch.is_null() {
+        fields.insert("relaunch".into(), relaunch);
+    }
     Ok(fields)
 }
 

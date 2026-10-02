@@ -97,9 +97,6 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
     migrate_workspace_presentation_add_marked_unread(transaction)
 }
 
-/// Add the sidebar pin to registries created before the column existed.
-/// Older binaries omit it on their writes, so every existing workspace keeps
-/// the durable default (unpinned).
 /// Add the hosting app's install id to frontend browser records of
 /// registries created before the column existed (unknown owner: NULL).
 fn migrate_frontend_browser_add_owner(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -115,6 +112,9 @@ fn migrate_frontend_browser_add_owner(transaction: &Transaction<'_>) -> anyhow::
     Ok(())
 }
 
+/// Add the sidebar pin to registries created before the column existed.
+/// Older binaries omit it on their writes, so every existing workspace keeps
+/// the durable default (unpinned).
 fn migrate_workspace_presentation_add_pinned(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let has_pinned = transaction
         .prepare("PRAGMA table_info(workspace_presentation)")?
@@ -1332,15 +1332,15 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    /// Update a frontend browser's location, presentation, and owner. `None`
-    /// leaves a field unchanged; `favicon_url: Some(None)` clears the favicon.
+    /// Update a frontend browser's location and presentation. `None` leaves
+    /// a field unchanged; `favicon_url: Some(None)` clears the favicon. The
+    /// owner changes only on the state commit path (`Mux::commit_browser_owner`).
     pub fn update_frontend_browser(
         &mut self,
         browser_id: &str,
         url: Option<&str>,
         title: Option<&str>,
         favicon_url: Option<Option<&str>>,
-        owner: Option<&str>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
         validate_browser_public_id(browser_id)?;
         let tx = self.connection.transaction()?;
@@ -1356,18 +1356,15 @@ impl WorkspaceRegistry {
         if let Some(favicon_url) = favicon_url {
             record.favicon_url = favicon_url.map(str::to_string);
         }
-        if let Some(owner) = owner {
-            record.owner = Some(owner.to_string());
-        }
         record.validate()?;
         if record == before {
             tx.commit()?;
             return Ok((record, false));
         }
         tx.execute(
-            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4, owner = ?5
+            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4
              WHERE browser_id = ?1",
-            params![browser_id, record.url, record.title, record.favicon_url, record.owner],
+            params![browser_id, record.url, record.title, record.favicon_url],
         )?;
         append_presentation_record(
             &tx,

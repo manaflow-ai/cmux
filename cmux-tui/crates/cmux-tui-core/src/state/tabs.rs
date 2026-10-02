@@ -109,6 +109,36 @@ impl Mux {
         Ok(commit)
     }
 
+    /// Store the owner (hosting app's install id) of a frontend-rendered
+    /// browser tab on its record, restating the tab on `session.events`.
+    /// The raw `update-frontend-browser-tab {owner}` path; `tab.update`
+    /// writes the same column through the tab strip commit.
+    pub(crate) fn commit_browser_owner(&self, tab: &str, owner: &str) -> anyhow::Result<()> {
+        crate::state::window_record_store::validate_key("owner", owner)?;
+        let fingerprint = serde_json::json!({
+            "operation": "browser.owner.set",
+            "tab": tab,
+            "owner": owner,
+            "nonce": crate::workspace_registry::new_uuid_v4(),
+        });
+        self.commit_state(
+            &WorkspaceMutation::local("cmux-tui-browser-owner"),
+            "browser.owner.set",
+            &fingerprint,
+            None,
+            StateEffects::PRESENTATION,
+            |transaction, _| {
+                let update =
+                    TabStateUpdate { owner: Some(owner.to_string()), ..Default::default() };
+                crate::state::tab_state_store::update_tab_state(transaction, tab, &update)?;
+                let changes =
+                    crate::state::values::fresh_upserts(transaction, &[], &[], &[tab.to_string()])?;
+                Ok(StateChanges::new(serde_json::json!({"tab": tab}), changes))
+            },
+        )?;
+        Ok(())
+    }
+
     /// `tab_group.create`.
     pub(crate) fn state_create_tab_group(
         self: &Arc<Self>,

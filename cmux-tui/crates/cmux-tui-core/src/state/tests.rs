@@ -1166,6 +1166,19 @@ fn frontend_browser_owner_is_set_by_the_app_and_shown_on_the_tab() {
             && change["value"]["extra"]["owner"] == "install_mac_b"
     }));
     assert_eq!(mux.frontend_browser(&browser).unwrap().owner.as_deref(), Some("install_mac_b"));
+    // The app's raw record write restates the tab too (invariant 4).
+    let before = revision(&mux);
+    let (record, changed) = mux
+        .update_frontend_browser_tab(browser.id, None, None, None, Some("install_mac_c".into()))
+        .unwrap();
+    assert!(changed);
+    assert_eq!(record.owner.as_deref(), Some("install_mac_c"));
+    assert_eq!(tab_extra(&browser_tab)["owner"], "install_mac_c");
+    assert!(changes_after(&mux, before).iter().any(|change| {
+        change["resource"] == "tab"
+            && change["id"] == browser_tab.as_str()
+            && change["value"]["extra"]["owner"] == "install_mac_c"
+    }));
     assert_eq!(
         error_code(send(
             &mux,
@@ -1223,7 +1236,7 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
         .filter(|change| change["kind"] == "upsert" && change["resource"] == "tab")
         .collect::<Vec<_>>();
     assert_eq!(restated.len(), 1);
-    assert_eq!(restated[0]["value"]["extra"]["relaunch"], Value::Null);
+    assert!(restated[0]["value"]["extra"].get("relaunch").is_none());
     // Forgetting a tab with no record commits nothing.
     let before = revision(&mux);
     mux.forget_kept_tabs(std::slice::from_ref(&other)).unwrap();
