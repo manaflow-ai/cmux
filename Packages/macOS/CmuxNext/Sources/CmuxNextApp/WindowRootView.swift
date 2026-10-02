@@ -26,6 +26,8 @@ final class WindowRootView: NSView {
     /// Whether Reduce Transparency is on (tests pin it; the host setting
     /// differs between machines).
     private let reduceTransparency: @MainActor () -> Bool
+    /// Sets the window's behind-window blur radius (tests record it).
+    private let applyWindowBlur: @MainActor (NSWindow) -> Void
     let contentHost = NSView()
     private let sidebar: SidebarContainerView
     let rail: WindowRailView
@@ -43,11 +45,15 @@ final class WindowRootView: NSView {
     /// - Parameter rail: The window's icon rail.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
     ///   setting, read on every theme and display-options change.
+    /// - Parameter applyWindowBlur: Sets the window's behind-window blur
+    ///   radius from the Ghostty config.
     init(sidebar: SidebarContainerView, rail: WindowRailView,
-         reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
+         reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
+         applyWindowBlur: @escaping @MainActor (NSWindow) -> Void = { _ in }) {
         self.sidebar = sidebar
         self.rail = rail
         self.reduceTransparency = reduceTransparency
+        self.applyWindowBlur = applyWindowBlur
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
         wantsLayer = true
         backdropView.frame = bounds
