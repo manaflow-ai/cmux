@@ -100,19 +100,6 @@ public final class ComputerUseOnboardingStore {
         helperIdentity = nil
     }
 
-    /// Returns an interrupted presentation to the actionable setup state.
-    ///
-    /// A helper can restart while its window is open. If its identity cannot
-    /// be read, there is no completion record to restore, so retaining
-    /// `.onboarding` would strand daemon admission until the user toggles the
-    /// feature.
-    public func recoverInterruptedOnboarding() {
-        guard case .onboarding = phase, !completionCommitted else { return }
-        verificationID = UUID()
-        pendingVerificationID = nil
-        phase = .onboardingRequired
-    }
-
     /// Revocation or failed publication invalidates saved and in-flight evidence.
     /// Invalidates the durable record and all in-flight verification attempts.
     public func invalidateCompletion() {

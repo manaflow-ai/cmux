@@ -236,6 +236,14 @@ public final class ComputerUseRuntimeService {
     /// Whether organization policy disables Computer Use for this host.
     public var computerUseDisabledByPolicy: Bool { isDisabledByPolicy() }
 
+    /// Reads helper identity away from the main actor because an ad-hoc
+    /// fallback hashes the installed executable.
+    nonisolated static func readHelperIdentity(at helperURL: URL) async -> String? {
+        await Task.detached(priority: .utility) {
+            ComputerUseHelperIdentity(bundleURL: helperURL).read()
+        }.value
+    }
+
     /// Whether durable setup completion and both daemon publications are ready.
     public var onboardingIsComplete: Bool {
         onboarding.completionCommitted && desiredEnabled && onboarding.phase.isReady
@@ -968,10 +976,8 @@ public final class ComputerUseRuntimeService {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         // Rehydrate identity-scoped completion before either daemon receives
         // its first readiness publication after a host restart.
-        if let helperIdentity = ComputerUseHelperIdentity(bundleURL: helperURL).read() {
+        if let helperIdentity = await Self.readHelperIdentity(at: helperURL) {
             onboarding.restore(for: helperIdentity)
-        } else {
-            onboarding.recoverInterruptedOnboarding()
         }
         let nativeListening = await Self.isDaemonListening(
             paths: paths,
