@@ -227,7 +227,7 @@ fn usage(pid: u32) -> Usage {
     let mut timebase = Timebase::default();
     // SAFETY: each buffer matches the flavor's C layout and size.
     unsafe {
-        let size = std::mem::size_of::<TaskInfo>() as c_int;
+        let size = size_of::<TaskInfo>() as c_int;
         assert_eq!(
             proc_pidinfo(pid as c_int, PROC_PIDTASKINFO, 0, (&raw mut task).cast(), size),
             size,

@@ -7,16 +7,21 @@
 //! `terminal.close`.
 //!
 //! Unattached time is measured by this owner process only. After an owner
-//! restart the clock starts again at the first reaper tick, so a restart can
+//! restart the clock starts again at the first reaper pass, so a restart can
 //! delay a close but never make it early.
+//!
+//! The reaper is deadline-driven: it sleeps until the earliest unattached
+//! terminal's policy is due, and is woken early when a policy changes or a
+//! view detaches. With no policy-bearing terminal it blocks indefinitely
+//! (it used to tick every 15 s whether or not any policy existed).
 
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread::JoinHandle;
 
 use super::*;
 
-/// How often the owner's reaper evaluates idle-close policies. Policies are
-/// measured in hours, so this only bounds how late a due close can be.
+/// Kept for API compatibility: the reaper no longer ticks. It wakes at the
+/// next policy deadline or when a policy or an attachment changes.
 pub const IDLE_CLOSE_REAP_INTERVAL: Duration = Duration::from_secs(15);
 
 const IDLE_CLOSE_MUTATION_ORIGIN: &str = "cmux-tui-idle-close";
@@ -71,6 +76,18 @@ impl IdleCloseTracker {
         due
     }
 
+    /// When the earliest tracked unattached terminal becomes due.
+    pub(crate) fn next_deadline(&self, candidates: &[IdleCandidate<'_>]) -> Option<Instant> {
+        candidates
+            .iter()
+            .filter(|candidate| !candidate.attached)
+            .filter_map(|candidate| {
+                let entry = self.unattached.get(candidate.terminal_id)?;
+                entry.since.checked_add(candidate.idle_close)
+            })
+            .min()
+    }
+
     pub(crate) fn forget(&mut self, terminal_id: &str) {
         self.unattached.remove(terminal_id);
     }
@@ -89,8 +106,12 @@ impl Mux {
         terminal_id: &str,
         idle_close_seconds: Option<u64>,
     ) -> anyhow::Result<()> {
-        let mut registry = self.workspace_registry.lock().unwrap();
-        registry.set_terminal_idle_policy(terminal_id, idle_close_seconds)
+        let result = {
+            let mut registry = self.workspace_registry.lock().unwrap();
+            registry.set_terminal_idle_policy(terminal_id, idle_close_seconds)
+        };
+        self.wake_idle_close_reaper();
+        result
     }
 
     /// The stored idle-close policy of one hosted terminal.
@@ -102,6 +123,15 @@ impl Mux {
     /// had no attached view for at least its policy. Returns the host ids of
     /// the terminals it closed.
     pub fn reap_idle_terminals(&self, now: Instant) -> Vec<String> {
+        self.reap_idle_terminals_until_next(now).0
+    }
+
+    /// One reaper pass, plus when the next pass is due (`None`: no
+    /// unattached policy-bearing terminal, wait for a change).
+    pub(crate) fn reap_idle_terminals_until_next(
+        &self,
+        now: Instant,
+    ) -> (Vec<String>, Option<Instant>) {
         let (pruned, policies) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             (registry.prune_terminal_idle_policies(), registry.live_terminal_idle_policies())
@@ -113,12 +143,13 @@ impl Mux {
             Ok(policies) => policies,
             Err(error) => {
                 self.report_internal_diagnostic(format!("idle-close policy read failed: {error}"));
-                return Vec::new();
+                // Retry after a bounded pause; a read failure is not idle.
+                return (Vec::new(), Some(now + IDLE_CLOSE_READ_RETRY));
             }
         };
         if policies.is_empty() {
             self.idle_close.lock().unwrap().due(now, &[]);
-            return Vec::new();
+            return (Vec::new(), None);
         }
         let placements = self.terminal_placements_by_host();
         let candidates: Vec<IdleCandidate<'_>> = policies
@@ -161,7 +192,24 @@ impl Mux {
                 )),
             }
         }
-        closed
+        // A closed or forgotten terminal is re-tracked from `now` on the
+        // next pass, so the deadline below covers only live periods.
+        let next = self.idle_close.lock().unwrap().next_deadline(&candidates);
+        let next = if closed.is_empty() && next.is_none_or(|next| next > now) {
+            next
+        } else {
+            // Something changed this pass: evaluate again at once so the
+            // tracker records fresh periods for the terminals it forgot.
+            Some(now)
+        };
+        (closed, next)
+    }
+
+    /// Wakes the idle-close reaper (a policy or an attachment changed).
+    pub(crate) fn wake_idle_close_reaper(&self) {
+        if let Some(waker) = self.idle_close_waker.lock().unwrap().as_ref() {
+            let _ = waker.send(ReaperMessage::Wake);
+        }
     }
 
     /// Every surface a client can attach to for a terminal, grouped by the
@@ -190,16 +238,26 @@ fn views<'a>(
     placements.get(terminal_id).map(Vec::as_slice).unwrap_or(&[])
 }
 
+/// Retry pause after the registry could not read idle-close policies.
+const IDLE_CLOSE_READ_RETRY: Duration = Duration::from_secs(30);
+
+pub(crate) enum ReaperMessage {
+    Wake,
+    Stop,
+}
+
 /// Owner-side idle-close reaper thread. `stop` wakes and joins it; dropping
 /// the handle wakes it without joining.
 pub struct IdleTerminalReaper {
-    stop: Option<mpsc::Sender<()>>,
+    stop: Option<mpsc::Sender<ReaperMessage>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl IdleTerminalReaper {
     pub fn stop(mut self) {
-        self.stop.take();
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(ReaperMessage::Stop);
+        }
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -208,21 +266,41 @@ impl IdleTerminalReaper {
 
 impl Drop for IdleTerminalReaper {
     fn drop(&mut self) {
-        self.stop.take();
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(ReaperMessage::Stop);
+        }
     }
 }
 
-/// Start the reaper for an owner. It ticks every `interval` until stopped or
-/// the mux is gone.
+/// Start the reaper for an owner. It sleeps until the next idle-close
+/// deadline, wakes early on policy or attachment changes, and runs until
+/// stopped or the mux is gone. `_interval` is unused (no periodic tick).
 pub fn start_idle_terminal_reaper(
     mux: Weak<Mux>,
-    interval: Duration,
+    _interval: Duration,
 ) -> std::io::Result<IdleTerminalReaper> {
-    let (stop, stopped) = mpsc::channel::<()>();
+    let (stop, messages) = mpsc::channel::<ReaperMessage>();
+    if let Some(owner) = mux.upgrade() {
+        *owner.idle_close_waker.lock().unwrap() = Some(stop.clone());
+        let waker = stop.clone();
+        owner.control_clients.set_detach_waker(move || {
+            let _ = waker.send(ReaperMessage::Wake);
+        });
+    }
     let thread = std::thread::Builder::new().name("mux-idle-close".into()).spawn(move || {
-        while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(interval) {
-            let Some(mux) = mux.upgrade() else { break };
-            mux.reap_idle_terminals(Instant::now());
+        loop {
+            let Some(owner) = mux.upgrade() else { break };
+            let now = Instant::now();
+            let (_, next) = owner.reap_idle_terminals_until_next(now);
+            drop(owner);
+            let message = match next {
+                None => messages.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                Some(next) => messages.recv_timeout(next.saturating_duration_since(now)),
+            };
+            match message {
+                Ok(ReaperMessage::Wake) | Err(RecvTimeoutError::Timeout) => {}
+                Ok(ReaperMessage::Stop) | Err(RecvTimeoutError::Disconnected) => break,
+            }
         }
     })?;
     Ok(IdleTerminalReaper { stop: Some(stop), thread: Some(thread) })
