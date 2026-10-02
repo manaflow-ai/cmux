@@ -36023,18 +36023,6 @@ export default {
             )
         }
         func notificationTitle(workspaceId: String, surfaceId: String) -> String {
-            let workspaceTitle: String? = {
-                guard def.name == "claude",
-                      let listed = try? client.sendV2(method: "workspace.list"),
-                      let workspaces = listed["workspaces"] as? [[String: Any]],
-                      let workspace = workspaces.first(where: { item in
-                          (item["id"] as? String) == workspaceId
-                              || (item["ref"] as? String) == workspaceId
-                      }) else {
-                    return nil
-                }
-                return workspace["title"] as? String
-            }()
             let surfaceTitle: String? = {
                 guard def.name == "pi",
                       let listed = try? client.sendV2(
@@ -36052,8 +36040,7 @@ export default {
             return AgentHookNotificationPolicy.notificationTitle(
                 agentName: def.name,
                 displayName: def.displayName,
-                surfaceTitle: surfaceTitle,
-                workspaceTitle: workspaceTitle
+                surfaceTitle: surfaceTitle
             )
         }
         func hasActiveAntigravityBackgroundWork() -> Bool {

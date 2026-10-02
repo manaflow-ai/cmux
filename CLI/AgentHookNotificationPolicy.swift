@@ -283,7 +283,11 @@ enum AgentHookNotificationPolicy {
            let workspaceTitle = workspaceTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
            !workspaceTitle.isEmpty,
            workspaceTitle.caseInsensitiveCompare(displayName) != .orderedSame {
-            return "\(workspaceTitle) · \(displayName)"
+            let format = String(
+                localized: "cli.claude-hook.notification.title.withWorkspace",
+                defaultValue: "%1$@ · %2$@"
+            )
+            return String(format: format, workspaceTitle, displayName)
         }
         guard agentName == "pi",
               let surfaceTitle = surfaceTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
