@@ -7,11 +7,12 @@ import Testing
 /// `cmux file open` and the agent pane hear back when a file does not open.
 /// No window is open here, so nothing opens; every case is a refusal.
 @MainActor @Suite struct FileOpenHandlerTests {
+    /// The app's own registry: a handler's context refuses into
+    /// `services.registry`, so a refusal is captured only there.
     private func make() -> ActionRegistry {
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let registry = ActionRegistry.standard()
-        AgentHandlers.bind(into: registry, context: AppActionContext(services: services))
-        return registry
+        AgentHandlers.bind(into: services.registry, context: AppActionContext(services: services))
+        return services.registry
     }
 
     private func refusal(_ registry: ActionRegistry, _ arguments: [String: ActionValue], target: ActionTargetRef? = nil) -> String? {
