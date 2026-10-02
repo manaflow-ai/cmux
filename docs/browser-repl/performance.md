@@ -285,7 +285,7 @@ the tools' own code and guides, and runs of each (2026-09-30).
 | --- | --- | --- | --- | --- |
 | Default snapshot size | everything (`list-5k`: 404 KB) | AX text: first 500 children of a node, depth 200, URLs to about 4,000 characters in all; visible DOM: 20,000 characters or 200 elements | everything (`list-5k`: 713 KB); after actions it writes the snapshot to a file and returns the link | at most 20,000 characters printed, condensed; `.tree` complete |
 | When cut | `maxChars` throws `Output exceeds N character limit`; per frame, so the stitched tree can exceed it | children: ` (showing 0-500 of N items)` on the parent; depth and the DOM view: nothing | not cut | a line at each cut with count, refs and scope ref, and a closing `# condensed` line |
-| Per-call output | none: 5 MB printed in one call came back whole | `node_repl` results: strings past 200,000 characters end in `[Truncated]`, arrays past 2,000 items are sliced; Codex then keeps 10,000 tokens (head and tail) | none; Claude Code saves results past 25,000 tokens to a file | 25,000 characters (`--max-output`), the rest to a file named in the output |
+| Per-call output | none: 5 MB printed in one call came back whole | results: strings past 200,000 characters are cut, arrays past 2,000 items are sliced | none; Claude Code saves results past 25,000 tokens to a file | 25,000 characters (`--max-output`), the rest to a file named in the output |
 | Guidance | "NEVER truncate snapshot with `substring()`, `slice()`" and a runtime warning on `tree.slice()` | none | `browser_snapshot` takes `depth` and a target | `snapshot(ref)`, `{ viewport: true }`, `{ maxChars: Infinity }`, search `.tree` |
 
 cmux's budget (`maxChars`, 20,000 characters by default, about 6,000 o200k
