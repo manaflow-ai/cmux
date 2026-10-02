@@ -1303,6 +1303,8 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "creation.conflict",
     "cursor.gap",
     "cursor.invalid",
+    "home.not_closable",
+    "home.pinned_first",
     "idempotency.conflict",
     "local.io",
     "mutation.indeterminate",
