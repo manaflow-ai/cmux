@@ -779,10 +779,10 @@ impl ClientConnection {
                             biased;
                             _ = close_state.changed() => return Err(ConnectionError::Closed),
                             next = async {
-                                if let Some(deadline) = recovery_deadline {
-                                    if tokio::time::Instant::now() >= deadline {
-                                        return None;
-                                    }
+                                if let Some(deadline) = recovery_deadline
+                                    && tokio::time::Instant::now() >= deadline
+                                {
+                                    return None;
                                 }
                                 let timeout = recovery_deadline
                                     .map(|deadline| self.config.reconnect.attempt_timeout.min(deadline.saturating_duration_since(tokio::time::Instant::now())))
