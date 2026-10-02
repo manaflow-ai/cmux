@@ -57,6 +57,9 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             )
             .await
         }
+        Command::Continue(args) => {
+            crate::cli::handoff::run(connect(true).await?, args, json_out).await
+        }
         Command::History { session, limit } => {
             orchestrate::history(connect(true).await?, &session, limit, json_out).await
         }

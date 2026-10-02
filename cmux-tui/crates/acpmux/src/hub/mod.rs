@@ -3,8 +3,11 @@
 //!
 //! Method groups live in sibling files: `peers` (remote daemons), `lifecycle`
 //! (spawn, resume, fork), `permissions` (agent requests and policy), `turns`
-//! (prompt, cancel, config), `transfer` (export, import), `views` (summaries).
+//! (prompt, cancel, config), `transfer` (export, import), `views` (summaries),
+//! `handoff` (a reviewed first message to a new session on another harness).
 
+mod handoff;
+pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod lifecycle;
 mod paging;
 mod stream;
@@ -221,6 +224,7 @@ pub struct Hub {
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
+    pub(super) handoffs: handoff::Handoffs,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -259,6 +263,7 @@ impl Hub {
         let (events, _) = broadcast::channel(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
+        let handoffs = handoff::Handoffs::open(store.handoff_dir());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
             store,
@@ -275,6 +280,7 @@ impl Hub {
             startup_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
+            handoffs,
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {

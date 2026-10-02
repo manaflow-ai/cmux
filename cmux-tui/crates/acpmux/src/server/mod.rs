@@ -501,7 +501,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
     params.get("_meta").and_then(|m| m.get("acpmux"))
 }
 
-fn iso(ms: u64) -> String {
+pub(crate) fn iso(ms: u64) -> String {
     // Minimal RFC3339 without pulling a date crate.
     let secs = (ms / 1000) as i64;
     let days = secs.div_euclid(86_400);

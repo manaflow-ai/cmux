@@ -37,6 +37,11 @@ mod tests {
             method::MUX_EXPORT,
             method::MUX_IMPORT,
             method::MUX_SHUTDOWN,
+            method::MUX_HANDOFF_PREPARE,
+            method::MUX_HANDOFF_GET,
+            method::MUX_HANDOFF_DRAFT,
+            method::MUX_HANDOFF_START,
+            method::MUX_HANDOFF_DISCARD,
         ] {
             assert!(methods.contains_key(m), "schema is missing method {m}");
         }

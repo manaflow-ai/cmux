@@ -1330,6 +1330,9 @@ async fn session_cancel_as_a_request_is_answered() {
 #[path = "hub_integration/transcript_events.rs"]
 mod transcript_events;
 
+#[path = "hub_integration/handoff.rs"]
+mod handoff;
+
 fn prompt_with_id(id: &str, text: &str, prompt_id: &str, resend: bool) -> Value {
     json!({
         "sessionId": id,
