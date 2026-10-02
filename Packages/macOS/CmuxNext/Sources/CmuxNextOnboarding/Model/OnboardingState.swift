@@ -27,19 +27,43 @@ public nonisolated struct OnboardingStateFile: Sendable {
         var version: Int
         var completed: Bool
         var date: Date
+        /// The role step's answer (absent in files from before the step).
+        var profile: OnboardingProfile?
+    }
+
+    private func read() -> Record? {
+        // concurrency-allow: nonisolated; callers read it off the main thread
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(Record.self, from: data)
+    }
+
+    private func write(_ record: Record) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(record).write(to: url, options: .atomic)
     }
 
     /// True when onboarding for the current version was never finished or skipped.
     public func needsOnboarding() -> Bool {
-        // concurrency-allow: nonisolated; the App reads it off the main thread at launch
-        guard let data = try? Data(contentsOf: url), let record = try? JSONDecoder().decode(Record.self, from: data) else { return true }
+        guard let record = read() else { return true }
         return record.version < Self.currentVersion
     }
 
-    /// Records that onboarding ended (`completed` false: skipped).
-    public func markDone(completed: Bool, now: Date = Date()) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let record = Record(version: Self.currentVersion, completed: completed, date: now)
-        try JSONEncoder().encode(record).write(to: url, options: .atomic)
+    /// Records that onboarding ended (`completed` false: skipped), with
+    /// `profile` or else the profile already saved.
+    public func markDone(completed: Bool, profile: OnboardingProfile? = nil, now: Date = Date()) throws {
+        try write(Record(version: Self.currentVersion, completed: completed, date: now, profile: profile ?? read()?.profile))
+    }
+
+    /// The role step's saved answer.
+    public func profile() -> OnboardingProfile? {
+        read()?.profile
+    }
+
+    /// Saves the role step's answer. Before onboarding ends the record
+    /// keeps version 0, so it still counts as not done.
+    public func saveProfile(_ profile: OnboardingProfile, now: Date = Date()) throws {
+        var record = read() ?? Record(version: 0, completed: false, date: now)
+        record.profile = profile
+        try write(record)
     }
 }

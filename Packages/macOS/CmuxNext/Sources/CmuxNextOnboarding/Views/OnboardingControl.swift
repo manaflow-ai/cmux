@@ -12,14 +12,9 @@ enum OnboardingControl {
         return button
     }
 
+    /// Secondary text with a hover fill (`OnboardingTextButton`).
     static func plainButton(_ title: String, target: AnyObject?, action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: target, action: action)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.isBordered = false
-        button.attributedTitle = NSAttributedString(string: title, attributes: [
-            .font: OnboardingMetrics.bodyFont, .foregroundColor: Palette.textSecondary,
-        ])
-        return button
+        OnboardingTextButton(title, target: target, action: action)
     }
 
     static func checkbox(_ title: String, target: AnyObject?, action: Selector) -> NSButton {
