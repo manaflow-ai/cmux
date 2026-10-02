@@ -609733,8 +609733,75 @@
             "state": "translated",
             "value": "雲端上的持久 Linux 電腦，會以一般的 cmux 工作區開啟。"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers that open as regular cmux workspaces."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers that open as regular cmux workspaces."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers that open as regular cmux workspaces."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers that open as regular cmux workspaces."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers that open as regular cmux workspaces."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers that open as regular cmux workspaces."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers that open as regular cmux workspaces."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers that open as regular cmux workspaces."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers that open as regular cmux workspaces."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers that open as regular cmux workspaces."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persistent cloud computers that open as regular cmux workspaces."
+          }
         }
-      }
+}
     },
     "cloud.enable.cancel": {
       "extractionState": "manual",
@@ -609792,8 +609859,75 @@
             "state": "translated",
             "value": "取消"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
         }
-      }
+}
     },
     "cloud.enable.requiresPro.title": {
       "extractionState": "manual",
@@ -609851,8 +609985,75 @@
             "state": "translated",
             "value": "Cloud Machines 需要 cmux Pro"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
         }
-      }
+}
     },
     "cloud.enable.loading.title": {
       "extractionState": "manual",
@@ -609910,8 +610111,75 @@
             "state": "translated",
             "value": "正在設定 Cloud Machines…"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Cloud Machines…"
+          }
         }
-      }
+}
     },
     "cloud.enable.signIn.subtitle": {
       "extractionState": "manual",
@@ -609969,8 +610237,75 @@
             "state": "translated",
             "value": "登入 cmux 帳戶後再試一次 Cloud 設定。"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to your cmux account, then retry Cloud setup."
+          }
         }
-      }
+}
     },
     "cloud.enable.benefit.files": {
       "extractionState": "manual",
@@ -610028,8 +610363,75 @@
             "state": "translated",
             "value": "檔案和已安裝的工具會在各次工作階段之間保留在機器上。"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and installed tools stay on the machine between sessions."
+          }
         }
-      }
+}
     },
     "cloud.enable.unavailable.subtitle": {
       "extractionState": "manual",
@@ -610087,8 +610489,75 @@
             "state": "translated",
             "value": "Cloud Machines 目前在此 Mac 上無法使用。"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are unavailable on this Mac right now."
+          }
         }
-      }
+}
     },
     "cloud.enable.failed.subtitle": {
       "extractionState": "manual",
@@ -610146,8 +610615,75 @@
             "state": "translated",
             "value": "無法連線至 Cloud 服務。請檢查連線後重試。"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud service could not be reached. Check your connection and retry."
+          }
         }
-      }
+}
     },
     "cloud.enable.benefit.reattach": {
       "extractionState": "manual",
@@ -610205,8 +610741,75 @@
             "state": "translated",
             "value": "在任何已登入的 Mac 上，從上次離開的地方繼續。"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick up where you left off from any Mac you sign in on."
+          }
         }
-      }
+}
     },
     "cloud.enable.title": {
       "extractionState": "manual",
@@ -610263,6 +610866,198 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用 Cloud Machines"
+          }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Cloud Machines"
+          }
+        }
+}
+    },
+    "cloud.enable.planChecking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your cmux plan…"
           }
         }
       }
@@ -610323,8 +611118,75 @@
             "state": "translated",
             "value": "需要付費的 cmux 方案。"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a cmux Pro plan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a cmux Pro plan."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a cmux Pro plan."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a cmux Pro plan."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a cmux Pro plan."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a cmux Pro plan."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a cmux Pro plan."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a cmux Pro plan."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a cmux Pro plan."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a cmux Pro plan."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires a cmux Pro plan."
+          }
         }
-      }
+}
     },
     "cloud.enable.cancelled.subtitle": {
       "extractionState": "manual",
@@ -610382,8 +611244,75 @@
             "state": "translated",
             "value": "Cloud 尚未啟用。準備好後可再次開始設定。"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
         }
-      }
+}
     },
     "cloud.enable.signIn.title": {
       "extractionState": "manual",
@@ -610441,8 +611370,75 @@
             "state": "translated",
             "value": "登入以使用 Cloud Machines"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud Machines"
+          }
         }
-      }
+}
     },
     "cloud.enable.benefit.agents": {
       "extractionState": "manual",
@@ -610500,8 +611496,75 @@
             "state": "translated",
             "value": "合上筆電後，代理程式和終端機仍會繼續執行。"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents and terminals keep running after you close your laptop."
+          }
         }
-      }
+}
     },
     "cloud.enable.upgrade": {
       "extractionState": "manual",
@@ -610559,8 +611622,75 @@
             "state": "translated",
             "value": "升級至 Pro"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to Pro"
+          }
         }
-      }
+}
     },
     "cloud.enable.action": {
       "extractionState": "manual",
@@ -610618,8 +611748,75 @@
             "state": "translated",
             "value": "啟用 Cloud"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cloud"
+          }
         }
-      }
+}
     },
     "cloud.enable.requiresPro.subtitle": {
       "extractionState": "manual",
@@ -610677,8 +611874,75 @@
             "state": "translated",
             "value": "此帳戶的方案不包含 Cloud 機器存取權。"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account’s plan does not include Cloud machine access."
+          }
         }
-      }
+}
     },
     "cloud.enable.failed.title": {
       "extractionState": "manual",
@@ -610736,8 +612000,75 @@
             "state": "translated",
             "value": "Cloud 設定暫時無法使用"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud setup is temporarily unavailable"
+          }
         }
-      }
+}
     },
     "cloud.enable.signIn.action": {
       "extractionState": "manual",
@@ -610920,8 +612251,75 @@
             "state": "translated",
             "value": "cmux 正在準備共用的 Cloud 連線。這可能需要一些時間。"
           }
+        },
+
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is preparing the shared Cloud connection. This can take a moment."
+          }
         }
-      }
+}
     },
     "settings.cloudMachines.enable.title": {
       "extractionState": "manual",

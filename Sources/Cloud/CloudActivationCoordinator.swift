@@ -157,7 +157,7 @@ final class CloudActivationCoordinator {
                 try await self.prepare()
                 guard !Task.isCancelled, self.activationID == id else { throw CancellationError() }
                 guard self.isAvailable() else {
-                    self.rollbackOptimisticActivation()
+                    self.rollbackOptimisticActivation(for: id)
                     await self.settle(id: id, state: .unavailable)
                     return
                 }
@@ -165,19 +165,19 @@ final class CloudActivationCoordinator {
                 // User cancellation clears activationID first, so settle()
                 // ignores it. A cancellation from preparation is a transient
                 // service interruption unless the Cloud capability disappeared.
-                self.rollbackOptimisticActivation()
+                self.rollbackOptimisticActivation(for: id)
                 await self.settle(
                     id: id,
                     state: self.isAvailable() ? .failed(.serviceUnavailable) : .unavailable
                 )
             } catch let error as VMClientError {
-                self.rollbackOptimisticActivation()
+                self.rollbackOptimisticActivation(for: id)
                 await self.settle(
                     id: id,
                     state: self.isAvailable() ? .failed(Self.failure(for: error)) : .unavailable
                 )
             } catch {
-                self.rollbackOptimisticActivation()
+                self.rollbackOptimisticActivation(for: id)
                 await self.settle(
                     id: id,
                     state: self.isAvailable() ? .failed(.serviceUnavailable) : .unavailable
@@ -186,7 +186,8 @@ final class CloudActivationCoordinator {
         }
     }
 
-    private func rollbackOptimisticActivation() {
+    private func rollbackOptimisticActivation(for id: UUID? = nil) {
+        if let id, activationID != id { return }
         guard defaults.object(forKey: Self.activationKey) as? Bool == true else { return }
         defaults.set(false, forKey: Self.activationKey)
         notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)

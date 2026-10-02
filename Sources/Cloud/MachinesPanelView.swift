@@ -134,12 +134,16 @@ struct MachinesPanelView: View {
             await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
         }
         .task(id: accountFlow?.currentIdentity?.id) {
-            guard let accountFlow, accountFlow.isAuthenticated else {
+            guard let accountFlow, accountFlow.isAuthenticated,
+                  let requestedIdentityID = accountFlow.currentIdentity?.id else {
                 billingPlanLoaded = false
                 return
             }
             billingPlanLoaded = false
             await accountFlow.refreshBillingPlan()
+            guard !Task.isCancelled,
+                  accountFlow.isAuthenticated,
+                  accountFlow.currentIdentity?.id == requestedIdentityID else { return }
             billingPlanLoaded = true
         }
         .task(id: devBackend.attempt) {
@@ -233,15 +237,19 @@ struct MachinesPanelView: View {
     }
 
     private var controlBar: some View {
-        CloudTeamPickerHeader(
-            accountFlow: accountFlow,
-            presentation: teamPickerPresentation,
-            chromeBackgroundColor: chromeBackgroundColor,
-            isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
-            onRefresh: refreshMachines,
-            onNewMachine: requestNewMachine,
-            status: { cloudStatus }
-        )
+        HStack(spacing: 0) {
+            CloudTeamPickerHeader(
+                accountFlow: accountFlow,
+                presentation: teamPickerPresentation,
+                chromeBackgroundColor: chromeBackgroundColor,
+                isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+                onRefresh: refreshMachines,
+                onNewMachine: requestNewMachine,
+                status: { cloudStatus }
+            )
+            cloudAgentMenu
+                .padding(.trailing, 8)
+        }
     }
 
     @ViewBuilder
