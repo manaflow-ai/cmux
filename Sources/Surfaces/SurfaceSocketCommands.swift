@@ -763,6 +763,58 @@ extension TerminalController {
         }
     }
 
+    /// `vm.terminal_prune {id}` -> closes live Cloud terminals that have no
+    /// daemon tab in any workspace, returning the exact resources removed.
+    /// Exited and unavailable records stay in the catalog for normal history
+    /// and diagnostics; the catalog's detached invariant decides eligibility.
+    nonisolated func socketWorkerVMTerminalPruneResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
+            return v2Error(
+                id: id,
+                code: "invalid_params",
+                message: String(
+                    localized: "cli.vm.terminal.pruneRequiresIdRunCmuxVmLsTo",
+                    defaultValue: "vm.terminal_prune requires `id`. Run `cmux vm ls` to find one."
+                )
+            )
+        }
+        return v2VmCall(id: id, timeoutSeconds: 240) {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = await SurfaceCatalog.shared
+            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
+                throw SurfaceCatalogError.noProvider(machine)
+            }
+            let query = await Self.surfaceCatalogQuery(catalog: catalog)
+            let export = await query.read(machine: machine, refresh: true)
+            let detached = export.catalog.resources
+                .filter { $0.machine == machine && $0.isDetachedTerminal }
+                .map(\.id)
+            var closedIDs: [SurfaceResourceID] = []
+            var failedIDs: [String] = []
+            for resource in detached {
+                try Task.checkCancellation()
+                do {
+                    try await provider.closeTerminal(resource)
+                    try Task.checkCancellation()
+                    closedIDs.append(resource)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    if Task.isCancelled { throw CancellationError() }
+                    failedIDs.append(resource.key)
+                }
+            }
+            return [
+                "machine": vmId,
+                "closed": failedIDs.isEmpty,
+                "partial": !closedIDs.isEmpty && !failedIDs.isEmpty,
+                "terminals_closed": closedIDs.count,
+                "terminal_ids": closedIDs.map(\.key),
+                "failed_terminal_ids": failedIDs,
+            ]
+        }
+    }
+
     // MARK: - Headless terminal I/O (agent primitives)
 
     /// The cmux-tui provider for a cloud machine; the local machine and any provider

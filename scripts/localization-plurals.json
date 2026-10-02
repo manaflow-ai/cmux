@@ -165,6 +165,12 @@
       1
     ]
   },
+  "cli.vm.terminal.pruned": {
+    "source": "OK pruned %1$d live terminals with no workspace tab on %2$@",
+    "arguments": [
+      1
+    ]
+  },
   "cli.vm.pull.progress": {
     "source": "cmux vm pull: %1$d/%2$d chunks",
     "arguments": [

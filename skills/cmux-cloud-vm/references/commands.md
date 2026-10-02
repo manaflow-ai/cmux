@@ -51,6 +51,7 @@ cmux vm workspace rename <id> <ws-id> <name>   # rename that workspace (the row'
 cmux vm workspace close <id> <ws-id>   # CLI-only: close that workspace but keep its terminals running in the Terminals pool
 cmux vm workspace rm <id> <ws-id>      # close that workspace AND kill every terminal in it (the row's "Close Workspace…" / hover ×). Permanent.
 cmux vm terminal close <id> <term-id>  # end one terminal on the machine (the sidebar's ×); its local panes close too
+cmux vm terminal prune <id>             # end live terminals left in the machine's no-workspace pool
 cmux vm terminal send <id> <term-id> [text] [--keys enter,ctrl+c,…]   # type into the terminal headlessly (as-is, no newline), then press named keys (chords join with +); no pane, no focus
 cmux vm terminal read <id> <term-id>   # the visible screen as text (--json: + rows, cols, cursor)
 cmux vm terminal wait <id> <term-id> --pattern <regex> [--timeout <s>]   # block until the screen matches (default 30 s); exit 1 on timeout
@@ -449,6 +450,14 @@ cmux vm terminal close <machine> <terminal-id> [--json]
 
 Socket `vm.terminal_close`: ends a terminal on the machine (the process and its tab); every local pane showing it closes too. Sidebar: terminal row › Close Terminal / hover ×.
 
+### `cmux vm terminal prune`
+
+```bash
+cmux vm terminal prune <machine> [--json]
+```
+
+Socket `vm.terminal_prune`: ends every live terminal whose daemon has no workspace tab, then returns the exact successful `terminal_ids` and any `failed_terminal_ids`. Exited and unavailable history stays in the catalog.
+
 ### `cmux vm terminal send`
 
 ```bash
@@ -769,6 +778,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.terminal_open`, `vm.terminal_new` | older terminal verbs; `vm open <m>/<ws>/<term>` and `surface new-terminal` use `surface.project` / `surface.new_terminal` |
 | `vm.workspace_new`, `vm.workspace_open`, `vm.workspace_rename`, `vm.workspace_close`, `vm.workspace_delete` | `vm workspace new|open|rename|close|rm` |
 | `vm.terminal_close` | `vm terminal close` |
+| `vm.terminal_prune` | `vm terminal prune` |
 | `vm.terminal_write`, `vm.terminal_read`, `vm.terminal_wait` | `vm terminal send`, `vm terminal read`, `vm terminal wait` |
 | `vm.cloud_prompt`, `vm.cloud_agent_open` | `vm prompt`, `vm prompt --open` |
 | `vm.publication_list`, `vm.publication_create`, `vm.publication_verify`, `vm.publication_update`, `vm.publication_delete` | `cloud domains list`, `publish`, `access`, `rm`; `vm.publication_verify` is the app-side publication retry path |

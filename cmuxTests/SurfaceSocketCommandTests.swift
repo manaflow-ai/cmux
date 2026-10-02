@@ -96,6 +96,8 @@ struct SurfaceSocketCommandTests {
         var materialized: [(resource: SurfaceResourceID, destination: SurfaceDestination, focus: Bool)] = []
         var createdTerminals: [(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?)] = []
         var mutations: [String] = []
+        var closeFailures: Set<String> = []
+        var cancelAfterSuccessfulClose: String?
         var refreshes = 0
 
         init(machine: SurfaceMachineID, catalog: SurfaceCatalog, workspaces: [SurfaceRemoteWorkspace]) {
@@ -132,7 +134,11 @@ struct SurfaceSocketCommandTests {
 
         func closeTerminal(_ id: SurfaceResourceID) async throws {
             mutations.append("terminal close \(id.key)")
+            if closeFailures.contains(id.key) { throw FakeProviderError.closeFailed(id.key) }
             catalog.remove(id)
+            if cancelAfterSuccessfulClose == id.key {
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
         }
 
         func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
@@ -160,6 +166,10 @@ struct SurfaceSocketCommandTests {
         }
     }
 
+    private enum FakeProviderError: Error {
+        case closeFailed(String)
+    }
+
     /// One registered fake machine with two workspaces: `ws_a` holds `term_a1` and
     /// `term_a2` (plus a daemon browser); `ws_b` holds `term_b`; `ws_empty` holds nothing.
     private struct Fixture {
@@ -175,6 +185,10 @@ struct SurfaceSocketCommandTests {
         var termA1: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_a1") }
         var termA2: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_a2") }
         var termB: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_b") }
+        var termPool: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_pool") }
+        var termPool2: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_pool_2") }
+        var termExited: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_exited") }
+        var termUnavailable: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_unavailable") }
         var browserA: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .browser, key: "browser_1") }
 
         @MainActor
@@ -194,13 +208,33 @@ struct SurfaceSocketCommandTests {
                 resource.remoteViews = [SurfaceRemoteView(tabID: "tab_\(key)", workspace: workspace)]
                 return resource
             }
+            var poolTerminal = SurfaceResource(
+                id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_pool"), title: "term_pool", detail: "/root",
+                lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil
+            )
+            poolTerminal.remoteViews = []
+            var secondPoolTerminal = SurfaceResource(
+                id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_pool_2"), title: "term_pool_2", detail: "/root",
+                lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil
+            )
+            secondPoolTerminal.remoteViews = []
+            var exitedTerminal = SurfaceResource(
+                id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_exited"), title: "term_exited", detail: "/root",
+                lifecycle: .exited, agent: nil, remoteWorkspace: nil, port: nil, url: nil
+            )
+            exitedTerminal.remoteViews = []
+            var unavailableTerminal = SurfaceResource(
+                id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_unavailable"), title: "term_unavailable", detail: "/root",
+                lifecycle: .unavailable, agent: nil, remoteWorkspace: nil, port: nil, url: nil
+            )
+            unavailableTerminal.remoteViews = []
             var browser = SurfaceResource(
                 id: SurfaceResourceID(machine: machine, kind: .browser, key: "browser_1"), title: "docs", detail: "http://localhost:3000",
                 lifecycle: .running, agent: nil, remoteWorkspace: Self.wsA, port: 3000, url: "http://localhost:3000"
             )
             browser.remoteViews = [SurfaceRemoteView(tabID: "tab_browser_1", workspace: Self.wsA)]
             catalog.replaceResources(
-                [terminal("term_a1", Self.wsA), terminal("term_a2", Self.wsA), terminal("term_b", Self.wsB), browser],
+                [terminal("term_a1", Self.wsA), terminal("term_a2", Self.wsA), terminal("term_b", Self.wsB), poolTerminal, secondPoolTerminal, exitedTerminal, unavailableTerminal, browser],
                 on: machine,
                 info: provider.info
             )
@@ -306,13 +340,13 @@ struct SurfaceSocketCommandTests {
             #expect(machines.contains { ($0["id"] as? String) == fixture.machineID })
             let ownMachine = try #require(machines.first { ($0["id"] as? String) == fixture.machineID })
             #expect((ownMachine["remote_workspaces"] as? [[String: Any]])?.compactMap { $0["id"] as? String } == ["ws_a", "ws_b", "ws_empty"])
-            #expect(Self.resourceIDs(all).isSuperset(of: [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.browserA.rawValue]))
+            #expect(Self.resourceIDs(all).isSuperset(of: [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.termPool.rawValue, fixture.termPool2.rawValue, fixture.termExited.rawValue, fixture.termUnavailable.rawValue, fixture.browserA.rawValue]))
             #expect(all["workspaces"] == nil)
             #expect((all["cloud_states"] as? [[String: Any]])?.isEmpty == true)
             // A machine filter narrows every section of the catalog.
             let one = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))
             #expect((one["machines"] as? [[String: Any]])?.count == 1)
-            #expect(Self.resourceIDs(one) == [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.browserA.rawValue])
+            #expect(Self.resourceIDs(one) == Set([fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.termPool.rawValue, fixture.termPool2.rawValue, fixture.termExited.rawValue, fixture.termUnavailable.rawValue, fixture.browserA.rawValue]))
             #expect(one["workspaces"] == nil)
 
             let tree = try Self.ok(try await Self.call("vm.tree", [:]))
@@ -626,6 +660,52 @@ struct SurfaceSocketCommandTests {
             #expect(missing["code"] as? String == "invalid_params")
             let noMachine = try Self.error(try await Self.call("vm.terminal_close", ["id": "no-such-machine-\(UUID().uuidString.prefix(6))", "terminal_id": "term_x"]))
             #expect((noMachine["message"] as? String)?.contains("This machine is not connected") == true)
+        }
+    }
+
+    @Test func terminalPruneClosesOnlyLiveNoWorkspaceTerminals() async throws {
+        try await Self.withFixture { fixture in
+            let pruned = try Self.ok(try await Self.call("vm.terminal_prune", ["id": fixture.machineID]))
+            #expect(pruned["closed"] as? Bool == true)
+            #expect(pruned["terminals_closed"] as? Int == 2)
+            #expect(Set(pruned["terminal_ids"] as? [String] ?? []) == Set([fixture.termPool.key, fixture.termPool2.key]))
+            #expect(Set(fixture.provider.mutations) == Set(["terminal close \(fixture.termPool.key)", "terminal close \(fixture.termPool2.key)"]))
+            let remaining = Self.resourceIDs(try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID])))
+            #expect(!remaining.contains(fixture.termPool.rawValue))
+            #expect(!remaining.contains(fixture.termPool2.rawValue))
+            #expect(remaining.contains(fixture.termA1.rawValue))
+            #expect(remaining.contains(fixture.termB.rawValue))
+            #expect(remaining.contains(fixture.termExited.rawValue))
+            #expect(remaining.contains(fixture.termUnavailable.rawValue))
+            #expect(!((pruned["terminal_ids"] as? [String]) ?? []).contains(fixture.termExited.key))
+            #expect(!((pruned["terminal_ids"] as? [String]) ?? []).contains(fixture.termUnavailable.key))
+        }
+    }
+
+    @Test func terminalPrunePreservesSuccessfulIDsWhenOneCloseFails() async throws {
+        try await Self.withFixture { fixture in
+            fixture.provider.closeFailures = [fixture.termPool.key]
+            let pruned = try Self.ok(try await Self.call("vm.terminal_prune", ["id": fixture.machineID]))
+            #expect(pruned["closed"] as? Bool == false)
+            #expect(pruned["partial"] as? Bool == true)
+            #expect(pruned["terminals_closed"] as? Int == 1)
+            #expect(Set(pruned["terminal_ids"] as? [String] ?? []) == Set([fixture.termPool2.key]))
+            #expect(pruned["failed_terminal_ids"] as? [String] == [fixture.termPool.key])
+            let remaining = Self.resourceIDs(try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID])))
+            #expect(remaining.contains(fixture.termPool.rawValue))
+            #expect(!remaining.contains(fixture.termPool2.rawValue))
+        }
+    }
+
+    @Test func terminalPruneStopsAfterCancellationFollowingSuccessfulClose() async throws {
+        try await Self.withFixture { fixture in
+            fixture.provider.cancelAfterSuccessfulClose = fixture.termPool.key
+            let response = try await Self.call("vm.terminal_prune", ["id": fixture.machineID])
+            _ = try Self.error(response)
+            #expect(fixture.provider.mutations == ["terminal close \(fixture.termPool.key)"])
+            let remaining = Self.resourceIDs(try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID])))
+            #expect(!remaining.contains(fixture.termPool.rawValue))
+            #expect(remaining.contains(fixture.termPool2.rawValue))
         }
     }
 }

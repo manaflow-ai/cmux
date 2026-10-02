@@ -921,6 +921,11 @@ extension CMUXCLI {
         Workspace ids come from `cmux vm tree`. Add --json for the raw result.
         """
 
+    private static let vmTerminalPruneHelp = String(
+        localized: "cli.vm.terminal.pruneHelp",
+        defaultValue: "End every live terminal with no workspace tab; exited history stays."
+    )
+
     static let vmTerminalUsage = """
         Usage:
           cmux vm terminal send <machine> <terminal-id> [text] [--keys <k1,k2,…>]
@@ -942,6 +947,7 @@ extension CMUXCLI {
                                                               complete; pass next_offset back as --after to read only what
                                                               arrived since (complete=false means call again).
           cmux vm terminal close <machine> <terminal-id>      End a terminal on the machine (the process and its tab).
+          cmux vm terminal prune <machine>                    \(vmTerminalPruneHelp)
           cmux vm terminal rename <machine> <terminal-id> <name>   Set or clear a terminal label for every client (use "" to clear).
 
         Terminal ids come from `cmux vm tree`. Add --json for the raw result.
@@ -1254,7 +1260,8 @@ extension CMUXCLI {
         if let unknown = misplaced ?? (isSend ? nil : args.first(where: { $0.hasPrefix("-") })) {
             throw CLIError(message: "vm terminal: unknown flag '\(unknown)'\n\n\(Self.vmTerminalUsage)")
         }
-        guard args.count >= 2 else { throw CLIError(message: Self.vmTerminalUsage) }
+        let minimumArguments = verb == "prune" ? 1 : 2
+        guard args.count >= minimumArguments else { throw CLIError(message: Self.vmTerminalUsage) }
         if !isSend, keysOpt != nil {
             throw CLIError(message: "vm terminal \(verb): --keys belongs to `send`\n\n\(Self.vmTerminalUsage)")
         }
@@ -1265,13 +1272,30 @@ extension CMUXCLI {
             throw CLIError(message: "vm terminal \(verb): --timeout belongs to `wait` / `wait-exit`\n\n\(Self.vmTerminalUsage)")
         }
         let machine = args[0]
-        let terminalID = args[1]
+        let terminalID = args.count > 1 ? args[1] : ""
         switch verb {
         case "close":
             guard args.count == 2, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
             let response = try client.sendV2(method: "vm.terminal_close", params: ["id": machine, "terminal_id": terminalID], responseTimeout: 120)
             if jsonOutput { print(jsonString(response)); return }
             print("OK closed terminal \(terminalID) on \(machine)")
+        case "prune":
+            guard args.count == 1, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
+            let response = try client.sendV2(method: "vm.terminal_prune", params: ["id": machine], responseTimeout: 240)
+            let failedIDs = response["failed_terminal_ids"] as? [String] ?? []
+            if jsonOutput { print(jsonString(response)) }
+            let killed = (response["terminals_closed"] as? Int) ?? 0
+            if !jsonOutput {
+                let format = String(
+                    localized: "cli.vm.terminal.pruned",
+                    defaultValue: "OK pruned %1$d live terminals with no workspace tab on %2$@"
+                )
+                print(String(format: format, killed, machine))
+            }
+            if !failedIDs.isEmpty {
+                let failed = failedIDs.joined(separator: ", ")
+                throw CLIError(message: String(format: String(localized: "cli.vm.terminal.pruneFailed", defaultValue: "vm terminal prune: failed to close %@"), failed))
+            }
         case "send", "write":
             let text = (Array(args.dropFirst(2)) + literal).joined(separator: " ")
             let keys = (keysOpt ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }

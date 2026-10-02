@@ -695,6 +695,8 @@ extension TerminalController {
             return socketWorkerVMWorkspaceRenameResponse(id: id, params: params)
         case "vm.terminal_close":
             return socketWorkerVMTerminalCloseResponse(id: id, params: params)
+        case "vm.terminal_prune":
+            return socketWorkerVMTerminalPruneResponse(id: id, params: params)
         case "vm.terminal_write":
             return socketWorkerVMTerminalWriteResponse(id: id, params: params)
         case "vm.terminal_read":

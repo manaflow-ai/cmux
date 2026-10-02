@@ -457,6 +457,7 @@ VM subcommands:
 | `vm workspace close <machine> <workspace-id> [--json]` | `vm.workspace_close`: closes the cmux-tui workspace; its terminals keep running in the Terminals pool (CLI-only; the sidebar's "Close Workspace…" is `vm workspace rm`). |
 | `vm workspace rm <machine> <workspace-id> [--json]` (alias `delete`) | `vm.workspace_delete`: kills every terminal viewed in the workspace, then closes it (the sidebar row's "Close Workspace…" and its hover ×). Prints how many terminals were closed. |
 | `vm terminal close <machine> <terminal-id> [--json]` | `vm.terminal_close`: ends a terminal on the machine; an exited terminal is removed through its tab. |
+| `vm terminal prune <machine> [--json]` | `vm.terminal_prune`: ends every live terminal on the machine whose daemon has no workspace tab, then returns `terminals_closed`, exact successful `terminal_ids`, and any `failed_terminal_ids`; exited and unavailable history is retained. |
 | `vm terminal send <machine> <terminal-id> [text] [--keys <k1,k2,…>] [--json]` (alias `write`) | `vm.terminal_write {id, terminal_id, text?, keys?}`: types `text` into the machine terminal exactly as given (no newline), then presses the named keys (`enter`, `tab`, `escape`, `up`, …; chords join with `+`: `ctrl+c`) — cmux-tui `terminal <id> write --text` / `keys`. Headless: no pane is attached or focused. |
 | `vm terminal read <machine> <terminal-id> [--json]` (alias `screen`) | `vm.terminal_read {id, terminal_id}`: the terminal's visible screen (`text`; `--json` adds `rows`, `cols`, `cursor_row`, `cursor_col`, `cursor_visible`) — cmux-tui `terminal <id> screen read`. |
 | `vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>] [--json]` | `vm.terminal_wait {id, terminal_id, pattern, timeout_ms?}`: blocks until the screen text matches (default 30 s) — cmux-tui `terminal <id> screen wait`. Prints `OK matched …`; exits 1 with a bounded timeout diagnostic that does not include terminal text. |
@@ -973,6 +974,7 @@ the expected text without connecting to a cmux socket.
 - `cmux vm tree --help` -> `Usage: cmux vm tree [<machine>|local] [--refresh] [--json]`
 - `cmux vm workspace --help` -> `cmux vm workspace open <machine> <workspace-id>`
 - `cmux vm terminal --help` -> `cmux vm terminal close <machine> <terminal-id>`
+- `cmux vm terminal --help` -> `cmux vm terminal prune <machine>`
 - `cmux vm prompt --help` -> `cmux vm prompt --open <agent>`
 - `cmux vm base --help` -> `cmux vm base reset [--desktop|--base] [--reason <text>]`
 - `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
