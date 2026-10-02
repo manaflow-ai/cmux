@@ -14,7 +14,9 @@ use cmux_tasks_core::ids::Principal;
 use serde_json::json;
 
 fn start_server(dir: &std::path::Path) -> LocalOwner {
-    let Owner::Local(owner) = resolve(Some("local"), Some(dir.to_owned())).unwrap() else { unreachable!() };
+    let Owner::Local(owner) = resolve(Some("local"), Some(dir.to_owned())).unwrap() else {
+        unreachable!()
+    };
     let engine = Engine::open(&owner.dir, &owner.team, "CMX", system_clock()).unwrap();
     let (ready_tx, ready_rx) = mpsc::channel();
     let serving = owner.clone();
@@ -46,11 +48,15 @@ fn subscriber_sees_commits_from_another_client() {
     assert_eq!(snapshot["seq"], 0);
 
     let mut writer = Conn::open(&owner, &me, "CMX").unwrap();
-    let (reply, seq) = writer.call("task.create", json!({"id": "task_1", "title": "Ship Tasks"}), Some("k1".to_owned())).unwrap();
+    let (reply, seq) = writer
+        .call("task.create", json!({"id": "task_1", "title": "Ship Tasks"}), Some("k1".to_owned()))
+        .unwrap();
     assert_eq!(reply["result"]["key"], "CMX-1");
     assert_eq!(seq, 1);
     // Retrying the same key is a replay, not a second task.
-    let (again, _) = writer.call("task.create", json!({"id": "task_1", "title": "Ship Tasks"}), Some("k1".to_owned())).unwrap();
+    let (again, _) = writer
+        .call("task.create", json!({"id": "task_1", "title": "Ship Tasks"}), Some("k1".to_owned()))
+        .unwrap();
     assert_eq!(again["replay"], true);
 
     let event = loop {
@@ -71,9 +77,22 @@ fn only_one_dispatcher_claims_a_session() {
     let mut a = Conn::open(&owner, &me, "CMX").unwrap();
     let mut b = Conn::open(&owner, &me, "CMX").unwrap();
     a.call("task.create", json!({"id": "task_1", "title": "x"}), Some("c".to_owned())).unwrap();
-    a.call("task.delegate", json!({"task": "CMX-1", "session": "asess_1", "harness": "codex"}), Some("d".to_owned())).unwrap();
-    let first = a.call("task.session.claim", json!({"session": "asess_1", "host": "mac-a"}), Some("ca".to_owned()));
-    let second = b.call("task.session.claim", json!({"session": "asess_1", "host": "mac-b"}), Some("cb".to_owned()));
+    a.call(
+        "task.delegate",
+        json!({"task": "CMX-1", "session": "asess_1", "harness": "codex"}),
+        Some("d".to_owned()),
+    )
+    .unwrap();
+    let first = a.call(
+        "task.session.claim",
+        json!({"session": "asess_1", "host": "mac-a"}),
+        Some("ca".to_owned()),
+    );
+    let second = b.call(
+        "task.session.claim",
+        json!({"session": "asess_1", "host": "mac-b"}),
+        Some("cb".to_owned()),
+    );
     assert!(first.is_ok());
     assert_eq!(second.unwrap_err().code, ErrorCode::Conflict);
 }
@@ -87,8 +106,14 @@ fn cli_works_in_process_without_a_server() {
         all.extend(["--data".to_owned(), data.clone()]);
         cmux_tasks::cli::run(&all)
     };
-    assert_eq!(run(&["task", "create", "--title", "First", "--priority", "high"]), std::process::ExitCode::SUCCESS);
-    assert_eq!(run(&["task", "update", "CMX-1", "--status", "Todo"]), std::process::ExitCode::SUCCESS);
+    assert_eq!(
+        run(&["task", "create", "--title", "First", "--priority", "high"]),
+        std::process::ExitCode::SUCCESS
+    );
+    assert_eq!(
+        run(&["task", "update", "CMX-1", "--status", "Todo"]),
+        std::process::ExitCode::SUCCESS
+    );
     assert_eq!(run(&["task", "list", "--json"]), std::process::ExitCode::SUCCESS);
     assert_eq!(run(&["task", "view", "CMX-9"]), std::process::ExitCode::from(3));
     assert_eq!(run(&["task", "update", "CMX-1", "--bogus"]), std::process::ExitCode::from(2));

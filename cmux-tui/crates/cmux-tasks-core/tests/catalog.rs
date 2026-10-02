@@ -26,7 +26,8 @@ fn every_mutation_entry_round_trips_into_its_op() {
             params.insert(p.name.to_owned(), if p.repeated { json!([value]) } else { value });
         }
         let wire = json!({"op": entry.name, "params": params});
-        let op: Op = serde_json::from_value(wire.clone()).unwrap_or_else(|e| panic!("{}: {e}: {wire}", entry.name));
+        let op: Op = serde_json::from_value(wire.clone())
+            .unwrap_or_else(|e| panic!("{}: {e}: {wire}", entry.name));
         assert_eq!(op.name(), entry.name);
     }
 }
@@ -38,7 +39,11 @@ fn names_and_cli_paths_are_unique() {
     for e in catalog::all() {
         assert!(names.insert(e.name), "duplicate {}", e.name);
         assert!(paths.insert(e.cli), "duplicate cli {}", e.cli);
-        assert!(e.params.iter().filter(|p| p.positional).count() <= 1, "{}: one positional at most", e.name);
+        assert!(
+            e.params.iter().filter(|p| p.positional).count() <= 1,
+            "{}: one positional at most",
+            e.name
+        );
     }
 }
 
@@ -48,7 +53,10 @@ fn exports_are_well_formed() {
     assert_eq!(exported["operations"].as_array().unwrap().len(), catalog::all().len());
     let tools = catalog::mcp_tools(false);
     assert!(tools.as_array().unwrap().iter().any(|t| t["name"] == "task_create"));
-    assert!(!tools.as_array().unwrap().iter().any(|t| t["name"] == "task_delete"), "delete is opt-in");
+    assert!(
+        !tools.as_array().unwrap().iter().any(|t| t["name"] == "task_delete"),
+        "delete is opt-in"
+    );
     let ts = catalog::export_typescript();
     assert!(ts.contains("export interface TaskCreateParams"));
     assert!(ts.contains("create(params: TaskCreateParams): Promise<OpResult>;"));
@@ -63,12 +71,25 @@ fn checked_in_exports_match() {
     let fresh = catalog::export_json();
     for path in [
         root.join("catalog/tasks-catalog.json"),
-        root.join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Resources/tasks-catalog.json"),
+        root.join(
+            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Resources/tasks-catalog.json",
+        ),
     ] {
-        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let text =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         let stored: Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(stored, fresh, "{} is stale: run `cmux-tasks catalog > {}`", path.display(), path.display());
+        assert_eq!(
+            stored,
+            fresh,
+            "{} is stale: run `cmux-tasks catalog > {}`",
+            path.display(),
+            path.display()
+        );
     }
     let ts = std::fs::read_to_string(root.join("catalog/mux-task.d.ts")).unwrap();
-    assert_eq!(ts.trim_end(), catalog::export_typescript().trim_end(), "mux-task.d.ts is stale: run `cmux-tasks catalog --format ts`");
+    assert_eq!(
+        ts.trim_end(),
+        catalog::export_typescript().trim_end(),
+        "mux-task.d.ts is stale: run `cmux-tasks catalog --format ts`"
+    );
 }

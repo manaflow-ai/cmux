@@ -3,18 +3,22 @@
 
 use cmux_tasks_core::event::Change;
 use cmux_tasks_core::ids::{AgentClass, AgentRef, Principal};
-use cmux_tasks_core::model::{Category, PlanStep, PlanStepStatus, Priority, RelationKind, SessionStatus, State};
+use cmux_tasks_core::model::{
+    Category, PlanStep, PlanStepStatus, Priority, RelationKind, SessionStatus, State,
+};
 use cmux_tasks_core::op::*;
 use cmux_tasks_core::{Ctx, Envelope, Origin, invariants, reduce};
 use proptest::prelude::*;
 
 fn actors() -> Vec<Principal> {
-    let agent = |id: &str, class| Principal::Agent(AgentRef {
-        principal: id.to_owned(),
-        class,
-        harness: "claude".to_owned(),
-        on_behalf_of: "usr_a".to_owned(),
-    });
+    let agent = |id: &str, class| {
+        Principal::Agent(AgentRef {
+            principal: id.to_owned(),
+            class,
+            harness: "claude".to_owned(),
+            on_behalf_of: "usr_a".to_owned(),
+        })
+    };
     vec![
         Principal::user("usr_a"),
         Principal::user("usr_b"),
@@ -28,7 +32,18 @@ fn task(i: u8) -> String {
 }
 
 fn status_ref(i: u8) -> String {
-    ["st_backlog", "st_todo", "st_in_progress", "st_in_review", "st_done", "st_canceled", "st_triage", "st_x0", "st_x1"][usize::from(i % 9)].to_owned()
+    [
+        "st_backlog",
+        "st_todo",
+        "st_in_progress",
+        "st_in_review",
+        "st_done",
+        "st_canceled",
+        "st_triage",
+        "st_x0",
+        "st_x1",
+    ][usize::from(i % 9)]
+    .to_owned()
 }
 
 fn op_strategy() -> impl Strategy<Value = Op> {
@@ -102,7 +117,12 @@ struct Step {
 }
 
 fn step_strategy() -> impl Strategy<Value = Step> {
-    (prop_oneof![3 => Just(0usize), 1 => Just(1usize), 2 => Just(2usize), 1 => Just(3usize)], 0u8..40, any::<bool>(), op_strategy())
+    (
+        prop_oneof![3 => Just(0usize), 1 => Just(1usize), 2 => Just(2usize), 1 => Just(3usize)],
+        0u8..40,
+        any::<bool>(),
+        op_strategy(),
+    )
         .prop_map(|(actor, key, grant, op)| Step { actor, key, grant, op })
 }
 
@@ -110,7 +130,8 @@ fn step_strategy() -> impl Strategy<Value = Step> {
 /// exercises replays and idempotency conflicts.
 fn envelope_at(step: &Step, index: usize) -> Envelope {
     let mut env = envelope(step);
-    env.key = if step.key < 6 && index > 0 { format!("k{}", index - 1) } else { format!("k{index}") };
+    env.key =
+        if step.key < 6 && index > 0 { format!("k{}", index - 1) } else { format!("k{index}") };
     env
 }
 
@@ -120,7 +141,13 @@ fn envelope(step: &Step) -> Envelope {
     if step.grant {
         grants.insert(step.op.name().to_owned());
     }
-    Envelope { actor: actors[step.actor].clone(), origin: Origin::Cli, key: format!("k{}", step.key), grants, op: step.op.clone() }
+    Envelope {
+        actor: actors[step.actor].clone(),
+        origin: Origin::Cli,
+        key: format!("k{}", step.key),
+        grants,
+        op: step.op.clone(),
+    }
 }
 
 proptest! {
@@ -202,7 +229,8 @@ fn generator_reaches_commits() {
     let mut kinds = std::collections::BTreeMap::<String, usize>::new();
     let (mut total, mut committed) = (0usize, 0usize);
     for _ in 0..64 {
-        let steps = prop::collection::vec(step_strategy(), 60).new_tree(&mut runner).unwrap().current();
+        let steps =
+            prop::collection::vec(step_strategy(), 60).new_tree(&mut runner).unwrap().current();
         let mut state = State::new("team_t", "CMX");
         for (i, step) in steps.iter().enumerate() {
             total += 1;
@@ -219,7 +247,14 @@ fn generator_reaches_commits() {
     // Id collisions and missing references are generated on purpose, so
     // most ops reject; at least one in six must commit.
     assert!(committed * 6 > total, "only {committed} of {total} ops committed");
-    for kind in ["task.created", "task.status_changed", "task.delegated", "task.agent_session.status_changed", "task.relation.added", "task.deleted"] {
+    for kind in [
+        "task.created",
+        "task.status_changed",
+        "task.delegated",
+        "task.agent_session.status_changed",
+        "task.relation.added",
+        "task.deleted",
+    ] {
         assert!(kinds.get(kind).copied().unwrap_or(0) > 0, "no {kind} in {kinds:?}");
     }
 }
