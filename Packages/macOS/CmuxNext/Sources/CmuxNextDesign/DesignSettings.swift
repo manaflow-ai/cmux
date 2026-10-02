@@ -55,9 +55,14 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
-    public var focusIndicator: FocusIndicator = .border
-    public var tabBarBackground: TabBarBackground = .darker
+    /// `appearance.focusIndicator`: what marks the focused pane.
+    public var focusIndicator: FocusIndicator = .both
+    /// `appearance.tabBarBackground`: the tab strip's negative space.
+    public var tabBarBackground: TabBarBackground = .window
+
+    /// `focusIndicator` unless Debug Settings overrides it.
     public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }
+    /// `tabBarBackground` unless Debug Settings overrides it.
     public var effectiveTabBarBackground: TabBarBackground { FocusIndicatorTunables.tabBarBackground.override ?? tabBarBackground }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal

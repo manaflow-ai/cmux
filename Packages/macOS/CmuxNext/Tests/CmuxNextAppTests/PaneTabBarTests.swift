@@ -37,6 +37,10 @@ struct PaneTabBarTests {
         #expect(view.stripView.themeTokens == plain.emphasized(.subtle(.fade, strength: 0.45)))
         // The terminal below keeps its colors.
         #expect(view.themeTokens == plain)
+        // A panel opened from the strip (group editor) draws at full strength.
+        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: true)
+        panel.adoptThemeScope(of: view.stripView)
+        #expect(panel.themeScope.tokens == plain)
         view.setChromeEmphasis(.full, animated: false)
         #expect(view.stripView.themeTokens == plain)
     }

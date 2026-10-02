@@ -163,6 +163,30 @@ public nonisolated enum SettingsSchema {
                 default: .string(BordersSetting.fallback.rawValue), keywords: ["border", "hairline", "separator", "outline", "line"]
             ),
             SettingDescriptor(
+                PaneFocusSettings.focusIndicatorPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.focusIndicator", "Focused Pane"),
+                help: SettingsText.text("settings.appearance.focusIndicator.help",
+                                        "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."),
+                kind: .choice([
+                    SettingChoice(FocusIndicator.border.rawValue, SettingsText.text("settings.choice.border", "Border")),
+                    SettingChoice(FocusIndicator.tabs.rawValue, SettingsText.text("settings.choice.tabs", "Tabs")),
+                    SettingChoice(FocusIndicator.both.rawValue, SettingsText.text("settings.choice.both", "Both")),
+                    SettingChoice(FocusIndicator.none.rawValue, SettingsText.text("settings.choice.none", "None")),
+                ]),
+                default: .string(PaneFocusSettings.focusIndicatorFallback.rawValue), keywords: ["focus", "active", "pane", "tab", "ring"]
+            ),
+            SettingDescriptor(
+                PaneFocusSettings.tabBarBackgroundPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.tabBarBackground", "Tab Bar Background"),
+                help: SettingsText.text("settings.appearance.tabBarBackground.help",
+                                        "Window uses the window's own background around the tabs; Darker shades the tab bar."),
+                kind: .choice([
+                    SettingChoice(TabBarBackground.window.rawValue, SettingsText.text("settings.choice.window", "Window")),
+                    SettingChoice(TabBarBackground.darker.rawValue, SettingsText.text("settings.choice.darker", "Darker")),
+                ]),
+                default: .string(PaneFocusSettings.tabBarBackgroundFallback.rawValue), keywords: ["tab", "strip", "background", "bar"]
+            ),
+            SettingDescriptor(
                 AnimationSpeedSetting.configPath, section: .appearance, group: look,
                 title: SettingsText.text("settings.ui.animationSpeed", "Animations"),
                 kind: .choice([

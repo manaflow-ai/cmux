@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 @testable import CmuxNextDesign
 
@@ -53,6 +54,31 @@ import Testing
         #expect(full.emphasized(.full) == full)
     }
 
+    /// Even at full strength every tier stays readable and the selected
+    /// tab stays above the others.
+    @Test(arguments: ThemeFixtures.all.map(\.0), InactiveTabStyle.allCases)
+    func subtleTextKeepsItsFloors(_ name: String, _ style: InactiveTabStyle) {
+        let full = tokens(name)
+        let page = full.contentBackground.withAlpha(1)
+        for strength in [CGFloat(0.35), 1] {
+            let quiet = full.emphasized(.subtle(style, strength: strength))
+            func holds(_ got: ThemeRGB, _ was: ThemeRGB, _ floor: Double) -> Bool {
+                got.contrast(with: page) >= min(floor, was.contrast(with: page)) - 0.01
+            }
+            #expect(holds(quiet.textPrimary, full.textPrimary, ThemeTokens.subtlePrimaryFloor), "\(name) \(style) \(strength)")
+            #expect(holds(quiet.textSecondary, full.textSecondary, ThemeTokens.subtleSecondaryFloor), "\(name) \(style) \(strength)")
+            #expect(holds(quiet.textTertiary, full.textTertiary, ThemeTokens.subtleTertiaryFloor), "\(name) \(style) \(strength)")
+            #expect(quiet.textPrimary.contrast(with: page) > quiet.textSecondary.contrast(with: page), "\(name) \(style) \(strength)")
+        }
+    }
+
+    @Test func theStripPaintsOnlyWhereTheSheetShowsAnotherColor() {
+        let dark = ThemeRGB(hex: 0x272822), light = ThemeRGB(hex: 0xFFFFFF)
+        #expect(!TabBarBackground.window.paintsStripFill(paneWindowBackground: dark, sheet: dark))
+        #expect(TabBarBackground.window.paintsStripFill(paneWindowBackground: light, sheet: dark))
+        #expect(TabBarBackground.darker.paintsStripFill(paneWindowBackground: dark, sheet: dark))
+    }
+
     /// A strip scope's emphasis colors only its own views; a child scope
     /// keeps the plain colors.
     @Test func aScopesEmphasisAppliesToItsOwnViewsOnly() {
@@ -64,6 +90,8 @@ import Testing
         #expect(strip.tokens == parent.tokens.emphasized(.subtle(.fade, strength: 0.45)))
         #expect(child.tokens == parent.tokens)
         #expect(strip.generation == before + 1)
+        // Panels and hover cards opened from the strip draw at full strength.
+        #expect(strip.fullStrength === parent)
         strip.setEmphasis(.full, animated: false)
         #expect(strip.tokens == parent.tokens)
     }

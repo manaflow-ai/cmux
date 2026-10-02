@@ -42,67 +42,12 @@ public nonisolated enum TabBarBackground: String, Sendable, CaseIterable, Codabl
     }
 }
 
-/// How an unfocused pane's tabs draw subtler (a Debug Settings prototype
-/// switch; `fade` is the default).
-public nonisolated enum InactiveTabStyle: String, Sendable, CaseIterable, Codable, TunableChoice {
-    /// Text, icons and pill fills fade toward the background by the strength.
-    case fade
-    /// Every text tier steps down one tier; the selected pill takes the
-    /// hover fill.
-    case tonal
-    /// No pill fill; the selected tab is marked by its text tier only.
-    case quiet
-
-    public var tunableTitle: String {
-        switch self {
-        case .fade: "Fade"
-        case .tonal: "Tonal"
-        case .quiet: "Quiet"
-        }
-    }
-}
-
-/// How strongly a pane's chrome (its tab strip) draws.
-public nonisolated enum ChromeEmphasis: Hashable, Sendable {
-    case full
-    case subtle(InactiveTabStyle, strength: CGFloat)
-
-    /// The emphasis for one pane's tabs: full for the focused pane, for the
-    /// only pane, and when the indicator does not mark tabs; else subtle.
-    public static func forPane(isFocused: Bool, paneCount: Int, indicator: FocusIndicator,
-                               style: InactiveTabStyle, strength: CGFloat) -> ChromeEmphasis {
-        .full
-    }
-}
-
-/// The Debug Settings switches for the focus cue.
-public nonisolated enum FocusIndicatorTunables {
-    public static let indicator = Tunable<FocusIndicator>.choice(
-        "focus.indicator", .focus, "Focus indicator",
-        help: "What marks the focused pane (overrides appearance.focusIndicator in cmux.json).",
-        default: .border, code: "FocusIndicatorTunables.indicator")
-    public static let inactiveTabStyle = Tunable<InactiveTabStyle>.choice(
-        "focus.inactiveTabStyle", .focus, "Unfocused pane tabs",
-        help: "Prototype: how an unfocused pane's tabs draw subtler.",
-        default: .fade, code: "FocusIndicatorTunables.inactiveTabStyle")
-    public static let inactiveTabStrength = Tunable<CGFloat>.number(
-        "focus.inactiveTabStrength", .focus, "Unfocused tabs strength",
-        help: "How much subtler an unfocused pane's tabs draw (0 is the same as the focused pane).",
-        default: 0.45, range: 0...1, step: 0.05, unit: .fraction, code: "FocusIndicatorTunables.inactiveTabStrength")
-    public static let tabBarBackground = Tunable<TabBarBackground>.choice(
-        "focus.tabBarBackground", .focus, "Tab bar background",
-        help: "Overrides appearance.tabBarBackground in cmux.json.",
-        default: .darker, code: "FocusIndicatorTunables.tabBarBackground")
-
-    public static var all: [TunableDescriptor] {
-        [indicator.descriptor, inactiveTabStyle.descriptor, inactiveTabStrength.descriptor, tabBarBackground.descriptor]
-    }
-}
-
-extension ThemeTokens {
-    /// These tokens with a pane's chrome emphasis applied: lower-contrast
-    /// text and pill fills for a subtle pane, the same hues (no accent).
-    public nonisolated func emphasized(_ emphasis: ChromeEmphasis) -> ThemeTokens {
-        self
+extension TabBarBackground {
+    /// Whether the strip paints its own fill: always when darker; for
+    /// window only where the window sheet behind it shows another color
+    /// (a workspace theme of the other lightness than its room), so the
+    /// negative space is always the pane's window color.
+    public func paintsStripFill(paneWindowBackground: ThemeRGB, sheet: ThemeRGB) -> Bool {
+        self == .darker || paneWindowBackground != sheet
     }
 }

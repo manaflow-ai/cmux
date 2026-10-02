@@ -25,7 +25,7 @@ struct PaneFocusCueTests {
         }
     }
 
-    private func layout(_ indicator: FocusIndicator, panes: Int = 2) -> (LayoutRootView, NSWindow, Provider) {
+    private func layout(_ indicator: FocusIndicator, panes: Int = 2, drawsLines: Bool = true) -> (LayoutRootView, NSWindow, Provider) {
         let tree: SplitNode = panes == 1 ? .leaf("a") : .split("s", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: .leaf("b"))
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: .splits(tree))], activeScreenID: "s", focusedPane: "a")
         model.followsDesignMetrics = false
@@ -33,6 +33,7 @@ struct PaneFocusCueTests {
         style.focusIndicator = indicator
         style.inactiveTabStyle = .tonal
         style.inactiveTabStrength = 0.3
+        style.drawsLines = drawsLines
         model.baseStyle = style
         let provider = Provider()
         let view = LayoutRootView(model: model, contentProvider: provider)
@@ -77,5 +78,16 @@ struct PaneFocusCueTests {
         let (_, single, only) = layout(.both, panes: 1)
         defer { single.close() }
         #expect(only.views["a"]?.emphasis == .full)
+    }
+
+    /// With `appearance.borders` none the unfocused panes' dim stands in for
+    /// the ring only when the indicator asked for the border alone.
+    @Test func withoutLinesTheDimReplacesOnlyARequestedBorder() {
+        for (indicator, dims) in [(FocusIndicator.border, true), (.both, false), (.tabs, false), (.none, false)] {
+            let (view, window, _) = layout(indicator, drawsLines: false)
+            defer { window.close() }
+            #expect((view.context.hosts["b"]?.chrome.dimOpacity ?? 0 > 0) == dims, "\(indicator)")
+            #expect(view.context.hosts["a"]?.chrome.dimOpacity == 0, "\(indicator)")
+        }
     }
 }
