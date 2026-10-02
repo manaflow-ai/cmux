@@ -28,6 +28,8 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
+//   CmuxNextHome -> Design, Wakeups (Home conversations: virtualized CALayer transcript, list, composer;
+//     no daemon; the App maps the conversation mirror and intent log into HomeTranscriptSource)
 //   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
@@ -229,6 +231,23 @@ let package = Package(
         // Resource usage for hover cards and `resources` (CPU and memory per
         // tab, per workspace, shared processes apart). Pure aggregation and a
         // sampler that runs only while a card is open.
+        // Home (plans/cmux-next/home.md section 3): the native conversation
+        // renderer (paged window, prefix-sum layout, background raster,
+        // render-server send motion), the conversation list and composer.
+        .target(
+            name: "CmuxNextHome",
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings,
+            linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
+        .testTarget(
+            name: "CmuxNextHomeTests",
+            dependencies: ["CmuxNextHome", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
         // History (plans/cmux-next/history.md): the location trail, merged
         // history entries, search, agent sessions from the session journal,
         // the per-profile page visit log (SQLite), and the cmux://history page.
