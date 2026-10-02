@@ -75,7 +75,9 @@ The existing `_acpmux/event` stream adds `permission_group` records containing
 `{group}` on seal/change/resolve/cancel, and `permission_chat_allowance` records
 containing `{active}`. Watchers get `session_changed`; after lag/reconnect read
 groups. Individual `permission_request` and `permission_pending` add groupId and
-turnId when grouped, so modern clients suppress duplicate cards while legacy
+turnId when grouped. Session detail `pending[]` carries the same metadata from
+one permission-state snapshot, preserving individual interactive asks on reload
+even if the group read fails. Modern clients suppress duplicate cards while legacy
 clients remain functional. A client disconnect does not answer a permission.
 `SessionSummary.pendingPermissions` continues to count underlying ACP permission
 items, not groups, so existing wait and status clients retain their meaning.

@@ -20,7 +20,11 @@ impl Hub {
                 Inbound::Request { id, method: m, params } => {
                     let hub = self.clone();
                     let s = session.clone();
-                    tokio::spawn(async move { hub.on_agent_request(s, id, m, params).await });
+                    let epoch = session.permission_epoch.load(Ordering::SeqCst);
+                    let turn_id = session.turn().map(|t| t.turn_id);
+                    tokio::spawn(async move {
+                        hub.on_agent_request(s, id, m, params, epoch, turn_id).await
+                    });
                 }
                 Inbound::Stderr(line) => {
                     let line = short_text(&line, 4000);
@@ -45,6 +49,7 @@ impl Hub {
                         *slot = None;
                     }
                     self.cancel_pending_permissions(&session);
+                    self.revoke_permission_chat(&session);
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     self.append(
@@ -113,16 +118,17 @@ impl Hub {
         id: Id,
         m: String,
         params: Option<Value>,
+        epoch: u64,
+        turn_id: Option<String>,
     ) {
-        // Read before the child: a cancellation after this point answers
-        // any permission this request would register.
-        let epoch = session.permission_epoch.load(Ordering::SeqCst);
+        // Context was captured before spawning this request task, so cancel
+        // or a new turn cannot make a delayed request join the new ask.
         let Some(child) = session.child.lock().await.clone() else {
             return;
         };
         if m == method::SESSION_REQUEST_PERMISSION {
             let params = params.unwrap_or(Value::Null);
-            let result = self.handle_permission(&session, params, epoch).await;
+            let result = self.handle_permission(&session, params, epoch, turn_id).await;
             let _ = child.respond(id, Ok(result)).await;
             return;
         }
@@ -130,12 +136,14 @@ impl Hub {
         // the client. Writes go through the permission policy like any edit
         // tool; reads are refused only by deny-all or a deny rule.
         if m == "fs/write_text_file" {
-            let result = self.handle_fs_write(&session, params.unwrap_or(Value::Null), epoch).await;
+            let result =
+                self.handle_fs_write(&session, params.unwrap_or(Value::Null), epoch, turn_id).await;
             let _ = child.respond(id, result).await;
             return;
         }
         if m == "fs/read_text_file" {
-            let result = self.handle_fs_read(&session, params.unwrap_or(Value::Null), epoch).await;
+            let result =
+                self.handle_fs_read(&session, params.unwrap_or(Value::Null), epoch, turn_id).await;
             let _ = child.respond(id, result).await;
             return;
         }
@@ -155,10 +163,11 @@ impl Hub {
     }
 
     async fn handle_fs_write(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         params: Value,
         epoch: u64,
+        turn_id: Option<String>,
     ) -> Result<Value, RpcError> {
         let path = Self::fs_path(session, &params)?;
         let content = params
@@ -183,7 +192,7 @@ impl Hub {
                 {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}
             ]
         });
-        let outcome = self.handle_permission(session, request, epoch).await;
+        let outcome = self.handle_permission(session, request, epoch, turn_id).await;
         if !outcome_allows(&outcome) {
             return Err(RpcError::new(
                 -32000,
@@ -200,10 +209,11 @@ impl Hub {
     }
 
     async fn handle_fs_read(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         params: Value,
         epoch: u64,
+        turn_id: Option<String>,
     ) -> Result<Value, RpcError> {
         let path = Self::fs_path(session, &params)?;
         let config_policy = self.config.read().await.permission_policy;
@@ -223,7 +233,8 @@ impl Hub {
                     {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}
                 ]
             });
-            denied = !outcome_allows(&self.handle_permission(session, request, epoch).await);
+            denied =
+                !outcome_allows(&self.handle_permission(session, request, epoch, turn_id).await);
         }
         if denied {
             return Err(RpcError::new(
@@ -262,100 +273,141 @@ impl Hub {
 
     /// `epoch` is `permission_epoch` read when the agent's request arrived.
     pub(super) async fn handle_permission(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         request: Value,
         epoch: u64,
+        turn_id: Option<String>,
     ) -> Value {
-        let config_policy = self.config.read().await.permission_policy;
-        let policy = self.policy_for(session, config_policy);
-        let options = request.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
-        let pick = |kinds: &[&str]| -> Option<String> {
-            for k in kinds {
-                if let Some(o) =
-                    options.iter().find(|o| o.get("kind").and_then(Value::as_str) == Some(k))
-                {
-                    return o.get("optionId").and_then(Value::as_str).map(str::to_owned);
-                }
+        let (rx, prev, grouping, permission_id) = {
+            let cfg = self.config.read().await;
+            let mut state = session.permissions.lock().unwrap();
+            if session.permission_epoch.load(Ordering::SeqCst) != epoch
+                || session.turn().map(|t| t.turn_id) != turn_id
+            {
+                return json!({"outcome":{"outcome":"cancelled"}});
             }
-            None
-        };
-        let tool_kind = request
-            .get("toolCall")
-            .and_then(|t| t.get("kind"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let rule = session
-            .meta()
-            .permission_rules
-            .as_ref()
-            .and_then(|r| super::rules::decide(r, &request));
-        let auto = match rule {
-            Some(super::rules::RuleDecision::Approve) => pick(&["allow_once", "allow_always"]),
-            Some(super::rules::RuleDecision::Deny) => pick(&["reject_once", "reject_always"]),
-            Some(super::rules::RuleDecision::Ask) => None,
-            None => match policy {
-                PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
-                PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
-                PermissionPolicy::ApproveReads => {
-                    if matches!(tool_kind, "read" | "search" | "fetch" | "think") {
-                        pick(&["allow_once", "allow_always"])
-                    } else {
-                        None
+            let policy = self.policy_for(session, cfg.permission_policy);
+            let options =
+                request.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
+            let pick = |kinds: &[&str]| -> Option<String> {
+                for k in kinds {
+                    if let Some(o) =
+                        options.iter().find(|o| o.get("kind").and_then(Value::as_str) == Some(k))
+                    {
+                        return o.get("optionId").and_then(Value::as_str).map(str::to_owned);
                     }
                 }
-                PermissionPolicy::ApproveEdits => {
-                    if matches!(tool_kind, "read" | "search" | "fetch" | "think" | "edit") {
-                        pick(&["allow_once", "allow_always"])
-                    } else {
-                        None
+                None
+            };
+            let tool_kind = request
+                .get("toolCall")
+                .and_then(|t| t.get("kind"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let rule = session
+                .meta()
+                .permission_rules
+                .as_ref()
+                .and_then(|r| super::rules::decide(r, &request));
+            let auto = match rule {
+                Some(super::rules::RuleDecision::Approve) => pick(&["allow_once", "allow_always"]),
+                Some(super::rules::RuleDecision::Deny) => pick(&["reject_once", "reject_always"]),
+                Some(super::rules::RuleDecision::Ask) => None,
+                None => match policy {
+                    PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
+                    PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
+                    PermissionPolicy::ApproveReads => {
+                        if matches!(tool_kind, "read" | "search" | "fetch" | "think") {
+                            pick(&["allow_once", "allow_always"])
+                        } else {
+                            None
+                        }
                     }
-                }
-                PermissionPolicy::Ask => None,
-            },
-        };
-        let permission_id = uuid::Uuid::now_v7().to_string();
-        if let Some(option_id) = auto {
-            self.append(
+                    PermissionPolicy::ApproveEdits => {
+                        if matches!(tool_kind, "read" | "search" | "fetch" | "think" | "edit") {
+                            pick(&["allow_once", "allow_always"])
+                        } else {
+                            None
+                        }
+                    }
+                    PermissionPolicy::Ask => None,
+                },
+            };
+            let denied = policy == PermissionPolicy::DenyAll
+                || rule == Some(super::rules::RuleDecision::Deny);
+            let chat_option = if state.chat_allowed
+                && !denied
+                && session.turn().is_some()
+                && super::permission_groups::eligible(&request)
+            {
+                super::permission_groups::option(&request, "allow_once")
+            } else {
+                None
+            };
+            let auto = if denied {
+                pick(&["reject_once", "reject_always"])
+            } else {
+                chat_option.clone().or(auto)
+            };
+            let permission_id = uuid::Uuid::now_v7().to_string();
+            if let Some(option_id) = auto {
+                self.append(
                 session,
                 "mux",
                 "permission_auto",
-                json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "request": request}),
+                json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance":chat_option.is_some(), "request": request}),
             );
-            return json!({"outcome": {"outcome": "selected", "optionId": option_id}});
-        }
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut pending = session.pending_permissions.lock().unwrap();
-            // Cancelled (turn cancel, stop, exit) since the request arrived:
-            // registering now would wait on a session that moved on.
-            if session.permission_epoch.load(Ordering::SeqCst) != epoch {
-                return json!({"outcome": {"outcome": "cancelled"}});
+                return json!({"outcome": {"outcome": "selected", "optionId": option_id}});
             }
-            pending.insert(
+            // No safe rejection option means cancel, never fall through to an allow ask.
+            if denied {
+                self.append(session,"mux","permission_auto",json!({"permissionId":permission_id,"policy":policy.to_string(),"request":request,"cancelled":true}));
+                return json!({"outcome":{"outcome":"cancelled"}});
+            }
+            let (tx, rx) = oneshot::channel();
+            let grouping = if super::permission_groups::eligible(&request) && turn_id.is_some() {
+                match state.register(
+                    &permission_id,
+                    &request,
+                    turn_id.clone(),
+                    epoch,
+                    std::time::Instant::now(),
+                ) {
+                    Ok(g) => Some(g),
+                    Err(error) => {
+                        self.append(session,"mux","permission_auto",json!({"permissionId":permission_id,"request":request,"cancelled":true,"reason":error.message}));
+                        return json!({"outcome":{"outcome":"cancelled"}});
+                    }
+                }
+            } else {
+                None
+            };
+            state.pending.insert(
                 permission_id.clone(),
                 PendingPermission { request: request.clone(), reply: tx },
             );
+            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id}));
+            let prev = session.status();
+            self.set_status(session, SessionStatus::Waiting);
+            (rx, prev, grouping, permission_id)
+        };
+        if let Some((id, true)) = grouping {
+            self.start_permission_group_timer(session, id);
         }
-        self.append(
-            session,
-            "mux",
-            "permission_request",
-            json!({"permissionId": permission_id, "request": request}),
-        );
-        let prev = session.status();
-        self.set_status(session, SessionStatus::Waiting);
-        let outcome = rx.await.unwrap_or_else(|_| json!({"outcome": "cancelled"}));
-        session.pending_permissions.lock().unwrap().remove(&permission_id);
+        let outcome = rx.await.unwrap_or_else(|_| json!({"outcome":"cancelled"}));
         self.append(
             session,
             "mux",
             "permission_decision",
-            json!({"permissionId": permission_id, "outcome": outcome}),
+            json!({"permissionId":permission_id,"outcome":outcome}),
         );
-        if session.status() == SessionStatus::Waiting {
-            let next = if session.turn().is_some() { SessionStatus::Running } else { prev };
-            self.set_status(session, next);
+        {
+            let state = session.permissions.lock().unwrap();
+            if state.pending.is_empty() && session.status() == SessionStatus::Waiting {
+                let next = if session.turn().is_some() { SessionStatus::Running } else { prev };
+                self.set_status(session, next);
+            }
         }
         let mut out = json!({"outcome": outcome});
         if let Some(m) = out["outcome"].get("_meta").cloned() {
@@ -370,29 +422,55 @@ impl Hub {
     /// Answer a pending permission. `option_id = None` cancels. `answers`
     /// carries user input for interactive tools (AskUserQuestion), keyed by
     /// question text.
-    pub fn respond_permission(
+    pub async fn respond_permission(
         &self,
         session: &Session,
         permission_id: &str,
         option_id: Option<String>,
         answers: Option<Value>,
     ) -> Result<(), RpcError> {
+        let cfg = self.config.read().await;
         let pending = {
-            let mut map = session.pending_permissions.lock().unwrap();
+            let mut state = session.permissions.lock().unwrap();
+            let map = &mut state.pending;
             let p = map.get(permission_id).ok_or_else(|| {
                 RpcError::not_found(format!("no pending permission {permission_id}"))
             })?;
-            // Only an option the request offered may answer it.
-            if let Some(o) = &option_id
-                && let Some(offered) = p.request.get("options").and_then(Value::as_array)
-                && !offered.is_empty()
-                && !offered.iter().any(|x| x["optionId"] == *o)
-            {
-                return Err(RpcError::invalid_params(format!(
-                    "option {o:?} was not offered for permission {permission_id}"
-                )));
+            // Legacy clients may answer items in a group, but cannot bypass
+            // a policy edit or choose an absent/ambiguous option.
+            if let Some(o) = &option_id {
+                let offered: Vec<_> = p.request["options"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|x| x["optionId"] == *o)
+                    .collect();
+                if offered.len() != 1 {
+                    return Err(RpcError::invalid_params(format!(
+                        "option {o:?} was not uniquely offered for permission {permission_id}"
+                    )));
+                }
+                let is_reject =
+                    matches!(offered[0]["kind"].as_str(), Some("reject_once" | "reject_always"));
+                let denied = self.policy_for(session, cfg.permission_policy)
+                    == PermissionPolicy::DenyAll
+                    || session
+                        .meta()
+                        .permission_rules
+                        .as_ref()
+                        .and_then(|r| super::rules::decide(r, &p.request))
+                        == Some(super::rules::RuleDecision::Deny);
+                if !is_reject && denied {
+                    return Err(RpcError::new(-32000, "policy_changed")
+                        .with_data(json!({"reason":"policy_changed"})));
+                }
             }
-            map.remove(permission_id).unwrap()
+            let p = map.remove(permission_id).unwrap();
+            if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
+            {
+                self.append(session, "mux", "permission_group", json!({"group":group}));
+            }
+            p
         };
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
@@ -410,9 +488,15 @@ impl Hub {
 
     pub(super) fn cancel_pending_permissions(&self, session: &Session) {
         let drained: Vec<_> = {
-            let mut pending = session.pending_permissions.lock().unwrap();
+            let mut state = session.permissions.lock().unwrap();
             session.permission_epoch.fetch_add(1, Ordering::SeqCst);
-            pending.drain().collect()
+            let drained: Vec<_> = state.pending.drain().collect();
+            for (id, _) in &drained {
+                if let Some(group) = state.finish_item(&session.id, id, true) {
+                    self.append(session, "mux", "permission_group", json!({"group":group}));
+                }
+            }
+            drained
         };
         for (_, p) in drained {
             let _ = p.reply.send(json!({"outcome": "cancelled"}));
