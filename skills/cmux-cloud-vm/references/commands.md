@@ -456,7 +456,7 @@ Socket `vm.terminal_close`: ends a terminal on the machine (the process and its 
 cmux vm terminal prune <machine> [--json]
 ```
 
-Socket `vm.terminal_prune`: ends every live terminal whose daemon has no workspace tab, then returns the exact `terminal_ids` it removed. Exited and unavailable history stays in the catalog.
+Socket `vm.terminal_prune`: ends every live terminal whose daemon has no workspace tab, then returns the exact successful `terminal_ids` and any `failed_terminal_ids`. Exited and unavailable history stays in the catalog.
 
 ### `cmux vm terminal send`
 

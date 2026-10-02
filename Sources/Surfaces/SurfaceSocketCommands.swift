@@ -769,7 +769,14 @@ extension TerminalController {
     /// and diagnostics; the catalog's detached invariant decides eligibility.
     nonisolated func socketWorkerVMTerminalPruneResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
-            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_prune requires `id`. Run `cmux vm ls` to find one.")
+            return v2Error(
+                id: id,
+                code: "invalid_params",
+                message: String(
+                    localized: "cli.vm.terminal.pruneRequiresIdRunCmuxVmLsTo",
+                    defaultValue: "vm.terminal_prune requires `id`. Run `cmux vm ls` to find one."
+                )
+            )
         }
         return v2VmCall(id: id, timeoutSeconds: 240) {
             let machine = SurfaceMachineID.cloud(vmId)
@@ -782,14 +789,23 @@ extension TerminalController {
             let detached = export.catalog.resources
                 .filter { $0.machine == machine && $0.isDetachedTerminal }
                 .map(\.id)
+            var closedIDs: [SurfaceResourceID] = []
+            var failedIDs: [String] = []
             for resource in detached {
-                try await provider.closeTerminal(resource)
+                do {
+                    try await provider.closeTerminal(resource)
+                    closedIDs.append(resource)
+                } catch {
+                    failedIDs.append(resource.key)
+                }
             }
             return [
                 "machine": vmId,
-                "closed": true,
-                "terminals_closed": detached.count,
-                "terminal_ids": detached.map(\.key),
+                "closed": failedIDs.isEmpty,
+                "partial": !closedIDs.isEmpty && !failedIDs.isEmpty,
+                "terminals_closed": closedIDs.count,
+                "terminal_ids": closedIDs.map(\.key),
+                "failed_terminal_ids": failedIDs,
             ]
         }
     }
