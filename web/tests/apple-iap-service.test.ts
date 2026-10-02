@@ -31,6 +31,7 @@ let events: ServerEventInput[];
 let applyFailures: number;
 let serverApi: AppleServerApi | null;
 let token: string;
+let tokenB: string;
 
 function deps(): AppleIapDependencies {
   return {
@@ -134,7 +135,7 @@ beforeEach(async () => {
   applyFailures = 0;
   serverApi = null;
   token = await store.accountTokenForUser("user-a");
-  await store.accountTokenForUser("user-b");
+  tokenB = await store.accountTokenForUser("user-b");
 });
 
 async function subscribe() {
@@ -428,6 +429,78 @@ describe("App Store Server Notifications", () => {
     const [row] = [...store.notifications.values()];
     const broken = { ...deps(), store: { ...store, writeSubscriptionState: async () => { throw new Error("db down"); } } };
     expect(await processAppleNotification({ ...row!, processedAt: null }, broken)).toBe("failed");
+  });
+});
+
+describe("subscription ownership", () => {
+  // The same Apple ID signs into cmux account B and buys again (upgrade or
+  // resubscribe). The newest transaction carries B's appAccountToken, which
+  // is authoritative: the subscription moves to B and A falls back.
+  function upgradeForB(overrides: Record<string, unknown> = {}) {
+    return transaction({
+      appAccountToken: tokenB,
+      productId: `${BUNDLE}.max.monthly`,
+      purchaseDate: NOW.getTime(),
+      signedDate: NOW.getTime(),
+      expiresDate: NOW.getTime() + 30 * DAY,
+      ...overrides,
+    });
+  }
+
+  test("a newer client-posted purchase with another user's token moves the subscription to that user", async () => {
+    await recordClientAppleTransaction({ userId: "user-a", signedTransactionInfo: signer.sign(transaction()) }, deps());
+    applied = [];
+    const result = await recordClientAppleTransaction(
+      { userId: "user-b", signedTransactionInfo: signer.sign(upgradeForB()) },
+      deps(),
+    );
+    expect(result.planId).toBe("max");
+    expect(subscription()).toMatchObject({ userId: "user-b", appAccountToken: tokenB, planId: "max" });
+    expect([...applied].sort()).toEqual(["user-a", "user-b"]);
+  });
+
+  test("a newer notified purchase with another user's token moves the subscription to that user", async () => {
+    await subscribe();
+    applied = [];
+    expect(await receiveAppleNotification(notification({
+      type: "DID_CHANGE_RENEWAL_PREF", subtype: "UPGRADE", status: 1,
+      tx: { appAccountToken: tokenB, productId: `${BUNDLE}.max.monthly`, purchaseDate: NOW.getTime() },
+      renewalInfo: { autoRenewProductId: `${BUNDLE}.max.monthly` },
+    }), deps())).toBe("processed");
+    expect(subscription()).toMatchObject({ userId: "user-b", appAccountToken: tokenB, planId: "max" });
+    expect([...applied].sort()).toEqual(["user-a", "user-b"]);
+    expect(events.at(-1)).toMatchObject({ event: "subscription_plan_changed", distinctId: "user-b" });
+  });
+
+  test("an older transaction with another user's token cannot take the subscription", async () => {
+    await recordClientAppleTransaction({
+      userId: "user-a",
+      signedTransactionInfo: signer.sign(transaction({ purchaseDate: NOW.getTime(), signedDate: NOW.getTime() - DAY })),
+    }, deps());
+    const older = upgradeForB({ purchaseDate: NOW.getTime() - 2 * DAY, signedDate: NOW.getTime() });
+    await expect(recordClientAppleTransaction({ userId: "user-b", signedTransactionInfo: signer.sign(older) }, deps()))
+      .rejects.toMatchObject({ reason: "account_mismatch" });
+    expect(subscription().userId).toBe("user-a");
+  });
+
+  test("a late notification about the previous owner's transaction does not move it back", async () => {
+    await subscribe();
+    await receiveAppleNotification(notification({
+      type: "SUBSCRIBED", subtype: "RESUBSCRIBE", status: 1, signedDate: NOW.getTime(),
+      tx: { appAccountToken: tokenB, purchaseDate: NOW.getTime() },
+    }), deps());
+    expect(await receiveAppleNotification(notification({
+      type: "DID_CHANGE_RENEWAL_STATUS", subtype: "AUTO_RENEW_DISABLED", status: 1, signedDate: NOW.getTime() - 60_000,
+      renewalInfo: { autoRenewStatus: 0 },
+    }), deps())).toBe("processed");
+    expect(subscription().userId).toBe("user-b");
+  });
+
+  test("the caller still cannot post another user's token (replay guard)", async () => {
+    await recordClientAppleTransaction({ userId: "user-a", signedTransactionInfo: signer.sign(transaction()) }, deps());
+    await expect(recordClientAppleTransaction({ userId: "user-a", signedTransactionInfo: signer.sign(upgradeForB()) }, deps()))
+      .rejects.toMatchObject({ reason: "account_mismatch" });
+    expect(subscription().userId).toBe("user-a");
   });
 });
 

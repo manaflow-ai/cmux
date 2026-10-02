@@ -87,6 +87,21 @@ describe("Apple IAP store", () => {
     expect((await store.subscription("otx-1"))?.lastTransactionId).toBe("tx-7");
   });
 
+  dbTest("only a newer transaction carrying a user's token moves a subscription to that user", async () => {
+    await store.writeSubscriptionState(state(), { tokenOwner: "user-a" });
+    // Token-less, or the same transaction again: the owner never changes.
+    await expect(store.writeSubscriptionState(state({ stateSignedAt: new Date(NOW) }), { tokenOwner: null, caller: "user-b" }))
+      .rejects.toBeInstanceOf(AppleOwnershipError);
+    await expect(store.writeSubscriptionState(state({ stateSignedAt: new Date(NOW) }), { tokenOwner: "user-b", caller: "user-b" }))
+      .rejects.toBeInstanceOf(AppleOwnershipError);
+    const moved = await store.writeSubscriptionState(
+      state({ lastTransactionId: "tx-2", purchaseDate: new Date(NOW), stateSignedAt: new Date(NOW), planId: "max" }),
+      { tokenOwner: "user-b", caller: "user-b" },
+    );
+    expect(moved).toMatchObject({ applied: true, transferredFrom: "user-a" });
+    expect(await store.subscription("otx-1")).toMatchObject({ userId: "user-b", planId: "max" });
+  });
+
   dbTest("a subscription never changes owner", async () => {
     await store.writeSubscriptionState(state(), "user-a");
     await expect(store.writeSubscriptionState(state({ stateSignedAt: new Date(NOW) }), "user-b"))
