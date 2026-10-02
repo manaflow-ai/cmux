@@ -3097,6 +3097,15 @@ impl WorkspaceRegistry {
                 result_json,
             ],
         )?;
+        if existing.is_none() && terminal.workspace_key == DETACHED_TERMINAL_WORKSPACE_KEY {
+            // A detached terminal is kept from the commit that reserves it,
+            // so no later failure can leave it reapable or replay a receipt
+            // for a terminal that never started.
+            tx.execute(
+                "INSERT OR IGNORE INTO terminal_keep(terminal_id) VALUES(?1)",
+                [&terminal.terminal_id],
+            )?;
+        }
         tx.commit()?;
         Ok(TerminalRegistryCommit { revision, result: result.clone(), replayed: false })
     }
