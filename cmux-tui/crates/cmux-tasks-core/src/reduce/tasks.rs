@@ -120,14 +120,18 @@ impl Tx<'_> {
         }
         let sort_key = match &p.sort_key {
             Some(k) if sort_key::is_valid(k) && !self.sort_key_taken(k, &p.id) => k.clone(),
-            _ => sort_key::between(self.last_sort_key().as_deref(), None).unwrap_or_else(|| "V".to_owned()),
+            _ => sort_key::between(self.last_sort_key().as_deref(), None)
+                .unwrap_or_else(|| "V".to_owned()),
         };
         let number = self.state.settings.next_number;
         let mut task = Task {
             id: p.id.clone(),
             number,
             title,
-            description: Description { text: p.description.clone().unwrap_or_default(), version: 1 },
+            description: Description {
+                text: p.description.clone().unwrap_or_default(),
+                version: 1,
+            },
             status: status.clone(),
             priority: p.priority.unwrap_or(Priority::None),
             assignee,
@@ -203,7 +207,8 @@ impl Tx<'_> {
             return Err(invalid("project and clear_project are exclusive"));
         }
         if let Some(r) = &p.project {
-            next.project = Some(self.state.resolve_project(r).ok_or_else(|| not_found("project", r))?);
+            next.project =
+                Some(self.state.resolve_project(r).ok_or_else(|| not_found("project", r))?);
         } else if p.clear_project {
             next.project = None;
         }
@@ -337,11 +342,19 @@ impl Tx<'_> {
         task.sort_key = key;
         task.updated_at = self.now;
         let snapshot = task.clone();
-        self.events.push(EventKind::upsert("task.moved", Entity::Task(Box::new(snapshot)), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.moved",
+            Entity::Task(Box::new(snapshot)),
+            serde_json::Value::Null,
+        ));
         Ok(self.result_for_task(&id))
     }
 
-    pub(super) fn task_set_archived(&mut self, reference: &str, archived: bool) -> Result<OpResult, Reject> {
+    pub(super) fn task_set_archived(
+        &mut self,
+        reference: &str,
+        archived: bool,
+    ) -> Result<OpResult, Reject> {
         let id = self.task_id(reference)?;
         let task = self.state.tasks.get_mut(&id).expect("validated task");
         if task.archived != archived {
@@ -349,7 +362,11 @@ impl Tx<'_> {
             task.updated_at = self.now;
             let snapshot = task.clone();
             let kind = if archived { "task.archived" } else { "task.unarchived" };
-            self.events.push(EventKind::upsert(kind, Entity::Task(Box::new(snapshot)), serde_json::Value::Null));
+            self.events.push(EventKind::upsert(
+                kind,
+                Entity::Task(Box::new(snapshot)),
+                serde_json::Value::Null,
+            ));
         }
         Ok(self.result_for_task(&id))
     }
@@ -369,7 +386,12 @@ impl Tx<'_> {
             .collect();
         for relation in relations {
             self.state.relations.remove(&relation);
-            self.events.push(EventKind::remove("task.relation.removed", "relation", &relation, json!({"cascade": true})));
+            self.events.push(EventKind::remove(
+                "task.relation.removed",
+                "relation",
+                &relation,
+                json!({"cascade": true}),
+            ));
         }
         let children: Vec<String> = self
             .state
@@ -383,7 +405,11 @@ impl Tx<'_> {
             task.parent = None;
             task.updated_at = self.now;
             let snapshot = task.clone();
-            self.events.push(EventKind::upsert("task.updated", Entity::Task(Box::new(snapshot)), json!({"fields": ["parent"], "cascade": true})));
+            self.events.push(EventKind::upsert(
+                "task.updated",
+                Entity::Task(Box::new(snapshot)),
+                json!({"fields": ["parent"], "cascade": true}),
+            ));
         }
         let sessions: Vec<String> = self.state.active_sessions(&id).map(|s| s.id.clone()).collect();
         for session in sessions {
@@ -395,7 +421,11 @@ impl Tx<'_> {
         task.attention = None;
         task.updated_at = self.now;
         let snapshot = task.clone();
-        self.events.push(EventKind::upsert("task.deleted", Entity::Task(Box::new(snapshot)), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.deleted",
+            Entity::Task(Box::new(snapshot)),
+            serde_json::Value::Null,
+        ));
         Ok(result)
     }
 }

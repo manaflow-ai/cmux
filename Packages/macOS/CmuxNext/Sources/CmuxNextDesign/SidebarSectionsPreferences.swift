@@ -23,4 +23,6 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
 
     public static let defaults = SidebarSectionsPreferences()
     public static let shareRange: ClosedRange<Double> = 0.1...0.9
+    /// The two shares together leave at least this much for the list.
+    public static let maxShareSum = 0.8
 }

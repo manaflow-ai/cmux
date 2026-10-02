@@ -35,7 +35,9 @@ enum SidebarSectionHandlers {
                 let section = try SidebarSectionResolve.section(sectionName, in: doc)
                 return .itemAdd(LayoutItem(id: .mint(), ref: ref), section: section.id, index: Int.max)
             }
-            return SidebarLayoutPlanner.add(ref, to: builtIn == .settings || builtIn == .account ? .bottom : .top, in: doc)
+            // The account shows as its avatar (no label) by default.
+            return SidebarLayoutPlanner.add(ref, to: builtIn == .settings || builtIn == .account ? .bottom : .top, in: doc,
+                                            showsLabel: builtIn != .account)
         }
         bind("sidebar.item.remove") { invocation, doc in
             .itemRemove(try SidebarSectionResolve.item(invocation.target, in: doc).id)
@@ -69,33 +71,29 @@ enum SidebarSectionHandlers {
                                                                 ("sidebar.section.layoutInline", .inline), ("sidebar.section.layoutGrid", .grid)]
         for (id, kind) in layouts {
             bind(id) { invocation, doc in
-                let section = try SidebarSectionResolve.section(invocation.target, in: doc)
-                var arrangement = section.arrangement
-                arrangement.layout = kind
-                return .sectionUpdate(section.id, SectionPatch(arrangement: arrangement))
+                .sectionUpdate(try SidebarSectionResolve.section(invocation.target, in: doc).id, SectionPatch(layout: kind))
             }
         }
         bind("sidebar.section.setAlignment") { invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
-            var arrangement = section.arrangement
-            arrangement.align = invocation["align"]?.stringValue.flatMap(SectionArrangement.Alignment.init(rawValue:)) ?? .leading
-            return .sectionUpdate(section.id, SectionPatch(arrangement: arrangement))
+            let align = invocation["align"]?.stringValue.flatMap(SectionArrangement.Alignment.init(rawValue:)) ?? .leading
+            return .sectionUpdate(section.id, SectionPatch(align: align))
         }
         bind("sidebar.section.setGap") { invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
-            var arrangement = section.arrangement
-            arrangement.gap = invocation["gap"]?.intValue
-            return .sectionUpdate(section.id, SectionPatch(arrangement: arrangement))
+            return .sectionUpdate(section.id, SectionPatch(gap: invocation["gap"]?.intValue.map(OptionalUpdate.set) ?? .clear))
         }
         bind("sidebar.section.setColumns") { invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
-            var arrangement = section.arrangement
             let columns = invocation["columns"]?.intValue ?? 0
-            arrangement.columns = columns == 0 ? nil : columns
-            return .sectionUpdate(section.id, SectionPatch(arrangement: arrangement))
+            return .sectionUpdate(section.id, SectionPatch(columns: columns == 0 ? .clear : .set(columns)))
         }
         bind("sidebar.item.toggleLabel") { invocation, doc in
             let item = try SidebarSectionResolve.item(invocation.target, in: doc)
+            // Labels can be hidden only on a line (inline arrangement).
+            guard let (s, _) = doc.locate(item.id), doc.sections[s].arrangement.layout == .inline else {
+                throw ActionFailure(message: SidebarSectionStrings.labelsOnlyOnALine)
+            }
             return .itemUpdate(item.id, showsLabel: !item.showsLabel)
         }
         bind("sidebar.section.toggleTitle") { invocation, doc in

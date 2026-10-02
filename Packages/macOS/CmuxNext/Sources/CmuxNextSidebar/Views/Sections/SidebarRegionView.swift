@@ -62,8 +62,8 @@ final class SidebarRegionView: NSView {
         let font = SidebarStyle.titleFont
         for section in content.sections where section.arrangement.layout == .inline {
             for item in section.items where item.showsLabel {
-                let title = (content.infos[item.id] ?? .fallback(for: item.ref)).title
-                widths[item.id] = SidebarItemRowView.chipWidth(title: title, font: font)
+                let info = content.infos[item.id] ?? .fallback(for: item.ref)
+                widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge)
             }
         }
         return widths

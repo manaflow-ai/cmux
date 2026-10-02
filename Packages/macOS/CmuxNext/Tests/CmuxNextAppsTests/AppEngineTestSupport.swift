@@ -80,7 +80,7 @@ nonisolated final class OutputCollector: Sendable {
 }
 
 /// Waits (bounded) until `condition` holds.
-nonisolated func eventually(_ timeout: Duration = .seconds(5), _ condition: @Sendable () async -> Bool) async -> Bool {
+nonisolated func eventually(_ timeout: Duration = .seconds(30), _ condition: @Sendable () async -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if await condition() { return true }

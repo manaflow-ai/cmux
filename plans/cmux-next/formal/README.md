@@ -76,6 +76,8 @@ The structure that the row ops of `../rows.md` produce. Owner state: one screen 
 
 Mutants (`BUG`), each must fail: `keepEmptyRow` (an emptied row is kept), `noStickyNormalize` (a column removal skips sticky normalization; run on the three-column start), `ownPlaceRowOnly` (own place sees only the boundary below the own row), `noDedup` (a replayed key applies again), `noFocusRepair` (a client keeps a removed focus), `focusColumnFirst` (focus repair jumps to the left column before the rows above and below), `respawnDropsTab` (the spawn-same-kind move puts the new tab in the new row and drops the moved tab).
 
+`FRAME = TRUE` (`LayoutRows_frame*.cfg`, start `"frame"`) adds the four-edge docks of `../layout-model.md`: sticky edges top and bottom, `PinRow` (lift a row into a top or bottom dock), and the frame orientation (column-major or row-major). Extra properties: `E3_BandOneRow` (a top or bottom dock holds one row) and `E7_OrientationOnly` (an orientation change changes nothing else). Frame mutants: `dockAllowsRows`, `pinRowNoCascade`, `orientTouchesPins`. The frame run found that lifting the only row of the last strip column into a dock only churns ids (normalize unpins the new dock); `PinRow` now rejects when the pin would not survive.
+
 Run `./run-rows-tlc.sh` (main configs and mutants), `./run-rows-tlc.sh main` or `./run-rows-tlc.sh mutants`.
 
 Last results (2026-10-01/02, shared Mac at load 130-160, TLC 1.7.4, Java 26; heights 1..2):

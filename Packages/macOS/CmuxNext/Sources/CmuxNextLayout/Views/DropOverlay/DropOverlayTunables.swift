@@ -121,8 +121,26 @@ public nonisolated enum LayoutTunables {
         "focus.glowRadiusFactor", .focus, "Focus glow radius", help: "Glow style: blur radius as a multiple of the ring width (at least 2 pt).",
         default: 3, range: 0...12, step: 0.25, unit: .multiplier, code: "LayoutTunables.focusGlowRadiusFactor")
 
+    public static let prototypeModel = Tunable<LayoutPrototypeModel>.choice(
+        "layout.prototype.model", .panes, "Layout model prototype",
+        help: "Draws the current screen as another layout model (plans/cmux-next/layout-model.md). View only; nothing is saved.",
+        default: .off, code: "LayoutTunables.prototypeModel")
+    public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
+        "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right sticky column docks to.",
+        default: .bottom, code: "LayoutTunables.prototypeDockEdge")
+
+    public static let prototypeOrientation = Tunable<LayoutPrototypeOrientation>.choice(
+        "layout.prototype.orientation", .panes, "Prototype frame orientation",
+        help: "Frame prototype: column-major (side docks full height) or row-major (top/bottom docks full width).",
+        default: .columnMajor, code: "LayoutTunables.prototypeOrientation")
+
+    public static let prototypeDockMode = Tunable<LayoutPrototypeDockMode>.choice(
+        "layout.prototype.dockMode", .panes, "Prototype dock mode",
+        help: "Frame prototype: pinned or overlay for docks drawn from plain columns (real sticky columns keep their own mode).",
+        default: .pinned, code: "LayoutTunables.prototypeDockMode")
+
     public static var all: [TunableDescriptor] {
-        DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, newColumnDropWidth, inactivePaneDimming,
+        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

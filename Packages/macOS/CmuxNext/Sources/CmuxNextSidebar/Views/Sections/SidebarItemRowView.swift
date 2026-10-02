@@ -55,16 +55,34 @@ final class SidebarItemRowView: NSView {
     override var wantsUpdateLayer: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// Width of a chip showing `title`: padding, glyph, gap, label, padding.
-    static func chipWidth(title: String, font: NSFont) -> CGFloat {
-        // The label's own width (a text field adds its cell padding).
+    /// Width of a chip showing `title` (and an unread count): padding,
+    /// glyph, gap, label, badge, padding. Cached per title and font size,
+    /// because inline sections measure every item on every layout pass.
+    static func chipWidth(title: String, font: NSFont, badge: Int? = nil) -> CGFloat {
+        let key = ChipKey(title: title, pointSize: font.pointSize, badge: badge.map { min($0, 100) })
+        if let cached = chipWidths[key] { return cached }
+        // The label's own width (a text field adds its cell padding), plus
+        // one space2 of slack: measured and drawn widths differ by a few
+        // points between window contexts (seen in offscreen renders).
         let label = NSTextField(labelWithString: title)
         label.font = font
-        let text = ceil(label.intrinsicContentSize.width)
-        // One extra space2 of slack: measured and drawn widths differ by a
-        // few points between window contexts (seen in offscreen renders).
-        return Metrics.space2 + SidebarStyle.iconBox + Metrics.space2 + text + Metrics.space2 * 2
+        var width = Metrics.space2 + SidebarStyle.iconBox + Metrics.space2 + ceil(label.intrinsicContentSize.width) + Metrics.space2 * 2
+        if let badge, badge > 0 { width += UnreadBadgeView.width(count: badge) + Metrics.space2 }
+        if chipWidths.count > 512 { chipWidths.removeAll() }
+        chipWidths[key] = width
+        return width
     }
+
+    private struct ChipKey: Hashable {
+        var title: String
+        var pointSize: CGFloat
+        var badge: Int?
+    }
+
+    private static var chipWidths: [ChipKey: CGFloat] = [:]
+
+    /// The unread badge draws (tests).
+    var isBadgeShown: Bool { !badge.isHidden }
 
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }
@@ -73,7 +91,9 @@ final class SidebarItemRowView: NSView {
         title.stringValue = info.title
         title.isHidden = style.isIconOnly
         badge.configure(info.badge.map(UnreadState.count) ?? .none)
-        if style.isIconOnly || style == .chip { badge.isHidden = true }
+        if style.isIconOnly { badge.isHidden = true }
+        // VoiceOver hears the count even where no badge draws (icons).
+        setAccessibilityValue(info.badge.map { String($0) })
         toolTip = style.isIconOnly ? info.title : nil
         setAccessibilityLabel(info.title)
         setAccessibilitySelected(info.isActive)
@@ -119,7 +139,9 @@ final class SidebarItemRowView: NSView {
         title.font = SidebarStyle.titleFont
         let bh = SidebarStyle.badgeHeight
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
-        let badgeX = style == .chip ? b.width : b.width - inset * 2 - badgeWidth
+        let badgeX = style == .chip
+            ? (badge.isHidden ? b.width : b.width - Metrics.space2 - badgeWidth)
+            : b.width - inset * 2 - badgeWidth
         badge.frame = NSRect(x: badgeX, y: (b.height - bh) / 2, width: badgeWidth, height: bh)
         let th = ceil(title.intrinsicContentSize.height)
         let textX = iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)

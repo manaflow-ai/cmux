@@ -14,8 +14,15 @@ use crate::store::OpenError;
 
 pub enum Conn {
     #[cfg(unix)]
-    Socket { reader: BufReader<std::os::unix::net::UnixStream>, writer: std::os::unix::net::UnixStream, next_id: u64 },
-    InProcess { engine: Box<Engine>, actor: Principal },
+    Socket {
+        reader: BufReader<std::os::unix::net::UnixStream>,
+        writer: std::os::unix::net::UnixStream,
+        next_id: u64,
+    },
+    InProcess {
+        engine: Box<Engine>,
+        actor: Principal,
+    },
 }
 
 fn unreachable(message: impl Into<String>) -> ErrorBody {
@@ -24,17 +31,24 @@ fn unreachable(message: impl Into<String>) -> ErrorBody {
 
 impl Conn {
     /// Connect to the local owner: socket first, else open the store.
-    pub fn open(owner: &LocalOwner, actor: &Principal, key_prefix: &str) -> Result<Self, ErrorBody> {
+    pub fn open(
+        owner: &LocalOwner,
+        actor: &Principal,
+        key_prefix: &str,
+    ) -> Result<Self, ErrorBody> {
         #[cfg(unix)]
         if let Ok(stream) = std::os::unix::net::UnixStream::connect(&owner.socket) {
             let writer = stream.try_clone().map_err(|e| unreachable(e.to_string()))?;
             let mut conn = Conn::Socket { reader: BufReader::new(stream), writer, next_id: 0 };
-            conn.send_line(&serde_json::json!({"hello": {"actor": actor}})).map_err(|e| unreachable(e.to_string()))?;
+            conn.send_line(&serde_json::json!({"hello": {"actor": actor}}))
+                .map_err(|e| unreachable(e.to_string()))?;
             return Ok(conn);
         }
         match Engine::open(&owner.dir, &owner.team, key_prefix, system_clock()) {
             Ok(engine) => Ok(Conn::InProcess { engine: Box::new(engine), actor: actor.clone() }),
-            Err(OpenError::Locked) => Err(unreachable("the Tasks owner holds the store but its socket is not answering")),
+            Err(OpenError::Locked) => {
+                Err(unreachable("the Tasks owner holds the store but its socket is not answering"))
+            }
             Err(e) => Err(ErrorBody::new(ErrorCode::Internal, e.to_string())),
         }
     }
@@ -74,23 +88,33 @@ impl Conn {
         if let Conn::Socket { reader, .. } = self {
             let mut text = String::new();
             let n = reader.read_line(&mut text).map_err(|e| match e.kind() {
-                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => ErrorBody::new(ErrorCode::Timeout, "deadline passed"),
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
+                    ErrorBody::new(ErrorCode::Timeout, "deadline passed")
+                }
                 _ => unreachable(e.to_string()),
             })?;
             if n == 0 {
                 return Err(unreachable("the Tasks owner closed the connection"));
             }
-            return serde_json::from_str(&text).map_err(|e| ErrorBody::new(ErrorCode::Internal, format!("bad owner line: {e}")));
+            return serde_json::from_str(&text)
+                .map_err(|e| ErrorBody::new(ErrorCode::Internal, format!("bad owner line: {e}")));
         }
         Err(ErrorBody::new(ErrorCode::Usage, "no socket connection"))
     }
 
     /// One request; returns the reply and the settled sequence.
-    pub fn call(&mut self, op: &str, params: Value, key: Option<String>) -> Result<(Value, u64), ErrorBody> {
+    pub fn call(
+        &mut self,
+        op: &str,
+        params: Value,
+        key: Option<String>,
+    ) -> Result<(Value, u64), ErrorBody> {
         match self {
             Conn::InProcess { engine, actor } => {
                 let request = Request { id: 1, op: op.to_owned(), params, key, origin: None };
-                let outcome = engine.handle(actor, request).map_err(|e| ErrorBody::new(ErrorCode::Internal, format!("log write failed: {e}")))?;
+                let outcome = engine.handle(actor, request).map_err(|e| {
+                    ErrorBody::new(ErrorCode::Internal, format!("log write failed: {e}"))
+                })?;
                 outcome.reply.map(|v| (v, outcome.settled.seq))
             }
             #[cfg(unix)]
@@ -98,15 +122,20 @@ impl Conn {
                 *next_id += 1;
                 let id = *next_id;
                 let request = Request { id, op: op.to_owned(), params, key, origin: None };
-                let value = serde_json::to_value(&request).map_err(|e| ErrorBody::new(ErrorCode::Internal, e.to_string()))?;
+                let value = serde_json::to_value(&request)
+                    .map_err(|e| ErrorBody::new(ErrorCode::Internal, e.to_string()))?;
                 self.send_line(&value).map_err(|e| unreachable(e.to_string()))?;
                 let mut reply = None;
                 loop {
                     match self.read_line()? {
                         ServerLine::Ok { id: rid, ok } if rid == id => reply = Some(Ok(ok)),
-                        ServerLine::Err { id: rid, err } if rid == id || rid == 0 => reply = Some(Err(err)),
+                        ServerLine::Err { id: rid, err } if rid == id || rid == 0 => {
+                            reply = Some(Err(err));
+                        }
                         ServerLine::Settled { settled } if settled.id == id => {
-                            let reply = reply.unwrap_or_else(|| Err(ErrorBody::new(ErrorCode::Internal, "settled without a reply")));
+                            let reply = reply.unwrap_or_else(|| {
+                                Err(ErrorBody::new(ErrorCode::Internal, "settled without a reply"))
+                            });
                             return reply.map(|v| (v, settled.seq));
                         }
                         _ => {}

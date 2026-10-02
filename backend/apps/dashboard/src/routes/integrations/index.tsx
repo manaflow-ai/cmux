@@ -127,7 +127,7 @@ function Integrations() {
                   <code className="muted">{c.id}</code>
                 </td>
                 <td>
-                  <span className={c.status === "active" ? undefined : c.status === "pending" ? "muted" : "error"}>{c.status}</span>
+                  <span className={c.status === "active" ? undefined : c.status === "pending" || c.status === "expired" ? "muted" : "error"}>{c.status}</span>
                   {c.status_detail ? <div className="muted">{c.status_detail}</div> : null}
                 </td>
                 <td>
@@ -135,7 +135,7 @@ function Integrations() {
                   {c.scopes_granted.length > 0 ? <div className="muted mono">{c.scopes_granted.join(" ")}</div> : null}
                 </td>
                 <td>
-                  {c.status === "revoked" ? null : (
+                  {c.status === "revoked" || c.status === "expired" ? null : (
                     <button className="danger" onClick={() => void revoke(c)}>
                       Disconnect
                     </button>

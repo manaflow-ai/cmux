@@ -17,9 +17,12 @@ rows that may scroll, rows.md) inside a frame of four edge docks. The left and r
 today's sticky columns, unchanged. The top and bottom docks are sticky rows: screen-wide bands
 that hold one split tree. Every dock is either pinned (it takes space: the strip ends at its
 inner edge) or overlay (it floats: the strip keeps its size, gets an inset at that edge so
-nothing is covered at rest, and its content scrolls under the dock). There is no 2D grid. A
-dock is stored as a column with a `pin {edge, mode}`, so one record type, one reducer path and
-one set of invariants cover columns, rows and all four edges.
+nothing is covered at rest, and its content scrolls under the dock). Each screen has a frame
+orientation (decision L2): column-major, where the side docks run the full height and the top
+and bottom docks sit between them, or row-major, where the top and bottom docks run the full
+width and the side docks sit between them. There is no 2D grid. A dock is stored as a column
+with a `pin {edge, mode}`, so one record type, one reducer path and one set of invariants cover
+columns, rows, all four edges and both orientations.
 
 ## Vocabulary
 
@@ -32,15 +35,16 @@ one set of invariants cover columns, rows and all four edges.
 | pinned | dock mode that takes space from the strip (code and wire name today: `docked`) |
 | overlay | dock mode that floats over the strip; the strip gets an inset at that edge |
 | frame | the four docks around the strip |
+| orientation | per screen: `column_major` (side docks own the corners) or `row_major` (top/bottom docks own the corners) |
 
 ## Designs compared
 
 - A, the frame: column strip, per-column row stacks, four edge docks.
 - B, the grid: a 2D grid of cells that scrolls on both axes, with sticky first and last rows
-  and columns, like frozen panes in a spreadsheet.
+  and columns (frozen panes).
 - C, stacked strips: workspace-level rows, each row its own horizontal strip of columns
-  (niri workspaces inside one screen); a top or bottom sticky row is a pinned strip.
-- D, recursive containers (considered): an i3/sway-style tree where any container may scroll on
+  inside one screen; a top or bottom sticky row is a pinned strip.
+- D, recursive containers (considered): a general container tree where any container may scroll on
   either axis and any container may be pinned.
 
 | Question | A frame | B grid | C stacked strips | D recursive |
@@ -81,7 +85,7 @@ as the same concept on the other axis, and adds one field value instead of a new
 ## Model (A)
 
 ```
-Screen { columns: [Column] }               // strip order; docks are columns with a pin
+Screen { orientation: column_major | row_major, columns: [Column] }  // strip order; docks are columns with a pin
 Column { id, extent_permille, pin?: Pin, rows: [Row] }  // extent: width (strip, left, right) or height (top, bottom)
 Pin    { edge: left | right | top | bottom, mode: pinned | overlay }
 Row    { id, height_permille, root: SplitTree }   // rows.md
@@ -97,6 +101,7 @@ Invariants (on top of layout-invariants.md I1 to I4 and rows.md R1 to R6):
 | E4 | Left and right docks may hold several rows and scroll them vertically (rows.md G5). |
 | E5 | Dock extents are permille of the viewport's width (left, right) or height (top, bottom), 100..=1000 in the store; each client clamps to its own maximum share. The store never sees a viewport. |
 | E6 | Docks keep their place in the column list, so an old client renders a dock as an ordinary column with every pane. |
+| E7 | Orientation changes only which docks own the corners and what each dock's length is measured against; it never changes membership, order, extents or any other field. Every op, focus and drop rule is the same in both orientations. |
 
 Ownership: pins, extents and dock membership are workspace-store layout state written only
 through typed ops validated by the pure reducer. Which dock a client shows collapsed (none in
@@ -104,33 +109,47 @@ v1), scroll offsets and focus are client view state.
 
 ## Geometry (client)
 
-- F1. Placement order: left and right docks first, full height. Top and bottom docks span
-  between the left and right docks' inner edges (pinned) or under overlay side docks. The strip
-  takes the rest. Corners belong to the side docks, so left/right never shrink when a top or
-  bottom dock appears (decision 2).
+- F1. Placement order follows the screen's orientation (decision L2). Column-major (default):
+  left and right docks first, full height; top and bottom docks span between their inner edges
+  (pinned) or under overlay side docks; rows of the strip live in the space between the side
+  docks. Row-major: top and bottom docks first, full width; left and right docks span between
+  their inner edges; the strip's columns live in the space between the top and bottom docks.
+  The strip takes the rest in both. A dock's extent (width for left/right, height for
+  top/bottom) is the same share in both orientations; only its length changes.
 - F2. Pinned: the strip's viewport ends at the dock's inner edge. Overlay: the strip keeps the
   full extent on that axis and gets an inset of the dock plus a gap at that edge; at rest
   nothing is covered. Left/right: today's S3/S4 unchanged. Top/bottom: every column's rows lay
   out above (or below) the inset; a column whose rows overflow (rows.md G2) scrolls them under
   the overlay.
 - F3. Shares: left/right as today (3/4, 2/5 each with both). Top/bottom at most 1/2 of the
-  height, 1/3 each with both; at least the band's minimum pane height.
-- F4. Stacking: strip panes, strip dividers, top/bottom glass and panes, left/right glass and
-  panes, scrollbars. The strip scrollbar sits at the bottom of the strip's uncovered area, above
-  a bottom dock.
-- F5. What a dock covers takes no clicks or drops for the strip (sticky-column.md D2, four
-  edges). Strip panes clip at a pinned dock's inner edge or an overlay rim's outer edge, on both
-  axes.
+  height, 1/3 each with both; at least the band's minimum pane height. These are client
+  viewport math in both orientations; the store holds only permille (E5).
+- F1a. Orientation is an explicit input of the pure placement function, and F1, F3 and F4 are
+  tested in both orientations.
+- F4. Stacking: strip panes, strip dividers, then the docks that do not own the corners, then
+  the docks that do (column-major: top/bottom below left/right; row-major: left/right below
+  top/bottom), then scrollbars. The strip scrollbar sits at the bottom of the strip's uncovered
+  area, so a pinned or overlay bottom dock moves it up (today it uses the view's height). The
+  row scrollbar (rows.md V5) sits inside its column's frame, never under a right dock.
+- F5. What a dock covers, from its inner edge (or its overlay rim's outer edge) out to the
+  window edge, takes no clicks or drops for the strip (sticky-column.md D2, four edges). In the
+  clip mask the strip stays visible under an overlay's glass rim and is clipped beyond it, on
+  both axes.
+- F6. Reveal needs the scroll reducer, not only geometry: `ColumnStrip` and the vertical row
+  strip carry the uncovered range (leading and trailing insets), and the reveal (column scroll
+  rule F1) and the snap points use it. This closes sticky-column.md's known overlay gap for
+  left/right and gives top/bottom overlays their vertical reveal.
 
 ## Ops (variants of the one LayoutOp set)
 
 | Op | Effect | Rejects |
 | --- | --- | --- |
 | `SetPin { column, pin: Option<Pin> }` | pins or unpins a column in place (generalizes `set-column-sticky` to four edges); E1, E2 in the same commit | top/bottom on a column with more than one row (`dock-needs-one-row`); last strip column (`last-scrolling-column`) |
-| `PinRow { row, edge: top \| bottom, mode, new_column, extent_permille }` | "Make Row Sticky Top/Bottom": lifts one row out of its column into a new dock column; an emptied source column is removed (and normalized) in the same commit | left/right edge; the row's column is the last strip column and has only this row |
+| `PinRow { row, edge: top \| bottom, mode, new_column, extent_permille }` | "Make Row Sticky Top/Bottom": lifts one row out of its column into a new dock column; an emptied source column is removed (and normalized) in the same commit | left/right edge; the pin would not survive normalization (the row is the only row of the last strip column), which TLC found as an op that only churns ids |
 | `MoveTab { tab, to: Destination::Dock { edge, mode, new_column, new_row, new_pane, extent_permille } }` | a dropped or moved tab opens the dock on that edge (or joins its pane when the dock exists: `Destination::Pane`) | dock exists on that edge (the resolver names its pane instead) |
 | `UnpinDock { column, after_column }` | a dock becomes a strip column after `after_column` (the client resolves it; focus is client state) | last dock never rejects; unknown column |
 | `SetExtent { column, extent_permille }` | resize a strip column or a dock (generalizes `set-viewport-pane-width`) | out of range |
+| `SetOrientation { screen, orientation }` | switches the frame between column-major and row-major (E7) | unknown screen; no-op when unchanged |
 
 Every op carries a client-chosen idempotency key and caller-chosen ids for new entities, is
 validated by `cmux-layout-reducer`, and ends with `request-settled`. Destructive policy (removing
@@ -145,6 +164,16 @@ an emptied column or dock, unpinning on E2) is decided by the store in the same 
   and in the side table that rows.md adds (`resource_screen_rows` gains a per-column `dock`
   record), never in `sticky`. An older client and an older binary see an ordinary column.
 - Left/right keep `sticky` unchanged; the reducer and the app read both into one `Pin`.
+  `ColumnSticky` no longer denies unknown fields (b652fa6b2da), but `StickyEdge` and
+  `StickyMode` are closed enums, so the separate `dock` field stays necessary.
+- One reducer path: `SetPin` extends today's `reduce_column_sticky` / `apply_column_sticky`
+  (cmux-tui `mux/sticky_columns.rs`) and `normalize_sticky_columns`
+  (`model/layout_columns.rs`), never a parallel path; `SetPin` and `SetExtent` land in the
+  v2 `column.update` reducer (`reduce_column_update`, branch feat-cmux-next-column-update-op)
+  once it merges. `workspace.layout.apply` keeps a column's flag when its id survives, so the
+  `apply-layout` refusal for top/bottom screens is a check there.
+- Orientation is a screen field in the same side table (`resource_screen_rows` gains a screen
+  record); an older binary ignores it and draws column-major, which only moves corners.
 - Legacy writes on a screen with a top/bottom dock follow rows.md's table; `set-column-sticky`
   with left/right on a top/bottom dock re-pins it (E1); `apply-layout` refuses screens with
   top/bottom docks until blueprints carry pins.
@@ -172,6 +201,7 @@ an emptied column or dock, unpinning on E2) is decided by the store in the same 
 | New Column (Ctrl-Cmd-D) | after the focused column | from a left/right dock: a strip column at that end of the strip; from top/bottom: refused with a HUD |
 | New Row (Ctrl-Cmd-Shift-D) | below the focused row | left/right dock: a row in the dock; top/bottom: refused (E3) |
 | Make Column Sticky Left/Right, Unstick, Toggle Sticky Overlay | exist (no shortcut) | unchanged |
+| Toggle Frame Orientation | new (palette, CLI `screen toggle-frame-orientation`, screen menu; no shortcut) | `SetOrientation` |
 | Make Row Sticky Top / Bottom | new (no shortcut) | from a strip row: `PinRow` |
 | Move Tab to Top/Bottom/Left/Right Dock | new (palette, CLI, tab menu) | `Destination::Dock` or the dock's pane |
 | Focus Dock Top/Bottom/Left/Right | new (palette, CLI; no shortcut) | |
@@ -200,7 +230,9 @@ and MCP, or a reasoned exemption.
 
 ## Prototypes (DEV Debug Settings, "Panes and Columns" section)
 
-Tunable `layout.prototype.model`: `off` (default) | `frameDocks` (A) | `grid` (B). View-only:
+Tunables `layout.prototype.model`: `off` (default) | `frameDocks` (A) | `grid` (B);
+`layout.prototype.dockEdge`: `bottom` | `top`; `layout.prototype.orientation`: `columnMajor` |
+`rowMajor`. View-only:
 the geometry reinterprets the current screen, nothing is written to the store, and the switch
 applies live.
 - A, `frameDocks`: the right sticky column is drawn as a top or bottom dock
@@ -208,6 +240,27 @@ applies live.
 - B, `grid`: each strip column's panes become grid cells by index; rows share one height across
   columns; a column with fewer panes shows holes.
 Screenshots and recordings are listed in "Evidence".
+
+## Ownership of the work
+
+- Layout model lead: this proposal, the reducer ops, the daemon (`edge-docks-v1`, side table,
+  `column.update` integration), the TLA+ model, the prototypes.
+- App four-edge geometry (F1 to F6: `StickyStripGeometry`, `ScreenGeometry`,
+  `ScreenContentView+Sticky` stacking, clip, hit testing and navigation frames,
+  `DropZoneGeometry.target(atView:)`, scrollbar placement, the scroll reducer insets): a
+  separate task for the sticky-column geometry owner, assigned by the coordinator after
+  Lawrence picks the model.
+
+## Evidence (2026-10-02)
+
+- Geometry: `LayoutModelPrototypeTests` (7 tests) pin the frame in both orientations and both
+  edges, docks drawn from plain columns, the grid's shared rows and holes, and off = real layout.
+- Live build lmproto-v1 (fleet job a5dbd34f2414ad8ecd984564): the tunables switch live and the
+  app stayed in the background (`app_active` false, no key window). The screenshots are not
+  evidence of the design: the seed made two full-width columns, and the sticky view path places
+  sticky panes by edge rather than by the geometry frame, so the band draws as a right column.
+  Live rendering of the prototypes is UNVERIFIED until the view path reads the frame (part of
+  the app geometry task above). No recordings were made.
 
 ## Verification plan
 
@@ -229,8 +282,9 @@ Screenshots and recordings are listed in "Evidence".
 ## Decisions for Lawrence
 
 1. Model A, the frame (recommended), against B, the grid, or C, stacked strips.
-2. Corners: side docks run full height and top/bottom docks sit between them (recommended:
-   left/right never shrink), or top/bottom run full width.
+2. Decided (L2): both orientations exist, per screen. Open: the default for new screens,
+   column-major (recommended: left/right, the excellent pair, never shrink) or row-major; and
+   whether Settings offers a default orientation (recommended: yes, `layout.frameOrientation`).
 3. Top/bottom docks hold one split tree that fits (recommended for v1), or a horizontally
    scrolling strip of their own.
 4. UI names "Pinned" and "Overlay" (recommended; the wire keeps `docked`), or keep "Docked".
