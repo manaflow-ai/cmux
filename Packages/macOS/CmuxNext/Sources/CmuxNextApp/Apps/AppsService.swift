@@ -21,6 +21,11 @@ final class AppsService {
     }
 
     func start() {
+        // Root cause of a 7.5 s main-thread stall when the store opened: the
+        // bundled samples were scanned on the main actor. Resources now load
+        // once off the main actor; the store renders from the client mirror.
+        // task-owner: one resource preload at launch
+        Task { await AppPlatformResources.preload() }
         client.start()
     }
 

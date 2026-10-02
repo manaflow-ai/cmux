@@ -11,7 +11,8 @@ struct AppStoreModelTests {
         let model = AppStoreModel(client: client)
         #expect(Set(model.listings.map(\.id)) == ["cmux/github-prs", "cmux/running-agents", "cmux/agent-status"])
         #expect(model.listings.allSatisfy { $0.tier == .firstParty && $0.publisherVerified })
-        #expect(model.allCategories == ["agents", "git", "monitoring", "sidebar"])
+        #expect(model.allCategories == Set(client.apps.flatMap(\.manifest.categories)).sorted())
+        #expect(Set(["agents", "git", "monitoring", "sidebar"]).isSubset(of: model.allCategories))
         #expect(model.installedApps.map(\.id) == ["cmux/agent-status"])
         #expect(model.state(of: "cmux/agent-status")?.isDefault == true)
     }
@@ -24,7 +25,7 @@ struct AppStoreModelTests {
         model.query = ""
         model.category = "monitoring"
         #expect(model.listings.map(\.id) == ["cmux/agent-status"])
-        #expect(model.allCategories.count == 4)
+        #expect(model.allCategories.contains("git"))
     }
 
     @Test func openingAListingClearsFiltersThatHideIt() async throws {

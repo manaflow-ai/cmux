@@ -11,7 +11,9 @@ struct AppManifestTests {
         #expect(Set(samples.map(\.id)) == ["cmux/github-prs", "cmux/running-agents", "cmux/agent-status"])
         let prs = try #require(samples.first { $0.id == "cmux/github-prs" })
         let section = try #require(prs.sections.first)
-        #expect(prs.globalID(of: section) == "cmux/github-prs#prs")
+        // v1 samples name the section `prs`; v2 samples key it by interface.
+        #expect(["prs", AppImplementation.section].contains(section.id))
+        #expect(prs.globalID(of: section) == "cmux/github-prs#\(section.id)")
         #expect(section.title?.english == "Pull Requests")
         #expect(section.symbol == "arrow.triangle.pull")
         #expect(prs.scopes.map(\.scope).contains("net:api.github.com"))
