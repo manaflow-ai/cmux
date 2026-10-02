@@ -38,7 +38,7 @@ import Testing
         column.layoutSubtreeIfNeeded()
         let items = column.layoutResult.buttons.map(\.item)
         #expect(items == [LayoutItemID("itm_home"), LayoutItemID("itm_settings"), LayoutItemID("itm_account")])
-        #expect(column.layoutResult.buttons.first?.frame.minY == 40)
+        #expect(column.layoutResult.buttons.first?.frame.minY == CGFloat(40))
         #expect(column.itemView(appStore) == nil)
     }
 

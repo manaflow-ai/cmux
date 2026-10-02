@@ -27,7 +27,7 @@ import Testing
         #expect(frames[0] == CGRect(x: 7, y: 40, width: 34, height: 34))
         #expect(frames[1].minY == frames[0].maxY + 4)
         // The bottom band ends at the bottom inset.
-        #expect(frames[3].maxY == 600 - 12)
+        #expect(frames[3].maxY == CGFloat(600 - 12))
         #expect(frames[2].maxY + 4 == frames[3].minY)
         // One section per band: no lines.
         #expect(rail.separators.isEmpty)
@@ -40,7 +40,7 @@ import Testing
         let rail = SidebarRailLayout.make(document: doc, room: nil, height: 600, metrics: m)
         #expect(rail.separators == [CGRect(x: 12, y: 40 + 34 + 8, width: 24, height: 1)])
         let b0 = rail.buttons.first { $0.item.rawValue == "b_0" }!
-        #expect(b0.frame.minY == 40 + 34 + 8 + 1 + 8)
+        #expect(b0.frame.minY == CGFloat(40 + 34 + 8 + 1 + 8))
     }
 
     /// Under `appearance.borders = none` the line draws nothing and the
@@ -67,7 +67,7 @@ import Testing
         ])
         let rail = SidebarRailLayout.make(document: doc, room: nil, height: 600, metrics: m)
         #expect(rail.buttons.map(\.item.rawValue) == ["a_0", "b_0", "c_0"])
-        #expect(rail.buttons.last!.frame.maxY == 600 - 12)
+        #expect(rail.buttons.last!.frame.maxY == CGFloat(600 - 12))
     }
 
     @Test func roomScopedSectionsShowOnlyInTheirRoom() {
@@ -101,9 +101,9 @@ import Testing
         let rail = SidebarRailLayout.make(document: doc, room: nil, height: 160, metrics: m)
         #expect(rail.buttons.map(\.item.rawValue) == ["z_0"])
         #expect(rail.overflow.map(\.rawValue) == ["a_0", "a_1", "b_0"])
-        #expect(rail.more?.minY == 40)
+        #expect(rail.more?.minY == CGFloat(40))
         #expect(rail.separators.isEmpty)
-        #expect((rail.more?.maxY ?? .infinity) <= 114 - 8)
+        #expect((rail.more?.maxY ?? .infinity) <= CGFloat(114 - 8))
     }
 
     /// The More button keeps the line of the section whose slot it takes.
@@ -116,7 +116,7 @@ import Testing
         #expect(rail.buttons.map(\.item.rawValue) == ["a_0", "z_0"])
         #expect(rail.overflow.map(\.rawValue) == ["b_0", "b_1"])
         #expect(rail.more == CGRect(x: 7, y: 91, width: 34, height: 34))
-        #expect(rail.separators.map(\.minY) == [82])
+        #expect(rail.separators.map(\.minY) == [CGFloat(82)])
     }
 
     @Test func nothingOverflowsAndNoMoreWhenEverythingFits() {
