@@ -1846,6 +1846,11 @@ pub struct RegistryViewportColumn {
     pub width: f32,
     pub layout: RegistryLayoutNode,
     pub auto_layout: Option<Vec<PanePublicId>>,
+    /// `sticky-columns-v1`. Additive: records written before it omit the
+    /// field, and it is omitted while the column is not sticky, so an older
+    /// daemon still reads every record that has no sticky column.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sticky: Option<crate::model::ColumnSticky>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

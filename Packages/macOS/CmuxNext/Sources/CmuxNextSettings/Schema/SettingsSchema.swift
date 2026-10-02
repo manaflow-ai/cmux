@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + appearance + browser + notifications
+        general + columnLayout + appearance + browser + notifications
     }
 
     /// The descriptors of one section, in order.
@@ -82,8 +82,8 @@ public nonisolated enum SettingsSchema {
             ),
             SettingDescriptor(
                 DefaultColumnWidthSetting.configPath, section: .general, group: columns,
-                title: SettingsText.text("settings.layout.defaultColumnWidth", "New Column Width"),
-                help: SettingsText.text("settings.layout.defaultColumnWidth.help", "A share of the window width."),
+                title: SettingsText.text("settings.layout.fixedColumnWidth", "Fixed Column Width"),
+                help: SettingsText.text("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
                 kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
                 default: .number(DefaultColumnWidthSetting.fallback), keywords: ["niri", "width"]
             ),

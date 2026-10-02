@@ -13,7 +13,20 @@ public nonisolated struct ColumnResize: Hashable, Sendable {
 /// that opening it needs.
 public nonisolated struct NewColumnPlan: Hashable, Sendable {
     public var width: Double
-    public var resize: ColumnResize?
+    /// Existing columns whose width changes with the new column.
+    public var resizes: [ColumnResize]
+    /// The first width change (the fixed-width rule has at most one).
+    public var resize: ColumnResize? { resizes.first }
+
+    public init(width: Double, resize: ColumnResize? = nil) {
+        self.width = width
+        resizes = resize.map { [$0] } ?? []
+    }
+
+    public init(width: Double, resizes: [ColumnResize]) {
+        self.width = width
+        self.resizes = resizes
+    }
 }
 
 /// Width rules for new columns (plans/cmux-next/niri.md, "Column widths").

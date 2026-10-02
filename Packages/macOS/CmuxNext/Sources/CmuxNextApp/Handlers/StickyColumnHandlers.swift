@@ -19,13 +19,13 @@ enum StickyColumnHandlers {
         let capability = DaemonCapabilities.shared.stickyColumns
         registry.bind("column.makeSticky", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             guard let (content, column) = ColumnHandlers.column(invocation, ctx) else { return }
-            let edge = invocation["edge"]?.stringValue.flatMap(StickyEdge.init(rawValue:)) ?? column.sticky?.edge ?? .right
-            let mode = invocation["mode"]?.stringValue.flatMap(StickyMode.init(rawValue:)) ?? column.sticky?.mode ?? .docked
+            let edge = invocation["edge"]?.stringValue.flatMap(StickyEdge.init(rawValue:)) ?? column.sticky?.edge ?? defaultEdge
+            let mode = invocation["mode"]?.stringValue.flatMap(StickyMode.init(rawValue:)) ?? column.sticky?.mode ?? defaultMode
             try apply(StickyColumn(edge: edge, mode: mode), to: column, in: content)
         })
         registry.bind("column.makeStickyLeft", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             guard let (content, column) = ColumnHandlers.column(invocation, ctx) else { return }
-            try apply(StickyColumn(edge: .left, mode: column.sticky?.mode ?? .docked), to: column, in: content)
+            try apply(StickyColumn(edge: .left, mode: column.sticky?.mode ?? defaultMode), to: column, in: content)
         })
         registry.bind("column.unstick", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
             guard let (content, column) = ColumnHandlers.column(invocation, ctx) else { return }
@@ -37,7 +37,7 @@ enum StickyColumnHandlers {
             // (from a strip pane), else the targeted column as a right overlay.
             let screen = content.layoutModel.screens.first { $0.layout.columns.contains { $0.id == column.id } }
             let target = column.sticky != nil ? column : screen?.layout.columns.first { $0.sticky != nil } ?? column
-            let next = target.sticky.map { StickyColumn(edge: $0.edge, mode: $0.mode.toggled) } ?? StickyColumn(edge: .right, mode: .overlay)
+            let next = target.sticky.map { StickyColumn(edge: $0.edge, mode: $0.mode.toggled) } ?? StickyColumn(edge: defaultEdge, mode: .overlay)
             try apply(next, to: target, in: content)
         })
         registry.bind("layout.toggleStripScrollbar", run: { _ in
@@ -51,6 +51,10 @@ enum StickyColumnHandlers {
             }
         })
     }
+
+    /// cmux.json `layout.stickyColumnEdge` / `layout.stickyColumnMode`.
+    static var defaultEdge: StickyEdge { DesignSettings.shared.stickyColumnEdge == .left ? .left : .right }
+    static var defaultMode: StickyMode { DesignSettings.shared.stickyColumnMode == .overlay ? .overlay : .docked }
 
     /// The one mutation path: checks the workspace's own daemon serves
     /// `sticky-columns-v1`, validates like the daemon, sends

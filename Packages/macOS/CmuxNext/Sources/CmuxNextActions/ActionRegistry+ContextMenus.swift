@@ -40,7 +40,7 @@ extension ActionRegistry {
     static func impliedContext(for context: ActionMenuContext) -> ActionContext {
         switch context {
         case .browserPage: .browserFocused
-        case .terminalSelection, .link: .terminalFocused
+        case .terminalSelection: .terminalFocused
         default: []
         }
     }
