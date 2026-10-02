@@ -30,6 +30,11 @@ public final class AgentPaneView: NSView {
     private var crashReloads = AgentPaneCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
     private var crashNotice: NSView?
+    /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
+    /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
+    private var motionObservation: Task<Void, Never>?
+    private var reduceMotionObserver: (any NSObjectProtocol)?
+    private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -86,6 +91,25 @@ public final class AgentPaneView: NSView {
         webView.navigationDelegate = navigation
         addSubview(webView)
         source.load(into: webView)
+        observeMotion()
+    }
+
+    private func observeMotion() {
+        motionObservation = Task { [weak self] in
+            for await _ in Observations({ Motion.speed }) {
+                guard let self else { return }
+                self.applyTheme()
+            }
+        }
+        // Reduce Motion is not observable through Observation.
+        reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyTheme() }
+        }
+        reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
+            forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyTheme() }
+        }
     }
 
     @available(*, unavailable)
@@ -192,6 +216,12 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        motionObservation?.cancel()
+        motionObservation = nil
+        if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
+        if let reduceMotionOverrideObserver { NotificationCenter.default.removeObserver(reduceMotionOverrideObserver) }
+        reduceMotionObserver = nil
+        reduceMotionOverrideObserver = nil
         dictation.close()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
         webView.navigationDelegate = nil

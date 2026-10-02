@@ -2954,14 +2954,16 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
   color: var(--agent-muted);
   white-space: normal;
 }
-/* Interaction states for the composer, its menus and the home lists: every control gets a hover,
-   a pressed and a focus state. Each is a tonal step mixed from the theme's text color, so no
+/* Interaction states for the composer and its menus: every control gets a hover and a pressed
+   state (focus rings are in styles.css). Each is a tonal step mixed from the theme's text color, so no
    accent hue appears and every theme keeps its character. Only colors change (never size,
    padding or borders), so a state never shifts the layout.
 
    Motion tokens: the native host sends its MotionFade durations with the theme
    (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
-   its `fast` values for the dev page and the mock. */
+   its `fast` values for the dev page and the mock. The focus and fade-out tokens are there for
+   the pane's other stylesheets. Every transition sits under prefers-reduced-motion:
+   no-preference, as the transcript's do (conversation/motion.test.ts). */
 :root {
   --agent-motion-hover: 80ms;
   --agent-motion-focus: 100ms;
@@ -2978,12 +2980,6 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 }
 
 /* Composer chips: Plan, the mode, model and effort pickers, and +. */
-.acpmux-picker-button,
-.acpmux-plan {
-  transition:
-    background-color var(--agent-motion-hover) var(--agent-ease-out),
-    color var(--agent-motion-hover) var(--agent-ease-out);
-}
 .acpmux-picker-button:active,
 .acpmux-plan:active {
   background: var(--acpmux-composer-press);
@@ -2996,9 +2992,6 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 }
 
 /* Send and Stop: the one filled control steps toward the text color on hover and further on press. */
-.acpmux-send {
-  transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
-}
 .acpmux-send.acpmux-send-ready:hover,
 .acpmux-send.acpmux-cancel:hover {
   background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 86%, var(--agent-text));
@@ -3009,10 +3002,6 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 }
 
 /* Menu rows follow the pointer through their active row (the keyboard highlight); a press steps further. */
-.acpmux-menu-item,
-.acpmux-slash-row {
-  transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
-}
 .acpmux-menu-item:active,
 .acpmux-slash-row:active {
   background: var(--acpmux-menu-press);
@@ -3024,9 +3013,26 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
     opacity: 0;
   }
 }
-.acpmux-menu,
-.acpmux-slash-menu {
-  animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
+
+/* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-picker-button,
+  .acpmux-plan {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-send {
+    transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-menu-item,
+  .acpmux-slash-row {
+    transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
+  }
+  .acpmux-menu,
+  .acpmux-slash-menu {
+    animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
+  }
 }
 /* Cmd-K Search chats (reference prototype search.png): a 520px sheet centered over the pane,
    theme tokens only, no accent color. */
