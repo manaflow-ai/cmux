@@ -58,6 +58,7 @@ export class MockAcpmuxSocket {
   private seq = 0;
   private turns = 0;
   private running?: { cancelled: boolean };
+  private closed = false;
   /// Prompts run one at a time, as the daemon queues them.
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -80,6 +81,7 @@ export class MockAcpmuxSocket {
 
   close(): void {
     this.readyState = 3;
+    this.closed = true;
     if (this.running) this.running.cancelled = true;
   }
 
@@ -106,6 +108,8 @@ export class MockAcpmuxSocket {
   }
 
   private async prompt(target: string, prompt: string, promptId?: string): Promise<unknown> {
+    // A prompt queued behind a closed daemon never starts.
+    if (this.closed) return { stopReason: "cancelled" };
     this.turns += 1;
     const running = { cancelled: false };
     this.running = running;
@@ -115,7 +119,7 @@ export class MockAcpmuxSocket {
     const steps: MockScript["steps"] = this.script?.steps ?? mockTurn(prompt, this.turns);
     for (const step of steps) {
       if (!this.script) await this.delay(350);
-      if (running.cancelled) break;
+      if (running.cancelled || this.closed) break;
       this.emit(target, step, step.atMs === undefined ? undefined : started + step.atMs);
     }
     const endAt = this.script?.endAtMs;
