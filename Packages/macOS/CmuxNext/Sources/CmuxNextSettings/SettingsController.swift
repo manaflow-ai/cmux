@@ -149,6 +149,17 @@ public final class SettingsController {
         }
     }
 
+    /// Writes `appearance.theme`; nil removes it, but only once settings have
+    /// loaded. Before the first load the snapshot is empty, so "no theme" there
+    /// is unknown, not the user's choice, and never deletes a saved theme.
+    public func setTheme(_ name: String?) async throws {
+        if let name {
+            try await file.set(.string(name), at: ["appearance", "theme"])
+        } else if loadCount > 0 {
+            try await file.remove(["appearance", "theme"])
+        }
+    }
+
     public func setDensity(_ density: Density) async throws {
         try await file.set(.string(density.rawValue), at: ["appearance", "density"])
     }

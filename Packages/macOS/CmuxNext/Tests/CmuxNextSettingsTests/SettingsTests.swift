@@ -252,6 +252,29 @@ import Testing
         try await eventually(controller) { controller.snapshot.root.value(at: ["appearance", "theme"]) == "Catppuccin Mocha" }
     }
 
+    /// Onboarding's Skip puts back "no theme" when it read the snapshot
+    /// before settings loaded; that must not delete the saved theme. Once
+    /// loaded, choosing no theme (the Ghostty config's) does remove it.
+    @Test func clearingTheThemeBeforeTheFirstLoadKeepsIt() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data("{\n  \"appearance\": {\"theme\": \"Catppuccin Mocha\"}\n}\n".utf8).write(to: url)
+        let controller = SettingsController(registry: ActionRegistry.standard(), design: DesignSettings(), fileURL: url)
+        func theme() throws -> JSONValue? {
+            try JSONC.parse(String(contentsOf: url, encoding: .utf8)).value(at: ["appearance", "theme"])
+        }
+
+        try await controller.setTheme(nil)
+        #expect(try theme() == "Catppuccin Mocha")
+
+        controller.start()
+        defer { controller.stop() }
+        try await nextLoad(controller, after: 0)
+        try await controller.setTheme(nil)
+        #expect(try theme() == nil)
+    }
+
     @Test func refusesToRewriteABrokenFile() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
