@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { ComposerContext } from "./ComposerContext";
 import { ArrowUpIcon, PlusIcon, StopIcon } from "./ComposerPickers";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 
@@ -152,6 +153,7 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   };
   return <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
     {open && <SlashMenu matches={matches} active={selected} empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands} onHover={setActive} onPick={pick} />}
+    <ComposerContext summary={snapshot.summary} />
     <div className="acpmux-composer-box">
       {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
       <textarea ref={textarea} className="acpmux-composer-field" aria-label={COMPOSER_LABELS.prompt} name="prompt" rows={1} placeholder={COMPOSER_LABELS.placeholder} value={text}

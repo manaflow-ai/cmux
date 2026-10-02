@@ -190,3 +190,23 @@ describe("acpmux composer send button", () => {
     expect(stops).toBe(0);
   });
 });
+
+describe("acpmux composer context", () => {
+  test("the tray names the project, the machine and the branch, and a worktree gets its own glyph and title", async () => {
+    const root = createRoot(doc.getElementById("root")!);
+    const render = async (summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>>) => act(async () => root.render(createElement(Composer, { snapshot: snapshot(summary), chips: () => null, onSend: () => {}, onStop: () => {} })));
+    const chips = () => [...doc.querySelectorAll(".acpmux-context-chip")].map((chip) => `${chip.textContent}|${chip.getAttribute("title") ?? ""}`);
+    try {
+      await render({});
+      expect(doc.querySelector(".acpmux-composer-context")).toBeNull();
+      await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud", branch: "feat-retry-backoff", worktree: "/Users/me/code/cmux-retry" });
+      expect(chips()).toEqual(["cmux|Project: /Users/me/code/cmux", "hearty-beige-elk|", "feat-retry-backoff|Worktree: /Users/me/code/cmux-retry"]);
+      expect(doc.querySelector(".acpmux-composer-context")!.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+      // The home folder is no project; a plain branch is titled as one.
+      await render({ cwd: "/Users/me", host: "This Mac", hostKind: "local", branch: "main" });
+      expect(chips()).toEqual(["This Mac|", "main|Branch: main"]);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});

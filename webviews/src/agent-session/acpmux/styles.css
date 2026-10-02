@@ -67,3 +67,9 @@
 .acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
 .acpmux-empty-title{margin:0;max-width:560px;font-size:20px;line-height:28px;font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
 .acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
+/* Context (ComposerContext.tsx): Codex's tray behind the composer, the project and machine at the left and the branch at the right, tucked under the field. */
+.acpmux-composer-context{display:flex;align-items:center;gap:20px;min-width:0;height:36px;margin:0 12px -10px;padding:0 12px 10px;border-radius:18px 18px 0 0;background:var(--acpmux-menu-bg);box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge);color:var(--agent-text);font-size:13px}
+.acpmux-context-chip{display:flex;align-items:center;gap:7px;min-width:0;white-space:nowrap}
+.acpmux-context-chip>span{overflow:hidden;text-overflow:ellipsis}
+.acpmux-context-chip .acpmux-icon{color:var(--acpmux-composer-dim)}
+.acpmux-context-branch{margin-left:auto;color:var(--acpmux-composer-dim)}
