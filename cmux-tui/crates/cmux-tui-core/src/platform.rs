@@ -1294,6 +1294,9 @@ fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
 pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     // Hosted surfaces never trust hostless OSC 7 values. Their authenticated
     // spawn CWD is the only safe fallback when no local host is identified.
+    if let Some(report) = kitty_shell_cwd(value) {
+        return report.into_local_path(true);
+    }
     let mut url = url::Url::parse(value).ok()?;
     if url.scheme() != "file" {
         return None;
@@ -1324,6 +1327,9 @@ pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     if terminal_pwd_path_is_safe(plain) {
         return Some(plain.to_owned());
     }
+    if let Some(report) = kitty_shell_cwd(value) {
+        return report.into_local_path(false);
+    }
 
     let mut url = url::Url::parse(value).ok()?;
     if url.scheme() != "file" {
@@ -1338,6 +1344,45 @@ pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
         url.set_host(Some("localhost")).ok()?;
     }
     url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
+}
+
+/// An OSC 7 report in kitty's `kitty-shell-cwd://HOST/PATH` form, which
+/// Ghostty's shell integration emits (cmux-tui injects it into the default
+/// shell). Unlike a `file://` URL the path follows the host unencoded, so it
+/// is taken byte for byte, never percent-decoded.
+struct KittyShellCwd<'a> {
+    host: &'a str,
+    path: &'a str,
+}
+
+fn kitty_shell_cwd(value: &str) -> Option<KittyShellCwd<'_>> {
+    const SCHEME: &str = "kitty-shell-cwd://";
+    let rest = value
+        .get(..SCHEME.len())
+        .filter(|prefix| prefix.eq_ignore_ascii_case(SCHEME))
+        .map(|_| &value[SCHEME.len()..])?;
+    let slash = rest.find('/').unwrap_or(rest.len());
+    Some(KittyShellCwd { host: &rest[..slash], path: &rest[slash..] })
+}
+
+impl KittyShellCwd<'_> {
+    /// The same trust rules as a `file://` report: a named host must be this
+    /// machine, and a hosted terminal (`require_host`) never trusts a
+    /// hostless report.
+    fn into_local_path(self, require_host: bool) -> Option<PathBuf> {
+        if self.host.is_empty() {
+            if require_host {
+                return None;
+            }
+        } else if !terminal_pwd_host_is_local(self.host) {
+            return None;
+        }
+        if self.path.contains('\0') {
+            return None;
+        }
+        let path = PathBuf::from(self.path);
+        terminal_pwd_path_is_safe(&path).then_some(path)
+    }
 }
 
 /// Convert a trusted spawn working directory into a local path. Spawn CWDs

@@ -71,10 +71,25 @@ impl HeadlessServer {
         Self::start_with_options(name, None, Some(launch_cwd))
     }
 
+    /// A server whose default shells run without Ghostty's shell
+    /// integration (#15924), so they emit no OSC 133 prompt marks.
+    fn start_without_shell_integration(name: &str) -> Self {
+        Self::start_with_env(name, None, None, &[("CMUX_TUI_SHELL_INTEGRATION", "none")])
+    }
+
     fn start_with_options(
         name: &str,
         config_contents: Option<&str>,
         launch_cwd: Option<&std::path::Path>,
+    ) -> Self {
+        Self::start_with_env(name, config_contents, launch_cwd, &[])
+    }
+
+    fn start_with_env(
+        name: &str,
+        config_contents: Option<&str>,
+        launch_cwd: Option<&std::path::Path>,
+        env: &[(&str, &str)],
     ) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
@@ -99,6 +114,7 @@ impl HeadlessServer {
         if let Some(launch_cwd) = launch_cwd {
             command.current_dir(launch_cwd);
         }
+        command.envs(env.iter().copied());
         let child = command.spawn().unwrap();
         let server = Self::adopt(child, socket, state, dir);
         server.wait_for_socket();
@@ -3389,7 +3405,14 @@ fn raw_command_is_the_explicit_private_protocol_v10_escape() {
 
 #[test]
 fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
-    let server = HeadlessServer::start("matrix");
+    // `terminal history clear` below checks clear-history's documented
+    // branch without prompt metadata (spec/commands.md): retained scrollback
+    // clears and the visible grid stays. Since #15924 the default shell
+    // carries Ghostty's shell integration and its OSC 133 prompt marks, which
+    // select the other documented branch (complete rows before the active
+    // prompt clear too; unit tests in surface.rs cover it). This server opts
+    // out so the branch under test does not depend on the runner's shell.
+    let server = HeadlessServer::start_without_shell_integration("matrix");
 
     let identify = raw_cli(&server, serde_json::json!({"id":"identify-human","cmd":"identify"}));
     assert_success(&identify);
