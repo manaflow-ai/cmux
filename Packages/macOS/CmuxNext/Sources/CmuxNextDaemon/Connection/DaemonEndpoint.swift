@@ -146,6 +146,10 @@ public struct DaemonCapabilities: Sendable {
     /// spawns a new tab of the same kind in the source pane, in the same
     /// owner op (plans/cmux-next/layout-invariants.md).
     public let tabSplitRespawn = "tab-split-respawn-v1"
+    /// `git.checkpoint.create|get|list|pin|unpin` on the session host
+    /// (cx-checkpoint-capture-contract v1.1). Read from `identify` only: the
+    /// agent pane offers checkpoints when the daemon serves them.
+    public let gitCheckpoints = "git-checkpoints-v1"
     public var awaitingPin: [String] {
         [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
          endTerminalsKeepLayout, stateResources, localConversations, sidebarLayout, tabSplitRespawn, frontendBrowserHistory]

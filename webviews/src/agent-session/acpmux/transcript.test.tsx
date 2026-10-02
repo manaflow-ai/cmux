@@ -1055,6 +1055,13 @@ describe("acpmux host handshake", () => {
         { method: "git.diff", params: { cwd: "/work/app", scope: "staged", include_patch: true } },
         { method: "git.status", params: { cwd: "/work/app" } },
       ]);
+      // The checkpoint review's operations take the same route, with the page's own params.
+      const list = host.cmuxAcpmuxActions?.["git.checkpoint.list"];
+      expect(typeof list).toBe("function");
+      await list?.({ cwd: "/work/app", include_candidates: true });
+      expect(asked.filter((entry) => entry.method === "git.checkpoint.list")).toEqual([
+        { method: "git.checkpoint.list", params: { cwd: "/work/app", include_candidates: true } },
+      ]);
       expect(FolderSocket.git).toEqual([]);
     } finally {
       await act(async () => root.unmount());

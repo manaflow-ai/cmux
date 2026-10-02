@@ -8,6 +8,7 @@ import {
   settleOptimisticPrompt,
 } from "./direct";
 import type { EventRecord } from "./direct";
+import { CheckpointRpcError } from "./checkpoints/protocol";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { isNewChat } from "./EmptyState";
 
@@ -1171,6 +1172,67 @@ describe("direct client git reads", () => {
     await settle();
     await expect(client.gitDiff("uncommitted")).rejects.toThrow("runs on another machine");
     await expect(client.gitStatus()).rejects.toThrow("runs on another machine");
+    expect(posted).toEqual([]);
+    expect(gitSent()).toEqual([]);
+    client.close();
+  });
+
+  /// The checkpoint review's requests take the changes view's route: the native host, with the
+  /// page's own params (its `cwd` and, on a mutation, its `idempotency_key`).
+  test("checkpoint requests and the capability read go to the native host", async () => {
+    const client = await connect();
+    await settle();
+    expect(await client.gitCapabilities()).toEqual({ method: "git.capabilities" });
+    await client.gitCheckpoint("git.checkpoint.list", { cwd: "/work/a", include_candidates: true });
+    await client.gitCheckpoint("git.checkpoint.pin", {
+      cwd: "/work/a",
+      checkpoint_id: "cp_1",
+      pin_id: "user:1",
+      reason: "manual",
+      idempotency_key: "key-1",
+    });
+    expect(posted).toEqual([
+      { method: "git.capabilities", params: {} },
+      { method: "git.checkpoint.list", params: { cwd: "/work/a", include_candidates: true } },
+      {
+        method: "git.checkpoint.pin",
+        params: { cwd: "/work/a", checkpoint_id: "cp_1", pin_id: "user:1", reason: "manual", idempotency_key: "key-1" },
+      },
+    ]);
+    expect(gitSent()).toEqual([]);
+    client.close();
+  });
+
+  /// A cloud session's repository is on its machine. The refusal is definite (origin native, not
+  /// `native.timed_out`), so the checkpoint client drops the mutation's key instead of retrying.
+  test("a cloud session's checkpoints are refused without asking anyone", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a", hostKind: "cloud", cwd: "/workspace" }] };
+      if (method === "_acpmux/attach")
+        return {
+          session: { sessionId: params.sessionId, status: "idle", hostKind: "cloud", cwd: "/workspace" },
+          events: [],
+        };
+      return {};
+    };
+    const client = await connect();
+    await settle();
+    const refusal = await client
+      .gitCheckpoint("git.checkpoint.create", { cwd: "/workspace", include_untracked: [], idempotency_key: "k" })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect(refusal).toMatchObject({
+      name: "NativeError",
+      code: "operation.failed",
+      origin: "native",
+      details: { reason: "cloud_unsupported" },
+    });
+    expect(new CheckpointRpcError(refusal as Record<string, unknown>).uncertain).toBe(false);
+    await expect(client.gitCheckpoint("git.checkpoint.list", { cwd: "/workspace" })).rejects.toMatchObject({
+      code: "operation.failed",
+    });
     expect(posted).toEqual([]);
     expect(gitSent()).toEqual([]);
     client.close();

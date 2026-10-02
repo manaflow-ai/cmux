@@ -566,6 +566,16 @@ export class AcpmuxDirectClient {
     return this.git("git.status", {});
   }
 
+  /// Whether the session host serves checkpoints: `{checkpoints}` (checkpoints/client.ts).
+  gitCapabilities(): Promise<unknown> {
+    return postNative("git.capabilities", {});
+  }
+
+  /// A checkpoint operation of the review (checkpoints/client.ts) with the page's own params.
+  gitCheckpoint(method: string, params: Record<string, unknown>): Promise<unknown> {
+    return postNative(method, params);
+  }
+
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
   /// session's folder, and mock mode's in-page daemon answers them by session.
   private git(method: "git.diff" | "git.status", params: Record<string, unknown>): Promise<unknown> {

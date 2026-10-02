@@ -20,6 +20,12 @@ extension AgentPaneModel {
     static var gitFailedMessage: String {
         String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .module)
     }
+
+    /// A checkpoint request failed or has no session host. The same text as
+    /// the checkpoint review's own failure line.
+    static var checkpointFailedMessage: String {
+        String(localized: "agentPane.checkpoint.failed", defaultValue: "Couldn’t complete this checkpoint request.", bundle: .module)
+    }
 }
 
 extension AgentPaneView {

@@ -12,7 +12,7 @@ extension PaneController {
         view.model.onOpenFile = { [weak self] url, target in await self?.openAgentFile(url, target) ?? false }
         // A local session's folder is read by the local session host; the page refuses cloud sessions.
         let git = services.agentGit
-        view.model.onGit = { request in try await git.read(request) }
+        view.model.onGit = { request in try await git.run(request) }
         return .agent(view)
     }
 
