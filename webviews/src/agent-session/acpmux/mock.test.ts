@@ -24,6 +24,17 @@ describe("mock transport", () => {
     for (let tries = 0; tries < 50 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0));
   };
 
+  test("a file search outside a repository fails through the client with the service's code", async () => {
+    const client = await connectMock([]);
+    const failure = await client.fileSearch("~/Downloads", "x", 10).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "validation.invalid", message: "~/Downloads is not in a git repository" });
+    expect(await client.fileSearch("~/code/acpmux", "trust", 10)).toMatchObject({
+      root: "~/code/acpmux",
+      results: [{ path: "src/trust.rs" }],
+    });
+    client.close();
+  });
+
   /// Mock mode runs the real client against the in-page daemon, so a mock turn goes through the
   /// same event folding as an agent's.
   test("a prompt streams a scripted turn through the real client", async () => {

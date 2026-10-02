@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextDesign
 public import CmuxNextSettings
 public import Observation
 
@@ -21,6 +22,16 @@ public final class SettingsWindowModel {
     public internal(set) var recorder: ShortcutRecorderState?
     /// The recorder's last result, on the row it edited.
     public internal(set) var notice: SettingsNotice?
+    /// The last request to scroll to a row, card, button or header (a
+    /// search result, Return in search, a deep link, a one-page sidebar
+    /// click). The detail view scrolls when its serial changes.
+    public internal(set) var jump: SettingsJump?
+    /// The anchor id lit up after a jump, until its highlight ends.
+    public internal(set) var highlighted: String?
+    /// Pins speed and Reduce Motion for the highlight (tests); nil reads
+    /// the live `Motion.policy`.
+    @ObservationIgnored public var motionPolicyOverride: MotionPolicy?
+    @ObservationIgnored var jumpSerial = 0
 
     /// Values written but not yet read back from the file, by key.
     private var pending: [String: JSONValue?] = [:]
@@ -142,27 +153,11 @@ public final class SettingsWindowModel {
         Self.grouped(SettingsSchema.settings(in: section))
     }
 
-    /// Settings matching `query` in every section (empty without a query).
-    public func searchResults() -> [SettingsGroup] {
-        let words = Self.words(query)
-        guard !words.isEmpty else { return [] }
-        let matches = SettingsSchema.all.filter { descriptor in
-            let haystack = ([descriptor.title, descriptor.help ?? "", descriptor.group, descriptor.section.title, descriptor.id]
-                + descriptor.keywords).joined(separator: " ")
-            return words.allSatisfy { haystack.localizedStandardContains($0) }
-        }
-        return SettingsSection.allCases.flatMap { section in
-            Self.grouped(matches.filter { $0.section == section }).map {
-                SettingsGroup(title: "\(section.title) › \($0.title)", settings: $0.settings)
-            }
-        }
-    }
-
     static func words(_ text: String) -> [String] {
         text.split(whereSeparator: \.isWhitespace).map(String.init)
     }
 
-    private static func grouped(_ settings: [SettingDescriptor]) -> [SettingsGroup] {
+    static func grouped(_ settings: [SettingDescriptor]) -> [SettingsGroup] {
         var groups: [SettingsGroup] = []
         for descriptor in settings {
             if groups.last?.title == descriptor.group {

@@ -24,6 +24,9 @@ import type {
   VMFileContents,
   VMFileEntry,
   VMFileStat,
+  VMFirewallEndpoint,
+  VMFirewallRule,
+  VMFirewallRuleInput,
   ProviderId,
   SSHEndpoint,
   VmEdgeRule,
@@ -142,6 +145,8 @@ export {
 export {
   deletePrivateNetworkingForAccountDeletion,
   enrollVmTunnel,
+  attachVmTunnelNetwork,
+  detachVmTunnelNetwork,
   isWireGuardPublicKey,
   listVmTunnels,
   listVmAccessGrants,
@@ -153,6 +158,7 @@ export {
   resolveOwnerNetwork,
   revokeVmAccessGrant,
   revokeVmTunnel,
+  rotateVmTunnelKey,
   tunnelSlugForDevice,
 } from "./privateNetwork";
 export type { VmTunnelDescriptor, VmTunnelReapResult } from "./privateNetwork";
@@ -3571,6 +3577,92 @@ export function execVm(input: {
       metadata: { commandLength: input.command.length, exitCode: result.exitCode },
     }).pipe(Effect.catchAll(() => Effect.void));
     return result satisfies ExecResult;
+  });
+}
+
+type VmFirewallInput = {
+  readonly userId: string;
+  readonly provider?: ProviderId;
+};
+
+function firewallProvider(input: VmFirewallInput) {
+  return Effect.gen(function* () {
+    const provider = input.provider ?? "freestyle";
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const network = yield* resolveOwnerNetwork({ userId: input.userId, provider });
+    return { provider, providers, repo, network };
+  });
+}
+
+function ensureOwnedFirewallEndpoint(repo: VmRepositoryShape, input: VmFirewallInput, endpoint: VMFirewallEndpoint) {
+  return Effect.gen(function* () {
+    const provider = input.provider ?? "freestyle";
+    if (endpoint.vmId) {
+      if (!repo.findUserVm) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "firewall VM ownership lookup is unavailable" }));
+      const vm = yield* repo.findUserVm({ userId: input.userId, providerVmId: endpoint.vmId, provider });
+      if (!vm) return yield* Effect.fail(new VmNotFoundError({ vmId: endpoint.vmId }));
+    }
+    if (endpoint.tunnelId) {
+      if (!repo.findTunnelsByProviderTunnelIds) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "firewall tunnel ownership lookup is unavailable" }));
+      const [tunnel] = yield* repo.findTunnelsByProviderTunnelIds(provider, [endpoint.tunnelId]);
+      if (!tunnel || tunnel.userId !== input.userId || tunnel.revokedAt) return yield* Effect.fail(new VmNotFoundError({ vmId: endpoint.tunnelId }));
+    }
+  });
+}
+
+export function listVmFirewallRules(input: VmFirewallInput & { readonly vpcId?: string; readonly vmId?: string; readonly tunnelId?: string }): VmWorkflowProgram<VMFirewallRule[]> {
+  return Effect.gen(function* () {
+    const { provider, providers, repo, network } = yield* firewallProvider(input);
+    if (input.vpcId && input.vpcId !== network.providerNetworkId) return yield* Effect.fail(new VmNotFoundError({ vmId: input.vpcId }));
+    if (input.vmId) yield* ensureOwnedFirewallEndpoint(repo, input, { vmId: input.vmId });
+    if (input.tunnelId) yield* ensureOwnedFirewallEndpoint(repo, input, { tunnelId: input.tunnelId });
+    if (!providers.listFirewallRules) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
+    return yield* providers.listFirewallRules(provider, { vmId: input.vmId, vpcId: input.vpcId ?? network.providerNetworkId, tunnelId: input.tunnelId });
+  });
+}
+
+export function listVmNetworks(input: VmFirewallInput): VmWorkflowProgram<Array<{ id: string; cidr: string | null; cidrV6: string | null; scope: "user" | "team" }>> {
+  return Effect.gen(function* () {
+    const provider = input.provider ?? "freestyle";
+    const repo = yield* VmRepository;
+    if (!repo.findNetwork) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "network lookup is unavailable" }));
+    const network = yield* repo.findNetwork(input.userId, provider);
+    return network ? [{ id: network.providerNetworkId, cidr: network.cidr, cidrV6: network.cidrV6, scope: "user" as const }] : [];
+  });
+}
+
+export function getVmFirewallRule(input: VmFirewallInput & { readonly ruleId: string }): VmWorkflowProgram<VMFirewallRule> {
+  return Effect.gen(function* () {
+    const { provider, providers, network } = yield* firewallProvider(input);
+    if (!providers.listFirewallRules) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
+    const rules = yield* providers.listFirewallRules(provider, { vpcId: network.providerNetworkId });
+    const rule = rules.find((candidate) => candidate.id === input.ruleId);
+    if (!rule) return yield* Effect.fail(new VmNotFoundError({ vmId: input.ruleId }));
+    return rule;
+  });
+}
+
+export function createVmFirewallRule(input: VmFirewallInput & VMFirewallRuleInput): VmWorkflowProgram<VMFirewallRule> {
+  return Effect.gen(function* () {
+    const { provider, providers, repo, network } = yield* firewallProvider(input);
+    const referencesOwnerNetwork = [input.source.vpcId, input.destination.vpcId].filter(Boolean);
+    if (referencesOwnerNetwork.some((id) => id !== network.providerNetworkId)) return yield* Effect.fail(new VmNotFoundError({ vmId: referencesOwnerNetwork[0] ?? "network" }));
+    yield* ensureOwnedFirewallEndpoint(repo, input, input.source);
+    yield* ensureOwnedFirewallEndpoint(repo, input, input.destination);
+    if (!providers.createFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "createFirewallRule" }));
+    return yield* providers.createFirewallRule(provider, input);
+  });
+}
+
+export function deleteVmFirewallRule(input: VmFirewallInput & { readonly ruleId: string }): VmWorkflowProgram<void> {
+  return Effect.gen(function* () {
+    const { provider, providers, network } = yield* firewallProvider(input);
+    if (!providers.listFirewallRules) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
+    const rules = yield* providers.listFirewallRules(provider, { vpcId: network.providerNetworkId });
+    if (!rules.some((candidate) => candidate.id === input.ruleId)) return yield* Effect.fail(new VmNotFoundError({ vmId: input.ruleId }));
+    if (!providers.deleteFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "deleteFirewallRule" }));
+    yield* providers.deleteFirewallRule(provider, input.ruleId);
   });
 }
 
