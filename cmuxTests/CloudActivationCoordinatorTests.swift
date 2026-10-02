@@ -123,6 +123,7 @@ struct CloudActivationCoordinatorTests {
         var firstRelease: CheckedContinuation<Void, Never>?
         var secondRelease: CheckedContinuation<Void, Never>?
         var cleanupRelease: CheckedContinuation<Void, Never>?
+        var cleanupCalls = 0
         var prepareCalls = 0
         let coordinator = CloudActivationCoordinator(
             defaults: defaults,
@@ -139,8 +140,11 @@ struct CloudActivationCoordinatorTests {
                 }
             },
             cleanup: {
+                cleanupCalls += 1
                 cleanupStarted.continuation.yield(())
-                await withCheckedContinuation { cleanupRelease = $0 }
+                if cleanupCalls == 1 {
+                    await withCheckedContinuation { cleanupRelease = $0 }
+                }
             }
         )
 
@@ -167,6 +171,7 @@ struct CloudActivationCoordinatorTests {
         await coordinator.cleanupTask?.value
         #expect(coordinator.state == .enabled)
         #expect(defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+        #expect(cleanupCalls >= 2)
     }
 
     @Test("Resetting the legacy marker stops Cloud and notifies runtime owners")

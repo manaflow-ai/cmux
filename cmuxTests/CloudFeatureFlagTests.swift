@@ -205,10 +205,10 @@ struct CloudFeatureFlagTests {
 
         #expect(coordinator.state == .disabled)
         coordinator.enable()
-        #expect(coordinator.state == .enabling)
+        #expect(coordinator.state == .enabled)
         var iterator = started.stream.makeAsyncIterator()
         _ = await iterator.next()
-        #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+        #expect(defaults.bool(forKey: CloudActivationCoordinator.activationKey))
         release?.resume()
         await coordinator.activationTask?.value
         await coordinator.cleanupTask?.value
