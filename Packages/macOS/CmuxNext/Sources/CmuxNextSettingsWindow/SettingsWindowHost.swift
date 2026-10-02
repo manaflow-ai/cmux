@@ -73,7 +73,7 @@ public struct SettingsListRow: Identifiable, Hashable, Sendable {
         SettingsListRow(id: "work", title: "Work", subtitle: "5 workspaces", symbol: "briefcase"),
     ]
     public var machines: [SettingsListRow] = [
-        SettingsListRow(id: "ssh:devbox", title: "devbox", subtitle: "lawrence@devbox", symbol: "server.rack", isActive: true),
+        SettingsListRow(id: "ssh:devbox", title: "devbox", subtitle: "dev@devbox", symbol: "server.rack", isActive: true),
     ]
     public var ghosttyConfigPath = "~/.config/ghostty/config"
     public var shellIntegration: String? = "zsh"
