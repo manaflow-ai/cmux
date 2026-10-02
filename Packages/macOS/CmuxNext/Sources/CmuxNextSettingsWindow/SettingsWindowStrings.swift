@@ -21,7 +21,7 @@ nonisolated enum SettingsWindowStrings {
     static var soundNone: String { text("settingsWindow.soundNone", "None") }
     static var blankPage: String { text("settingsWindow.blankPage", "Blank page") }
     static var themeTitle: String { text("settingsWindow.theme", "Theme") }
-    static var themeLevelRoom: String { text("settingsWindow.themeLevel.room", "Room") }
+    static var themeLevelRoom: String { text("settingsWindow.themeLevel.room", "Space") }
     static var themeLevelWorkspace: String { text("settingsWindow.themeLevel.workspace", "Workspace") }
     static var themeLevelTerminal: String { text("settingsWindow.themeLevel.terminal", "Terminal") }
     static var themeSearch: String { text("settingsWindow.themeSearch", "Search Ghostty themes") }
@@ -29,14 +29,17 @@ nonisolated enum SettingsWindowStrings {
     static func themeUse(_ spec: String) -> String { format("settingsWindow.themeUse", "Use “%@”", spec) }
     static var themePickerTitle: String { text("settingsWindow.themePicker", "Themes") }
     static var themeBody: String { text("settingsWindow.themeBody", "Colors come from your Ghostty theme and follow it live.") }
-    static var terminalBody: String { text("settingsWindow.terminalBody", "Fonts, colors, cursor and keybinds are Ghostty settings.") }
+    static var terminalBody: String {
+        text("settingsWindow.terminalBody.options", "Cursor, keybinds and other terminal options are Ghostty settings.")
+    }
+    static var moreThemes: String { text("settingsWindow.moreThemes", "More Themes") }
     static var ghosttyConfig: String { text("settingsWindow.ghosttyConfig", "Ghostty Config") }
     static var shellIntegration: String { text("settingsWindow.shellIntegration", "Shell Integration") }
     static var shellIntegrationUnknown: String { text("settingsWindow.shellIntegrationUnknown", "Set by the Ghostty config") }
     static var keyboardHint: String { text("settingsWindow.keyboardHint", "Click a shortcut to record a new one. Esc cancels.") }
     static var conflict: String { text("settingsWindow.conflict", "Another action uses this shortcut in the same place.") }
-    static var roomsUnavailable: String { text("settingsWindow.roomsUnavailable", "Rooms need a newer cmux-tui on this Mac.") }
-    static var roomsEmpty: String { text("settingsWindow.roomsEmpty", "No rooms yet.") }
+    static var roomsUnavailable: String { text("settingsWindow.roomsUnavailable", "Spaces need a newer cmux-tui on this Mac.") }
+    static var roomsEmpty: String { text("settingsWindow.roomsEmpty", "No spaces yet.") }
     static var browserProfilesTitle: String { text("settingsWindow.browserProfiles", "Browser Profiles") }
     static var browserProfilesHint: String {
         text("settingsWindow.browserProfilesHint", "Each profile has its own cookies, logins, history, extensions and site permissions.")

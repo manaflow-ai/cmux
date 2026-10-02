@@ -4,6 +4,7 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
+mod code_mode;
 mod command;
 mod docs;
 mod lifecycle;
@@ -166,6 +167,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             0
         }
         Ok(ParsedCommand::Docs(plan)) => docs::run(plan),
+        Ok(ParsedCommand::CodeMode(plan)) => code_mode::run(plan),
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
@@ -229,7 +231,7 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run") => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
@@ -239,6 +241,9 @@ fn parse_command(
         };
     }
     if let Some(command) = docs::command(&command_args, global.clone())? {
+        return Ok(command);
+    }
+    if let Some(command) = code_mode::command(&command_args, global)? {
         return Ok(command);
     }
     if has_help_option(&command_args) {
@@ -458,6 +463,7 @@ fn scope_help_for(
     let text = match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
         "docs" => Cow::Borrowed(docs::help()),
+        "run" => Cow::Borrowed(code_mode::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
@@ -540,7 +546,6 @@ fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
         messages.root_remote_usage, messages.root_server_usage, messages.root_server_scope,
     )
 }
-
 const MACHINE_HELP: &str = "\
 USAGE
   cmux machine list
@@ -548,13 +553,11 @@ USAGE
   cmux machine <selector> session list
   cmux machine <selector> session <selector> open
 ";
-
 const SESSION_HELP_PREFIX: &str = "\
 USAGE
   cmux session list
   cmux session <selector> open|show|snapshot|ping|shutdown
 ";
-
 const SESSION_HELP_SUFFIX: &str = "\
   cmux session <selector> creation <correlation-key> resolve
   cmux session <selector> events [--generation <value> --revision <decimal>]
@@ -579,7 +582,6 @@ const SESSION_HELP_SUFFIX: &str = "\
   cmux session <selector> window title clear
   cmux session <selector> terminal defaults set [OPTIONS]
 ";
-
 fn session_help(
     messages: &crate::localization::SessionResetMessages,
     local_server: &crate::localization::LocalServerMessages,
@@ -589,7 +591,6 @@ fn session_help(
         local_server.session_stop_help, messages.help,
     )
 }
-
 const CLIENT_HELP: &str = "\
 USAGE
   cmux client list
@@ -599,7 +600,6 @@ USAGE
   cmux client <selector> sizing release --terminal <selector>
   cmux client <selector> cell pixels set --width-px <n> --height-px <n>
 ";
-
 const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list
@@ -943,7 +943,6 @@ mod tests {
             ParsedCommand::Help(Some(scope)) if scope == "start"
         ));
     }
-
     #[test]
     fn remote_invocation_allows_leading_global_options() {
         assert!(is_remote_invocation(&strings(&["remote", "connect"])));

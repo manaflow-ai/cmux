@@ -5,17 +5,17 @@ nonisolated enum ThemeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
-                id: "room.setTheme",
-                title: String(localized: "action.room.setTheme", defaultValue: "Set Room Theme…", table: "ThemeActions", bundle: .module),
+                id: "space.setTheme",
+                title: String(localized: "action.space.setTheme", defaultValue: "Set Space Theme…", table: "ThemeActions", bundle: .module),
                 keywords: ["room", "profile", "theme", "colors", "ghostty", "appearance"], category: .workspace, symbol: "paintbrush",
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.ghosttyThemeChoice], targets: [.profile],
-                cliName: "room set-theme"
+                cliName: "space set-theme"
             ),
             ActionDescriptor(
-                id: "room.clearTheme",
-                title: String(localized: "action.room.clearTheme", defaultValue: "Reset Room Theme", table: "ThemeActions", bundle: .module),
+                id: "space.clearTheme",
+                title: String(localized: "action.space.clearTheme", defaultValue: "Reset Space Theme", table: "ThemeActions", bundle: .module),
                 keywords: ["room", "profile", "theme", "reset", "ghostty"], category: .workspace, symbol: "paintbrush.slash",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.profile], cliName: "room clear-theme"
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.profile], cliName: "space clear-theme"
             ),
             ActionDescriptor(
                 id: "workspace.setTheme",

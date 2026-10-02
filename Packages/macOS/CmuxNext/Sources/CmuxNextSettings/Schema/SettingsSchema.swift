@@ -9,8 +9,14 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + columnLayout + appearance + sidebarSections + browser + notifications
+        general + columnLayout + appearance + terminal + sidebarSections + browser + notifications
     }
+
+    /// Keys Reset All Settings leaves alone: the look picked at onboarding
+    /// (the app theme and the terminal font), which each row still resets.
+    public static let keptOnResetAll: Set<[String]> = [
+        AppThemeSetting.configPath, TerminalFontSetting.familyPath, TerminalFontSetting.sizePath,
+    ]
 
     /// The descriptors of one section, in order.
     public static func settings(in section: SettingsSection) -> [SettingDescriptor] {
@@ -27,13 +33,13 @@ public nonisolated enum SettingsSchema {
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
         case .general: ["palette.welcomeChecklist", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
-        case .appearance: ["appearance.customize", "room.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
+        case .appearance: ["appearance.customize", "space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
         case .keyboard: ["palette.searchShortcuts"]
         case .notifications: []
         case .accounts: ["accounts.refresh", "openTeamPicker"]
-        case .rooms: ["room.new", "room.switch", "room.rename", "room.setTheme", "room.clearTheme"]
+        case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["remote.connect", "newCloudMachine", "palette.auth.signIn"]
         case .advanced: ["palette.openCmuxSettingsFile", "reloadConfiguration"]
         }
@@ -69,7 +75,7 @@ public nonisolated enum SettingsSchema {
                 WindowRailSetting.configPath, section: .general, group: window,
                 title: SettingsText.text("settings.window.rail", "Action Rail"),
                 help: SettingsText.text("settings.window.rail.help",
-                                        "A column of buttons for new tabs, agent chats, notifications, history and accounts."),
+                                        "Shows the sidebar's pinned sections as a column of icons beside it."),
                 kind: .choice([
                     SettingChoice(WindowRailPlacement.off.rawValue, SettingsText.text("settings.choice.off", "Off")),
                     SettingChoice(WindowRailPlacement.leading.rawValue, SettingsText.text("settings.choice.railLeading", "Window Edge")),
@@ -144,7 +150,16 @@ public nonisolated enum SettingsSchema {
         let theme = SettingsText.text("settings.default.theme", "Theme")
         let window = SettingsText.text("settings.group.windowBackground", "Window Background")
         let ghostty = SettingsText.text("settings.default.ghosttyConfig", "Ghostty config")
+        let appTheme = SettingsText.text("settings.group.appTheme", "App Theme")
         return [
+            SettingDescriptor(
+                AppThemeSetting.configPath, section: .appearance, group: appTheme,
+                title: SettingsText.text("settings.appearance.theme", "Theme"),
+                help: SettingsText.text("settings.appearance.theme.help",
+                                        "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."),
+                kind: .theme, default: nil, defaultLabel: ghostty,
+                keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
+            ),
             SettingDescriptor(
                 WindowBackgroundSetting.opacityPath, section: .appearance, group: window,
                 title: SettingsText.text("settings.appearance.backgroundOpacity", "Opacity"),
@@ -174,6 +189,15 @@ public nonisolated enum SettingsSchema {
                     SettingChoice("comfortable", SettingsText.text("settings.choice.comfortable", "Comfortable")),
                 ]),
                 default: "compact", keywords: ["size", "spacing"]
+            ),
+            SettingDescriptor(
+                InterfaceSizeSetting.configPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.interfaceSize", "Interface Size"),
+                help: SettingsText.text("settings.appearance.interfaceSize.help",
+                                        "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
+                kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: 12)),
+                default: nil, defaultLabel: densityDefault,
+                keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "chromeFontSize"]
             ),
             SettingDescriptor(
                 BordersSetting.configPath, section: .appearance, group: look,
@@ -309,6 +333,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(StatusIndicatorStyle.arc.rawValue, SettingsText.text("settings.choice.thinArc", "Thin Arc")),
                     SettingChoice(StatusIndicatorStyle.native.rawValue, SettingsText.text("settings.choice.macSpinner", "macOS Spinner")),
                     SettingChoice(StatusIndicatorStyle.dot.rawValue, SettingsText.text("settings.choice.pulsingDot", "Pulsing Dot")),
+                    SettingChoice(StatusIndicatorStyle.braille.rawValue, SettingsText.text("settings.choice.brailleSpinner", "Braille Spinner")),
                     SettingChoice(StatusIndicatorStyle.none.rawValue, SettingsText.text("settings.choice.none", "None")),
                 ]),
                 default: .string(defaults.style.rawValue), keywords: ["spinner", "progress", "loading", "busy"]
