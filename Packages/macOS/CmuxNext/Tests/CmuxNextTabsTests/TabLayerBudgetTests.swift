@@ -62,7 +62,8 @@ import Testing
         h.model.tabs[1].isBusy = true
         h.model.tabs[1].isUnread = true
         h.strip.sync(fromModel: true)
-        #expect(Harness.count(cell.layer) == idle + 2)
+        // The status indicator is a container plus its arc (2), the badge 1.
+        #expect(Harness.count(cell.layer) == idle + 3)
         #expect(cell.hasSpinnerLayer && cell.hasBadgeLayer)
         h.model.tabs[1].isBusy = false
         h.model.tabs[1].isUnread = false

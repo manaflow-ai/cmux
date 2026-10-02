@@ -120,7 +120,7 @@ public final class MockPaletteData: PaletteWorkspaceSource, PaletteTabSource, Pa
              PaletteTargetOption(id: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", title: "Work", symbol: "person.crop.circle")]
         case .bookmark:
             [PaletteTargetOption(id: "bm_0123456789abcdef0123456789abcdef", title: "cmux", symbol: "star")]
-        case .pane, .column, .screen, .screenGroup:
+        case .pane, .column, .screen, .screenGroup, .sidebarItem, .sidebarSection:
             [PaletteTargetOption(id: "\(kind.rawValue)1", title: "\(kind.rawValue.capitalized) 1")]
         }
     }

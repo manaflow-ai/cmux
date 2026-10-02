@@ -139,7 +139,7 @@ import Testing
         let file = try home.write(#"{"Chrome Safe Storage": "pw"}"#, to: home.url.appending(path: "keys.json"))
         #expect(FixtureSafeStorage(environment: [FixtureSafeStorage.environmentKey: file.path]) == nil)
         let live = SafeStorageKeys(environment: [ImportEnvironment.fixtureHomeKey: home.url.path, FixtureSafeStorage.environmentKey: file.path]).live()
-        #expect(try live.password(service: "Chrome Safe Storage") == Data("pw".utf8))
+        #expect(try live.password(service: "Chrome Safe Storage").matches(SecretBytes(copying: Array("pw".utf8))))
         // A fixture home without a key file never falls back to the real Keychain.
         let empty = SafeStorageKeys(environment: [ImportEnvironment.fixtureHomeKey: home.url.path]).live()
         #expect(throws: CookieImportError.keyNotFound(service: "Chrome Safe Storage")) { try empty.password(service: "Chrome Safe Storage") }

@@ -15,6 +15,8 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         case unsupportedChord
         /// Two actions claim the same shortcut in the same context.
         case shortcutConflict
+        /// The file sets a key an MDM profile or the team policy manages; the file's value is ignored.
+        case managedOverride
     }
 
     public let kind: Kind
@@ -77,14 +79,22 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var stickyColumnMode: StickyDefaultMode = ColumnLayoutSettings.stickyModeFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
+    /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
+    public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
     /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
+    /// `appearance.statusIndicator.*`.
+    public var statusIndicator = StatusIndicatorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
+    /// `appearance.focusIndicator`; "both" when unset or invalid.
+    public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
+    /// `appearance.tabBarBackground`; "window" when unset or invalid.
+    public var tabBarBackground: TabBarBackground = PaneFocusSettings.tabBarBackgroundFallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.rail`; "off" when unset or invalid.
@@ -146,13 +156,25 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (scrollbar, scrollbarDiagnostic) = StripScrollbarSetting.parse(root)
         snapshot.stripScrollbar = scrollbar
         if let scrollbarDiagnostic { snapshot.diagnostics.append(scrollbarDiagnostic) }
+        let (closeFocus, closeFocusDiagnostic) = CloseFocusSetting.parse(root)
+        snapshot.closeFocus = closeFocus
+        if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
+        snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders
         if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
+        let (indicator, indicatorDiagnostic) = PaneFocusSettings.parse(
+            root, at: PaneFocusSettings.focusIndicatorPath, fallback: PaneFocusSettings.focusIndicatorFallback)
+        snapshot.focusIndicator = indicator
+        if let indicatorDiagnostic { snapshot.diagnostics.append(indicatorDiagnostic) }
+        let (tabBarBackground, tabBarDiagnostic) = PaneFocusSettings.parse(
+            root, at: PaneFocusSettings.tabBarBackgroundPath, fallback: PaneFocusSettings.tabBarBackgroundFallback)
+        snapshot.tabBarBackground = tabBarBackground
+        if let tabBarDiagnostic { snapshot.diagnostics.append(tabBarDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }

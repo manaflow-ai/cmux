@@ -1,12 +1,5 @@
+public import CmuxNextDesign
 import Foundation
-
-/// Agent activity shown as a small indicator on the row.
-public nonisolated enum AgentActivity: Hashable, Sendable {
-    case idle
-    case running
-    case needsInput
-    case error
-}
 
 /// Unread state for the badge.
 public nonisolated enum UnreadState: Hashable, Sendable {
@@ -41,7 +34,12 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// nil shows no icon.
     public var icon: WorkspaceIcon?
     public var unread: UnreadState
-    public var activity: AgentActivity
+    /// The row's status indicator: the merged status of the workspace's
+    /// tabs and its own status entries (`StatusStack`), drawn by the
+    /// shared `StatusIndicatorView`.
+    public var activity: StatusIndicatorState
+    /// The winning report's style hint (`cmux status set --style`).
+    public var activityStyle: StatusIndicatorStyle?
 
     public init(
         id: WorkspaceID,
@@ -51,7 +49,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         status: String? = nil,
         icon: WorkspaceIcon? = nil,
         unread: UnreadState = .none,
-        activity: AgentActivity = .idle
+        activity: StatusIndicatorState = .idle,
+        activityStyle: StatusIndicatorStyle? = nil
     ) {
         self.id = id
         self.machineID = machineID
@@ -61,6 +60,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.icon = icon
         self.unread = unread
         self.activity = activity
+        self.activityStyle = activityStyle
     }
 }
 

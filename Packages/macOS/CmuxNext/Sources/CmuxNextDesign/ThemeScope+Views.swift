@@ -90,8 +90,11 @@ extension NSWindow {
 
     /// A panel shown for `view` (hover card, editor, popover window) draws in
     /// `view`'s scope, like the window under it.
+    /// A panel always draws at full strength: it adopts the nearest scope
+    /// without a chrome emphasis (an unfocused pane's subtle strip scope
+    /// gives way to its pane's).
     public func adoptThemeScope(of view: NSView) {
-        view.themeScope.adopt(self)
+        view.themeScope.fullStrength.adopt(self)
     }
 }
 

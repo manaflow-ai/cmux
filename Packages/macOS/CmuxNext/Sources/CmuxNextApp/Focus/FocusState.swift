@@ -1,3 +1,6 @@
+import CmuxNextDesign
+
+
 /// The focus of one window: the single owner of "what has the keyboard"
 /// (plans/cmux-next/focus.md section 4). Client-local, never persisted,
 /// never sent to the daemon. AppKit first responder, Ghostty surface focus,
@@ -187,6 +190,9 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
     var generation: UInt64 = 0
     /// The sidebar is hidden: it cannot be a focus target.
     var sidebarHidden = false
+    /// `layout.closeFocus`: the successor rule when the focused pane closes
+    /// (close-focus.md). The coordinator copies the setting in.
+    var closeFocus: CloseFocusPolicy = .previousNeighbor
 
     var resolved: Resolved {
         if let top = overlays.last { return .overlay(top) }

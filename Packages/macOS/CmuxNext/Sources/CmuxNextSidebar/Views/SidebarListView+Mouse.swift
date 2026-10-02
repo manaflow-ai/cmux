@@ -167,8 +167,8 @@ extension SidebarListView {
             } else {
                 return super.keyDown(with: event)
             }
+            // The reload reveals the new active row (close-focus.md).
             reload(animated: true)
-            revealActive()
         case .carriageReturn?, .enter?:
             if let active = model.activeWorkspaceID { inlineRename.begin(.workspace(active)) }
         case .delete?, .deleteForward?:

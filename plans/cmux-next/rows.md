@@ -236,8 +236,9 @@ The column scroll reducer (`ColumnScrollState.reduce`, niri.md) becomes axis-gen
 than 1000‰ of rows, sticky columns included, gets its own vertical instance keyed by column id.
 `ColumnViewOffset.fit` keeps its semantics (stay if visible, else the nearer edge) so the
 close-focus lead's strip model check stays valid. The close-focus lead's `ListViewport<ID>`
-(one-axis anchor, minimal reveal, clamp; branch feat-cmux-next-closefocus) is reused for the
-row axis.
+(one-axis anchor, minimal reveal, clamp; landed 7a9a7e573c1..6553984ff79 in
+`CmuxNextDesign/CloseFocus`, with `FocusAfterClose` and `FocusTopology.screens`) is reused for
+the row axis; the app step builds on 6553984ff79 or later.
 
 - V1. Reveal (niri F1 to F7 transposed): the focused row plus padding fully visible means no
   motion; otherwise align the edge that needs less motion; `layout.centerFocusedRow` mirrors
@@ -299,12 +300,42 @@ row axis.
 - Z3. Equalize Splits (Ctrl-Shift-Cmd-=) also equalizes the focused column's rows when they fit
   (sum at most 1000); otherwise only the splits.
 
+## Off switch (`layout.rows`)
+
+Requirement (Lawrence): rows must be easy to turn off without affecting anything else.
+
+- O1. Setting `layout.rows`: `true` (default, for dogfood) | `false`, in Settings (General >
+  Columns), cmux.json and the palette (Toggle Rows). A test checks the default in the parser,
+  the schema and the settings window, like the other layout defaults. It is client
+  preference (config layer); the store and the daemon never read it.
+- O2. Off hides every row entry point: `newRow` (shortcut, palette, menus, CLI answers
+  `rows-disabled`), the new-row drop targets (D1), the row axis of D2 (a top or bottom edge
+  drop with no room opens a column, as today), row scrolling (V5) and the row scrollbar.
+  Cmd-Ctrl-Shift-D does nothing (it stays reserved for `newRow`).
+- O3. Off, a column that already has two or more rows renders its rows as stacked panes that
+  fit the column (heights in proportion, never scrolling), the same picture as the compat chain.
+  The divider between two rows trades height between them (`SetRowHeights` with `fit`). Splits,
+  closes, moves and focus work on the panes inside as on any stacked panes. Nothing flattens on
+  its own: Flatten Rows (`column flatten-rows`, palette and column menu, shown in both modes) is
+  the only path that folds rows into one row's vertical splits, through a reducer op
+  `FlattenRows {column}` (conserves tabs and panes; row heights become split ratios).
+- O4. With no column holding two or more rows, off and on behave the same: layout, sticky
+  columns, close, focus, scrolling, drops and the wire are unchanged from today, because a
+  column with one full-height row is today's column (G2) and no row op is ever sent while off.
+  Tests: the column geometry, scroll, drop resolver and focus-after-close suites run with
+  `layout.rows` off and on over layouts without rows and must give identical results.
+- O5. A client may ignore `rows-v1` completely (older apps, the TUI, iOS): it reads the compat
+  chain (step 3). An off client still decodes `rows` so it can draw O3 and refuse writes to
+  synthetic splits correctly.
+
 ## Surfaces (action-surface rule)
 
 | Action id | Title | Shortcut | Palette | CLI verb | Context menu | MCP |
 | --- | --- | --- | --- | --- | --- | --- |
 | `newRow` | New Row | Cmd-Ctrl-Shift-D | yes | `pane new-row` (`--height`, `--cwd`) | pane > create, after New Column | generated |
 | `equalizeRows` | Equalize Rows | none | yes | `column equalize-rows` | column | generated |
+| `flattenRows` | Flatten Rows | none | yes | `column flatten-rows` | column | generated |
+| `layout.rows` toggle | Toggle Rows | none | yes | `settings toggle-rows` | none (exemption: setting) | generated |
 | `centerFocusedRow` | Center Focused Row | none | yes | `pane center-row` | none (exemption: view command) | generated |
 | `layout.centerFocusedRow.*` | Row centering modes | none | yes | `settings ...` | none (exemption: setting) | generated |
 
@@ -343,16 +374,15 @@ cmux-tui serves `rows-v1` (awaitingPin until the pin owner cuts a pin).
 5. Surfaces: actions, drops, menus, palette, CLI request, `debug.rows`, settings.
 6. cmux-tui TUI rendering of rows (scrolling).
 
-## Decisions for the user
+## Decisions (Lawrence, 2026-10-02, through the coordinator)
 
-1. Model (c), columns of rows (recommended), against (b), screen-wide rows of columns.
-2. Resolved 2026-10-02: New Row is Cmd-Ctrl-Shift-D; Open Diff Viewer moves to
-   Cmd-Ctrl-Shift-G.
-3. Row scroll modifier: Command (recommended) | Option | none (scroll only over gaps and the
-   scrollbar).
-4. Sticky rows in a later capability, or never.
-5. Legacy `apply-layout` (blueprints) on a screen with rows: refused (proposed) until
-   blueprints carry rows.
+1. Model (c), columns of rows: approved, with the off switch below as a hard requirement.
+2. New Row is Cmd-Ctrl-Shift-D; Open Diff Viewer moves to Cmd-Ctrl-Shift-G.
+3. Row scroll modifier: Command, plus plain scroll over the gaps between rows and on the row
+   scrollbar (V5).
+4. Sticky rows: decided later, not in `rows-v1`.
+5. Legacy `apply-layout` (blueprints) on a screen with rows is refused
+   (`rows-layout-replace-unsupported`) until blueprints carry rows.
 
 ## Agent review (2026-10-01)
 

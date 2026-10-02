@@ -85,6 +85,12 @@ class LiveSchemaTests(unittest.TestCase):
             "ref<ResourceSelectors>",
         )
 
+    def test_handler_module_request_uses_its_struct_and_flattened_key(self) -> None:
+        fields = CHECKER.runtime_command_fields()["move-bookmark"]
+        self.assertEqual(
+            set(fields), {"origin", "mutation_id", "bookmark", "parent", "index"}
+        )
+
     def test_missing_command_is_rejected(self) -> None:
         document = copy.deepcopy(self.document)
         document["commands"].pop("ping")

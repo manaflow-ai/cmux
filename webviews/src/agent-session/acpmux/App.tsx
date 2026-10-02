@@ -33,7 +33,9 @@ import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
+import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DateLine } from "./conversation/DateLine";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 
@@ -136,6 +138,13 @@ const WorkedRow = memo(
     a.onToggleActivity === b.onToggleActivity,
 );
 
+/// "Sun, Sep 13 at 7:55 PM" over a prompt after an hour's gap (turnView in conversation/turns.ts).
+const DateRow = memo(
+  function DateRow({ row }: RowProps) {
+    return <DateLine row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.at === b.row.at,
+);
 /// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
 const ThinkingRow = memo(
   function ThinkingRow(_: RowProps) {
@@ -281,6 +290,7 @@ const defaultRegistry: NativeRegistry = {
   assistant: MessageRow,
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
+  [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
   editedFiles: EditedFilesRow,
@@ -667,9 +677,22 @@ function AcpmuxPane() {
     canLoadOlder: false,
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // The footer's fork shows only when acpmux serves forks and is reachable. The client reports a
+  // failed fork in the transcript; a bridge that cannot route it has nothing to add.
+  const forkable =
+    Boolean(snapshot.canFork) &&
+    snapshot.connection !== "disconnected" &&
+    !snapshot.connection.startsWith("connecting");
+  const turnActions = useMemo<TurnActions>(
+    () =>
+      forkable ? { fork: (throughSeq) => void callNative("chat.fork", { throughSeq }).catch(() => undefined) } : {},
+    [forkable],
+  );
+  // A new chat centers its composer under the hero, as Codex's home does.
+  const freshChat = isNewChat(snapshot);
   // Codex's turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(
-    () => turnView(snapshot.rows, expanded, snapshot.isWorking),
+    () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
     [snapshot.rows, expanded, snapshot.isWorking],
   );
   // The open changes view: a turn of one session, and the control that opened it.
@@ -912,6 +935,7 @@ function AcpmuxPane() {
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
+          "chat.fork": async ({ throughSeq }) => persistSession(await client.fork(Number(throughSeq))),
           "git.scope.diff": ({ scope }) => client.gitScopeDiff(String(scope)),
           "git.status": () => client.gitStatus(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
@@ -962,7 +986,7 @@ function AcpmuxPane() {
           onClick={closeOverlay}
         />
       )}
-      <div className="acpmux-main">
+      <div className="acpmux-main" data-new-chat={freshChat ? "" : undefined}>
         <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
           <header className="acpmux-header">
             <div>
@@ -980,24 +1004,26 @@ function AcpmuxPane() {
               {header.status && <span className="acpmux-status">{header.status}</span>}
             </div>
           </header>
-          {isNewChat(snapshot) ? (
+          {freshChat ? (
             <EmptyState project={projectName(snapshot.summary?.cwd)} />
           ) : (
-            <VirtualTranscript
-              rows={transcriptRows}
-              canLoadOlder={snapshot.canLoadOlder}
-              expanded={expanded}
-              registry={registry}
-              onOpenDiff={openDiff}
-              onToggleActivity={(id) =>
-                setExpanded((current) => {
-                  const next = new Set(current);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  return next;
-                })
-              }
-            />
+            <TurnActionsContext.Provider value={turnActions}>
+              <VirtualTranscript
+                rows={transcriptRows}
+                canLoadOlder={snapshot.canLoadOlder}
+                expanded={expanded}
+                registry={registry}
+                onOpenDiff={openDiff}
+                onToggleActivity={(id) =>
+                  setExpanded((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  })
+                }
+              />
+            </TurnActionsContext.Provider>
           )}
           {diffView && diffFiles && (
             <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource} />

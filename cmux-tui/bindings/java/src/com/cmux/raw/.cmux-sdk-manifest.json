@@ -86,6 +86,11 @@
       "size": 2178
     },
     {
+      "path": "BookmarksChangedEvent.java",
+      "sha256": "a24bdb94a23356548bcd8aea3c0e55f4ed1541fb8deab65865d041282d287d12",
+      "size": 3503
+    },
+    {
       "path": "BrowserActivateRequest.java",
       "sha256": "6bdb2c997a17d53d400628e0c82d03f47834209c8063e6caf8d081ad6c55a1d3",
       "size": 2077
@@ -347,8 +352,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "adf8de470e15b5dfcd3de6ab1ef088a6b1ede3b22ae90f8518d567421cea303a",
-      "size": 50128
+      "sha256": "b468a4968e730c9faef28782d5f7355f0a3f16ceb11fda20536aa5082f3330bd",
+      "size": 51500
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -374,6 +379,11 @@
       "path": "CopyResultMode.java",
       "sha256": "e2543ef2d7ec3a891ce114e220711ab624d729c371e0e0bbbb2ee59e5e77f911",
       "size": 930
+    },
+    {
+      "path": "CreateBookmarkRequest.java",
+      "sha256": "ffa8f62228a6dc0c727043b9498b1181c6498d16cd5a8b1c5ff913cf1891f286",
+      "size": 9562
     },
     {
       "path": "CreateBrowserProfileRequest.java",
@@ -456,6 +466,11 @@
       "size": 3023
     },
     {
+      "path": "DeleteBookmarkRequest.java",
+      "sha256": "9336bcd8b3f02f48e2dbad5a0e96c084ded3608fac1288c31ede75a9b8f19051",
+      "size": 3439
+    },
+    {
       "path": "DeleteBrowserProfileRequest.java",
       "sha256": "f2cf5341fbefbe8f3903a1b2711e5c181dae343ba6b9cc6a2a498472ef4f3a7a",
       "size": 2294
@@ -527,8 +542,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "b73a14bb131cbd461fdbb899150c3001a8b1bbeac5c3c9e725268e3cac01aaa5",
-      "size": 10847
+      "sha256": "36e41b7d26dc2c2e14facda39404eb6da08eebd39a368f23f3e0b2856aec16ee",
+      "size": 11053
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -607,8 +622,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "b66f8deec0e8ec317c5b2025f6706e1c32c58054f771c4a0588f215a8d1c9222",
-      "size": 44213
+      "sha256": "5fc2283f948c593cdff3862fc74c0d712702b259f5078a45c6caaafd5fd86ed0",
+      "size": 45527
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -706,6 +721,11 @@
       "size": 1873
     },
     {
+      "path": "ImportBookmarksRequest.java",
+      "sha256": "6ac431353fa2d4617ce5c52c42ac11cda246ecf504cf5649eb69be0ac4123028",
+      "size": 6979
+    },
+    {
       "path": "ImportSessionOrganizationRequest.java",
       "sha256": "350e4678edb80ad8e64676b724dbaff962672b10c3f066b67f023d107359689f",
       "size": 3703
@@ -779,6 +799,11 @@
       "path": "ListAgentsResult.java",
       "sha256": "48105430322199612f1460f4e2dc3e9356be32477deeee548a42bba5f16547a4",
       "size": 2015
+    },
+    {
+      "path": "ListBookmarksRequest.java",
+      "sha256": "18e9e29b02e220243eebfd58d0a6dc96c0461e1136fcbf472cc4bd65be817593",
+      "size": 2274
     },
     {
       "path": "ListClientsRequest.java",
@@ -884,6 +909,11 @@
       "path": "MintTerminalRendererResult.java",
       "sha256": "61c148590d00f2e31a79d3911ced3f0963da72f3e15afe2f1d71c98bf512cf21",
       "size": 6460
+    },
+    {
+      "path": "MoveBookmarkRequest.java",
+      "sha256": "06c6093d4da8ca4ad2f42bee0244e7aa8b71eeb2e6a7347211103ef6ce25169e",
+      "size": 4742
     },
     {
       "path": "MoveBrowserProfileRequest.java",
@@ -1152,8 +1182,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "142d49e6cb8110e6ec93bb5a73dd65f419dc2a1f0c3ee734f9c58d0a1308f30c",
-      "size": 4696
+      "sha256": "fa30243e0ccd69f88f08d531d4cdcca6ba6fddf81976aafacfd40e54bcabcfda",
+      "size": 4775
     },
     {
       "path": "ProtocolEvent.java",
@@ -2006,6 +2036,11 @@
       "size": 2022
     },
     {
+      "path": "UpdateBookmarkRequest.java",
+      "sha256": "5f322374be5675bd3b9d96df652f03f7a6480c32e6317a0bcf6d81695e335d7f",
+      "size": 6060
+    },
+    {
       "path": "UpdateBrowserProfileRequest.java",
       "sha256": "e98002d946d6e2931569b215b0b22fb625ff6a61dfc1393243c71ebd71d69b55",
       "size": 4111
@@ -2152,7 +2187,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0",
+  "ir_sha256": "a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
