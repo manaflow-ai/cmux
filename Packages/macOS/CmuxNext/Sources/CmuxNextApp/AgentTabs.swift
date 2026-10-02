@@ -124,7 +124,8 @@ final class AgentTabStore {
             self?.sessions[key] = session
             self?.newTabPages[key] = nil
         }
-        model.onOpenTab = { [weak self] kind, text in self?.newTabPages[key]?.handler.open(key, kind, text) }
+        model.onOpenTab = { [weak self] kind, text, cwd in self?.newTabPages[key]?.handler.open(key, kind, text, cwd) }
+        model.onJump = { [weak self] target, id in self?.newTabPages[key]?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
@@ -134,6 +135,9 @@ final class AgentTabStore {
     }
 
     func existingView(_ key: String) -> AgentPaneView? { views[key] }
+
+    /// The tab still shows the new tab page (it has not become a chat).
+    func isNewTabPage(_ key: String) -> Bool { newTabPages[key] != nil }
 
     /// The tab closed: stop its page and forget it.
     func close(_ key: String) {

@@ -49,7 +49,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "focusBrowserAddressBar",
                 title: String(localized: "action.focusBrowserAddressBar", defaultValue: "Focus Address Bar", bundle: .module),
-                keywords: ["browser", "url", "omnibox"], defaultShortcut: Shortcut("l", modifiers: [.command]),
+                keywords: ["browser", "url", "omnibox"],
                 category: .browser, symbol: "link.circle", surfaces: [.palette, .keyboard], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser focus-address-bar"
             ),

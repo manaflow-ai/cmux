@@ -17,8 +17,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// most ``maximumPacingFrames``; the pane picks its rendering rate from them.
     case framePacing([Double])
     /// The new tab page chose a terminal or browser: replace the tab with
-    /// one, running or opening `text` (a command, a URL or a search).
-    case openTab(AgentPaneTabKind, text: String)
+    /// one, running or opening `text` (a command, a URL or a search), a
+    /// terminal in `cwd` when the page picked a folder.
+    case openTab(AgentPaneTabKind, text: String, cwd: String? = nil)
+    /// The location bar picked an open tab or workspace: go there.
+    case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
@@ -57,7 +60,15 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "tab.open":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""
-                self = .openTab(kind, text: String(text.prefix(Self.maximumOpenTabText)))
+                let cwd = (params?["cwd"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumOpenTabText)) }
+                self = .openTab(kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil)
+            } else {
+                self = .unsupported(method)
+            }
+        case "tab.jump":
+            if let target = (params?["target"] as? String).flatMap(AgentPaneJumpTarget.init(rawValue:)),
+               let id = params?["id"] as? String, !id.isEmpty, id.count <= 256 {
+                self = .jump(target, id: id)
             } else {
                 self = .unsupported(method)
             }
@@ -110,4 +121,9 @@ public nonisolated enum AgentPaneReply {
         if let newTab = handshake.newTab { value["newTab"] = newTab.reply }
         return success(value)
     }
+}
+
+/// What the location bar can jump to (`tab.jump`).
+public nonisolated enum AgentPaneJumpTarget: String, Sendable {
+    case tab, workspace
 }
