@@ -190,6 +190,7 @@ extension TextBoxInputContainer {
                 )
                 publishComposerContent(from: textView)
                 refuseCloudComposerImage()
+                return
             }
         }
     }
