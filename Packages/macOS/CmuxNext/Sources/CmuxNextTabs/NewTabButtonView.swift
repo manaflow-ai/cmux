@@ -76,7 +76,7 @@ final class NewTabButtonView: NSView {
     private func updateColors(animated: Bool) {
         Motion.transaction(animated ? .hover : nil) {
             performWithTheme {
-                fillLayer.backgroundColor = isPressed ? Palette.selectionFill.cgColor : (isHovered ? Palette.hoverFill.cgColor : nil)
+                fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: isHovered, pressed: isPressed))?.cgColor
                 glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
             }
         }

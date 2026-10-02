@@ -8,4 +8,14 @@ import "./changes/changes.css";
 import "./composerControls.css";
 import "./searchChats.css";
 import "./markdownField.css";
-import "./main";
+import "./modelPicker.css";
+import { seedDevRecents } from "./devRecents";
+
+// `?mock` runs the page in a plain browser against the in-page mock daemon (no cmux host), the
+// way the screenshot harness stubs the bridge; `?recents=demo` seeds a few recent models so the
+// model picker opens with its recents and layers.
+const params = new URLSearchParams(location.search);
+if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
+  window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
+if (params.get("recents") === "demo") seedDevRecents();
+await import("./main");
