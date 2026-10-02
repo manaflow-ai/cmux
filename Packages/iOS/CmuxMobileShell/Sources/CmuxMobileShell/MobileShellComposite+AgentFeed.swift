@@ -15,6 +15,7 @@ nonisolated private let mobileShellAgentFeedPrimaryTextByteLimit = 8_192
 nonisolated private let mobileShellAgentFeedSecondaryTextByteLimit = 2_048
 nonisolated private let mobileShellAgentFeedMetadataByteLimit = 512
 nonisolated private let mobileShellAgentFeedMaxItemCount = 400
+nonisolated private let mobileShellAgentFeedRequestTimeoutNanoseconds: UInt64 = 15_000_000_000
 
 private struct AgentFeedTextPage: Decodable {
     let text: String
@@ -311,7 +312,11 @@ extension MobileShellComposite {
                 method: "feed.list",
                 params: [:]
             )
-            let data = try await client.sendRequest(request)
+            let data = try await client.sendRequest(
+                request,
+                timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
+                    ?? mobileShellAgentFeedRequestTimeoutNanoseconds
+            )
             let response = try MobileAgentFeedListResponse.decode(data)
             guard !Task.isCancelled,
                   agentFeedClient(for: macDeviceID) === client else { return }
@@ -752,6 +757,17 @@ extension MobileShellComposite {
             return nil
         }
         let kind = MobileAgentFeedItemKind(rawValue: wire.kind) ?? .unsupported
+        let source = agentFeedString(
+            wire.source,
+            limitedToUTF8Bytes: mobileShellAgentFeedMetadataByteLimit
+        )
+        // Notification history has its own tab and is never part of the
+        // Agent Feed projection. Filter it at ingestion so hidden legacy rows
+        // cannot affect counts, unread state, or empty-state decisions.
+        guard source.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("notification") != .orderedSame else {
+            return nil
+        }
         let status: MobileAgentFeedItemStatus
         switch wire.status {
         case "pending":
@@ -833,10 +849,7 @@ extension MobileShellComposite {
             macDisplayName: macDisplayName,
             itemID: itemID,
             workstreamID: workstreamID,
-            source: agentFeedString(
-                wire.source,
-                limitedToUTF8Bytes: mobileShellAgentFeedMetadataByteLimit
-            ),
+            source: source,
             kind: kind,
             status: status,
             createdAt: wire.createdAt,
@@ -1027,7 +1040,7 @@ extension MobileShellComposite {
         return workspacesByMac[MacPairingKey(pairingID: macDeviceID)]?.status ?? .unavailable
     }
 
-    private func resolvedAgentFeedStatus() -> MobileNotificationFeedStatus {
+    func resolvedAgentFeedStatus() -> MobileNotificationFeedStatus {
         var connectedClientIDs = Set(
             secondaryMacSubscriptions.map { ObjectIdentifier($0.value.client) }
         )
@@ -1035,14 +1048,21 @@ extension MobileShellComposite {
             connectedClientIDs.insert(ObjectIdentifier(remoteClient))
         }
         guard !connectedClientIDs.isEmpty else { return .unavailable }
+        // A cached workstream snapshot is still a usable Feed when the current
+        // connection only advertises older capabilities. Keep the retained
+        // rows visible without labeling them as an upgrade prompt.
+        if !agentFeedItems.isEmpty { return .ready }
         let targets = agentFeedTargets()
         guard !targets.isEmpty else { return .requiresMacUpdate }
         let targetOwnerKeys = Set(targets.map(\.ownerKey))
-        if agentFeedItems.isEmpty,
-           agentFeedSuccessfulMacIDs.isDisjoint(with: targetOwnerKeys) {
+        if agentFeedSuccessfulMacIDs.isDisjoint(with: targetOwnerKeys) {
             return .unavailable
         }
-        return targets.count < connectedClientIDs.count ? .requiresMacUpdate : .ready
+        // The Feed is scoped to Macs that advertise `feed.v1`. An older paired
+        // Mac has no bearing on the rows already available from capable Macs,
+        // so partial capability must remain a usable Feed rather than an
+        // inline update warning.
+        return .ready
     }
 
     // MARK: - Normalization

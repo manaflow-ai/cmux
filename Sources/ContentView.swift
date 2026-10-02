@@ -708,8 +708,10 @@ private func installFileDropOverlayWhenReady(
 
     // Defer retrying until the next main-loop turn so we don't mutate the
     // NSThemeFrame hierarchy while SwiftUI/AppKit is still attaching views.
-    DispatchQueue.main.async { [weak window, weak tabManager] in
-        guard let window, let tabManager else { return }
+    let windowIdentifier = ObjectIdentifier(window)
+    DispatchQueue.main.async { [weak tabManager] in
+        guard let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }),
+              let tabManager else { return }
         installFileDropOverlayWhenReady(
             on: window,
             tabManager: tabManager,
@@ -957,7 +959,7 @@ struct ContentView: View {
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindowReference = WeakWindowReference()
-    private var observedWindow: NSWindow? { observedWindowReference.window }
+    var observedWindow: NSWindow? { observedWindowReference.window }
     @State private var workspaceSwitchPortalSignalRouter = WorkspaceSwitchPortalSignalRouter()
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
@@ -6998,6 +7000,8 @@ struct ContentView: View {
         )
     }
 
+    /// Materializes the currently visible, enabled palette commands after
+    /// applying config visibility, Cloud capability, and context gates.
     private func commandPaletteCommands(
         commandsContext: CommandPaletteCommandsContext
     ) -> [CommandPaletteCommand] {
@@ -7005,12 +7009,17 @@ struct ContentView: View {
         let contributions = commandPaletteCommandContributions()
         var handlerRegistry = CommandPaletteHandlerRegistry()
         registerCommandPaletteHandlers(&handlerRegistry)
+        let cloudCapabilityPolicy = CommandPaletteCloudCapabilityPolicy()
 
         var commands: [CommandPaletteCommand] = []
         commands.reserveCapacity(contributions.count)
         var nextRank = 0
 
         for contribution in contributions {
+            guard cloudCapabilityPolicy.allows(
+                commandId: contribution.commandId,
+                context: context
+            ) else { continue }
             let configuredPaletteAction = commandPaletteConfigActionID(for: contribution.commandId)
                 .flatMap { cmuxConfigStore.resolvedAction(id: $0) }
             if let configuredPaletteAction, !configuredPaletteAction.palette {
@@ -7113,6 +7122,7 @@ struct ContentView: View {
     }
 
     /// Captures the lightweight synchronous state consumed by palette contribution gates.
+    /// Captures the selected workspace and window state used by palette gates.
     private func commandPaletteContextSnapshot(
         terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil
     ) -> CommandPaletteContextSnapshot {
@@ -7147,6 +7157,40 @@ struct ContentView: View {
             let pinState = WorkspaceActionDispatcher.pinState(in: tabManager, target: pinTarget)
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
             snapshot.setBool(Self.commandPaletteWorkspaceIsRemoteKey, workspace.isRemoteWorkspace)
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceIsCloud,
+                workspace.isManagedCloudVMWorkspace || workspace.cloudVMID != nil
+            )
+            let cloudCapabilities = workspace.cloudVMID.flatMap { vmID in
+                (SurfaceCatalog.shared.provider(for: .cloud(vmID)) as? CmuxTuiSurfaceProvider)?.capabilities
+            }
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMCapabilitiesKnown,
+                cloudCapabilities != nil
+            )
+            // Legacy managed workspaces can predate the surface provider's capability
+            // snapshot. Preserve their existing command visibility until the provider
+            // publishes authoritative server capabilities.
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsFork,
+                cloudCapabilities?.fork ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsSnapshot,
+                cloudCapabilities?.snapshot ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsRestore,
+                cloudCapabilities?.restore ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsPorts,
+                cloudCapabilities?.ports ?? true
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.cloudVMSupportsExec,
+                cloudCapabilities?.exec ?? true
+            )
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
@@ -7328,6 +7372,7 @@ struct ContentView: View {
     ]
 
     /// Builds command-palette contributions from synchronous context and cached async availability.
+    /// Builds the complete Cmd-Shift-P contribution list before filtering.
     private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
@@ -7388,6 +7433,7 @@ struct ContentView: View {
 
         var contributions: [CommandPaletteCommandContribution] = [Self.commandPaletteFindWorkContribution()]
         contributions.append(contentsOf: Self.commandPaletteCloudCommandContributions())
+        contributions.append(Self.commandPaletteCloudAvailabilityInfoContribution())
         contributions.append(contentsOf: Self.commandPaletteComputerUseContributions())
 
         contributions.append(
@@ -8748,26 +8794,10 @@ struct ContentView: View {
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
             DispatchQueue.main.async {
-                let panel = NSOpenPanel()
-                panel.canChooseFiles = false
-                panel.canChooseDirectories = true
-                panel.allowsMultipleSelection = false
-                // Surface the system "New Folder" button so the user can create a
-                // directory and immediately open it as a workspace.
-                panel.canCreateDirectories = true
-                panel.title = String(localized: "panel.openFolder.title", defaultValue: "Open Folder")
-                panel.prompt = String(localized: "panel.openFolder.prompt", defaultValue: "Open")
-                if let startDirectory = OpenFolderPanelStartDirectory().resolve(
-                    configuredPath: AppCatalogSection().defaultWorkspacePath.value(in: .standard),
-                    workspaceDirectory: tabManager.selectedWorkspace?.currentDirectory
-                ) {
-                    panel.directoryURL = startDirectory
-                }
-                if panel.runModal() == .OK, let url = panel.url {
-                    _ = tabManager.acquireOptionalWorkspaceIfActive {
-                        tabManager.addWorkspaceIfActive(workingDirectory: url.path)
-                    }
-                }
+                AppDelegate.shared?.showOpenFolderPanel(
+                    preferredWindow: observedWindow,
+                    tabManager: tabManager
+                )
             }
         }
         registry.register(commandId: "palette.openFolderInVSCodeInline") {

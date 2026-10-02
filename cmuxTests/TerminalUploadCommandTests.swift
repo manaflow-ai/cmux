@@ -252,9 +252,9 @@ import Testing
         // fall back to the escaped remote path — not yield "" (a spurious failure).
         let emitted = TerminalUploadCommand.emittedText(
             commandStdout: "\u{1b}\u{01}\u{02}",
-            remotePath: "/tmp/cmux-drop-x.png"
+            remotePath: "/tmp/cmux-paste-x.png"
         )
-        #expect(emitted.contains("cmux-paste"))
+        #expect(emitted.contains("cmux-paste-x.png"))
     }
 
     // MARK: - Environment
