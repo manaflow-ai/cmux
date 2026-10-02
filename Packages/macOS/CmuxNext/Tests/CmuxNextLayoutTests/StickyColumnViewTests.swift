@@ -118,29 +118,30 @@ struct StickyColumnViewTests {
         #expect(abs((widths.first ?? 0) - 398.0 / 994.0) < 0.002)
     }
 
-    // Quarantined: fails on every run since #16649; the root-cause fix re-enables it.
-    @Test(.disabled("flaky, #16607")) func theScrollbarShowsOnScrollAndHidesWhenOff() async {
+    /// Runs with Reduce Motion both on and off: the Blacksmith macOS 26
+    /// runners have it on, where scrolls snap without a frame (#16607).
+    /// The test never awaits, so the override can't leak into another
+    /// main-actor test.
+    @Test(arguments: [false, true]) func theScrollbarShowsOnScrollAndHidesWhenOff(reduceMotion: Bool) {
+        Motion.reduceMotionOverride = reduceMotion
+        defer { Motion.reduceMotionOverride = nil }
         let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto)
         defer { window.close() }
         let screen = view.screenViews["s"]!
         #expect(screen.scrollbar?.isShown == false)
-        // Reproduces the flake: the Blacksmith macOS 26 runners that fail it
-        // have Reduce Motion on, so the focus reveal snaps without a frame
-        // and nothing flashes the thumb.
-        Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
-        view.model.focus("c")
-        await settle { screen.scroll.target > 0 }
+        // A track click: scrolls the strip and shows the thumb whether it
+        // springs or snaps. The `auto` fade waits on makeRoot's manual
+        // clock, which never advances.
+        screen.page(to: screen.geometry.maxOffset)
         runToRest(view)
-        // The `auto` fade waits on makeRoot's manual clock, which never advances,
-        // so a loaded runner can't hide the thumb before this check (#16607).
+        #expect(screen.scroll.value == screen.geometry.maxOffset)
         #expect(screen.scrollbar?.isShown == true)
         let report = screen.scrollbarReport
         // The track spans the strip's uncovered range only.
         #expect((report?.band.maxX ?? .infinity) <= 702)
         #expect(report?.thumb != nil)
         view.model.stripScrollbarOverride = .off
-        await settle { screen.scrollbar?.isHidden == true }
+        screen.updateScrollbar()
         #expect(screen.scrollbar?.isHidden == true)
     }
 
