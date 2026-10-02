@@ -21,6 +21,9 @@ import type {
   AttachEndpoint,
   AttachOptions,
   ExecResult,
+  VMFileContents,
+  VMFileEntry,
+  VMFileStat,
   ProviderId,
   SSHEndpoint,
   VmEdgeRule,
@@ -3568,6 +3571,69 @@ export function execVm(input: {
       metadata: { commandLength: input.command.length, exitCode: result.exitCode },
     }).pipe(Effect.catchAll(() => Effect.void));
     return result satisfies ExecResult;
+  });
+}
+
+type VmFileInput = {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly callerPlanId?: string | null;
+  readonly maxActiveVms?: number | null;
+};
+
+function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, vm: CloudVmRow) => Effect.Effect<A, VmProviderOperationError | VmOperationUnsupportedError>): VmWorkflowProgram<A> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "user", {
+      maxActiveVms: input.maxActiveVms,
+    });
+    return yield* run(providers, vm);
+  });
+}
+
+export function listVmFiles(input: VmFileInput, path: string): VmWorkflowProgram<VMFileEntry[]> {
+  return fileVm(input, (providers, vm) => {
+    if (!providers.listFiles) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "listFiles" }));
+    return providers.listFiles(vm.provider, input.providerVmId, path);
+  });
+}
+
+export function readVmFile(input: VmFileInput, path: string): VmWorkflowProgram<VMFileContents> {
+  return fileVm(input, (providers, vm) => {
+    if (!providers.readFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "readFile" }));
+    return providers.readFile(vm.provider, input.providerVmId, path);
+  });
+}
+
+export function writeVmFile(input: VmFileInput, path: string, data: Uint8Array, mode?: number): VmWorkflowProgram<void> {
+  return fileVm(input, (providers, vm) => {
+    if (!providers.writeFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "writeFile" }));
+    return providers.writeFile(vm.provider, input.providerVmId, path, data, mode);
+  });
+}
+
+export function mkdirVmFile(input: VmFileInput, path: string): VmWorkflowProgram<void> {
+  return fileVm(input, (providers, vm) => {
+    if (!providers.makeDirectory) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "makeDirectory" }));
+    return providers.makeDirectory(vm.provider, input.providerVmId, path);
+  });
+}
+
+export function removeVmFile(input: VmFileInput, path: string): VmWorkflowProgram<void> {
+  return fileVm(input, (providers, vm) => {
+    if (!providers.removeFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "removeFile" }));
+    return providers.removeFile(vm.provider, input.providerVmId, path);
+  });
+}
+
+export function statVmFile(input: VmFileInput, path: string): VmWorkflowProgram<VMFileStat> {
+  return fileVm(input, (providers, vm) => {
+    if (!providers.statFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "statFile" }));
+    return providers.statFile(vm.provider, input.providerVmId, path);
   });
 }
 
