@@ -242,7 +242,11 @@ public final class MockBrowserTab: BrowserTab {
     }
 
     public func showDevTools() { commands.append(.showDevTools) }
-    public func markAgentDriven() { commands.append(.markAgentDriven) }
+    public private(set) var isAgentDriven = false
+    public func markAgentDriven() {
+        isAgentDriven = true
+        commands.append(.markAgentDriven)
+    }
 
     public func close() {
         guard !isClosed else { return }

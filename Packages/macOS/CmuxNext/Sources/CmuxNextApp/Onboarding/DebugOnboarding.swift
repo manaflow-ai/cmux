@@ -25,6 +25,8 @@ enum DebugOnboarding {
         }
         if let result = gallery(action, params, onboarding) { return result }
         guard let model = onboarding.controller?.model else { return state(onboarding) }
+        // Only a person passes the password consent screen.
+        if case .confirmingPasswords = model.importer.phase, action == "next" || action == "import" { return state(onboarding) }
         switch action {
         case "next": model.next()
         case "back": model.back()

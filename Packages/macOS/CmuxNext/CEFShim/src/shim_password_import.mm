@@ -120,7 +120,8 @@ int cmux_shim_password_entry_size(void) {
 }
 
 int cmux_shim_password_import_available(void) {
-  return fork_api().password_import ? 1 : 0;
+  // Never import into a fork that cannot keep imported passwords out of agent-driven tabs.
+  return fork_api().password_import && fork_api().tab_set_password_fill ? 1 : 0;
 }
 
 int cmux_shim_import_passwords(const char* profile_cache_path, int reply, const cmux_shim_password_entry* entries, int count) {

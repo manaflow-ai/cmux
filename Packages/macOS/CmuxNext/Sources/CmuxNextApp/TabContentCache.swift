@@ -310,7 +310,7 @@ final class TabContentCache {
             entry.extensionMenuHandler = handler
             entry.chrome.extensionMenuHandler = handler
         }
-        if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if (page as? CEFTab)?.isAgentDriven == true { agentDrivenTabs.insert(key) }
+        if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         browsers[key] = entry
         pageInstalls.bump()
         // Pages are kept by hibernation, never by the terminal warm set.

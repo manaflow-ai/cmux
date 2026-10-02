@@ -63,6 +63,9 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// secure sign-in sheet (plans/cmux-next/browser.md, "Secure sign-in").
     func markAgentDriven()
 
+    /// Whether `markAgentDriven` has run on this page.
+    var isAgentDriven: Bool { get }
+
     /// Tears the page down. Pending prompts are dismissed. Idempotent.
     func close()
 }
@@ -70,6 +73,7 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
 extension BrowserTab {
     /// Engines without Chromium password autofill have nothing to withhold.
     public func markAgentDriven() {}
+    public var isAgentDriven: Bool { false }
 
     public func zoomIn() { setZoom(BrowserZoom.zoomIn(from: state.zoom)) }
     public func zoomOut() { setZoom(BrowserZoom.zoomOut(from: state.zoom)) }
