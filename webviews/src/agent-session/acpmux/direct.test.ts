@@ -42,7 +42,7 @@ describe("direct acpmux event helpers", () => {
 
   test("drops the abandoned assistant row on a superseded message", () => {
     const rows = new Map<string, AcpmuxRow>([["assistant-1", { id: "assistant-1", version: 1, at: 1, kind: "assistant", text: "partial" }]]);
-    const messageRows = new Map([["old-message", "assistant-1"]]);
+    const messageRows = new Map([["old-message", ["assistant-1"]]]);
     const superseded = new Set<string>();
     applySupersededMessage(rows, messageRows, superseded, "old-message");
     expect(rows.has("assistant-1")).toBe(false);

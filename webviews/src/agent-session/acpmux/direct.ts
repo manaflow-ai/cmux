@@ -49,10 +49,9 @@ export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
   return [...bySequence.values()].sort((left, right) => left.seq - right.seq);
 }
 
-export function applySupersededMessage(rows: Map<string, AcpmuxRow>, messageRows: Map<string, string>, superseded: Set<string>, oldMessageId: string): void {
+export function applySupersededMessage(rows: Map<string, AcpmuxRow>, messageRows: Map<string, string[]>, superseded: Set<string>, oldMessageId: string): void {
   superseded.add(oldMessageId);
-  const rowId = messageRows.get(oldMessageId);
-  if (rowId) rows.delete(rowId);
+  for (const rowId of messageRows.get(oldMessageId) ?? []) rows.delete(rowId);
   messageRows.delete(oldMessageId);
 }
 
@@ -130,7 +129,8 @@ export class AcpmuxDirectClient {
   private streamingAssistantMessageId?: string;
   private streamingActivity?: string;
   private supersededMessageIds = new Set<string>();
-  private messageRows = new Map<string, string>();
+  /// The rows each message streamed into; tool calls split one message into several.
+  private messageRows = new Map<string, string[]>();
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
   private readonly listener: Listener;
@@ -448,7 +448,7 @@ export class AcpmuxDirectClient {
       const existing = this.rows.get(id);
       // Text after tool calls is a new segment; the next tool call opens a new fold.
       this.streamingActivity = undefined;
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "assistant", text: `${existing?.text ?? ""}${text}`, streaming: true }); this.streamingAssistant = id; this.streamingAssistantMessageId = messageId; if (messageId) this.messageRows.set(messageId, id); this.rows.delete("typing");
+      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "assistant", text: `${existing?.text ?? ""}${text}`, streaming: true }); this.streamingAssistant = id; this.streamingAssistantMessageId = messageId; if (messageId) { const ids = this.messageRows.get(messageId) ?? []; if (!ids.includes(id)) this.messageRows.set(messageId, [...ids, id]); } this.rows.delete("typing");
     } else if (event.kind === "agent_thought_chunk" && text) {
       this.endAssistantSegment();
       const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id);
@@ -457,11 +457,12 @@ export class AcpmuxDirectClient {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       // An update to a call already shown stays in its fold; a new call ends the text segment.
       const known = this.toolRows.get(callId);
-      if (!known) this.endAssistantSegment();
-      const id = known && this.rows.has(known) ? known : this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text);
+      const knownRow = known && this.rows.has(known) ? known : undefined;
+      if (!knownRow) this.endAssistantSegment();
+      const id = knownRow ?? this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text);
       if (itemIndex >= 0) items[itemIndex] = item; else items.push(item);
       this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "activity", toolCount: items.filter((entry) => entry.kind === "tool").length, items }); this.toolRows.set(callId, id);
-      if (!known) this.streamingActivity = id;
+      if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "plan") this.rows.set(`plan-${event.seq}`, { id: `plan-${event.seq}`, version: 1, at: event.at, kind: "plan", text: text || JSON.stringify(update.entries ?? update.content ?? "") });
   }
 
