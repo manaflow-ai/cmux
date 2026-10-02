@@ -2,8 +2,9 @@ import CmuxNextDesign
 import SwiftUI
 
 /// A listing's page: icon, description, tier, Install/Remove, a live
-/// preview of each sidebar section and status item, permissions with their
-/// reasons, versions, repository.
+/// preview of each sidebar section and status item (mounted by the
+/// supervisor; a preview mount when the app is not active), permissions
+/// with their reasons, version, repository.
 struct AppListingDetailView: View {
     let model: AppStoreModel
     let listing: AppStoreListing
@@ -26,7 +27,6 @@ struct AppListingDetailView: View {
                 previews
                 permissions
                 versions
-                AppPrototypeNote()
             }
             .padding(Metrics.space6)
             .frame(maxWidth: 720, alignment: .leading)
@@ -36,7 +36,7 @@ struct AppListingDetailView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: Metrics.space4) {
-            AppIconView(icon: listing.icon, bundleDirectory: listing.bundle?.directory, size: 64)
+            AppIconView(icon: listing.icon, bundleDirectory: listing.bundleDirectory, size: 64)
             VStack(alignment: .leading, spacing: Metrics.space1) {
                 Text(listing.name.resolved()).font(.system(size: 20, weight: .semibold)).foregroundStyle(colors.primary)
                 HStack(spacing: Metrics.space2) {
@@ -58,16 +58,16 @@ struct AppListingDetailView: View {
 
     @ViewBuilder
     private var previews: some View {
-        let contributions = (listing.bundle?.manifest.contributes.entries ?? []).filter { $0.kind == .sidebarSection || $0.kind == .statusItem }
+        let implementations = listing.implementations.filter(\.isPreviewable)
         AppDetailSection(title: AppsStrings.preview,
                          note: model.state(of: listing.id)?.isActive == true ? nil : AppsStrings.previewSample) {
-            if contributions.isEmpty {
+            if implementations.isEmpty {
                 Text(AppsStrings.noPreview).font(Font(Typography.caption)).foregroundStyle(colors.tertiary)
             }
-            ForEach(contributions, id: \.id) { contribution in
+            ForEach(implementations) { implementation in
                 VStack(alignment: .leading, spacing: Metrics.space2) {
-                    Text(AppsStrings.contribution(contribution.kind)).font(Font(Typography.caption)).foregroundStyle(colors.tertiary)
-                    AppLivePreview(model: model, listing: listing, contribution: contribution)
+                    Text(AppsStrings.implementation(implementation)).font(Font(Typography.caption)).foregroundStyle(colors.tertiary)
+                    AppLivePreview(model: model, listing: listing, implementation: implementation)
                 }
             }
         }
@@ -78,7 +78,7 @@ struct AppListingDetailView: View {
             if listing.scopes.isEmpty, listing.optionalScopes.isEmpty {
                 Text(AppsStrings.noPermissions).font(Font(Typography.caption)).foregroundStyle(colors.tertiary)
             }
-            if let app = model.state(of: listing.id), app.isInstalled {
+            if let app = model.state(of: listing.id), app.installed {
                 AppGrantsView(model: model, app: app)
             } else {
                 ForEach(listing.scopes) { AppScopeRow(scope: $0, optional: false) }
@@ -89,12 +89,9 @@ struct AppListingDetailView: View {
 
     private var versions: some View {
         AppDetailSection(title: AppsStrings.versions, note: nil) {
-            ForEach(listing.versions) { version in
-                HStack(spacing: Metrics.space3) {
-                    Text(version.version).font(Font(Typography.bodyEmphasized).monospacedDigit()).foregroundStyle(colors.primary)
-                    Text(AppsStrings.requires(version.engines)).font(Font(Typography.caption)).foregroundStyle(colors.secondary)
-                    Spacer()
-                }
+            HStack(spacing: Metrics.space3) {
+                Text(listing.version).font(Font(Typography.bodyEmphasized).monospacedDigit()).foregroundStyle(colors.primary)
+                Spacer()
             }
         }
     }

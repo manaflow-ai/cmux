@@ -55,7 +55,7 @@ final class EventInbox: Sendable {
         switch envelope.event {
         case .connected, .disconnected, .daemonShutdown:
             state.events.append(envelope)
-        case .bookmarksChanged, .conversationChanged, .conversationTyping:
+        case .bookmarksChanged, .conversationChanged, .conversationTyping, .unknown:
             // Not part of the tree snapshot a resync refetches.
             state.events.append(envelope)
         default:

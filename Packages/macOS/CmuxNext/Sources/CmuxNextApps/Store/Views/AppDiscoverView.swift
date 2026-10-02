@@ -40,7 +40,7 @@ struct AppDiscoverView: View {
                             LazyVStack(spacing: 2) { rows(showsInstall: true) }.padding(Metrics.space4)
                         }
                     }
-                    .overlay { if model.listings.isEmpty { empty(model.loadError.map { _ in AppsStrings.loadFailed } ?? AppsStrings.noMatches) } }
+                    .overlay { if model.listings.isEmpty { empty(model.client.isAvailable ? AppsStrings.noMatches : AppsStrings.nothingListed) } }
                 }
             }
         }
