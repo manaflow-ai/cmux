@@ -7,7 +7,7 @@
     "dev": "vite dev --port 3010",
     "build": "vite build",
     "typecheck": "tsc -p .",
-    "test": "bun test test",
+    "test": "bun test ./test/",
     "test:server": "bun test test-server"
   },
   "dependencies": {
