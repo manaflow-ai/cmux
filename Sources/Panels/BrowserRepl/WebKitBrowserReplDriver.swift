@@ -1378,6 +1378,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             guard result == .delivered else {
                 throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
             }
+            self.attachment(panel).heldKeys.record(stroke, keyDown: type == "down")
             if type == "down", let command = stroke.editingCommand {
                 try await self.performEditingCommand(command, panel: panel, webView: webView)
             }

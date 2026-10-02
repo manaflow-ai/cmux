@@ -52,7 +52,12 @@ events keep the browser's own UI and are not sent, except an event named in
 the session's last `tab.handleEvents` for that tab, which is sent to the
 sessions instead. The runtime sends `tab.handleEvents` whenever a page's
 `dialog`, `filechooser` or `download` listeners change, and its next call on
-the tab waits for it. A download keeps the route it started with. `session.name` shows the tabs the
+the tab waits for it. A download keeps the route it started with.
+
+When the last session leaves a tab, the driver releases what the sessions
+left pressed: each held key gets its key-up (last pressed first) and each
+held mouse button its button-up at the last mouse position, or the drag it
+started ends. The page sees them as trusted events. `session.name` shows the tabs the
 session opened, now and later, as `<name> · <page title>`, following title
 changes; a title the user set wins, and the plain title returns when the
 session ends. An empty name removes the label.

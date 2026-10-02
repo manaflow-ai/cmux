@@ -68,6 +68,13 @@ extension CmuxWebView {
         return true
     }
 
+    /// Forgets automated right clicks whose context menu never opened (the
+    /// page prevented it), so the user's next menu is not swallowed after
+    /// the automation leaves the tab.
+    public func cancelPendingAutomationContextMenus() {
+        automationContextMenuSuppressionCount = 0
+    }
+
     private static let contextMenuSuppressionKey: UnsafeRawPointer = {
         UnsafeRawPointer(Unmanaged.passUnretained(ContextMenuSuppressionKey.shared).toOpaque())
     }()

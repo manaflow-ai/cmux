@@ -156,7 +156,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
 
   function register(page) {
     if (tabOf.has(page)) return tabOf.get(page);
-    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map() };
+    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map(), heldKeys: new Map(), heldButtons: new Map() };
     tabs.set(tab.targetId, tab);
     tabOf.set(page, tab);
     frameId(tab, page.mainFrame());
@@ -597,8 +597,11 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     "frame.contentFrames": async ({ targetId, frameId: id, elements = [] }) => {
       return Promise.all(elements.map((element) => methods["frame.contentFrame"]({ targetId, frameId: id, element }).catch(() => null)));
     },
-    "input.mouse": async ({ targetId, type, x, y, button = "left", clickCount = 1, modifiers, deltaX = 0, deltaY = 0 }) => {
-      const page = tabFor(targetId).page;
+    "input.mouse": async ({ targetId, type, x, y, button = "left", clickCount = 1, modifiers, deltaX = 0, deltaY = 0 }, driver) => {
+      const tab = tabFor(targetId);
+      const page = tab.page;
+      if (type === "down") tab.heldButtons.set(button, driver);
+      if (type === "up") tab.heldButtons.delete(button);
       await withModifiers(page, modifiers, async () => {
         if (type === "move") await page.mouse.move(x, y);
         else if (type === "down") await page.mouse.down({ button, clickCount });
@@ -609,8 +612,12 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         } else throw new DriverError("invalid", `Unknown mouse event ${type}`);
       });
     },
-    "input.key": async ({ targetId, ...event }) => {
-      await keyEvent(tabFor(targetId), event);
+    "input.key": async ({ targetId, ...event }, driver) => {
+      const tab = tabFor(targetId);
+      const held = event.code || event.key;
+      if (event.type === "down") tab.heldKeys.set(held, { key: event.key, code: event.code, driver });
+      else tab.heldKeys.delete(held);
+      await keyEvent(tab, event);
       // As the app's driver: Command+B/I/U format an editable selection.
       const mods = event.modifiers || [];
       const cmd = { KeyB: "bold", KeyI: "italic", KeyU: "underline" }[event.code];
@@ -812,7 +819,21 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       // Ends the session: tabs it opened close unless kept.
       async detach() {
         drivers.delete(driver);
-        for (const tab of tabs.values()) tab.handled.delete(driver);
+        for (const tab of tabs.values()) {
+          tab.handled.delete(driver);
+          // Keys and buttons this session left pressed are released, last
+          // pressed first, so the page sees keyup and mouseup.
+          for (const [held, k] of [...tab.heldKeys].reverse()) {
+            if (k.driver !== driver) continue;
+            tab.heldKeys.delete(held);
+            await keyEvent(tab, { type: "up", key: k.key, code: k.code }).catch(() => {});
+          }
+          for (const [button, owner] of [...tab.heldButtons].reverse()) {
+            if (owner !== driver) continue;
+            tab.heldButtons.delete(button);
+            await tab.page.mouse.up({ button }).catch(() => {});
+          }
+        }
         for (const targetId of driver.opened) {
           const tab = tabs.get(targetId);
           if (tab) await tab.page.close().catch(() => {});

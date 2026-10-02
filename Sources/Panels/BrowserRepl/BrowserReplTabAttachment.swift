@@ -100,6 +100,8 @@ final class BrowserReplTabAttachment {
 
     /// Mouse buttons held by automation, for drag event types.
     var mouseState = BrowserReplMouseState()
+    /// Keys held by automation, released when the last session leaves.
+    var heldKeys = BrowserReplHeldKeys()
     /// The session whose press is in progress: from its button down to its
     /// button up no other session's mouse event reaches the page, so two
     /// sessions clicking one tab at once make two clicks, not one. Another
@@ -445,6 +447,7 @@ final class BrowserReplTabAttachment {
         dialogs.removeAll()
         for respond in fileChoosers.values { respond(nil) }
         fileChoosers.removeAll()
+        releaseHeldInput()
         uninstrument()
         agentUserScript.release()
         applyContext(BrowserReplContextOptions(), sessionID: nil)
@@ -454,15 +457,56 @@ final class BrowserReplTabAttachment {
             occlusionDisabledWebView = nil
         }
         panel?.reevaluateHiddenWebViewDiscardScheduling(reason: "browser.repl.detach")
-        if let cmuxWebView = panel?.webView as? CmuxWebView {
-            cmuxWebView.automationDragCapture = nil
-            drag = nil
-            cmuxWebView.releaseBrowserReplModifiers()
-        }
-        mouseState.reset()
         let waiters = networkIdleWaiters
         networkIdleWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
+    }
+
+    /// Hands the tab back with no automated input in progress: keys and
+    /// buttons the sessions left pressed get their key-up and mouse-up (or
+    /// the drag they started ends), and automated right clicks whose menu
+    /// never opened stop suppressing the user's next context menu.
+    private func releaseHeldInput() {
+        let keys = heldKeys.releaseAll()
+        let buttons = mouseState.pressedButtons
+        mouseState.reset()
+        let dragState = drag
+        drag = nil
+        guard let webView = panel?.webView as? CmuxWebView else { return }
+        webView.cancelPendingAutomationContextMenus()
+        webView.automationDragCapture = nil
+        if webView.window != nil {
+            for stroke in keys {
+                _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false)
+            }
+        }
+        webView.releaseBrowserReplModifiers()
+        guard let window = webView.window else { return }
+        let location = BrowserReplNativeInput.windowPoint(webView: webView, cssPoint: mousePosition)
+        for button in buttons.reversed() {
+            if button == .left, let drop = dragState?.drop {
+                drop.draggingLocation = location
+                webView.draggingExited(drop)
+                webView.endAutomationDrag(at: location, operation: [])
+                continue
+            }
+            let type: NSEvent.EventType = switch button {
+            case .left: .leftMouseUp
+            case .right: .rightMouseUp
+            case .middle: .otherMouseUp
+            }
+            if let event = BrowserReplNativeInput.mouseEvent(
+                type: type,
+                button: button,
+                webView: webView,
+                window: window,
+                cssPoint: mousePosition,
+                clickCount: 1,
+                modifierFlags: []
+            ) {
+                webView.deliverAutomationMouseEvent(event)
+            }
+        }
     }
 
     func emit(_ name: String, _ payload: [String: Any]) {
