@@ -36,6 +36,7 @@ public nonisolated enum MotionTunables {
         .lift: (0.12, "Sidebar drag lift shadow."),
         .theme: (0.16, "Room, workspace or terminal theme switch."),
         .highlight: (1.2, "Settings row highlight after a search jump or deep link fades out."),
+        .launch: (0.24, "Launch mark resolving on the glass (scaled by the animation speed; stays under 400 ms)."),
     ]
 
     static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in
@@ -80,6 +81,18 @@ public nonisolated enum MotionTunables {
     public static let panelCloseScale = Tunable<Double>.number(
         "motion.panel.closeScale", .palette, "Panel close scale", help: "Scale the palette shrinks to when it closes.",
         default: 0.98, range: 0.8...1, step: 0.005, unit: .multiplier, code: "MotionTunables.panelCloseScale")
+
+    // MARK: Launch
+
+    public static let launchMarkDelay = Tunable<Double>.number(
+        "motion.launch.markDelay", .fades, "Launch mark delay",
+        help: "A launch whose window has content sooner never shows the mark.",
+        default: 0.15, range: 0...1, step: 0.01, unit: .seconds, code: "MotionTunables.launchMarkDelay")
+    public static let launchTextDelay = Tunable<Double>.number(
+        "motion.launch.textDelay", .fades, "Launch status delay",
+        help: "How long the mark shows alone before \"Connecting\" appears under it.",
+        default: 1.2, range: 0...5, step: 0.05, unit: .seconds, code: "MotionTunables.launchTextDelay")
+    static var launchDelays: [Tunable<Double>] { [launchMarkDelay, launchTextDelay] }
 
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
