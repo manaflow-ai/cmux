@@ -27,11 +27,16 @@ extension RightSidebarMode {
     }
 
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        availableModes(
+        var modes = availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsAvailable(),
             devicesEnabled: false
         )
+        if CmuxExtensionSidebarSelection.customSidebarsEnabled(defaults: defaults),
+           FileExplorerState.persistedCustomSidebarName(defaults: defaults) != nil {
+            modes.append(.customSidebar)
+        }
+        return modes
     }
 
     static func availableModes(
