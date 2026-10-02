@@ -151,3 +151,27 @@ Needed by SSO just-in-time membership, SCIM and every team-admin op (today every
 5. Migration: personal teams unchanged; the `kind` field (`personal | stack`) gains `shared`; Stack teams mirror into shared teams later through the same `team.member.provision` op.
 
 Strongest objection: a team claim in the token can go stale when a member is removed. Answer: owners check the member row on every op (the claim only routes), and refresh re-checks at mint, so removal takes effect at once for ops and within one token lifetime for routing.
+
+### Backend lead review of the shared-teams proposal (2026-10-02)
+
+Accepted with these changes. These changes align the proposal with spec H5: Contacts, Grants and Team never imply each other, and roles are bundles of default grants.
+
+1. Role set: `guest | member | admin | owner | billing`. This replaces `owner | admin | member`. A role is a named bundle of default grants that TeamDO stores (`team_roles: role -> [grant]`). Ops check grants, never role names. The bundles:
+   - `owner`: all grants.
+   - `admin`: all grants except owner transfer and team deletion.
+   - `member`: the team resources by default.
+   - `billing`: billing and invoices only, with no resource access.
+   - `guest`: no default grants. A guest reaches only resources that their owners grant one by one.
+   An admin cannot grant `owner` and cannot raise anyone above their own role. The invariant becomes "at least one active `owner`". `billing` never counts as an owner.
+2. Team is not Contact. Membership never creates a Contact, a DM or reachability to a member's chief. Compose never adds members. `team.member.invite` stays a separate, explicit sheet (H5). Team policy may limit DMs inside the team. It never opens them.
+3. Removal and suspension revoke, in the same commit, every grant whose basis is the membership. That covers the default bundle and the team SSH certificates. Explicit Grants have a `basis` field (`team:<id>` or `direct`). A direct grant from a resource owner outlives the membership only when its basis is `direct` and the resource is not a team resource.
+4. JIT and SCIM: `team.member.provision` defaults to `member`. An IdP group gives `admin` or `owner` only through a mapping that an admin set in the SSO connection (an audited op). Raw IdP claims never give a role.
+5. The token team claim is accepted as proposed: the claim routes, and owners check the member row. The same check applies to `x-cmux-team`. TeamDO stays the source of truth. Stack teams mirror into TeamDO only through `team.member.provision` (D4: Stack is the identity source, not the membership source).
+6. Order: after Home stage B and stage C. SSO JIT membership and SCIM wait for it.
+
+Lawrence's decisions (2026-10-02):
+- (a) Guests are free: a guest is never a paid seat.
+- (b) `billing` reads only billing-related audit entries (an audit read filtered by category).
+- (c) Only an `owner` removes or suspends an `admin`. An `admin` removes `member`, `guest` and `billing` only.
+
+Pending verification (the enterprise lead's OIDC callback): the Stack server calls (user search, create user, create session) ran only against a fake. Verify them against the real Stack project on staging the next time auth code changes, before SSO sign-in is enabled for a real connection.

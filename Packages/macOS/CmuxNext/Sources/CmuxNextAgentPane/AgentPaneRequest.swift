@@ -16,6 +16,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; the pane picks its rendering rate from them.
     case framePacing([Double])
+    /// The new tab page chose a terminal or browser: replace the tab with
+    /// one, running or opening `text` (a command, a URL or a search).
+    case openTab(AgentPaneTabKind, text: String)
+    /// The new tab page asked to change a kind's New shortcut.
+    case editShortcut(AgentPaneTabKind)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
@@ -28,6 +33,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case unsupported(String)
 
     public static let maximumPacingFrames = 640
+    /// Longest `tab.open` text kept; a command or address is far shorter.
+    public static let maximumOpenTabText = 8192
 
     public static let handlerName = "agentSession"
 
@@ -56,6 +63,19 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "pane.framePacing":
             if let intervals = params?["intervals"] as? [Double], !intervals.isEmpty {
                 self = .framePacing(Array(intervals.prefix(Self.maximumPacingFrames)))
+            } else {
+                self = .unsupported(method)
+            }
+        case "tab.open":
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
+                let text = params?["text"] as? String ?? ""
+                self = .openTab(kind, text: String(text.prefix(Self.maximumOpenTabText)))
+            } else {
+                self = .unsupported(method)
+            }
+        case "shortcut.edit":
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
+                self = .editShortcut(kind)
             } else {
                 self = .unsupported(method)
             }
@@ -106,6 +126,7 @@ public nonisolated enum AgentPaneReply {
         if let token = handshake.token { value["token"] = token }
         if let sessionId = handshake.sessionId { value["sessionId"] = sessionId }
         if let newSession = handshake.newSession { value["newSession"] = newSession }
+        if let newTab = handshake.newTab { value["newTab"] = newTab.reply }
         if let cwd = handshake.cwd { value["cwd"] = cwd }
         if let draft = handshake.draft { value["draft"] = draft }
         if let prompt = handshake.prompt { value["prompt"] = prompt }

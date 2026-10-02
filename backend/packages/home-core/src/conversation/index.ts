@@ -57,3 +57,4 @@ export { CLOUD_REJECT_CODES, LOCAL_REJECT_CODES, REJECT_CODES, type Conversation
 export type { ApplyResult, Commit, OpRequest } from "./request.ts"
 export * from "./types.ts"
 export { conversationRedact, PRIVATE_TABLES } from "./redact.ts"
+export { MAX_LIMIT as SEARCH_MAX_LIMIT, messageText, searchConversations, snippetOf, type SearchHit, type SearchInput, type SearchResult, type SearchSource } from "./search.ts"
