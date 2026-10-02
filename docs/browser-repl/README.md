@@ -283,6 +283,9 @@ rest. Measurements: [performance.md](performance.md).
 - Named sessions (`--session NAME`) keep variables and tabs until
   `cmux browser repl reset NAME` or 30 minutes idle. A run without `--session`
   is one-shot: its tabs close at the end unless `page.keep()` was called.
+- `cmux browser repl mcp [--session NAME]` serves a session (`mcp` by
+  default) as an MCP server on stdio, with the tools `eval`, `snapshot`,
+  `screenshot`, `tabs` and `reset`, for agents that load tools over MCP.
 - A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`), or
   to the focused workspace when the caller is outside cmux or the id is unknown
   to this instance.
