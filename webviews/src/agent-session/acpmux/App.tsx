@@ -6,7 +6,7 @@ import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, markdownBlocks, paneHeader, placeRows, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
-import { MockAcpmuxSocket, mockHost } from "./mock";
+import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
@@ -30,6 +30,8 @@ declare global {
     cmuxAcpmuxRegistry?: { register(kind: string, renderer: MeasurableRenderer, options?: { measure?: (row: AcpmuxRow, width: number) => number }): void; configure(options: Record<string, unknown>): void };
     cmuxAcpmuxDebug?: AcpmuxDebug;
     cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    /// Mock mode only: a recorded turn the in-page daemon replays (webviews/scripts/agent-pane).
+    cmuxAcpmuxMockScript?: MockScript;
     React?: typeof React;
   }
 }
@@ -403,7 +405,7 @@ function AcpmuxPane() {
           delete window.cmuxAcpmuxActions;
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
-        }, mock ? () => new MockAcpmuxSocket() as unknown as WebSocket : undefined);
+        }, mock ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket : undefined);
         if (cancelled) { client.close(); return; }
         directClient.current = client;
         catalogClientId.current += 1;
