@@ -176,7 +176,8 @@ const shell = (file, body) => `<!doctype html><html><head><meta charset="utf-8">
 ${body}
 <script>
 // As in the editors: the Share button (no id) renders a moment after the title.
-setTimeout(() => { document.getElementById("share-slot").innerHTML = '<div role="button" aria-label="Share. ${file.shared ? "Anyone with the link can view" : "Private to only me"}. "> <span>Share</span></div>'; }, 600);
+// As live: an unlabeled wrapper carries the id; the inner button the label.
+setTimeout(() => { document.getElementById("share-slot").innerHTML = '<div id="docs-titlebar-share-client-button"><div role="button" aria-label="Share. ${file.shared ? "Anyone with the link can view" : "Private to only me"}. "> <span>Share</span></div></div>'; }, 600);
 const post = (path, data) => fetch(location.pathname.replace(/\\/edit$/, "") + "/__mock/" + path, { method: "POST", body: JSON.stringify(data) });
 document.querySelector(".docs-title-input").addEventListener("keydown", (e) => { if (e.key === "Enter") post("title", { title: e.target.value }); });
 document.getElementById("docs-file-menu").addEventListener("click", () => {
