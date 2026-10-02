@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { canonicalJson, type Reject, type ReduceContext } from "@cmux/ownership"
 import { policyValueSchema, type PolicyKey } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
-import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, type PolicyState, type PolicyValues, type PolicyVersion } from "./team-policy.ts"
+import { currentPolicy, integrationSlice, MAX_POLICY_BYTES, POLICY_HISTORY_LIMIT, policyBytes, type PolicyState, type PolicyValues, type PolicyVersion } from "./team-policy.ts"
 
 /**
  * TeamDO -> ConnectionDO integration projection (spec/enterprise.md 4.6).
@@ -69,6 +69,8 @@ export const reduceIntegrationSeed = <S extends IntegrationSyncState>(state: S, 
   // No acknowledged hash: the first push always follows, so ConnectionDO holds exactly TeamPolicy's slice.
   const seededState = { ...state, integration_seeded: true, integration_synced_hash: undefined }
   if (added.length === 0) return { ok: true, state: seededState, value: { seeded: true, copied: [] } }
+  // An oversized copy is a visible reject (the sync stays pending and backs off), never a failed commit.
+  if (policyBytes(values) > MAX_POLICY_BYTES) return { ok: false, code: "policy.invalid", message: "the integration policy copied into the team policy exceeds the size limit" }
   const actor = ctx.principal.identity
   const policy = { version: current.version + 1, values: values as PolicyValues, updated_at: ctx.now, updated_by: actor }
   const entry: PolicyVersion = { version: policy.version, values: policy.values, changed: added, actor, at: ctx.now, reason: "copied from the integration policy before the first push", rollback_of: null }
