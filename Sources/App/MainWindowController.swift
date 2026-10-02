@@ -39,7 +39,7 @@ final class MainWindowController: ReleasingWindowController {
 
     /// Returns whether a new window needs a transient fullscreen tiling opt-out
     /// while it is being presented from a native fullscreen source.
-    nonisolated static func shouldTemporarilyDisallowFullscreenTiling(
+    static func shouldTemporarilyDisallowFullscreenTiling(
         sourceWindow: NSWindow?,
         restoringSessionWindow: Bool
     ) -> Bool {
