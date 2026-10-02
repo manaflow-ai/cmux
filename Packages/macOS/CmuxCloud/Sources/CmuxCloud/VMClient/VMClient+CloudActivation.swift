@@ -35,10 +35,10 @@ extension VMClient {
                     freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
                     memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
                     lockedMemoryOptionsMb: (rawLimits["lockedMemoryOptionsMb"] as? [Any]).map { Self.decodeIntArray($0) },
-                    vcpusByMemoryMb: Self.decodePositiveIntMap(rawLimits["vcpusByMemoryMb"]),
                     memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
                         .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
                     memoryUpgradePlansByMb: rawLimits["memoryUpgradePlansByMb"] as? [String: String],
+                    vcpusByMemoryMb: Self.decodePositiveIntMap(rawLimits["vcpusByMemoryMb"]),
                     activeVmCount: rawLimits["activeVmCount"] as? Int,
                     imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
                 )
