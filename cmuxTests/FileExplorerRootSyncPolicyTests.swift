@@ -178,7 +178,7 @@ struct PlainSSHFileExplorerRootTests {
             ttyName == "ttys001" ? first : second
         }
         var updates = await monitor.updates().makeAsyncIterator()
-        #expect(await updates.next() == nil)
+        #expect((await updates.next()).flatMap { $0 } == nil)
 
         await monitor.update(
             isEnabled: true,
@@ -201,7 +201,7 @@ struct PlainSSHFileExplorerRootTests {
         #expect(secondSnapshot.session == second)
 
         await monitor.update(isEnabled: false, workspaceId: nil, panelId: nil, ttyName: nil)
-        #expect(await updates.next() == nil)
+        #expect((await updates.next()).flatMap { $0 } == nil)
         await monitor.stop()
     }
 
