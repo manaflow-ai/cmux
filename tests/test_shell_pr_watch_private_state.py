@@ -134,7 +134,7 @@ print -r -- "PREFIX=$(_cmux_pr_cache_prefix)"
         prefix = output.split("PREFIX=", 1)[1].strip()
         self.assertEqual(
             Path(f"{prefix}.result").read_text(),
-            "123\tOPEN\thttps://github.com/example/repo/pull/123\n",
+            "pr\t123\tOPEN\thttps://github.com/example/repo/pull/123\n",
         )
 
     def test_debug_log_writes_no_file_in_shared_tmp(self):
