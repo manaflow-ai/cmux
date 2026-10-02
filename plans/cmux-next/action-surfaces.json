@@ -5613,6 +5613,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-create-checkpoint",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.createCheckpoint",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
       "cli" : "liveInput",
       "cli_name" : "action agent-pane-search-chats",
       "context_menu" : "noTargetSurface",
