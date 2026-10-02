@@ -9,18 +9,22 @@ public struct TabItemMapping {
     public func item(_ tab: TabModel, fallbackTitle: String) -> StripTabItem {
         let title = tab.displayTitle.isEmpty ? fallbackTitle : tab.displayTitle
         let isBrowser = tab.kind == .browser
-        return StripTabItem(
+        let busy = StatusMapping.shared.loading(tab)
+        var item = StripTabItem(
             id: StripTabID(tab.id),
             title: title,
             subtitle: isBrowser ? tab.url : tab.cwd.map(SidebarMapping.shared.abbreviate),
             icon: .symbol(isBrowser ? "globe" : (tab.dead ? "xmark.octagon" : "terminal")),
             isPinned: tab.pinned,
             isUnread: tab.hasUnread,
-            isBusy: tab.agent?.state == .working || isReportingProgress(tab),
+            isBusy: busy.state.isLoading || isReportingProgress(tab),
             status: status(tab),
             // The strip's location field: web pages only (`TabLocation`).
             location: isBrowser ? TabLocation(address: tab.url) : nil
         )
+        if busy.state.isLoading { item.indicator = busy.state }
+        item.busyStyle = busy.style
+        return item
     }
 
     func status(_ tab: TabModel) -> TabStatus {

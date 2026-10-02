@@ -123,6 +123,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.paletteShortcutEditor = shortcutEditor
         services.palette.shortcutRecorder.editor = shortcutEditor
         settings.start()
+        // macOS posts no notification when an MDM profile changes; activation
+        // is the event-driven backstop next to the managed-file watchers.
+        Task { [weak settings] in
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                settings?.managedPreferencesMayHaveChanged()
+            }
+        }
         services.tabBarButtons.start(settings: settings)
         services.cache.browserTabs.preference.follow(settings)
         services.notifications.follow(settings)

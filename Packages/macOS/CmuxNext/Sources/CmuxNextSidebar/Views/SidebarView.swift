@@ -39,6 +39,9 @@ public final class SidebarView: NSView {
     let belowRegion = SidebarRegionView(region: .bottom)
     let aboveScroll = NSScrollView()
     let belowScroll = NSScrollView()
+    /// Fade the bands' rows out at an edge while more are hidden there.
+    var aboveFade: ScrollEdgeFadeView!
+    var belowFade: ScrollEdgeFadeView!
     /// Hairlines between the sticky bands and the list (quiet look).
     let aboveLine = CALayer()
     let belowLine = CALayer()

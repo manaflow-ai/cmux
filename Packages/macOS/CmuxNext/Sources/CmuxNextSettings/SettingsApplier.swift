@@ -48,9 +48,12 @@ public final class SettingsApplier {
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }
         if design.focusRing != snapshot.focusRing { design.focusRing = snapshot.focusRing }
         if design.attention != snapshot.attention { design.attention = snapshot.attention }
+        if design.statusIndicator != snapshot.statusIndicator { design.statusIndicator = snapshot.statusIndicator }
         if design.titlebar != snapshot.titlebar { design.titlebar = snapshot.titlebar }
         if design.rail != snapshot.rail { design.rail = snapshot.rail }
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
+        if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
+        if design.tabBarBackground != snapshot.tabBarBackground { design.tabBarBackground = snapshot.tabBarBackground }
         for key in MetricKey.allCases {
             let value = snapshot.metrics[key.rawValue].map { CGFloat($0) }
             let range = DesignSettings.allowedRange(key)

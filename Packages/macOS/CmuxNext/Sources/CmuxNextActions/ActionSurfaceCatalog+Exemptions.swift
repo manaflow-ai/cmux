@@ -100,7 +100,7 @@ nonisolated extension ActionSurfaceCatalog {
         "renamePane", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
         "column.widthHalf", "column.widthTwoThirds", "column.widthFull", "column.makeSticky", "column.makeStickyLeft",
         "column.unstick", "column.toggleStickyOverlay", "layout.toggleStripScrollbar", "terminal.clear",
-        "terminal.sendText", "history.show", "history.resumeAgentSession", "history.reopen", "history.clear",
+        "terminal.sendText", "history.show", "agentActivity.open", "history.resumeAgentSession", "history.reopen", "history.clear",
         "layout.undo", "bookmark.addPage", "bookmark.addAllTabs", "bookmark.add", "bookmark.newFolder",
         "bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll", "bookmark.edit",
         "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.export",

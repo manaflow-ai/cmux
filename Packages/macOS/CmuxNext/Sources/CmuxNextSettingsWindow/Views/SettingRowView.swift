@@ -17,9 +17,14 @@ struct SettingRowView: View {
                         Text(help).font(SettingsStyle.caption).foregroundStyle(SettingsStyle.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    if let managed = model.managedNote(descriptor) {
+                        Label(managed, systemImage: "lock.fill").font(SettingsStyle.caption).foregroundStyle(SettingsStyle.secondary)
+                            .accessibilityIdentifier("cmux.settings.managed.\(descriptor.id)")
+                    }
                 }
                 Spacer(minLength: Metrics.space6)
                 SettingControl(model: model, descriptor: descriptor)
+                    .disabled(model.isManaged(descriptor))
                 Button { model.set(descriptor, nil) } label: {
                     Image(systemName: "arrow.uturn.backward").font(SettingsStyle.caption)
                 }

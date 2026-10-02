@@ -83,6 +83,11 @@ and emits `bookmarks-changed {browser_profile_id, bookmarks_revision}`):
   created at `parent`/`index` when missing). Used by the HTML import and the
   onboarding import.
 
+Every write carries the exactly-once key `origin` + `mutation_id` (optional
+on these raw commands, required by the later v2 `bookmark.*` port); the app
+mints one per logical write and reuses it on retries, and the file-to-daemon
+copy keys each node `migrate-file-<id>`. Results carry `replayed`.
+
 Errors: `invalid_params` for a bad parent, kind, URL or cycle; `not_found`
 for an unknown id.
 

@@ -1,9 +1,11 @@
 // Codex's turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
 // footer under an answer. Markup and metrics from codex-atlas-clone (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { toolFiles } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
+import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { ToolRun } from "./ToolRun";
 import { isFoldedRun } from "./toolRunSummary";
@@ -46,10 +48,14 @@ function toolIcon(kind?: string): ReactNode {
 }
 
 /// One tool call. A call with output opens it below, as Codex's command and tool rows do; a
-/// shell call opens to its Shell block, with the command line even before any output.
+/// shell call opens to its Shell block, with the command line even before any output, and an
+/// edit opens to its diff.
 function ToolRow({ item }: { item: AcpmuxActivity }) {
   const [open, setOpen] = useState(false);
   const tool = item.tool!;
+  const hasDiff = Boolean(tool.diffs?.length);
+  // Diffed only while open: a closed edit row costs nothing on each transcript update.
+  const files = useMemo(() => (open && hasDiff ? toolFiles([tool]) : []), [open, hasDiff, tool]);
   const label = tool.title || tool.inputSummary || item.text;
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed";
@@ -67,7 +73,7 @@ function ToolRow({ item }: { item: AcpmuxActivity }) {
   );
   return (
     <>
-      {body || shell ? (
+      {body || shell || hasDiff ? (
         <button
           type="button"
           className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
@@ -85,7 +91,11 @@ function ToolRow({ item }: { item: AcpmuxActivity }) {
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
       )}
       {open && shell && <ShellBlock command={tool.command} output={body} exitCode={tool.exitCode} />}
-      {open && !shell && body && <pre className="cv-tool-output">{body}</pre>}
+      {open &&
+        !shell &&
+        (files.length
+          ? files.map((file) => <EditDiff key={file.path} file={file} />)
+          : body && <pre className="cv-tool-output">{body}</pre>)}
     </>
   );
 }

@@ -163,6 +163,30 @@ public nonisolated enum SettingsSchema {
                 default: .string(BordersSetting.fallback.rawValue), keywords: ["border", "hairline", "separator", "outline", "line"]
             ),
             SettingDescriptor(
+                PaneFocusSettings.focusIndicatorPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.focusIndicator", "Focused Pane"),
+                help: SettingsText.text("settings.appearance.focusIndicator.help",
+                                        "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."),
+                kind: .choice([
+                    SettingChoice(FocusIndicator.border.rawValue, SettingsText.text("settings.choice.border", "Border")),
+                    SettingChoice(FocusIndicator.tabs.rawValue, SettingsText.text("settings.choice.tabs", "Tabs")),
+                    SettingChoice(FocusIndicator.both.rawValue, SettingsText.text("settings.choice.both", "Both")),
+                    SettingChoice(FocusIndicator.none.rawValue, SettingsText.text("settings.choice.none", "None")),
+                ]),
+                default: .string(PaneFocusSettings.focusIndicatorFallback.rawValue), keywords: ["focus", "active", "pane", "tab", "ring"]
+            ),
+            SettingDescriptor(
+                PaneFocusSettings.tabBarBackgroundPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.tabBarBackground", "Tab Bar Background"),
+                help: SettingsText.text("settings.appearance.tabBarBackground.help",
+                                        "Window uses the window's own background around the tabs; Darker shades the tab bar."),
+                kind: .choice([
+                    SettingChoice(TabBarBackground.window.rawValue, SettingsText.text("settings.choice.window", "Window")),
+                    SettingChoice(TabBarBackground.darker.rawValue, SettingsText.text("settings.choice.darker", "Darker")),
+                ]),
+                default: .string(PaneFocusSettings.tabBarBackgroundFallback.rawValue), keywords: ["tab", "strip", "background", "bar"]
+            ),
+            SettingDescriptor(
                 AnimationSpeedSetting.configPath, section: .appearance, group: look,
                 title: SettingsText.text("settings.ui.animationSpeed", "Animations"),
                 kind: .choice([
@@ -244,6 +268,44 @@ public nonisolated enum SettingsSchema {
                 ["focusRing", "showWhenSinglePane"], section: .appearance, group: ring,
                 title: SettingsText.text("settings.focusRing.showWhenSinglePane", "Show With One Pane"),
                 kind: .toggle, default: .bool(FocusRingSettings().showsForSinglePane)
+            ),
+        ] + statusIndicator
+    }
+
+    /// `appearance.statusIndicator.*` (plans/cmux-next/status-indicators.md).
+    static var statusIndicator: [SettingDescriptor] {
+        let group = SettingsText.text("settings.group.statusIndicator", "Loading Indicator")
+        let defaults = StatusIndicatorSettings()
+        let path = StatusIndicatorConfigParser.path
+        return [
+            SettingDescriptor(
+                path + ["style"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.style", "Style"),
+                help: SettingsText.text("settings.statusIndicator.style.help", "How sidebar rows, tabs and panes show work in progress."),
+                kind: .choice([
+                    SettingChoice(StatusIndicatorStyle.arc.rawValue, SettingsText.text("settings.choice.thinArc", "Thin Arc")),
+                    SettingChoice(StatusIndicatorStyle.native.rawValue, SettingsText.text("settings.choice.macSpinner", "macOS Spinner")),
+                    SettingChoice(StatusIndicatorStyle.dot.rawValue, SettingsText.text("settings.choice.pulsingDot", "Pulsing Dot")),
+                    SettingChoice(StatusIndicatorStyle.none.rawValue, SettingsText.text("settings.choice.none", "None")),
+                ]),
+                default: .string(defaults.style.rawValue), keywords: ["spinner", "progress", "loading", "busy"]
+            ),
+            SettingDescriptor(
+                path + ["size"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.size", "Size"),
+                kind: .number(SettingNumber(Double(StatusIndicatorSettings.scaleRange.lowerBound)...Double(StatusIndicatorSettings.scaleRange.upperBound),
+                                            step: 0.05, unit: .fraction)),
+                default: .number(Double(defaults.scale))
+            ),
+            SettingDescriptor(
+                path + ["thickness"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.thickness", "Line Width"),
+                kind: .number(points(StatusIndicatorSettings.thicknessRange, step: 0.25)), default: .number(Double(defaults.thickness))
+            ),
+            SettingDescriptor(
+                path + ["color"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.color", "Color"),
+                kind: .color, default: nil, defaultLabel: SettingsText.text("settings.default.theme", "Theme")
             ),
         ]
     }
