@@ -58,7 +58,7 @@ struct SSHRemoteCommandCLIIntegrationTests {
     @Test
     func testSCPOverridesTerminalTTYIntent() {
         let session = DetectedSSHSession(
-            destination: "lawrence@example.com",
+            destination: "user@example.com",
             port: nil,
             identityFile: nil,
             configFile: nil,

@@ -1,3 +1,4 @@
+import { compileNetworkPolicy, storedNetworkPolicy, type NetworkPolicy, type NetworkRulePlan } from "./networkPolicy";
 import { createHash, randomUUID } from "node:crypto";
 import {
   applyVmResourceUsage,
@@ -131,6 +132,8 @@ import {
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
+import { vmAgentUpdatesFromRow, type VmAgentUpdatesSetting } from "./agentUpdates";
+import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
 
 export {
   homeVolumeNameForUser,
@@ -198,6 +201,8 @@ export type VmEntry = {
    * carry it and New Machine skips the separate attach request.
    */
   readonly cmuxTuiContract: string | null;
+  /** Coding agents: "image" keeps the baked pins, "latest" updates them on attach. */
+  readonly agentUpdates: VmAgentUpdatesSetting;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -995,6 +1000,14 @@ type CreateVmInput = {
    * unwired machine.
    */
   readonly modelPlane?: VmModelPlaneProvisioner;
+  /**
+   * Outbound network policy chosen at create. Absent: full Internet. Stored on
+   * the row before the provider call and installed by the create itself, so a
+   * restricted machine is never briefly open.
+   */
+  readonly networkPolicy?: NetworkPolicy;
+  /** "latest" opts the machine into coding-agent updates on attach; absent keeps the image's pins. */
+  readonly agentUpdates?: VmAgentUpdatesSetting;
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
@@ -1080,6 +1093,8 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       return vmEntryFromRow(existing);
     }
 
+    const networkRules = yield* recordCreateNetworkPolicy(repo, providers, input, create.vm.id);
+
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
     // The requested-events write depends on nothing below, so it runs beside
     // model-plane provisioning and the provider call instead of in front of
@@ -1141,6 +1156,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         memoryMb: input.memoryMb,
         imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
         edgeRules: materials?.edgeRules,
+        networkRules,
         network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
       }),
     ).pipe(
@@ -1172,6 +1188,8 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         ], { discard: true })), Effect.catchAll(() => Effect.void))
       ),
     );
+
+    yield* markCreateNetworkPolicyApplied(repo, input, create.vm.id);
 
     const running = yield* measureVmEffect(
       input.timing,
@@ -1221,6 +1239,11 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       yield* recordCreateSuccessEvents(repo, input, running);
     }
     yield* schedulePromptIdentityPush(providers, running, input.deferAfterResponse);
+    // The create response carries the first connection, so openVmCmuxRemote
+    // never runs for it; start the opted-in updater here, after the response.
+    if (vmAgentUpdatesFromRow(running) === "latest") {
+      yield* scheduleGuestAgentUpdates(providers, running, "latest", input.deferAfterResponse);
+    }
 
     return vmEntryFromRow(running);
   });
@@ -1260,6 +1283,62 @@ function schedulePromptIdentityPush(
     return Effect.void;
   }
   return Effect.asVoid(Effect.forkDaemon(push));
+}
+
+/**
+ * Tells the guest its coding-agent update setting and, for "latest", starts
+ * the detached updater (services/vms/guestAgentUpdates.ts). The exec only
+ * writes one file and forks, and it runs after the response, so neither
+ * attach nor a setting change waits on the guest or GitHub. A
+ * failure is logged and repaired by the next attach.
+ */
+function scheduleGuestAgentUpdates(
+  providers: VmProviderGatewayShape,
+  row: CloudVmRow,
+  setting: VmAgentUpdatesSetting,
+  defer: ((work: Effect.Effect<void>) => void) | undefined,
+): Effect.Effect<void> {
+  const providerVmId = row.providerVmId;
+  if (!providerVmId) return Effect.void;
+  const push = Effect.suspend(() =>
+    providers.exec(row.provider, providerVmId, guestAgentUpdatesCommand(setting), {
+      timeoutMs: 10_000,
+      providerMetadata: row.providerMetadata,
+    })
+  ).pipe(
+    Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new Error(`agent updates exec exited ${result.exitCode}`))),
+    Effect.catchAllCause((cause) => Effect.logWarning("Cloud agent updates deferred until next attach", { vmId: row.id, cause })),
+  );
+  if (defer) {
+    defer(push);
+    return Effect.void;
+  }
+  return Effect.asVoid(Effect.forkDaemon(push));
+}
+
+/**
+ * Store a machine's coding-agent update setting. A running machine hears it
+ * right away (best effort, after the response); a paused one is not woken and
+ * picks it up on its next attach, which re-sends "latest" every time.
+ */
+export function setVmAgentUpdates(input: ExistingVmAccessInput & {
+  readonly agentUpdates: VmAgentUpdatesSetting;
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
+}): VmWorkflowProgram<VmEntry> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!repo.setAgentUpdates) {
+      return yield* Effect.fail(new VmDatabaseError({ operation: "setAgentUpdates", cause: new Error("repository cannot store agent updates") }));
+    }
+    yield* repo.setAgentUpdates({ id: vm.id, agentUpdates: input.agentUpdates });
+    const updated = { ...vm, agentUpdates: input.agentUpdates === "latest" ? "latest" as const : null, updatedAt: new Date() };
+    if (updated.status === "running") {
+      yield* scheduleGuestAgentUpdates(providers, updated, input.agentUpdates, input.deferAfterResponse);
+    }
+    return vmEntryFromRow(updated);
+  });
 }
 
 /**
@@ -2228,7 +2307,11 @@ export function forkVm(input: {
     // A native fork has no way to accept the new row's edge rules. Use the
     // snapshot/create path for a model-plane machine so it receives its own
     // VM-bound credential instead of inheriting an unrouteable alias.
-    const nativeFork = nativeForkOperation(providers, source.provider, input.modelPlane);
+    // A fork keeps its source's outbound policy. The native provider fork
+    // copies no rules, so a restricted source always takes the create path,
+    // which installs the policy before the copy boots.
+    const sourceNetworkPolicy = restrictedNetworkPolicy(source.networkPolicy);
+    const nativeFork = sourceNetworkPolicy ? undefined : nativeForkOperation(providers, source.provider, input.modelPlane);
     // The provider owns cloning the source. Record its initial shape and
     // reconcile the copied machine independently after the fork completes.
     const sourceHasReservation = hasVmResourceReservationMetadata(source.providerMetadata);
@@ -2262,6 +2345,7 @@ export function forkVm(input: {
           : {}),
         billingPlanId: input.billingPlanId,
         idempotencyKey: input.idempotencyKey,
+        agentUpdates: vmAgentUpdatesFromRow(source),
         timing: input.timing,
       });
 
@@ -2430,6 +2514,8 @@ export function forkVm(input: {
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
       modelPlane: input.modelPlane,
+      ...(sourceNetworkPolicy ? { networkPolicy: sourceNetworkPolicy } : {}),
+      agentUpdates: vmAgentUpdatesFromRow(source),
       teamDirectory: input.teamDirectory,
       timing: input.timing,
     });
@@ -4007,6 +4093,8 @@ export function openVmCmuxRemote(input: {
   readonly clientCapabilities?: readonly string[];
   /** Caller's CURRENT billing plan; the free access window applies to cmux-tui attaches too. */
   readonly callerPlanId?: string | null;
+  /** Runs best-effort guest work after the response (the route passes `runAfterResponse`). */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   readonly modelPlane?: VmModelPlaneRevoker;
 }) {
   return Effect.gen(function* () {
@@ -4079,6 +4167,10 @@ export function openVmCmuxRemote(input: {
       imageId: vm.imageId,
       metadata: { transport: "cmux-remote", invited: false, trustedCarrier: endpoint.trustedCarrier },
     }).pipe(Effect.catchAll(() => Effect.void));
+    // Only an opted-in machine pays this exec; the default attach stays exec-free.
+    if (vmAgentUpdatesFromRow(vm) === "latest") {
+      yield* scheduleGuestAgentUpdates(providers, vm, "latest", input.deferAfterResponse);
+    }
     return endpoint;
   });
 }
@@ -4948,6 +5040,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
     cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
+    agentUpdates: vmAgentUpdatesFromRow(row),
   };
 }
 
@@ -4978,4 +5071,137 @@ function hashToken(token: string): string {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+// ---------------------------------------------------------------------------
+// Outbound network policy (services/vms/networkPolicy.ts)
+
+export type VmNetworkPolicyStatus = {
+  readonly state: "applied" | "pending" | "failed";
+  readonly error?: string;
+  readonly appliedAt?: string;
+};
+
+export type VmNetworkPolicyView = {
+  readonly policy: NetworkPolicy;
+  readonly status: VmNetworkPolicyStatus;
+};
+
+/**
+ * Store a create's policy on its new row before the provider call. Fails
+ * closed: a restricted machine whose policy is not recorded would show as open
+ * and be reconciled open by the next edit.
+ */
+function recordCreateNetworkPolicy(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: CreateVmInput,
+  rowId: string,
+): Effect.Effect<NetworkRulePlan | undefined, VmOperationUnsupportedError | VmDatabaseError> {
+  const policy = input.networkPolicy;
+  if (!policy) return Effect.succeed(undefined);
+  const plan = compileNetworkPolicy(policy);
+  return requireNetworkPolicySupport(providers, input.provider, plan).pipe(
+    Effect.andThen(storeNetworkPolicy(repo, rowId, policy, { state: "pending" })),
+    Effect.tapError((err) => repo.markCreateFailed({
+      id: rowId,
+      code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+      message: errorMessage(err),
+    }).pipe(Effect.catchAll(() => Effect.void))),
+    Effect.as(plan),
+  );
+}
+
+/** The create installed the rules itself; the status row is display state only. */
+function markCreateNetworkPolicyApplied(repo: VmRepositoryShape, input: CreateVmInput, rowId: string): Effect.Effect<void> {
+  if (!input.networkPolicy || !repo.setNetworkPolicy) return Effect.void;
+  return repo.setNetworkPolicy({ id: rowId, status: appliedNetworkStatus() }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+/** A stored policy that restricts egress, or undefined for full Internet (including legacy rows). */
+function restrictedNetworkPolicy(value: unknown): NetworkPolicy | undefined {
+  if (value === null || value === undefined) return undefined;
+  const policy = storedNetworkPolicy(value);
+  return compileNetworkPolicy(policy).publicEgress ? undefined : policy;
+}
+
+function appliedNetworkStatus(): VmNetworkPolicyStatus {
+  return { state: "applied", appliedAt: new Date().toISOString() };
+}
+
+function storedNetworkStatus(value: unknown, hasPolicy: boolean): VmNetworkPolicyStatus {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const { state, error, appliedAt } = value as Record<string, unknown>;
+    if (state === "applied" || state === "pending" || state === "failed") {
+      return {
+        state,
+        ...(typeof error === "string" ? { error } : {}),
+        ...(typeof appliedAt === "string" ? { appliedAt } : {}),
+      };
+    }
+  }
+  // A legacy row has no stored policy and was created with full egress.
+  return { state: hasPolicy ? "pending" : "applied" };
+}
+
+function storeNetworkPolicy(
+  repo: VmRepositoryShape,
+  id: string,
+  policy: NetworkPolicy,
+  status: VmNetworkPolicyStatus,
+): Effect.Effect<void, VmDatabaseError> {
+  if (!repo.setNetworkPolicy) {
+    return Effect.fail(new VmDatabaseError({ operation: "setNetworkPolicy", cause: new Error("repository cannot store network policy") }));
+  }
+  return repo.setNetworkPolicy({ id, policy: { ...policy }, status: { ...status } });
+}
+
+/** Only a restricted plan needs provider egress control; full egress is every provider's default. */
+function requireNetworkPolicySupport(
+  providers: VmProviderGatewayShape,
+  provider: ProviderId,
+  plan: NetworkRulePlan,
+): Effect.Effect<void, VmOperationUnsupportedError> {
+  if (plan.publicEgress || providers.applyNetworkPolicy) return Effect.void;
+  return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "applyNetworkPolicy" }));
+}
+
+export function getVmNetworkPolicy(input: ExistingVmAccessInput): VmWorkflowProgram<VmNetworkPolicyView> {
+  return Effect.gen(function* () {
+    const vm = yield* requireAccessibleUserVm(input);
+    return {
+      policy: storedNetworkPolicy(vm.networkPolicy),
+      status: storedNetworkStatus(vm.networkPolicyStatus, vm.networkPolicy != null),
+    };
+  });
+}
+
+/**
+ * Store and apply a machine's outbound policy. The row records the intent
+ * first; the provider then converges the live rules (no restart, and a paused
+ * machine is not woken: Freestyle rules live outside the VM). A provider
+ * failure leaves the policy stored with a `failed` status the UI surfaces, and
+ * the next save retries the whole reconcile.
+ */
+export function updateVmNetworkPolicy(input: ExistingVmAccessInput & {
+  readonly policy: NetworkPolicy;
+}): VmWorkflowProgram<VmNetworkPolicyView> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    const plan = compileNetworkPolicy(input.policy);
+    yield* requireNetworkPolicySupport(providers, vm.provider, plan);
+    if (!providers.applyNetworkPolicy) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "applyNetworkPolicy" }));
+    }
+    yield* storeNetworkPolicy(repo, vm.id, input.policy, { state: "pending" });
+    const applied = yield* Effect.either(providers.applyNetworkPolicy(vm.provider, input.providerVmId, plan));
+    const status: VmNetworkPolicyStatus = Either.isRight(applied)
+      ? appliedNetworkStatus()
+      : { state: "failed", error: errorMessage(applied.left) };
+    yield* repo.setNetworkPolicy!({ id: vm.id, status: { ...status } });
+    if (Either.isLeft(applied)) return yield* Effect.fail(applied.left);
+    return { policy: input.policy, status };
+  });
 }

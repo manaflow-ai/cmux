@@ -1,23 +1,11 @@
 import Foundation
+import CMUXAgentLaunch
 
 /// Pure remote catalog selector and placement resolution shared by the app and CLI.
 enum CmuxTuiRemoteRouting {
-    /// Builds the detached Codex monitor flags for a forked session.
-    ///
-    /// The app test target aliases its CLI helper name to this shared routing
-    /// type, so keep this pure argument transformation available here as well
-    /// as in the executable-only CLI implementation.
+    /// Keeps the app-host test and legacy app-facing alias on the shared package contract.
     static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
-        guard let forkParent = environment["CMUX_AGENT_FORK_PARENT_SESSION_ID"],
-              !forkParent.isEmpty else { return [] }
-        var arguments = ["--fork-parent", forkParent]
-        if let launchID = environment["CMUX_AGENT_FORK_LAUNCH_ID"], !launchID.isEmpty {
-            arguments += ["--fork-launch-id", launchID]
-        }
-        if let ownerPID = environment["CMUX_CODEX_PID"], !ownerPID.isEmpty {
-            arguments += ["--fork-owner-pid", ownerPID]
-        }
-        return arguments
+        CodexForkMonitorArguments().make(environment: environment)
     }
 
     /// Every `cmux vm agent` option that takes a value, so the alias walk and

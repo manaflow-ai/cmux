@@ -1,3 +1,5 @@
+import { parseCreateNetworkPolicy } from "../../../services/vms/networkPolicyRoute";
+import { parseCreateAgentUpdates } from "../../../services/vms/agentUpdatesRoute";
 import {
   creatorFor,
   creatorUserIds,
@@ -42,6 +44,7 @@ import {
   type VmEntitlements,
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
+import { vcpusByMemoryMb } from "../../../services/vms/images/sizes";
 import {
   inferVmProviderForImage,
   resolveVmImage,
@@ -191,6 +194,8 @@ export async function GET(request: Request): Promise<Response> {
         // (epoch ms); null on paid plans or when the window is disabled. Clients
         // render countdowns from this instead of re-deriving the policy.
         freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
+        // "image" keeps the baked coding-agent pins; "latest" updates them on attach.
+        agentUpdates: entry.agentUpdates,
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
@@ -227,6 +232,11 @@ export async function GET(request: Request): Promise<Response> {
               const plan = upgradePlanForMemory(mb, listEntitlements.planId);
               return plan ? [[String(mb), plan]] : [];
             })),
+          // vCPUs for every size above, so a client labels a size without its own table.
+          vcpusByMemoryMb: vcpusByMemoryMb([
+            ...memoryOptionsMbForPlan(listEntitlements.planId, process.env),
+            ...lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
+          ]),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
           imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
@@ -299,6 +309,8 @@ export async function POST(request: Request): Promise<Response> {
       const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
+      const machineOptions = parseCreateMachineOptions(candidate);
+      if (!machineOptions.ok) return machineOptions.response;
 
       // Resolve provider/image only after the paid-plan boundary. A free or
       // unknown plan must receive `vm_requires_pro` without consulting
@@ -363,6 +375,8 @@ export async function POST(request: Request): Promise<Response> {
         memoryMb,
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
+        networkPolicy: machineOptions.networkPolicy,
+        agentUpdates: machineOptions.agentUpdates,
         teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.
@@ -395,9 +409,19 @@ export async function POST(request: Request): Promise<Response> {
         // (~2 s measured) for data this response already had.
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
+        agentUpdates: created.agentUpdates,
       });
     },
   );
+}
+
+/** The create body's outbound network policy and agent-update setting. */
+function parseCreateMachineOptions(candidate: Record<string, unknown>) {
+  const networkPolicy = parseCreateNetworkPolicy(candidate.networkPolicy);
+  if (!networkPolicy.ok) return networkPolicy;
+  const agentUpdates = parseCreateAgentUpdates(candidate.agentUpdates);
+  if (!agentUpdates.ok) return agentUpdates;
+  return { ok: true as const, networkPolicy: networkPolicy.policy, agentUpdates: agentUpdates.setting };
 }
 
 /**
