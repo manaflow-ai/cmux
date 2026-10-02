@@ -29,4 +29,6 @@ enum QuitOrigin: Equatable, Sendable {
     /// Shut down, restart or log out: never asks, never ends terminals
     /// (the system ends them).
     case powerOff
+    /// SIGTERM (dev tooling, `kill`): "Quit, keep sessions", never an alert.
+    case signal
 }

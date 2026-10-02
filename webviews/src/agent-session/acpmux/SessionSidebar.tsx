@@ -1,12 +1,13 @@
 import React, { memo, useMemo, useState } from "react";
 import {
   sessionMark,
+  sessionPlace,
   sidebarSections,
   visibleSessions,
   type AcpmuxSessionEntry,
   type SessionMark,
 } from "./sessionList";
-import { DisconnectedIcon, NeedsInputIcon, WorkingIcon } from "./sidebarIcons";
+import { BranchIcon, CloudIcon, DisconnectedIcon, NeedsInputIcon, WorkingIcon, WorktreeIcon } from "./sidebarIcons";
 
 const MARK_LABELS: Record<Exclude<SessionMark, undefined>, string> = {
   input: "Needs input",
@@ -20,6 +21,8 @@ const MARK_GLYPHS: Record<Exclude<SessionMark, undefined>, React.ReactNode> = {
   error: <DisconnectedIcon />,
   unread: null,
 };
+const PLACE_GLYPHS = { cloud: <CloudIcon />, worktree: <WorktreeIcon />, branch: <BranchIcon /> };
+const PLACE_LABELS = { cloud: "Runs on", worktree: "Worktree", branch: "Branch" };
 
 /** The pane's session list: pinned sessions, then every other acpmux session grouped by folder, newest first. */
 export function SessionSidebar({
@@ -87,6 +90,7 @@ export function SessionSidebar({
                       key={session.sessionId}
                       session={session}
                       selected={session.sessionId === selectedId}
+                      groupHost={group.host}
                       onSelect={onSelect}
                     />
                   ))}
@@ -133,26 +137,39 @@ function FolderIcon() {
 const SessionRow = memo(function SessionRow({
   session,
   selected,
+  groupHost,
   onSelect,
 }: {
   session: AcpmuxSessionEntry;
   selected: boolean;
+  groupHost?: string;
   onSelect: (sessionId: string) => void;
 }) {
   const mark = sessionMark(session, selected);
   const title = session.displayTitle || session.sessionId.slice(0, 8);
+  const place = sessionPlace(session, groupHost);
+  const placeLabel =
+    place &&
+    `${PLACE_LABELS[place.kind]} ${place.label}${place.branch ? `, ${PLACE_LABELS.branch} ${place.branch}` : ""}`;
   return (
     <li>
       <button
         type="button"
         className={`acpmux-session-row${selected ? " is-selected" : ""}${session.status === "closed" ? " is-closed" : ""}`}
         aria-current={selected ? "true" : undefined}
-        aria-label={mark ? `${title}, ${MARK_LABELS[mark]}` : undefined}
-        title={title}
+        aria-label={
+          mark || place ? [title, placeLabel, mark && MARK_LABELS[mark]].filter(Boolean).join(", ") : undefined
+        }
+        title={placeLabel ? `${title}\n${placeLabel}` : title}
         onClick={() => onSelect(session.sessionId)}
       >
         <span className="acpmux-session-row-title">{title}</span>
-        {mark && (
+        {place && (
+          <span className={`acpmux-session-place acpmux-session-place-${place.kind}`} aria-hidden="true">
+            {PLACE_GLYPHS[place.kind]}
+          </span>
+        )}
+        {mark ? (
           <span
             className={`acpmux-session-mark acpmux-session-mark-${mark}`}
             aria-hidden="true"
@@ -160,6 +177,9 @@ const SessionRow = memo(function SessionRow({
           >
             {MARK_GLYPHS[mark]}
           </span>
+        ) : (
+          // Keeps place glyphs in one column.
+          place && <span className="acpmux-session-mark" aria-hidden="true" />
         )}
       </button>
     </li>
