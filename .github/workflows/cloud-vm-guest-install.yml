@@ -58,7 +58,7 @@ jobs:
       - name: Migrate isolated database
         env:
           DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bunx drizzle-kit migrate --config drizzle.config.ts
+        run: bun scripts/db-migrate.mjs
       - name: Guest provisioning and idempotency in PostgreSQL
         env:
           CMUX_DB_TEST: "1"

@@ -25,6 +25,11 @@
       "message": "Cloud VM kurulumu başarısız oldu ve temizlik henüz tamamlanmadı.",
       "action": "Başka bir makine oluşturmadan önce izleme kimliğiyle destek ekibine başvurun."
     },
+    "recreateRequired": {
+      "title": "Bu makineyi yeniden oluşturun",
+      "message": "Bu makine bir Cloud güncellemesinden önce oluşturuldu ve bağlanılamıyor.",
+      "action": "Yeni bir makine oluşturun, dosyalarınızı cmux vm pull ve cmux vm push ile aktarın, ardından bunu silin."
+    },
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",
       "reason": "Bu makine türü bu işlemi sağlamıyor.",
@@ -134,7 +139,9 @@
     "backToBlog": "Bloga dön",
     "readTheDocs": "Belgeleri Oku",
     "viewChangelog": "Değişiklik Günlüğünü Görüntüle",
-    "otherPlatforms": "Diğer platformlar"
+    "otherPlatforms": "Diğer platformlar",
+    "copyCode": "Kodu kopyala",
+    "copied": "Kopyalandı"
   },
   "nav": {
     "docs": "Belgeler",
@@ -346,24 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "genel bakış",
-      "team": "ekip",
-      "mobileDevices": "Mobil cihazlar"
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Genel bakış",
+      "team": "Ekip",
+      "mobileDevices": "Mobil cihazlar",
+      "settings": "Ayarlar",
+      "teams": "Ekipler"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirin.",
-      "coderouterLink": "coderouter'ı aç",
+      "coderouterLink": "Coderouter'ı aç",
       "iosAppName": "iOS uygulaması",
       "iosAppDescription": "cmux iOS uygulamasını TestFlight üzerinden yükleyin (beta erişimi).",
       "iosLink": "iOS uygulamasını aç"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Paylaşılan AI hesaplarını yönetin ve istekleri coderouter ile yönlendirin.",
-      "title": "coderouter",
-      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir.",
+      "title": "Coderouter",
+      "description": "Coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir.",
       "machines": {
         "title": "Makineler",
         "description": "Son {days} günde {team} için makine başına coderouter kullanımı.",
@@ -374,24 +383,170 @@
         "empty": "Son {days} günde hiçbir makine coderouter kullanmadı.",
         "unavailable": "Makine başına kullanım geçici olarak kullanılamıyor.",
         "estimateNote": "API eşdeğer değeri, herkese açık liste fiyatlarına dayalı bir tahmindir, gerçek harcama değildir."
+      },
+      "metrics": {
+        "title": "30 günlük kullanım",
+        "scope": "{team} için ekip toplamı",
+        "period": "Son {days} gün",
+        "inputTokens": "Girdi token’ları",
+        "outputTokens": "Çıktı token’ları",
+        "tokens": "Toplam token",
+        "apiEquivalent": "API eşdeğer değeri",
+        "unpriced": "Bu token’ların {share} kadarı liste fiyatı olmayan modellerden geldi ve bu değere dahil edilmedi.",
+        "chartLabel": "Günlük CodeRouter token kullanımı",
+        "privacy": "Hiçbir istem, çıktı, hesap etiketi veya üye kimliği kaydedilmez ya da gösterilmez.",
+        "estimate": "API eşdeğer değeri, bu token’ların herkese açık API liste fiyatlarıyla (fiyat tablosu {version}) tutacağı tutardır. Ödediğiniz tutar değildir.",
+        "unavailable": "Ekip kullanımı geçici olarak kullanılamıyor."
       }
     },
     "accountMenu": {
       "label": "Hesap menüsü",
       "settings": "Ayarlar",
       "billing": "Faturalandırma",
+      "switchAccount": "Hesap değiştir",
       "signOut": "Çıkış yap",
       "signingOut": "Çıkış yapılıyor…",
       "signOutError": "Çıkış yapılamadı. Tekrar deneyin.",
       "organizationSwitchError": "Kuruluş değiştirilemedi. Tekrar deneyin.",
-      "signIn": "Giriş yap"
+      "signIn": "Giriş yap",
+      "upgrade": "Yükselt"
     },
     "billing": {
       "plan": {
         "heading": "Kişisel planınız",
         "free": "Ücretsiz",
-        "pro": "Pro",
-        "loading": "Yükleniyor…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "Bu ekip kullanılamıyor. Ekipten ayrılmış olabilirsiniz veya ekip silinmiş olabilir.",
+        "unavailable": "Ekip faturalandırması yüklenemedi. Biraz sonra tekrar deneyin.",
+        "welcome": "Team etkin. Ekip arkadaşlarınızı ekibin üyeler sayfasından davet edin.",
+        "freeBody": "{team} Ücretsiz planda. Team, tek bir ortak faturayla her üyeye bulut ajanları sağlar.",
+        "upgradeCta": "Bu ekibi yükselt",
+        "askAdmin": "Faturalandırmayı yalnızca ekip yöneticileri değiştirebilir. Yükseltmek için {team} ekibinin bir yöneticisine başvurun.",
+        "memberReadOnly": "Bu planı yalnızca ekip yöneticileri değiştirebilir.",
+        "grantedBody": "{team} ekibine Team erişimi cmux ekibi tarafından verildi. Yönetilecek bir abonelik yok.",
+        "seatsUsed": "{seats} koltuğun {members} tanesi kullanılıyor",
+        "overSeat": "{team} ekibinde {members} üye ve {seats} ücretli koltuk var. Koltuklar üye sayısını izler, bu yüzden abonelik kendiliğinden güncellenir.",
+        "addSeats": "Koltuk ekle"
+      },
+      "teamList": {
+        "heading": "Faturalandırma kapsamları",
+        "personal": "Kişisel hesap",
+        "planBadges": {
+          "free": "Ücretsiz",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "Bu ekibin faturalandırmasını yalnızca ekip yöneticileri yönetebilir.",
+        "team_not_found": "Bu ekip kullanılamıyor. Ekipten ayrılmış olabilirsiniz veya ekip silinmiş olabilir.",
+        "authorization_unavailable": "Ekip izinleri kontrol edilemedi. Biraz sonra tekrar deneyin.",
+        "personal_team_not_upgradable_to_team": "Kişisel hesabınız Pro veya Max kullanıyor. Team satın almak için bir ekip oluşturun."
+      },
+      "team": {
+        "createCta": "Ekip oluştur"
+      },
+      "title": "Plan ve faturalandırma",
+      "picker": {
+        "current": "Mevcut plan",
+        "upgradeTo": "{plan} planına yükselt",
+        "switchTo": "{plan} planına geç",
+        "cancelPlan": "Planı iptal et",
+        "resume": "{plan} planını sürdür",
+        "renewsOn": "{date} tarihinde yenilenir",
+        "endsOn": "{date} tarihinde sona erer",
+        "perMonth": "aylık",
+        "perSeatMonth": "koltuk başına aylık",
+        "paymentMethod": "Ödeme yöntemini yönet",
+        "invoices": "Faturalar",
+        "heading": "Planlar",
+        "actionError": "Plan değiştirilemedi. Tekrar deneyin.",
+        "unavailable": {
+          "cancelScheduled": "Değiştirmek için planınızı sürdürün.",
+          "granted": "cmux tarafından verildi. Değiştirilecek bir şey yok.",
+          "adminOnly": "Planı yalnızca ekip yöneticileri değiştirebilir."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "macOS için eksiksiz cmux terminali",
+            "Kendi anahtarlarınızla her CLI ajanı",
+            "Yerel oturum geçmişi"
+          ],
+          "go": [
+            "1 etkin Cloud VM",
+            "Ayda 40 VM saati",
+            "2 kayıtlı VM"
+          ],
+          "pro": [
+            "Cloud VMs üzerinde bulut ajanları",
+            "VM başına en fazla 4 vCPU ve 8 GB RAM ile en fazla 5 Cloud VM",
+            "cmux iOS uygulaması"
+          ],
+          "max": [
+            "VM başına en fazla 16 vCPU ve 32 GB RAM ile en fazla 5 Cloud VM",
+            "Daha büyük makine boyutları",
+            "Pro'daki her şey"
+          ],
+          "team": [
+            "Her üyeye Pro'daki her şey",
+            "Tüm ekip için tek fatura",
+            "Öncelikli destek"
+          ]
+        },
+        "billedAnnually": "yıllık faturalandırılır"
+      },
+      "change": {
+        "title": "{plan} planına geçilsin mi?",
+        "upgradeBody": "{plan} şimdi başlar. Bu fatura döneminin kalanı için bugün {amount} ödersiniz. {date} tarihinden itibaren aylık {price} ödersiniz.",
+        "downgradeBody": "{plan} şimdi başlar. Mevcut planınızın kullanılmayan kısmı olan {credit}, sonraki faturalarınıza alacak olarak yansıtılır. {date} tarihindeki sonraki faturanız {amount}.",
+        "confirm": "{plan} planına geç",
+        "keep": "Mevcut planı koru",
+        "switching": "Geçiliyor…",
+        "previewError": "Fiyat hesaplanamadı. Tekrar deneyin.",
+        "paymentFailed": "Kartınız reddedildi. Ödeme yönteminizi güncelleyip tekrar deneyin.",
+        "error": "Plan değiştirilemedi. Tekrar deneyin."
+      },
+      "cancelDialog": {
+        "title": "{plan} iptal edilsin mi?",
+        "body": "{plan} planı {date} tarihine kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
+        "bodyNoDate": "{plan} planı bu fatura döneminin sonuna kadar sizde kalır. Sonrasında şunları kaybedersiniz:",
+        "reasonLabel": "Neden iptal ediyorsunuz? (isteğe bağlı)",
+        "otherPlaceholder": "Bize daha fazlasını anlatın (isteğe bağlı)",
+        "confirm": "Planı iptal et",
+        "keep": "{plan} planını koru",
+        "error": "Plan iptal edilemedi. Tekrar deneyin.",
+        "resumeError": "Plan sürdürülemedi. Tekrar deneyin.",
+        "reasons": {
+          "too_expensive": "Çok pahalı",
+          "missing_feature": "İhtiyacım olan bir özellik eksik",
+          "not_using": "Yeterince kullanmıyorum",
+          "other": "Diğer"
+        }
+      },
+      "welcome": {
+        "title": "{plan} planına hoş geldiniz",
+        "body": "Planınız etkin. Önce bunları deneyin:",
+        "ios": "iOS uygulamasını yükleyin",
+        "cloud": "Cloud'u açın",
+        "team": "Ekip oluşturun",
+        "banner": "Artık {plan} planındasınız.",
+        "bannerLink": "Plan ve faturalandırma"
+      },
+      "appStore": {
+        "title": "App Store üzerinden faturalandırılır",
+        "body": "Planınız cmux iPhone uygulamasında satın alındı ve Apple tarafından faturalandırılıyor. Planı App Store aboneliklerinizden değiştirin veya iptal edin.",
+        "manage": "App Store'da yönet"
       }
     },
     "mobileDevices": {
@@ -402,7 +557,6 @@
       "loading": "Cihazlar yükleniyor…",
       "empty": "Bu ekip için kayıtlı cihaz yok.",
       "unavailable": "Cihazlarınız yüklenemedi. Sayfayı yenileyip tekrar deneyin.",
-      "retry": "Tekrar dene",
       "mutationError": "Cihaz değişikliği tamamlanamadı.",
       "revoke": "Erişimi iptal et",
       "deviceId": "Cihaz",
@@ -413,7 +567,7 @@
       "relaySettings": "Aktarma ayarları",
       "relaySettingsDescription": "Bu ekibin kullandığı aktarma sunucularını seçin. Her satıra bir URL girin.",
       "saveRelaySettings": "Aktarma ayarlarını kaydet",
-      "eyebrow": "bulut / cihazlar",
+      "eyebrow": "Bulut / cihazlar",
       "scopeActive": "Bu takım gösteriliyor",
       "emptyTitle": "Henüz bağlı cihaz yok",
       "emptyDescription": "Bir cmux cihazı bu takımla eşleştirildiğinde platformu, sürümü ve erişim denetimleriyle birlikte burada görünür.",
@@ -422,6 +576,516 @@
       "activeDevices": "Etkin cihazlar",
       "directoryRevision": "Dizin revizyonu",
       "savingRelaySettings": "Kaydediliyor…"
+    },
+    "settings": {
+      "nav": {
+        "title": "Ayarlar",
+        "profile": "Profil",
+        "auth": "E-postalar ve kimlik doğrulama",
+        "notifications": "Bildirimler",
+        "sessions": "Oturumlar",
+        "apiKeys": "API anahtarları",
+        "account": "Hesap",
+        "billing": "Faturalandırma",
+        "teamsGroup": "Ekipler",
+        "createTeam": "Ekip oluştur",
+        "accountGroup": "Hesap",
+        "billingGroup": "Faturalandırma",
+        "planBilling": "Plan ve faturalandırma"
+      },
+      "ui": {
+        "save": "Kaydet",
+        "saving": "Kaydediliyor…",
+        "cancel": "İptal",
+        "editLabel": "Düzenle: {label}",
+        "required": "Bu alan zorunludur.",
+        "saveError": "Kaydedilemedi. Tekrar deneyin.",
+        "actionError": "Bir sorun oluştu. Tekrar deneyin.",
+        "working": "İşleniyor…",
+        "typeToConfirm": "Onaylamak için {text} yazın",
+        "imageSaveError": "Görsel kaydedilemedi. Tekrar deneyin.",
+        "invalidImage": "Geçerli bir görsel dosyası seçin.",
+        "uploadImage": "Görsel yükle",
+        "removeImage": "Görseli kaldır",
+        "zoom": "Yakınlaştır"
+      },
+      "profile": {
+        "title": "Profil",
+        "description": "Adınız ve avatarınız.",
+        "displayNameTitle": "Görünen ad",
+        "displayNameDescription": "Ekip arkadaşlarınıza gösterilir. Giriş için kullanılmaz.",
+        "displayNameEmpty": "Ayarlanmadı",
+        "imageTitle": "Profil görseli",
+        "imageDescription": "Avatarınız olarak kullanmak için bir görsel yükleyin.",
+        "imageUpload": "Profil görselini değiştir"
+      },
+      "auth": {
+        "title": "E-postalar ve kimlik doğrulama",
+        "description": "E-postalar, giriş yöntemleri ve çok faktörlü kimlik doğrulama.",
+        "emails": {
+          "title": "E-postalar",
+          "description": "Doğrulanmış e-postalar birincil iletişim adresiniz olabilir ve giriş için kullanılabilir.",
+          "add": "E-posta ekle",
+          "addSubmit": "Ekle",
+          "adding": "Ekleniyor…",
+          "cancel": "İptal",
+          "inputLabel": "Yeni e-posta adresi",
+          "placeholder": "E-posta girin",
+          "addError": "E-posta eklenemedi. Tekrar deneyin.",
+          "added": "{email} eklendi. Doğrulama bağlantısı için bu gelen kutusunu kontrol edin.",
+          "addedVerificationFailed": "{email} eklendi ancak doğrulama e-postası gönderilemedi. Tekrar denemek için Doğrulama e-postası gönder seçeneğini kullanın.",
+          "verificationSent": "Doğrulama e-postası gönderildi: {email}",
+          "actionError": "E-posta güncellenemedi. Tekrar deneyin.",
+          "usedBySomeoneElse": "Bu e-posta zaten başka bir kullanıcı tarafından giriş için kullanılıyor.",
+          "removeTitle": "E-postayı kaldır",
+          "removeBody": "{email} hesabınızdan kaldırılsın mı? Daha sonra tekrar ekleyebilirsiniz.",
+          "remove": "Kaldır",
+          "actionsLabel": "İşlemler: {email}",
+          "validation": {
+            "required": "E-posta zorunludur.",
+            "invalid": "Geçerli bir e-posta adresi girin.",
+            "duplicate": "Bu e-posta zaten hesabınızda."
+          },
+          "actions": {
+            "sendVerification": "Doğrulama e-postası gönder",
+            "setPrimary": "Birincil yap",
+            "useForSignIn": "Giriş için kullan",
+            "stopUsingForSignIn": "Giriş için kullanmayı bırak",
+            "remove": "Kaldır"
+          },
+          "disabled": {
+            "verifyFirst": "Önce bu e-postayı doğrulayın.",
+            "lastSignInEmail": "Son giriş e-postanızı kaldıramazsınız."
+          },
+          "badges": {
+            "primary": "Birincil",
+            "unverified": "Doğrulanmadı",
+            "usedForSignIn": "Giriş için kullanılıyor"
+          }
+        },
+        "password": {
+          "title": "Parola",
+          "updateDescription": "Parolanızı güncelleyin.",
+          "setDescription": "Hesabınız için bir parola belirleyin.",
+          "update": "Parolayı güncelle",
+          "set": "Parola belirle",
+          "updateSubmit": "Parolayı güncelle",
+          "setSubmit": "Parola belirle",
+          "saving": "Kaydediliyor…",
+          "cancel": "İptal",
+          "saved": "Parola kaydedildi.",
+          "needsSignInEmail": "Parola belirlemek için önce bir giriş e-postası ekleyin.",
+          "saveError": "Parola kaydedilemedi. Tekrar deneyin.",
+          "oldPassword": "Eski parola",
+          "newPassword": "Yeni parola",
+          "repeatPassword": "Yeni parolayı tekrarlayın",
+          "incorrect": "Parola yanlış.",
+          "requirements": "Bu parola gereksinimleri karşılamıyor.",
+          "errors": {
+            "oldPassword": {
+              "required": "Eski parolanızı girin."
+            },
+            "newPassword": {
+              "required": "Yeni bir parola girin.",
+              "tooShort": "En az {min} karakter kullanın.",
+              "tooLong": "En fazla {max} karakter kullanın."
+            },
+            "newPasswordRepeat": {
+              "required": "Yeni parolayı tekrarlayın.",
+              "mismatch": "Parolalar eşleşmiyor."
+            }
+          }
+        },
+        "passkey": {
+          "title": "Geçiş anahtarı",
+          "registered": "Bir geçiş anahtarı kayıtlı.",
+          "notRegistered": "Parola olmadan giriş yapmak için bir geçiş anahtarı kaydedin.",
+          "add": "Geçiş anahtarı ekle",
+          "registering": "Geçiş anahtarı bekleniyor…",
+          "registerError": "Geçiş anahtarı kaydedilemedi. İstek iptal edildi veya başarısız oldu. Tekrar deneyin.",
+          "delete": "Geçiş anahtarını kaldır",
+          "needsVerifiedEmail": "Geçiş anahtarıyla girişi etkinleştirmek için doğrulanmış bir giriş e-postası ekleyin.",
+          "onlyMethod": "Geçiş anahtarıyla giriş tek giriş yönteminiz olduğu için devre dışı bırakılamaz.",
+          "disableTitle": "Geçiş anahtarıyla girişi devre dışı bırak",
+          "disableBody": "Artık geçiş anahtarınızla giriş yapamayacaksınız.",
+          "disable": "Devre dışı bırak",
+          "disableError": "Geçiş anahtarıyla giriş devre dışı bırakılamadı. Tekrar deneyin."
+        },
+        "otp": {
+          "title": "Tek kullanımlık kodla giriş",
+          "enabledDescription": "Sihirli bağlantı veya tek kullanımlık kodla giriş etkin.",
+          "disabledDescription": "Giriş e-postalarınıza gönderilen sihirli bağlantı veya tek kullanımlık kodla giriş yapın.",
+          "enable": "Etkinleştir",
+          "enableError": "Tek kullanımlık kodla giriş etkinleştirilemedi. Tekrar deneyin.",
+          "disable": "Devre dışı bırak",
+          "needsVerifiedEmail": "Tek kullanımlık kodla girişi etkinleştirmek için doğrulanmış bir giriş e-postası ekleyin.",
+          "onlyMethod": "Tek kullanımlık kodla giriş tek giriş yönteminiz olduğu için devre dışı bırakılamaz.",
+          "disableTitle": "Tek kullanımlık kodla girişi devre dışı bırak",
+          "disableBody": "Artık yalnızca e-postayla giriş yapamayacaksınız.",
+          "disableConfirm": "Devre dışı bırak",
+          "disableError": "Tek kullanımlık kodla giriş devre dışı bırakılamadı. Tekrar deneyin."
+        },
+        "mfa": {
+          "title": "Çok faktörlü kimlik doğrulama",
+          "enabledDescription": "Çok faktörlü kimlik doğrulama etkin.",
+          "disabledDescription": "Çok faktörlü kimlik doğrulama devre dışı.",
+          "enable": "MFA'yı etkinleştir",
+          "disable": "MFA'yı devre dışı bırak",
+          "startError": "MFA kurulumu başlatılamadı. Tekrar deneyin.",
+          "enableError": "MFA etkinleştirilemedi. Tekrar deneyin.",
+          "scan": "Bu QR kodunu kimlik doğrulayıcı uygulamanızla tarayın.",
+          "qrAlt": "Çok faktörlü kimlik doğrulama için QR kodu",
+          "enterCode": "Ardından altı haneli kodu girin:",
+          "incorrect": "Kod yanlış. Tekrar deneyin.",
+          "cancel": "İptal",
+          "disableTitle": "Çok faktörlü kimlik doğrulamayı devre dışı bırak",
+          "disableBody": "Giriş sırasında artık kimlik doğrulayıcı uygulamanızdan kod istenmeyecek.",
+          "disableConfirm": "MFA'yı devre dışı bırak",
+          "disableError": "MFA devre dışı bırakılamadı. Tekrar deneyin."
+        },
+        "connected": {
+          "title": "Bağlı hesaplar",
+          "description": "cmux hesabınıza bağlı diğer sağlayıcılardaki hesaplar.",
+          "usedForSignIn": "Giriş için kullanılıyor",
+          "useForSignIn": "Giriş için kullan",
+          "stopUsingForSignIn": "Giriş için kullanmayı bırak",
+          "remove": "Bağlantıyı kaldır",
+          "lastMethod": "Bu, tek giriş yönteminiz.",
+          "actionsLabel": "İşlemler: {provider}",
+          "actionError": "Bağlı hesap güncellenemedi. Tekrar deneyin.",
+          "usedBySomeoneElse": "Bu hesap zaten başka bir kullanıcı tarafından giriş için kullanılıyor.",
+          "removeTitle": "{provider} bağlantısını kaldır",
+          "removeBody": "Artık bu hesapla giriş yapamayacaksınız. Bu hesapla giriş yaparak onu yeniden bağlayabilirsiniz."
+        }
+      },
+      "notifications": {
+        "title": "Bildirimler",
+        "description": "cmux'tan gelen e-posta bildirimleri.",
+        "heading": "Hangi e-postaları almak istediğinizi seçin",
+        "empty": "Yapılandırılacak e-posta kategorisi yok.",
+        "cannotDisable": "(devre dışı bırakılamaz)",
+        "saveError": "Bu tercih kaydedilemedi. Tekrar deneyin."
+      },
+      "sessions": {
+        "title": "Oturumlar",
+        "description": "Giriş yaptığınız cihazlar.",
+        "heading": "Etkin oturumlar",
+        "explanation": "Bunlar giriş yaptığınız cihazlardır. Bir oturumdan çıkış yapmak için oturumu iptal edin.",
+        "revokeAll": "Diğer tüm oturumları iptal et",
+        "revokeAllTitle": "Diğer oturumları iptal et",
+        "revokeAllBody": "Bu işlem {count, plural, one {# diğer oturumu} other {# diğer oturumu}} kapatır. Bu oturum açık kalır.",
+        "revokeAllConfirm": "Oturumları iptal et",
+        "revokeAllError": "Oturumların tümü iptal edilemedi. Listede kalanlar gösteriliyor.",
+        "revokeError": "Oturum iptal edilemedi. Tekrar deneyin.",
+        "empty": "Etkin oturum bulunamadı.",
+        "columns": {
+          "session": "Oturum",
+          "ip": "IP adresi",
+          "location": "Konum",
+          "lastUsed": "Son kullanım"
+        },
+        "current": "Geçerli oturum",
+        "other": "Diğer oturum",
+        "impersonation": "Kimliğine bürünme",
+        "signedIn": "Giriş: {date}",
+        "actionsLabel": "Oturum işlemleri",
+        "revoke": "İptal et",
+        "cannotRevokeCurrent": "Geçerli oturumunuzu iptal edemezsiniz.",
+        "unknownIp": "-",
+        "unknownLocation": "Bilinmiyor",
+        "never": "Hiçbir zaman"
+      },
+      "apiKeys": {
+        "title": "API anahtarları",
+        "description": "Programlara hesabınıza erişim veren anahtarlar.",
+        "disabled": "Bu proje için kişisel API anahtarları etkin değil.",
+        "create": "API anahtarı oluştur",
+        "createTitle": "API anahtarı oluştur",
+        "createDescription": "API anahtarları hesabınıza programatik erişim sağlar.",
+        "descriptionLabel": "Açıklama",
+        "descriptionPlaceholder": "Örneğin: Geliştirme, Üretim, CI",
+        "descriptionRequired": "Açıklama zorunludur.",
+        "expiresIn": "Geçerlilik süresi",
+        "expiry": {
+          "1d": "1 gün",
+          "7d": "7 gün",
+          "30d": "30 gün",
+          "90d": "90 gün",
+          "1y": "1 yıl",
+          "never": "Süresiz"
+        },
+        "cancel": "İptal",
+        "createSubmit": "Oluştur",
+        "creating": "Oluşturuluyor…",
+        "createError": "API anahtarı oluşturulamadı. Tekrar deneyin.",
+        "showTitle": "API anahtarı",
+        "showBody": "API anahtarınız burada.",
+        "showWarning": "Anahtarı güvenli bir yere kopyalayın. Onu bir daha göremeyeceksiniz.",
+        "secretLabel": "Gizli API anahtarı",
+        "copy": "Kopyala",
+        "copied": "Kopyalandı",
+        "copyError": "Kopyalanamadı. Anahtarı seçip elle kopyalayın.",
+        "acknowledge": "Bu anahtarı bir daha göremeyeceğimi anlıyorum.",
+        "close": "Kapat",
+        "search": "Anahtarlarda ara",
+        "statusFilter": "Duruma göre filtrele",
+        "status": {
+          "valid": "Geçerli",
+          "expired": "Süresi doldu",
+          "revoked": "İptal edildi"
+        },
+        "empty": "Henüz API anahtarı yok.",
+        "noMatches": "Bu filtrelerle eşleşen API anahtarı yok.",
+        "columns": {
+          "description": "Açıklama",
+          "status": "Durum",
+          "key": "Anahtar",
+          "expiresAt": "Bitiş",
+          "createdAt": "Oluşturulma"
+        },
+        "never": "Hiçbir zaman",
+        "actionsLabel": "İşlemler: {description}",
+        "revoke": "İptal et",
+        "revokeTitle": "API anahtarını iptal et",
+        "revokeBody": "*****{lastFour} API anahtarı iptal edilsin mi? Bu anahtarı kullanan uygulamalar erişimini hemen kaybeder.",
+        "revokeAcknowledge": "Bunun, bu API anahtarını kullanan tüm uygulamaların bağlantısını keseceğini anlıyorum.",
+        "revokeConfirm": "Anahtarı iptal et",
+        "revokeError": "API anahtarı iptal edilemedi. Tekrar deneyin."
+      },
+      "account": {
+        "title": "Hesap",
+        "description": "Faturalandırma, çıkış yapma ve hesap silme.",
+        "billingTitle": "Faturalandırma",
+        "billingDescription": "Planlar, faturalar ve ödeme yöntemleri.",
+        "billingLink": "Faturalandırmayı aç",
+        "signOutTitle": "Çıkış yap",
+        "signOutDescription": "Geçerli oturumunuzu sonlandırın.",
+        "signOut": "Çıkış yap",
+        "signingOut": "Çıkış yapılıyor…",
+        "signOutError": "Çıkış yapılamadı. Tekrar deneyin.",
+        "deleteTitle": "Hesabı sil",
+        "deleteDescription": "Hesabınızı ve ilişkili tüm verileri kalıcı olarak kaldırın.",
+        "delete": "Hesabı sil",
+        "deleteConfirmTitle": "Hesabınız silinsin mi?",
+        "deleteConfirmBody": "Bu işlem geri alınamaz ve hesabınızla ilişkili tüm verileri siler.",
+        "deleteAcknowledge": "Hesabımın ve verilerinin kalıcı olarak silineceğini anlıyorum.",
+        "deleteConfirm": "Hesabı sil",
+        "deleteError": "Hesap silinemedi. Tekrar deneyin."
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "Kopyala",
+        "copied": "Kopyalandı",
+        "copyFailed": "Kopyalanamadı"
+      },
+      "plan": {
+        "free": "Ücretsiz",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "Yönetici",
+        "member": "Üye"
+      },
+      "errors": {
+        "generic": "Bir sorun oluştu. Tekrar deneyin.",
+        "network_error": "cmux'a ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.",
+        "unauthorized": "Oturumunuz sona erdi. Tekrar giriş yapın.",
+        "forbidden": "Bunu yapma izniniz yok.",
+        "team_not_found": "Bu ekip artık mevcut değil.",
+        "invalid_request": "İstek geçerli değil. Alanları kontrol edip tekrar deneyin.",
+        "rate_limited": "Çok fazla istek. Biraz bekleyip tekrar deneyin.",
+        "last_admin": "Bir ekipte en az bir yönetici bulunmalıdır. Önce başka bir üyeyi yönetici yapın.",
+        "member_not_found": "Bu kişi artık üye değil.",
+        "invitation_not_found": "Bu davet artık mevcut değil.",
+        "invitation_invalid": "Bu davet geçersiz, süresi dolmuş veya zaten kullanılmış.",
+        "email_mismatch": "Bu davet farklı bir e-posta adresine gönderildi.",
+        "link_not_found": "Bu davet bağlantısı artık mevcut değil.",
+        "link_invalid": "Bu davet bağlantısı geçersiz, süresi dolmuş, iptal edilmiş veya dolmuş.",
+        "team_has_active_subscription": "Ekibi silmeden önce ekip aboneliğini iptal edin.",
+        "service_unavailable": "Hizmet geçici olarak kullanılamıyor. Biraz sonra tekrar deneyin."
+      },
+      "list": {
+        "title": "Ekipler",
+        "description": "Ekipler üyeleri, faturalandırmayı ve coderouter hesaplarını paylaşır. Bir ekibi yönetmek için açın.",
+        "create": "Ekip oluştur",
+        "count": "{count, plural, one {# ekip} other {# ekip}}",
+        "selected": "Geçerli",
+        "emptyTitle": "Henüz ekip yok",
+        "emptyBody": "Kişileri davet etmek ve tek bir planı paylaşmak için bir ekip oluşturun."
+      },
+      "new": {
+        "title": "Ekip oluştur",
+        "description": "Ekibe bir ad verin, bir plan seçin, ardından kişileri davet edin.",
+        "stepsLabel": "Adımlar",
+        "steps": {
+          "name": "Ad",
+          "plan": "Plan",
+          "invite": "Davet"
+        },
+        "nameTitle": "Ekibinize bir ad verin",
+        "nameLabel": "Ekip adı",
+        "namePlaceholder": "Acme Mühendislik",
+        "nameError": {
+          "empty": "Bir ekip adı girin.",
+          "tooLong": "En fazla {max} karakter kullanın."
+        },
+        "cancel": "İptal",
+        "createAction": "Ekip oluştur",
+        "creating": "Oluşturuluyor…",
+        "planTitle": "{team} için bir plan seçin",
+        "planDescription": "Planı daha sonra ekibin faturalandırma sayfasından değiştirebilirsiniz.",
+        "freeName": "Ücretsiz",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "Koltuk başına aylık ${price}",
+        "featureMembers": "Üyeler, roller ve davetler",
+        "featureProForEveryone": "Her üye için Pro'daki her şey",
+        "featureCentralBilling": "Tüm ekip için merkezi faturalandırma",
+        "featurePrioritySupport": "Öncelikli destek",
+        "chooseFree": "Ücretsiz ile devam et",
+        "chooseTeam": "Team'e yükselt (${price}/koltuk/ay)",
+        "upgradeLater": "Koltuklar üye sayısını izler: her üye faturalandırılır ve biri katıldığında ya da ayrıldığında toplam güncellenir.",
+        "inviteTitle": "{team} ekibine kişileri davet edin",
+        "inviteDescription": "İsteğe bağlı. Kişileri daha sonra ekibin Üyeler sayfasından da davet edebilirsiniz.",
+        "inviteByEmail": "E-postayla davet et",
+        "inviteByLink": "Davet bağlantısı",
+        "backToPlan": "Planlara dön",
+        "finish": "Ekibe git"
+      },
+      "invite": {
+        "emailsLabel": "E-posta adresleri",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "Geçerli bir e-posta adresi değil",
+        "removeEmail": "Kaldır: {email}",
+        "roleLabel": "Rol",
+        "roleMember": "Üye",
+        "roleAdmin": "Yönetici",
+        "count": "{count}/{max}",
+        "send": "Davetleri gönder",
+        "sending": "Gönderiliyor…",
+        "invalidCount": "{count, plural, one {Göndermeden önce # geçersiz adresi düzeltin veya kaldırın.} other {Göndermeden önce # geçersiz adresi düzeltin veya kaldırın.}}",
+        "overflow": "{count, plural, one {# adres eklenmedi: İstek başına sınır {max}.} other {# adres eklenmedi: İstek başına sınır {max}.}}",
+        "sent": "{count, plural, one {# davet gönderildi.} other {# davet gönderildi.}}"
+      },
+      "inviteFailure": {
+        "generic": "davet edilemedi",
+        "already_member": "zaten üye",
+        "invite_failed": "davet gönderilemedi"
+      },
+      "links": {
+        "expiryLabel": "Geçerlilik",
+        "expiry": {
+          "1": "1 gün içinde",
+          "7": "7 gün içinde",
+          "30": "30 gün içinde",
+          "never": "Süresiz"
+        },
+        "maxUsesLabel": "Maksimum kullanım",
+        "maxUsesPlaceholder": "Sınırsız",
+        "maxUsesInvalid": "Maksimum kullanım 1 ile {max} arasında bir tam sayı olmalı veya sınırsız için boş bırakılmalıdır.",
+        "create": "Bağlantı oluştur",
+        "creating": "Oluşturuluyor…",
+        "memberOnly": "Bağlantıyla katılan kişiler üye olur. Gerekirse onları daha sonra yönetici yapın.",
+        "showOnce": "Bu bağlantıyı şimdi kopyalayın. Yalnızca bir kez gösterilir.",
+        "empty": "Etkin davet bağlantısı yok.",
+        "createdAt": "Oluşturulma: {at}",
+        "expiresAt": "Bitiş: {at}",
+        "neverExpires": "Süresi dolmaz",
+        "uses": "{count}/{max} kullanım",
+        "usesUnlimited": "{count, plural, one {# kullanım} other {# kullanım}}",
+        "revoke": "İptal et",
+        "revokeTitle": "Bu davet bağlantısı iptal edilsin mi?",
+        "revokeBody": "Bağlantıya sahip olan kişiler artık katılamaz. Daha önce katılanlar üye olarak kalır.",
+        "actionsFor": "Bağlantı için işlemler ({created})"
+      },
+      "shell": {
+        "allTeams": "Tüm ekipler",
+        "tabsLabel": "Ekip ayarları",
+        "tabs": {
+          "general": "Genel",
+          "members": "Üyeler",
+          "apiKeys": "API anahtarları",
+          "billing": "Faturalandırma"
+        },
+        "notFoundTitle": "Ekip bulunamadı",
+        "notFoundBody": "Bu ekip mevcut değil veya bu ekibin üyesi değilsiniz.",
+        "backToTeams": "Ekiplere dön"
+      },
+      "general": {
+        "imageTitle": "Ekip görseli",
+        "imageDescription": "cmux genelinde ekip adının yanında gösterilir.",
+        "imageUpload": "Ekip görseli yükle",
+        "nameTitle": "Ekip adı",
+        "nameDescription": "Tüm üyeler tarafından görülebilir.",
+        "nameReadOnly": "Ekibi yalnızca yöneticiler yeniden adlandırabilir.",
+        "nameError": {
+          "empty": "Bir ekip adı girin.",
+          "tooLong": "En fazla {max} karakter kullanın."
+        },
+        "profileTitle": "Bu ekipteki adınız",
+        "profileDescription": "Bu ekibin diğer üyelerinin sizi nasıl gördüğü. Hesap adınızı kullanmak için boş bırakın.",
+        "profileLabel": "Ekipteki görünen adınız",
+        "leaveTitle": "Ekipten ayrıl",
+        "leaveDescription": "Bu ekibin paylaşılan hesaplarına ve faturalandırmasına erişiminizi kaybedersiniz.",
+        "leaveAction": "Ekipten ayrıl",
+        "leaveBlocked": "Tek yönetici sizsiniz. Ayrılmadan önce başka bir üyeyi yönetici yapın veya ekibi silin.",
+        "leaveConfirmTitle": "{team} ekibinden ayrılınsın mı?",
+        "leaveConfirmBody": "Yeniden katılmak için yeni bir davete ihtiyacınız olur.",
+        "deleteTitle": "Ekibi sil",
+        "deleteDescription": "Ekibi, üyelerinin erişimini ve davet bağlantılarını kalıcı olarak kaldırır.",
+        "deleteAction": "Ekibi sil",
+        "deleteConfirmTitle": "{team} silinsin mi?",
+        "deleteConfirmBody": "Bu işlem geri alınamaz.",
+        "openBilling": "Ekip faturalandırmasını aç"
+      },
+      "members": {
+        "title": "Üyeler",
+        "count": "{count, plural, one {# üye} other {# üye}}",
+        "memberColumn": "Üye",
+        "roleColumn": "Rol",
+        "actionsColumn": "İşlemler",
+        "you": "Siz",
+        "unnamed": "Adsız üye",
+        "remove": "Kaldır",
+        "removeTitle": "{name} kaldırılsın mı?",
+        "removeBody": "Bu kişi ekibe erişimini hemen kaybeder. Daha sonra tekrar davet edebilirsiniz.",
+        "inviteTitle": "Kişileri davet et",
+        "inviteDescription": "E-posta davetleri gönderin. Virgül, boşluk veya yeni satırla ayrılmış bir liste yapıştırın (en fazla 20).",
+        "pendingTitle": "Bekleyen davetler",
+        "pendingDescription": "Henüz kabul edilmemiş davetler.",
+        "pendingEmpty": "Bekleyen davet yok.",
+        "unknownEmail": "Bilinmeyen adres",
+        "expires": "Bitiş: {at}",
+        "resend": "Yeniden gönder",
+        "resent": "Gönderildi",
+        "revoke": "İptal et",
+        "linksTitle": "Davet bağlantıları",
+        "linksDescription": "Herkesin üye olarak katılmak için kullanabileceği yeniden kullanılabilir bir bağlantı.",
+        "seatNudge": "{used} kişi üye veya davetli, ancak planda {seats} koltuk var. Davetler çalışmaya devam eder; herkesi kapsamak için {over, plural, one {# koltuk} other {# koltuk}} ekleyin.",
+        "seatNudgeAction": "Koltukları yönet",
+        "actions": {
+          "makeAdmin": "Yönetici yap",
+          "makeMember": "Üye yap",
+          "remove": "Ekipten çıkar",
+          "leave": "Ekipten ayrıl"
+        },
+        "actionsFor": "{name} için işlemler",
+        "lastAdminReason": "Bir ekipte en az bir yönetici olmalıdır. Önce başka birini yönetici yapın.",
+        "demoteSelfTitle": "Yöneticilikten çıkılsın mı?",
+        "demoteSelfBody": "Bu ekipteki yönetici erişiminizi kaybedersiniz. Başka bir yönetici geri verebilir.",
+        "demoteSelfConfirm": "Beni üye yap"
+      },
+      "apiKeys": {
+        "title": "Ekip API anahtarları",
+        "description": "Bu ekip adına işlem yapan anahtarlar. Anahtara sahip olan herkes ekibin erişimini kullanabilir; bu nedenle anahtarları güvenli şekilde saklayın.",
+        "create": "Ekip API anahtarı oluştur",
+        "disabled": "Bu projede ekip API anahtarları etkin değil.",
+        "forbidden": "Bu ekibin anahtarlarını görmek için ekipte API anahtarlarını yönetme izni gerekir."
+      }
     },
     "coderouterAccounts": {
       "transferAction": "Aktar",
@@ -448,18 +1112,14 @@
       "apiKeysTitle": "API anahtarları",
       "apiKeysDescription": "Komut dosyaları ve aracıların kullanması için uzun ömürlü anahtarlar oluşturun. Gizli değer yalnızca bir kez gösterilir.",
       "apiKeysCount": "{count, plural, one {# anahtar} other {# anahtar}}",
-      "apiKeysLoading": "API anahtarları yükleniyor…",
-      "apiKeysLoadError": "API anahtarları yüklenemedi. Biraz sonra tekrar deneyin.",
-      "apiKeysRetry": "Tekrar dene",
-      "apiKeysEmptyBody": "Henüz API anahtarı yok. CodeRouter istemcisini doğrulamak için bir anahtar oluşturun.",
       "apiKeyPrefixColumn": "Anahtar",
       "apiKeyStatusColumn": "Durum",
       "apiKeySecretTitle": "Bu anahtarı şimdi kopyalayın",
       "apiKeySecretBody": "Bu gizli değer tekrar gösterilmeyecek.",
       "apiKeyCopy": "API anahtarını kopyala",
       "apiKeyCopied": "Kopyalandı",
-      "apiKeyCreatedAt": "oluşturulma {at}",
-      "apiKeyLastUsed": "son kullanım {at}",
+      "apiKeyCreatedAt": "Oluşturulma {at}",
+      "apiKeyLastUsed": "Son kullanım {at}",
       "apiKeyRevoked": "İptal edildi",
       "apiKeyLabelPlaceholder": "Örneğin CI veya üretim",
       "createApiKeyAction": "API anahtarı oluştur",
@@ -469,9 +1129,114 @@
       "revokingApiKeyAction": "İptal ediliyor",
       "apiKeyRevokeError": "API anahtarı iptal edilemedi.",
       "revokeApiKeyConfirmTitle": "Bu API anahtarı iptal edilsin mi?",
-      "apiKeyUsageDetail": "son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
+      "apiKeyUsageDetail": "Son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
       "apiKeyUsageUnavailable": "Kullanım verisi yok",
       "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz."
+    },
+    "cloud": {
+      "title": "Cloud makineleri ve Mac erişimi",
+      "description": "Her makinenin giden ağını ayarlayın ve özel Cloud VM ağınıza WireGuard erişimi olan Mac'leri inceleyin. iPhone ve Iroh eşleştirme kayıtları ayrı tutulur.",
+      "macAccessTitle": "Mac erişimi",
+      "machines": {
+        "title": "Makineler",
+        "empty": "Cloud makineniz yok.",
+        "personal": "kişisel",
+        "team": "ekip",
+        "status": {
+          "provisioning": "başlatılıyor",
+          "running": "çalışıyor",
+          "failed": "başarısız",
+          "paused": "duraklatıldı",
+          "destroyed": "silindi"
+        }
+      },
+      "network": {
+        "open": "Ağ",
+        "title": "{name} için giden ağ",
+        "description": "Bu makinenin nelere erişebileceğini seçin. Değişiklikler yeniden başlatmadan hemen uygulanır.",
+        "loading": "Ağ politikası yükleniyor…",
+        "loadError": "Bu makinenin ağ politikası yüklenemedi.",
+        "saveError": "Bu ağ politikası uygulanamadı.",
+        "unsupported": "Bu makine giden ağ denetimini desteklemiyor.",
+        "retry": "Tekrar dene",
+        "appliedLabel": "Durum:",
+        "applied": {
+          "applied": "uygulandı",
+          "pending": "uygulanıyor",
+          "failed": "uygulanamadı"
+        },
+        "unsaved": "kaydedilmemiş değişiklikler",
+        "refresh": "Yenile",
+        "modeLabel": "Giden erişim",
+        "mode": {
+          "full": {
+            "label": "Tam internet",
+            "description": "Herhangi bir genel adres."
+          },
+          "allowlist": {
+            "label": "İzin listesi",
+            "description": "Yalnızca belirttiğiniz ön ayarlar, alan adları ve IP aralıkları."
+          },
+          "none": {
+            "label": "İnternet yok",
+            "description": "Yalnızca aşağıda listelenen cmux ana makineleri."
+          }
+        },
+        "presetsTitle": "Ön ayarlar",
+        "presetsNote": "Her ön ayar tam ana makine adları ekler. Başka alt alan adları kullanan bir hizmet için ek alan adları gerekebilir.",
+        "domainsTitle": "Alan adları",
+        "domainsNote": "Yalnızca tam ana makine adları, yalnızca 443 numaralı bağlantı noktasında HTTPS. Joker karakterler henüz desteklenmiyor.",
+        "domainInput": "Alan adı",
+        "rangesTitle": "IP aralıkları",
+        "rangesNote": "Sağlayıcı güvenlik duvarı bunları makinenin dışında uygular. Tüm bağlantı noktalarına izin vermek için bağlantı noktasını boş bırakın. Bağlantı noktası için protokol gerekir.",
+        "cidrInput": "IP aralığı (CIDR)",
+        "portInput": "Bağlantı noktası",
+        "protocolInput": "Protokol",
+        "anyProtocol": "herhangi",
+        "noteInput": "Not (isteğe bağlı)",
+        "allPorts": "tüm bağlantı noktaları",
+        "dnsLabel": "DNS'e izin ver",
+        "dnsNote": "Araçların IP aralıklarınızın işaret ettiği adları çözümlemesini sağlar. Alan adları DNS gerektirmez. Açık DNS bir giden kanaldır: bir süreç sorguladığı adların içinde veri gönderebilir.",
+        "requiredTitle": "Her zaman izinli",
+        "requiredNote": "cmux, makinede CLI'yi yüklemek ve güncellemek için her modda bu ana makinelere ihtiyaç duyar.",
+        "add": "Ekle",
+        "remove": "Kaldır",
+        "discard": "Değişiklikleri at",
+        "close": "Kapat",
+        "apply": "Uygula"
+      },
+      "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz.",
+      "apiKeysEmptyTitle": "Henüz API anahtarı yok",
+      "apiKeysEmptyHint": "Bir CodeRouter istemcisinin kimliğini doğrulamak için bir anahtar oluşturun.",
+      "unavailableTitle": "Paylaşılan hesaplar kullanılamıyor",
+      "unavailableBody": "cmux şu anda paylaşılan hesap hizmetine ulaşamıyor. cr add ile eklenen hesaplar ile Anthropic ve Bedrock hesapları çalışmaya devam ediyor."
+    },
+    "notFound": {
+      "title": "Sayfa bulunamadı",
+      "body": "Bu panel sayfası mevcut değil veya taşındı.",
+      "home": "Panele git"
+    },
+    "states": {
+      "errorTitle": "{section} yüklenemedi",
+      "errorTitleGeneric": "Bu bölüm yüklenemedi",
+      "reason": {
+        "network": "Bağlantınızı kontrol edip tekrar deneyin.",
+        "unavailable": "cmux geçici olarak kullanılamıyor. Birazdan tekrar deneyin.",
+        "forbidden": "Buna erişiminiz yok.",
+        "notFound": "Bu artık mevcut değil veya erişiminiz yok.",
+        "rateLimited": "Çok fazla istek. Biraz bekleyip tekrar deneyin.",
+        "generic": "Bir sorun oluştu. Tekrar deneyin."
+      },
+      "retry": "Tekrar dene",
+      "retrying": "Tekrar deneniyor…"
+    },
+    "upgrade": {
+      "title": "Pro gerekir",
+      "cloud": "Cloud VMs ve bulut ajanları Pro'ya dahildir.",
+      "testflight": "cmux iOS uygulaması Pro'ya dahildir.",
+      "mobileDevices": "Telefon ve tabletinizi bağlamak Pro'ya dahildir.",
+      "action": "Pro'ya yükselt",
+      "comparePlans": "Planları karşılaştır"
     }
   },
   "community": {
@@ -1348,7 +2113,9 @@
           "ampIntegration": "Amp için cmux hook'larını açar veya kapatır. Kapatıldığında paketle gelen eklenti yüklü kalır ancak devre dışı olur.",
           "suppressSubagentNotifications": "İç içe Codex veya Claude alt ajanlarından gelen görünür tamamlanma bildirimlerini ve durum değişikliklerini gizler, olaylarını Feed telemetrisinde tutar.",
           "workspaceAutoNaming": "Ajan konuşma içeriğinden çalışma alanlarının ve sekmelerin yapay zekâ ile otomatik adlandırılması (isteğe bağlı). Etkinleştirildiğinde cmux, desteklenen ajan oturumlarını her ajanın kendi ikili dosyasını kullanarak kısa başlıklara özetler; elle yapılan yeniden adlandırmalar her zaman önceliklidir.",
-          "autoNamingAgent": "Her oturum için otomatik adları hangi aracının oluşturacağı. \"auto\" (varsayılan) her oturumu kendi aracısıyla adlandırır; herhangi bir aracı kısaltması (claude, codex, grok, opencode, pi, omp, …) diğer aracıların oturumları dahil tüm oturumların adlandırmasını geçersiz kılar. Çalıştırılamayan veya kurulu olmayan aracılar oturumun kendi aracısına geri döner, böylece adlandırma asla bozulmaz."
+          "autoNamingAgent": "Her oturum için otomatik adları hangi aracının oluşturacağı. \"auto\" (varsayılan) her oturumu kendi aracısıyla adlandırır; herhangi bir aracı kısaltması (claude, codex, grok, opencode, pi, omp, …) diğer aracıların oturumları dahil tüm oturumların adlandırmasını geçersiz kılar. Çalıştırılamayan veya kurulu olmayan aracılar oturumun kendi aracısına geri döner, böylece adlandırma asla bozulmaz.",
+          "agentAutoResume": "cmux tarafından başlatılan ve turu yeniden denenebilir bir hizmet hatasıyla (model kapasitesi dolu, aşırı yük veya bağlantı koptu) biten bir ajana, artan beklemeyle `continue` gönderir. Bir insanı bekleyen turlar asla sürdürülmez.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
@@ -1367,8 +2134,8 @@
           "sessionContentAlignment": "sessionContentMaxWidth etkin olduğunda terminal ve yerleşik ajan sohbeti içeriğinin yatay konumu.",
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalin her fare tekerleği veya trackpad kaydırma olayında ne kadar ilerleyeceğini ölçekler. 1'in üzerindeki değerler kaydırmayı hızlandırır, 1'in altındaki değerler yavaşlatır.",
-          "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
-          "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
+          "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için TextBox girişini varsayılan olarak gösterir.",
+          "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },
         "notifications": {
           "soundWhenFocused": "Bildirimi gönderen bölme zaten odaktayken bile bildirim sesini çal. Varsayılan olarak kapalıdır; odaktaki bölme yalnızca halkasını ve parlamasını gösterir.",
@@ -1399,7 +2166,13 @@
           "compactAgentStatus": "Her çalışma alanını tek satırda göster: başlığın önündeki tek bir renkli simge ajan, okunmamış ve pull request durumunu gösterir; ajan durum satırlarının (örneğin Çalışıyor veya Girdi gerekiyor), dal ve dizin satırının ve pull request satırlarının yerini alır, ayrıntılar simgenin ipucuna taşınır. Diğer durum girdileri kendi satırlarını korur.",
           "compactStatusIcons": "Her durum için compactAgentStatus glifinin yerine geçen SF Symbol adları, örneğin {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Ayarlanmamış durumlar yerleşik sembolü korur ve görüntülenemeyen bir ad da ona geri döner.",
           "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
-          "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
+          "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır.",
+          "showAgentUsage": "Claude Code veya Codex durum girdisine kodlama aracısının kullanımını ekler: model ve kullanılan bağlam penceresi, ayrıca Claude Code için Anthropic’in yayımlanan liste fiyatlarına göre tahmini API maliyeti (ana iş parçacığı ve alt aracılar). Bu maliyet bir tahmindir, abonelik faturanız değildir; toplu ve öncelikli katmanlar, iş ortağı fiyatlandırması, hızlı mod ve sunucu aracı ücretleri hesaba katılmaz.",
+          "beta": {
+            "conversations": {
+              "enabled": "Kenar çubuğu seçicisinde birleştirilmiş konuşma görünümünü göster."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Sağ kenar çubuğundaki dosya gezgini (dosya ağacı) ayarları.",
@@ -1409,7 +2182,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
+          "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
           "showModifierHoldHints": "Cmd veya Control basılı tutulurken kısayol ipucu rozetlerini göster."
         },
         "fileEditor": {
@@ -1463,9 +2236,17 @@
       "customActionsDesc": "<actions>actions</actions> girdisi, cmux’un çalıştırdığı yeniden kullanılabilir davranıştır. Aynı davranışın Command Palette, yüzey sekme çubuğu, kısayollar veya artı düğmesi menüsünden kullanılmasını istediğinizde eylemleri kullanın. Yeniden kullanılabilir shell komutları ve çalışma alanı düzenleri için <commands>commands</commands> kullanmaya devam edin. Bir eylem Command Palette içinde görünmemeliyse <palette>palette</palette> değerini false yapın.",
       "actionTypes": "Eylem türleri",
       "actionTypeBuiltin": "cmux.newTerminal, cmux.newBrowser, cmux.splitRight veya cmux.splitDown gibi yerleşik bir cmux eylemi için alias oluşturur.",
+      "actionTypeBuiltinCopy": "Yerleşik kopyalama eylemleri: cmux.copyWorkingDirectory terminalin çalışma dizinini, cmux.copyProjectRoot git deposunun kökünü (depo dışında çalışma dizinini) ve cmux.copyScreen görünür ekranı kopyalar.",
+      "actionTypeBuiltinCopyRemote": "SSH, bulut veya uzak tmux çalışma alanında cmux, diğer ana makinedeki git deposunu bulamadığı için cmux.copyProjectRoot uzak çalışma dizinini kopyalar.",
       "actionTypeCommand": "Terminalde shell metni çalıştırır. Geçerli terminali veya geçerli bölmedeki yeni sekmeyi seçmek için target kullanın.",
       "actionTypeAgent": "Desteklenen bir kodlama ajanı başlatır. Bugün codex ve claude desteklenir, isteğe bağlı argümanlarla.",
       "actionTypeWorkspaceCommand": "commands içinden adlandırılmış bir çalışma alanı tanımını çalıştırır. Çok bölmeli düzenler, özel çalışma dizinleri ve başlangıç komutları için kullanın.",
+      "actionTypeSetting": "Genel cmux.json dosyanızdaki bir ayarı değiştirir; örneğin true/false bir ayarı açıp kapatır veya bir değer listesinde sırayla ilerler. Aşağıdaki Ayar eylemleri bölümüne bakın.",
+      "actionTypeSettingPreset": "settingPresets içindeki adlandırılmış bir ayar grubunu tek adımda uygular.",
+      "settingActions": "Ayar eylemleri",
+      "settingActionsDesc": "Bir ayar eylemi, ayarın yolunu veren <path>path</path> ile şunlardan tam olarak birini belirtir: <set>set</set> (bir değer yazar), <toggle>toggle: true</toggle> (true/false bir ayarı tersine çevirir), <cycle>cycle</cycle> (listedeki sonraki değere geçer, sonuncudan sonra başa döner) veya <unset>unset: true</unset> (anahtarı cmux.json dosyasından kaldırır; böylece Ayarlar penceresindeki değer ya da varsayılan değer geçerli olur). toggle ve cycle, Ayarlar penceresinde belirlediğiniz değer dahil, cmux’un o anda kullandığı değerden başlar. settingPreset eylemi <presets>settingPresets</presets> içinden bir girdiyi uygular; bu girdi, iç içe nesneleri anahtar anahtar birleştirilen kısmi bir cmux.json’dur. cmux her değişikliği kaydetmeden önce şemaya göre denetler, yorumlarınızı ve diğer anahtarları korur ve değişikliği hemen uygular. Ayar eylemleri ve preset’ler yalnızca genel cmux.json dosyanızdan ve onun başvurduğu paketlerden çalışır; proje yapılandırmaları bunları tanımlayamaz.",
+      "settingActionsCli": "Aynı değişiklikler terminalden de yapılabilir: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> ve <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "<confirm>confirm: true</confirm> ile cmux kaydetmeden önce sorar ve eşdeğer cmux config komutunu gösterir. Yollar her \".\" karakterinde bölünür; bu yüzden kendisi \".\" içeren bir anahtar (örneğin ~/src/app.web için bir <byCwd>workspaceGroups.byCwd</byCwd> girdisi) bu yolla değiştirilemez. Onu doğrudan cmux.json içinde düzenleyin.",
       "actionFields": "Eylem alanları",
       "actionFieldTitle": "Command Palette satır başlığı, yüzey düğmesi etiketi, menü öğesi başlığı ve güven istemi başlığıdır, bir girdi üzerine yazmadığı sürece.",
       "actionFieldSubtitle": "Command Palette ikincil metni. description, subtitle için alias olarak kabul edilir.",
@@ -1534,7 +2315,6 @@
       "restartNew": "Yeni bir workspace oluştur (varsayılan)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "Dosya düzenleyicisinde sözcük kaydırmayı değiştir (Option+Z).",
       "title": "Klavye Kısayolları",
       "description": "cmux'ta mevcut tüm klavye kısayolları, kategoriye göre gruplandırılmış.",
       "metaDescription": "macOS'ta çalışma alanları, yüzeyler, bölünmüş paneller, tarayıcı, bildirimler, bulma ve pencere yönetimi için tüm cmux klavye kısayolları.",
@@ -1598,7 +2378,8 @@
         "wn-reload": "Yapılandırmayı yeniden yükle",
         "wn-quit": "Çık"
       },
-      "metaTitle": "Klavye kısayolları"
+      "metaTitle": "Klavye kısayolları",
+      "fileEditorWordWrap": "Dosya düzenleyicisinde sözcük kaydırmayı değiştir (Option+Z)."
     },
     "api": {
       "title": "CLI Referansı",
@@ -1862,7 +2643,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)",
+      "textBox": "TextBox",
       "ios": "iOS Uygulaması",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "Genel Bakış",
@@ -1876,7 +2657,11 @@
       "automationSection": "Otomasyon",
       "remoteSection": "Uzaktan Erişim",
       "customizeSection": "Özelleştirme ve Yönetim",
-      "basicsSection": "Temel Bilgiler"
+      "basicsSection": "Temel Bilgiler",
+      "coderouterSection": "CodeRouter",
+      "coderouterOverview": "Genel Bakış",
+      "coderouterAgents": "Aracılar ve Modeller",
+      "coderouterCli": "CLI ve Sorun Giderme"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -2021,11 +2806,10 @@
       "daemonPath": "Arka plan programı ikili dosyası, uzak ana bilgisayarda ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote konumunda depolanır ve uygulamaya katıştırılmış bir SHA-256 bildirimine göre doğrulanır."
     },
     "textBox": {
-      "title": "TextBox (Beta)",
-      "metaTitle": "TextBox (Beta)",
-      "metaDescription": "Yeni terminal sekmeleri, bölmeleri ve çalışma alanları için cmux beta TextBox girişini yapılandırın.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "Yeni terminal sekmeleri, bölmeleri ve çalışma alanları için cmux TextBox girişini yapılandırın.",
       "intro": "TextBox, istemleri terminale göndermeden önce yazmak için cmux'un zengin terminal giriş yüzeyidir.",
-      "betaCallout": "TextBox bir beta özelliğidir. Varsayılanlar ve davranış test süresince değişebilir.",
       "defaultsTitle": "Varsayılanlar",
       "defaultsDesc": "TextBox ayarları Settings > TextBox içindedir:",
       "showSetting": "Show TextBox on New Terminals yeni çalışma alanlarını, terminal sekmelerini ve terminal bölmelerini TextBox görünür halde açar ve odağı terminalde tutar.",
@@ -2033,7 +2817,8 @@
       "maxLinesSetting": "TextBox Max Lines, içerik kaymaya başlamadan önce TextBox yüksekliğini sınırlar.",
       "configTitle": "cmux.json",
       "configDesc": "Aynı varsayılanları ~/.config/cmux/cmux.json içinde terminal altında ayarlayın:",
-      "focusNote": "Geri yüklenen oturumlar kayıtlı TextBox görünürlüğünü ve odak durumunu korur. Bu varsayılanlar yalnızca yeni oluşturulan terminal yüzeylerine uygulanır."
+      "focusNote": "Geri yüklenen oturumlar kayıtlı TextBox görünürlüğünü ve odak durumunu korur. Bu varsayılanlar yalnızca yeni oluşturulan terminal yüzeylerine uygulanır.",
+      "betaCallout": "TextBox bir beta özelliğidir. Varsayılanlar ve davranış test süresince değişebilir."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: cmux içinde OpenCode çoklu ajan",
@@ -2135,12 +2920,18 @@
       "limitsTitle": "Plan sınırları",
       "limitsDesc": "Plan sınırları ortak bir CPU veya bellek havuzunu değil, makineleri sayar. Her makine kendi boyutunun kaynaklarını alır.",
       "limitsFree": "Ücretsiz hesaplar makine oluşturamaz.",
-      "limitsPaid": "Pro ve Max hesaplarında en fazla 50 etkin makine olabilir. Bir makine çalışırken veya başlatılırken etkin sayılır.",
-      "limitsTeam": "Ekip hesaplarında her ücretli koltuk için en fazla 50 etkin makine olabilir.",
-      "limitsMax": "24 GB'tan büyük makineler için cmux Max gerekir.",
+      "limitsPaid": "Pro ve Max hesaplarında en fazla 5 etkin makine olabilir. Bir makine çalışırken veya başlatılırken etkin sayılır.",
+      "limitsTeam": "Ekip hesaplarında her ücretli koltuk için en fazla 5 etkin makine olabilir.",
+      "limitsMax": "8 GB'tan büyük makineler için cmux Max gerekir. Max makineleri 32 GB'a ve 16 vCPU'ya kadar çıkar.",
       "limitsPricing": "Güncel fiyatlar için fiyatlandırma sayfasına bakın. Kullanım ölçümü ve aşım ücreti yoktur.",
+      "agentUpdatesTitle": "Kodlama ajanlarını güncel tut",
+      "agentUpdatesDesc": "Bu ayar açıkken makine Claude Code, Codex, OpenCode, pi ve agent-browser araçlarını günceller. Makine oluşturulduktan sonra ve her bağlandığınızda, 24 saatte en fazla bir kez denetler. Güncelleme ayrı çalışır, bu yüzden bağlantıyı asla engellemez.",
+      "agentUpdatesSource": "Her araç resmi GitHub sürümünden gelir ve sürüm dosyasının sha256 özetiyle doğrulanır. npm kullanılmaz. Bir sürüm ancak 3 gündür herkese açıksa kurulur ve bir güncelleme asla daha eski bir sürüm kurmaz. Çalışan bir ajan başladığı dosyaları korur, başarısız bir güncelleme mevcut sürümü yerinde bırakır.",
+      "agentUpdatesStatus": "Son denetimin sonucu /etc/cmux/agent-updates.state dosyasında, güncelleyicinin günlüğü /var/log/cmux-agent-updates.log dosyasındadır. Başarısız bir denetim bir sonraki bağlantıda yeniden çalışır.",
+      "agentUpdatesToggle": "New Machine sayfası bu ayarı varsayılan olarak açar. Mevcut bir makinede değiştirmek için makineye sağ tıklayıp Keep Agents Up to Date seçeneğini seçin veya cmux vm agent-updates komutunu çalıştırın. cmux vm new, --agent-updates latest geçmediğiniz sürece imajdaki sürümleri korur. Güncellemeleri kapatmak, kurulu sürümleri korur.",
+      "agentUpdatesNetwork": "Güncellemeler yalnızca github.com, api.github.com, objects.githubusercontent.com ve release-assets.githubusercontent.com kullanır. cmux bu sunuculara Allowlist ve No internet dahil her ağ modunda izin verir, bu yüzden bir ağ politikası güncellemeleri asla engellemez.",
       "resizeTitle": "Yeniden boyutlandırma",
-      "resizeDesc": "Bir makineyi veri kaybı olmadan büyütebilirsiniz. Makineye sağ tıklayıp Resize machine'i seçin veya cmux vm resize kullanın. Yeniden boyutlandırma yalnızca büyütebilir. Disk 4 GB'lık adımlarla 256 GB'a, bellek 64 GB'a ve CPU 32 vCPU'ya kadar büyür. Gerçek üst sınırı planınız belirler.",
+      "resizeDesc": "Bir makineyi veri kaybı olmadan büyütebilirsiniz. Makineye sağ tıklayıp Resize machine'i seçin veya cmux vm resize kullanın. Yeniden boyutlandırma yalnızca büyütebilir. Disk 4 GB'lık adımlarla 256 GB'a, bellek 32 GB'a ve CPU 16 vCPU'ya kadar büyür. Gerçek üst sınırı planınız belirler.",
       "pauseTitle": "Duraklatma ve sürdürme",
       "pauseDesc": "cmux vm pause makinenin işlem kaynaklarını durdurur. Disk, çalışma alanları ve terminal geçmişi korunur. Çalışan işlemler durur. cmux vm resume makineyi yeniden başlatır. Duraklatılmış bir makineyi açmak veya üzerinde komut çalıştırmak da onu başlatır.",
       "pauseIdle": "Makineler boşta kaldıklarında kendiliğinden duraklamaz. Bir makine siz onu duraklatana veya silene kadar çalışmaya devam eder.",
@@ -2196,7 +2987,8 @@
       "guestDesc": "Bir makinenin içinde cmux komutu o makinenin oturumunu kontrol eder. tree, new-workspace, new-split, send, send-key, read-screen, terminal, layout, env, notify, open-url ve self komutlarını destekler. cmux self sahibi, makineyi ve diğer makinelerinizi gösterir. cmux vm verb peer, bir makinenin içinden diğer makinelerinizi kontrol eder.",
       "guestHostOnly": "Oturum açma, AI hesabı yükleme ve new, delete, checkpoint, fork, resize, pause, domains, open ve vpn gibi makine yaşam döngüsü komutları yalnızca Mac'inizde çalışır.",
       "iosTitle": "iPhone",
-      "iosDesc": "cmux iOS uygulaması Cloud makinelerini yönetmez. Başlatılmakta olan bir makine yer tutucu bir kart olarak görünür."
+      "iosDesc": "cmux iOS uygulaması Cloud makinelerini yönetmez. Başlatılmakta olan bir makine yer tutucu bir kart olarak görünür.",
+      "coderouterLink": "CodeRouter belgeleri: desteklenen hesaplar, paylaşım ve kullanım"
     },
     "cloudNetworking": {
       "title": "Cloud Dosyaları ve Ağ",
@@ -2261,7 +3053,8 @@
       "accountsTitle": "AI hesapları ve model yönlendirme",
       "accountsDesc": "Ekibiniz için aracı hesapları yükleyin ve model yönlendirmesini kontrol edin.",
       "preflightTitle": "Betik kontrol listesi",
-      "preflightDesc": "Bir betik makine oluşturmadan veya kullanmadan önce bu salt okunur kontrolleri çalıştırın. Oturum açtığınızı doğrular, makinelerinizi ve plan sınırlarınızı gösterir ve bir dizinin hangi makineyi kullandığını gösterir."
+      "preflightDesc": "Bir betik makine oluşturmadan veya kullanmadan önce bu salt okunur kontrolleri çalıştırın. Oturum açtığınızı doğrular, makinelerinizi ve plan sınırlarınızı gösterir ve bir dizinin hangi makineyi kullandığını gösterir.",
+      "coderouterLink": "Tam CodeRouter komut referansı"
     },
     "cloudTroubleshooting": {
       "title": "Cloud Güvenliği ve Sorun Giderme",
@@ -2289,7 +3082,7 @@
       "errPlan": "Cloud VM'ler için ücretli plan gerekir",
       "fixPlan": "Ücretsiz hesaplar makine oluşturamaz. Fiyatlandırma sayfasından planınızı yükseltin.",
       "errSize": "Bir boyut daha büyük bir plan gerektiriyor",
-      "fixSize": "24 GB'tan büyük makineler için cmux Max gerekir. Daha küçük bir boyut seçin veya planınızı yükseltin.",
+      "fixSize": "8 GB'tan büyük makineler için cmux Max gerekir. Daha küçük bir boyut seçin veya planınızı yükseltin.",
       "errLimit": "Etkin makine sınırına ulaşıldı",
       "fixLimit": "Bir makineyi duraklatın veya silin, ardından yeniden deneyin.",
       "errLocked": "Makine kilitli",
@@ -2318,6 +3111,177 @@
       "fixTransferDisabled": "Yönetilen bir ilke dosya aktarımını kapatıyor. Yöneticinize başvurun.",
       "supportTitle": "Yardım alın",
       "supportDesc": "Bir oluşturma işlemi başarısız olursa bildirimdeki Copy Error'ı kullanın ve destekle iletişime geçtiğinizde hatayı, varsa izleme kimliğiyle birlikte ekleyin."
+    },
+    "ui": {
+      "onThisPage": "Bu sayfada",
+      "copyPage": "Sayfayı kopyala",
+      "copyPageDesc": "Sayfayı LLM'ler için Markdown olarak kopyala",
+      "copied": "Kopyalandı",
+      "pageActions": "Diğer sayfa işlemleri",
+      "openInChatGPT": "ChatGPT'de aç",
+      "openInClaude": "Claude'da aç",
+      "openInDesc": "Bu sayfa hakkında soru sor",
+      "askPrompt": "{url} adresini oku ki onun hakkında soru sorabileyim.",
+      "previous": "Önceki",
+      "next": "Sonraki",
+      "helpful": "Bu sayfa yardımcı oldu mu?",
+      "yes": "Evet",
+      "no": "Hayır",
+      "thanks": "Geri bildiriminiz için teşekkürler.",
+      "raiseIssue": "Sorun bildir",
+      "openNavigation": "Gezinmeyi aç",
+      "closeNavigation": "Gezinmeyi kapat",
+      "searchShortcut": "Belgelerde ara (⌘K)",
+      "navigation": "Belgeler"
+    },
+    "coderouterOverview": {
+      "title": "CodeRouter",
+      "metaTitle": "CodeRouter model yönlendirme",
+      "metaDescription": "CodeRouter; Codex, Claude Code, OpenCode ve Pi isteklerini ekibinizin AI abonelikleri ve API anahtarlarına dağıtır, sınırda hesap değiştirir.",
+      "intro": "CodeRouter, cmux'un arkasındaki model yönlendiricisidir. Kodlama aracılarınız isteklerini CodeRouter'a gönderir, o da her isteği ekibinizin eklediği bir aboneliğe veya API anahtarına iletir. Bir hesap hız sınırına takıldığında, reddedildiğinde veya erişilemez olduğunda CodeRouter işi başka bir hesaba taşır ve aracılar çalışmaya devam eder.",
+      "whyTitle": "Neden kullanmalı",
+      "whyPool": "Birden fazla ChatGPT, Claude ve OpenCode Go aboneliğini ve API anahtarını bir araya getirin ve ekibinizle paylaşın.",
+      "whyFailover": "Bir hesap kullanım sınırına ulaştığında aracının çalışmaya devam etmesini sağlayın.",
+      "whyCloud": "cmux Cloud makinelerine, makinede kimlik bilgisi saklamadan model erişimi verin.",
+      "whyUsage": "Token kullanımını hesap, API anahtarı ve Cloud makinesi bazında görün.",
+      "accountsTitle": "Desteklenen hesaplar",
+      "accountsDesc": "Her hesap, sağlayıcısının API'sini konuşan aracılara hizmet verir. Codex ve Pi tek bir hesap havuzunu paylaşır; Claude Code ayrı bir Claude hesapları havuzu kullanır.",
+      "accountColumn": "Hesap",
+      "servesColumn": "Hizmet verdiği",
+      "addColumn": "Nasıl eklenir",
+      "accountChatgpt": "ChatGPT aboneliği (kişisel veya ekip çalışma alanı)",
+      "accountOpenAiKey": "OpenAI API anahtarı",
+      "accountOpenRouterKey": "OpenRouter API anahtarı",
+      "accountOpencodeGo": "OpenCode Go aboneliği",
+      "accountClaudeSubscription": "Claude Max veya Pro (Claude Code kurulum token'ı)",
+      "accountAnthropicKey": "Anthropic API anahtarı",
+      "accountBedrock": "Amazon Bedrock kimlik bilgileri",
+      "addDashboard": "CodeRouter paneli",
+      "accountsDashboard": "CodeRouter paneli API anahtarları, Claude token'ları ve Bedrock kimlik bilgileri de ekleyebilir. Her hesabı durumu, bekleme süresi ve etkin oturumlarıyla listeler:",
+      "routingTitle": "Yönlendirme nasıl çalışır",
+      "routingSticky": "Her aracı oturumu, hesap sağlıklı olduğu sürece tek bir hesapta kalır; bu da sağlayıcının istem önbelleğini sıcak tutar. Yeni bir oturum, en az etkin oturuma sahip hesaba gider.",
+      "routingFailover": "Bir sağlayıcı hız sınırı döndürdüğünde, bir kimlik bilgisini reddettiğinde veya yanıt vermediğinde CodeRouter o hesabı bekleme süresine alır ve isteği başka bir hesapta yeniden dener. Yalnızca aracınıza herhangi bir model çıktısı ulaşmadan önce yeniden dener, bu nedenle akışı başlamış bir yanıt asla iki kez gönderilmez.",
+      "routingProvider": "Sağlayıcı isteğini CodeRouter'ın barındırılan hizmeti yapar. Bu nedenle sağlayıcı trafiği Mac'inizden veya Cloud makinenizden değil, CodeRouter'dan gelir.",
+      "quickstartTitle": "Mac'te hızlı başlangıç",
+      "stepInstall": "CodeRouter CLI'ı kurun. Hem coderouter hem cr olarak kurulur. İlk seferde kurmayı öneren cmux cr komutunu da çalıştırabilirsiniz.",
+      "stepLogin": "cmux hesabınızla oturum açın. cr login tarayıcınızı açar; gösterdiği kodu onaylayın.",
+      "stepAdd": "Bir abonelik ekleyin. cr add bir sağlayıcı menüsü açar, cr add codex ise tarayıcınızda ChatGPT'de oturum açar.",
+      "stepRun": "cr codex, cr opencode veya cr pi ile bir aracıyı CodeRouter üzerinden çalıştırın. Aracı adından sonraki bağımsız değişkenler aracıya iletilir.",
+      "cloudTitle": "cmux Cloud makinelerinde",
+      "cloudDesc": "Her Cloud makinesi oluşturulduğunda CodeRouter'a bağlanır. Makinedeki Claude Code, Codex, OpenCode ve Pi, oturum açma ve kurulum gerekmeden ekibinizin hesaplarını kullanır.",
+      "cloudLink": "Aracıların Cloud makinelerinde nasıl yapılandırıldığı",
+      "teamsTitle": "Ekipler ve paylaşım",
+      "teamsScope": "Hesaplar, oturum açtığınız ekibe aittir. cr org list ekiplerinizi gösterir, cr org switch ise cr'ın kullandığı ekibi değiştirir. cmux coderouter komutları --team '<id>' alır.",
+      "teamsPrivate": "Yeni bir hesap, onu ekleyen kişiye özeldir. Panelde \"Ekiple paylaş\" hesabı her üyenin ve ekibin Cloud makinelerinin kullanımına açar, \"Özel yap\" ise bunu geri alır.",
+      "teamsPersonal": "Kişisel ekibinizde özel hesaplarınız kendi Cloud makinelerinize de hizmet verir. Bir kuruluşun Cloud makineleri yalnızca paylaşılan hesapları kullanır, bu nedenle bir makinenin hesabı kullanmasını beklemeden önce hesabı paylaşın.",
+      "teamsManage": "Her ekip üyesi ekibin paylaşılan hesaplarını ekleyebilir, yeniden adlandırabilir, devre dışı bırakabilir, aktarabilir ve kaldırabilir. cr transfer, onayınızdan sonra bir hesabı başka bir ekibe taşır.",
+      "usageTitle": "Kullanım ve sınırlar",
+      "usageLimits": "Her sağlayıcı, isteğe hizmet veren hesabı o hesabın kendi planı ve sınırlarına göre ölçer. CodeRouter işi hesaplara dağıtır ancak tek bir hesabın sınırını artırmaz.",
+      "usageCr": "cr her aboneliğin kota durumunu gösterir. 30 saniyede bir yenilemek için --watch, betikler için --json ekleyin.",
+      "usageMachines": "cmux coderouter machines, her Cloud makinesi için 30 günlük token kullanımını ve API eşdeğeri değeri gösterir. Bir makinenin içinde cmux coderouter usage, o makinenin kullanımını güne, çalışma alanına, aracıya ve modele göre ayırır.",
+      "usageEstimate": "API eşdeğeri değer, herkese açık liste fiyatlarına göre bir tahmindir. Bir fatura değildir.",
+      "privacyTitle": "Kimlik bilgileri ve gizlilik",
+      "privStored": "Sağlayıcı kimlik bilgileri saklanmadan önce şifrelenir. Hiçbir CodeRouter API'si veya panel görünümü saklanan bir kimlik bilgisini döndürmez; hesaplar yalnızca bir etiket, bir e-posta veya maskelenmiş bir anahtar gösterir.",
+      "privArgv": "cr add ve cmux coderouter claude add, bir sağlayıcı kimlik bilgisini asla komut bağımsız değişkeni olarak almaz, çünkü orada kabuk geçmişine düşer. Kimlik bilgisini bir ortam değişkeninden, standart girdiden veya gizli bir istemden okurlar.",
+      "privLocal": "cr add codex ve cr add opencode, tarayıcınızda sağlayıcıyla oturum açar. cr codex, CodeRouter ayarlarını Codex'e yalnızca o çalıştırma için iletir ve normal Codex oturumunuzu ve yapılandırmanızı değiştirmez.",
+      "privCloud": "Cloud makineleri kimlik bilgisi tutmaz. Makinedeki aracılar, herkese açık bir yer tutucu anahtarı özel bir CodeRouter adresine gönderir ve makinenin ağ kenarı, o makineye bağlı imzalı bir kimlik bilgisi ekler. CodeRouter bu kimlik bilgisini başka herhangi bir makineden gelirse reddeder ve makine silindiğinde iptal eder.",
+      "privRequestId": "Her CodeRouter yanıtı, isteği tanımlayan bir x-coderouter-request-id başlığı taşır.",
+      "nextTitle": "Sonraki adımlar",
+      "nextAgents": "Aracılar ve modeller: her aracıyı Mac'te ve Cloud makinelerinde kurun",
+      "nextCli": "CLI ve sorun giderme: tüm komutlar ve yaygın hatalar",
+      "nextCloud": "cmux Cloud"
+    },
+    "coderouterAgents": {
+      "title": "CodeRouter Aracıları ve Modelleri",
+      "metaTitle": "CodeRouter Aracıları ve Modelleri",
+      "metaDescription": "Claude Code, Codex, OpenCode ve Pi'yi Mac'te ve cmux Cloud makinelerinde CodeRouter üzerinden çalıştırın ve her aracının hangi modeli kullanacağını seçin.",
+      "intro": "Bu sayfa her aracının Mac'inizde ve bir cmux Cloud makinesinde CodeRouter'a nasıl ulaştığını ve her aracının nasıl model seçtiğini gösterir.",
+      "agentColumn": "Aracı",
+      "macColumn": "Mac'inizde",
+      "cloudColumn": "Bir Cloud makinesinde",
+      "automatic": "Otomatik",
+      "experimental": "(deneysel)",
+      "claudeMacCell": "CodeRouter API anahtarı",
+      "macTitle": "Mac'inizde",
+      "macDesc": "cr, zaten kurduğunuz aracıyı başlatır ve o çalıştırma için CodeRouter'a yönlendirir. Aracı PATH'inizde olmalıdır. Aracı adından sonraki her şey değiştirilmeden iletilir.",
+      "codexDesc": "cr codex, Codex'i bir CodeRouter model sağlayıcısıyla çalıştırır. exec, review ve resume gibi alt komutlar aynı şekilde çalışır. cr naked, CodeRouter'ı atlayarak düz Codex'i çalıştırır.",
+      "opencodeDesc": "cr opencode, ekibinizin OpenCode Go hesaplarının modellerini yükler ve --model geçmezseniz ilkini kullanır. --model değeri bu modellerden biri olmalıdır; başka herhangi bir sağlayıcı için düz opencode çalıştırın.",
+      "piDesc": "cr pi, Pi'ye Codex ile aynı modellere sahip bir coderouter sağlayıcısı ekler ve --model geçmezseniz ilk modeli kullanır. Sağlayıcı sabittir, bu nedenle --provider reddedilir. Pi desteği deneyseldir.",
+      "claudeTitle": "Claude Code ve diğer API istemcileri",
+      "claudeDesc": "cr'ın Claude Code başlatıcısı yoktur. Mac'inizdeki Claude Code'u veya Anthropic Messages API ya da OpenAI Responses API konuşan herhangi bir aracı yönlendirmek için bir CodeRouter API anahtarı oluşturun ve aracı coderouter.dev'e yönlendirin.",
+      "apiKeyCreate": "CodeRouter panelinin API anahtarları bölümünde bir anahtar oluşturun. Anahtar crk_ ile başlar ve yalnızca bir kez gösterilir. Anahtar oluşturmak veya iptal etmek için o ekipte API anahtarlarını yönetme izni gerekir; bu izin kişisel ekibinizde her zaman vardır:",
+      "apiKeyScope": "Bir kuruluşun API anahtarı yalnızca ekibin paylaşılan hesaplarını kullanır. Kişisel ekibinizdeki bir anahtar özel hesaplarınızı da kullanabilir. CodeRouter, Chat Completions'a değil OpenAI Responses API'ye hizmet verir.",
+      "apiKeyLogin": "Tarayıcı açamayan bir makinede cr login --api-key, cr'da bir anahtarla oturum açar; CODEROUTER_API_KEY ise tek bir komut için anahtar sağlar. Bir anahtarı panelden iptal edin veya onu kullanan makinede cr logout çalıştırın.",
+      "cloudTitle": "cmux Cloud makinelerinde",
+      "cloudDesc": "Cloud makineleri kurulum gerektirmez. Makinenin ortamı OPENAI_BASE_URL ve ANTHROPIC_BASE_URL değerlerini özel bir CodeRouter adresine yönlendirir ve cmux, bir kabuk veya aracı ilk kez başladığında her aracının yapılandırmasını yazar:",
+      "cloudClaude": "Claude Code, ANTHROPIC_BASE_URL'i ve yer tutucu bir ANTHROPIC_API_KEY'i ortamdan okur. İlk çalıştırma istemleri zaten yanıtlanmıştır.",
+      "cloudCodex": "Codex, ~/.codex/config.toml içinde bir cmux model sağlayıcısı alır.",
+      "cloudPi": "Pi, ~/.pi/agent/models.json içinde bir sağlayıcı geçersiz kılması alır.",
+      "cloudOpencode": "OpenCode ilk başladığında sağlayıcı listesini CodeRouter'dan indirir ve ~/.config/opencode/opencode.json dosyasına kaydeder.",
+      "cloudYours": "cmux her dosyayı yalnızca eksik olduğunda yazar, bu nedenle düzenlemeleriniz korunur. Zaten başka bir model sağlayıcısını belirten bir Codex yapılandırmasına dokunulmaz.",
+      "cloudRun": "Aracıları her zamanki gibi çalıştırın. cmux coderouter agent, yalın bir istemi aracının tek seferlik biçimine dönüştürür; makinenin içinde geçerli terminalde çalışır, Mac'inizde ise cmux vm agent gibi aracıyı belirttiğiniz makinede başlatır.",
+      "cloudAccounts": "Cloud makineleri, sahibi olan ekibin hesaplarını kullanır. Bir aracı kullanılabilir hesap olmadığını bildirirse bir hesap ekleyin veya mevcut bir hesabı o ekiple paylaşın.",
+      "modelsTitle": "Modeller",
+      "modelsCodex": "Codex ve Pi, CodeRouter'ın seçtiği hesabın /v1/models adresinde sunulan model kataloğunu kullanır, bu nedenle Codex'in model seçicisi hesaplarınızın kullanabildiklerini gösterir. Codex'in -m bayrağıyla veya /model komutuyla bir model seçin. Bir OpenRouter anahtarı için CodeRouter, yalın bir OpenAI model kimliğini openai/'<model>' olarak gönderir.",
+      "modelsOpencode": "OpenCode, ekibin OpenCode Go hesaplarının modellerini listeler.",
+      "modelsClaude": "Claude Code, --model veya /model ile seçtiğiniz modeli gönderir ve CodeRouter bunu seçilen hesaba iletir. Abonelik ve API anahtarı hesapları, Anthropic'in o hesap için izin verdiği modellere hizmet verir.",
+      "modelsBedrock": "Bedrock hesapları, yerleşik bir tabloyla Claude model kimliklerini Bedrock model kimliklerine çevirir; Bedrock kimlikleri değiştirilmeden geçer. Eşlemesi olmayan bir model not_found_error döndürür. Başka bir modeli eşlemek için hesabı --model ile ekleyin:",
+      "modelsList": "Bir Cloud makinesinin içinde cmux coderouter models, Codex model kataloğunu JSON olarak yazdırır."
+    },
+    "coderouterCli": {
+      "title": "CodeRouter CLI ve Sorun Giderme",
+      "metaTitle": "CodeRouter CLI ve Sorun Giderme",
+      "metaDescription": "cr CLI ve cmux coderouter komutları, bir cmux Cloud makinesinin içinde neyin çalıştığı ve yaygın CodeRouter hatalarının çözümleri.",
+      "intro": "CodeRouter'ın iki komut kümesi vardır. coderouter olarak da kurulan cr, oturumunuzu açar, abonelikleri yönetir ve aracıları başlatır. cmux coderouter, oturum açılmış cmux uygulaması üzerinden ekibin Claude hesaplarını ve Cloud makinesi kullanımını yönetir ve diğer tüm fiilleri cr'a iletir.",
+      "installTitle": "Kurulum ve oturum açma",
+      "installDesc": "Yükleyici, sağlama toplamı doğrulanmış bir ikili dosyayı ~/.coderouter/bin dizinine indirir, cr'ı ona bağlar ve bu dizini kabuğunuzun PATH'ine ekler. Güncellemek için yeniden çalıştırın. arm64 ve x64 üzerinde macOS ve Linux'u destekler. Aynı CLI npm ve PyPI'da yayımlanır.",
+      "loginDesc": "cr login tarayıcınızı açar ve bir yedek bağlantı yazdırır. Yerel tarayıcı yoksa --device-auth kullanıp bağlantıyı başka bir cihazda açın veya bir kod ya da sihirli bağlantı yapıştırmak için cr login --code kullanın.",
+      "crTitle": "cr",
+      "crDesc": "Komut verilmezse cr hesaplarınızı ve kullanımlarını gösterir. Aracı yönlendirmesi her zaman açıktır: düz codex, opencode ve pi, CodeRouter olmadan çalışmaya devam eder.",
+      "crAddCodex": "Kişisel ve ekip ChatGPT çalışma alanları aynı e-postayı paylaşabilir. Her çalışma alanı için cr add codex komutunu bir kez çalıştırın ve çalışma alanını tarayıcıda seçin; CodeRouter bunları ayrı hesaplar olarak tutar.",
+      "cmuxTitle": "cmux coderouter",
+      "cmuxDesc": "Bu fiiller, çalışır durumda ve oturum açılmış olması gereken cmux uygulaması üzerinden çalışır (cmux auth login). Makinece okunabilir çıktı için --json, seçili ekip dışında bir ekibi hedeflemek için --team '<id>' ekleyin.",
+      "claudeAddDesc": "claude add oauth-token, CLAUDE_CODE_OAUTH_TOKEN veya --stdin okur. İkisi de yoksa terminalde claude setup-token çalıştırır ve o komutun yazdırdığı token'ı okur. claude add api-key, ANTHROPIC_API_KEY, --stdin veya gizli bir istem okur. claude add bedrock, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY ve isteğe bağlı AWS_SESSION_TOKEN değerlerini okur ve bölgeyi --region, AWS_REGION veya AWS_DEFAULT_REGION'dan alır.",
+      "accountSelector": "Bir '<account>', hesabın kimliği, etiketi veya maskelenmiş tanımlayıcısı olabilir. disable, siz yeniden etkinleştirene kadar bir hesabı rotasyondan çıkarır.",
+      "passthroughDesc": "Diğer tüm cmux coderouter fiilleri ve her cmux cr komutu cr'ı değiştirmeden çalıştırır. cr eksik olduğunda cmux yükleyiciyi çalıştırmayı önerir. cmux kendi ortam değişkenlerini veya oturumunu cr'a iletmez.",
+      "guestTitle": "Bir Cloud makinesinin içinde",
+      "guestDesc": "Her Cloud makinesinin, oturum açma gerektirmeyen CodeRouter fiillerine sahip kendi cmux'u vardır. Hesap yönetimi Mac'inizde kalır, bu nedenle claude, login ve logout bir makinenin içinde reddedilir.",
+      "troubleTitle": "Sorun Giderme",
+      "troubleDesc": "İlk sütundaki mesajlar aracının, cr'ın veya cmux'un yazdırdıklarıdır.",
+      "symptomColumn": "Mesaj veya sorun",
+      "fixColumn": "Çözüm",
+      "errSignIn": "Sign in with `cr login` and retry. (Ayrıca: Missing coderouter route token.)",
+      "fixSignIn": "cr login çalıştırın. Bir API istemcisi için anahtarın ayarlı olduğunu ve crk_ ile başladığını kontrol edin.",
+      "errExpired": "Your coderouter session expired or was revoked.",
+      "fixExpired": "cr login komutunu yeniden çalıştırın. İptal edilen bir API anahtarı hemen çalışmayı durdurur; yeni bir tane oluşturun.",
+      "errNoCodex": "No healthy Codex subscription is currently available.",
+      "fixNoCodex": "Her hesabın durumunu görmek için cr çalıştırın. cr add ile bir hesap ekleyin veya bekleme süresinin bitmesini bekleyin. Bir kuruluşun Cloud makineleri için hesabı ekiple paylaşın.",
+      "errNoClaude": "No Claude upstream account is configured for this team.",
+      "fixNoClaude": "cr add claude veya cmux coderouter claude add ile bir hesap ekleyin. Bir kuruluşun Cloud makineleri için hesabı ekiple paylaşın.",
+      "errClaudeCooling": "Every Claude upstream account of this team is cooling down or disabled.",
+      "fixClaudeCooling": "Bekleme süresinden sonra yeniden deneyin, devre dışı bir hesabı cmux coderouter claude enable ile etkinleştirin veya başka bir hesap ekleyin.",
+      "errBedrockModel": "Bir Bedrock hesabından not_found_error",
+      "fixBedrockModel": "Modelin Bedrock eşlemesi yok. Hesabı kaldırın ve --model '<claude-id>=<bedrock-id>' ile yeniden ekleyin.",
+      "errBedrockRegion": "The team's Bedrock account is missing a region.",
+      "fixBedrockRegion": "Hesabı kaldırın ve --region ile veya AWS_REGION ayarlıyken yeniden ekleyin.",
+      "errNotInstalled": "CodeRouter CLI is not installed.",
+      "fixNotInstalled": "Yükleyiciyi çalıştırın veya cmux cr kurmayı önerdiğinde y yanıtını verin.",
+      "errAgentMissing": "Codex is not installed or is not on PATH (veya OpenCode, veya Pi).",
+      "fixAgentMissing": "Aracıyı kurun. cr, PATH'inizde bulduğu kopyayı başlatır.",
+      "errCodexLoop": "`codex` resolves back to coderouter.",
+      "fixCodexLoop": "codex komutunuz cr'ı gösteriyor. Gerçek Codex yürütülebilir dosyasını PATH'inizde en başa koyun.",
+      "errOpencodeModel": "`'<model>'` is not a coderouter OpenCode model.",
+      "fixOpencodeModel": "OpenCode Go hesaplarınızdan bir model seçin veya başka bir sağlayıcı için düz opencode çalıştırın.",
+      "errOpencodeMachine": "cmux: OpenCode provider configuration is unavailable; retry in one minute.",
+      "fixOpencodeMachine": "Makine OpenCode sağlayıcı listesini indiremedi. Bir dakika bekleyin ve OpenCode'u yeniden başlatın.",
+      "errEdge": "CodeRouter: TLS edge unreachable, veya route rejected, bir makinenin içinde cmux auth status çıktısında.",
+      "fixEdge": "Makine CodeRouter'a ulaşamıyor veya CodeRouter makinenin kimlik bilgisini reddetti. Biraz sonra yeniden deneyin. Sorun sürerse makine adı ve cmux auth status --json çıktısıyla destek ekibine başvurun.",
+      "errUnavailable": "coderouter is temporarily unavailable. Retry shortly.",
+      "fixUnavailable": "CodeRouter veya hesap deposu kısa süreliğine kullanılamıyor. Yeniden deneyin; hata sürerse istek kimliğiyle bildirin.",
+      "diagnoseTitle": "Tanılama",
+      "diagnoseDesc": "cr doctor, cr'da oturum açılıp açılmadığını ve hangi CodeRouter uç noktalarını kullandığını yazdırır. cmux coderouter status, cmux oturumunu, seçili ekibi ve o ekibin Claude hesaplarını gösterir.",
+      "supportTitle": "Yardım alın",
+      "supportDesc": "Başarısız bir isteği bildirirken x-coderouter-request-id yanıt başlığının değerini ekleyin. Bu değer, o isteği CodeRouter kayıtlarında tanımlar."
     }
   },
   "legal": {
@@ -4223,7 +5187,8 @@
   "pricing": {
     "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
     "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
-    "signedOutSignIn": "Oturum aç"
+    "signedOutSignIn": "Oturum aç",
+    "manageInAppStore": "App Store'da yönet"
   },
   "platforms": {
     "macos": "macOS",
@@ -4390,6 +5355,60 @@
     "signedOutBody": "Bir komut satırı uygulaması giriş yapmanızı bekliyor. Bu terminalin bağlantısını tamamlamak için cmux hesabınızla giriş yapın. Bu isteği siz başlatmadıysanız bu sayfayı kapatın.",
     "signInButton": "Giriş yap"
   },
+  "cmuxSignIn": {
+    "signInTitle": "cmux'a giriş yap",
+    "signInSubtitle": "Uygulama, cloud ve kontrol paneli için tek hesap.",
+    "signUpTitle": "cmux hesabını oluştur",
+    "signUpSubtitle": "Uygulama, cloud ve kontrol paneli için tek hesap.",
+    "continueWithProvider": "{provider} ile devam et",
+    "signInWithPasskey": "Geçiş anahtarıyla giriş yap",
+    "orContinueWith": "Veya şununla devam et",
+    "emailLabel": "E-posta",
+    "emailPlaceholder": "sen@sirket.com",
+    "continueWithEmail": "E-postayla devam et",
+    "emailCodeTab": "E-posta",
+    "emailPasswordTab": "E-posta ve şifre",
+    "passwordLabel": "Şifre",
+    "repeatPasswordLabel": "Şifreyi tekrarla",
+    "signInButton": "Giriş yap",
+    "createAccountButton": "Hesap oluştur",
+    "forgotPassword": "Şifreni mi unuttun?",
+    "noAccount": "Hesabın yok mu?",
+    "signUpLink": "Kaydol",
+    "haveAccount": "Zaten hesabın var mı?",
+    "signInLink": "Giriş yap",
+    "checkEmailTitle": "E-postanı kontrol et",
+    "checkEmailBody": "{email} adresine gönderdiğimiz 6 karakterli kodu gir.",
+    "codeLabel": "Kod",
+    "back": "Geri",
+    "resendCode": "Kodu yeniden gönder",
+    "chooseAccountTitle": "Bir hesap seç",
+    "chooseAccountSubtitle": "cmux'a devam etmek için",
+    "useAnotherAccount": "Farklı bir hesap kullan",
+    "forgetAccount": "{account} hesabını bu listeden kaldır",
+    "signedOut": "Oturum kapatıldı",
+    "signingInAs": "{account} olarak oturum açılıyor…",
+    "sessionEnded": "Bu hesabın oturumu kapatıldı. Devam etmek için yeniden oturum aç.",
+    "redirecting": "Giriş yapılıyor…",
+    "lastUsed": "son kullanılan",
+    "legal": "Devam ederek {terms} ve {privacy} metinlerini kabul etmiş olursun.",
+    "termsOfService": "Hizmet Koşulları",
+    "privacyPolicy": "Gizlilik Politikası",
+    "signUpDisabled": "Şu anda yeni hesap oluşturulamıyor.",
+    "noMethods": "Giriş şu anda kullanılamıyor. Daha sonra tekrar dene.",
+    "embeddedDisabled": "Gömülü sayfalarda giriş düğmeleri kapalıdır. Bu sayfayı ayrı bir sekmede aç.",
+    "errorInvalidEmail": "Geçerli bir e-posta adresi gir.",
+    "errorPasswordRequired": "Şifreni gir.",
+    "errorPasswordTooShort": "En az {min} karakter kullan.",
+    "errorPasswordTooLong": "En fazla {max} karakter kullan.",
+    "errorPasswordsDontMatch": "Şifreler eşleşmiyor.",
+    "errorWrongPassword": "E-posta veya şifre yanlış.",
+    "errorInvalidCode": "Bu kod geçersiz. E-postanı kontrol edip tekrar dene.",
+    "errorInvalidTotp": "Bu iki adımlı doğrulama kodu geçersiz.",
+    "errorSignUpNotAllowed": "Şu anda yeni hesap oluşturulamıyor.",
+    "errorPasskey": "Geçiş anahtarıyla giriş tamamlanmadı. Tekrar dene veya başka bir yöntem kullan.",
+    "errorGeneric": "Bir sorun oluştu. Tekrar dene."
+  },
   "MobileRelease106": {
     "title": "1.0.6 sürümündeki yenilikler",
     "releaseLabel": "1.0.6 · Eylül 2026",
@@ -4399,5 +5418,27 @@
     "updateDetail": "cmux {stableVersion} veya üstü ya da NIGHTLY {nightlyVersion} veya üstü gerekir. Her Mac’te Ayarlar > Mobil bölümünden iOS eşleştirmesini etkinleştirin.",
     "rollbackTitle": "Eski bir Mac derlemesini kullanmanız mı gerekiyor?",
     "rollbackDetail": "Kullanılabilir olduğu sürece TestFlight > Önceki Derlemeler’den cmux BETA 1.0.5 ({rollbackBuild}) sürümünü kullanın. Sonraki derlemeler daha yeni bir bağlantı hizmeti kullandığı için tam olarak bu derlemeyi seçin."
+  },
+  "teamInvite": {
+    "loading": "Davet yükleniyor…",
+    "title": "{team} ekibine katıl",
+    "titleUnknown": "Bu ekibe katıl",
+    "body": "cmux'ta bu ekibe katılmaya davet edildiniz.",
+    "join": "Ekibe katıl",
+    "joining": "Katılım sağlanıyor…",
+    "signedInAs": "{email} olarak giriş yapıldı",
+    "alreadyMemberTitle": "Zaten {team} ekibinin üyesisiniz",
+    "alreadyMemberTitleUnknown": "Zaten bu ekibin üyesisiniz",
+    "alreadyMemberBody": "Ekibi yönetmek için açın.",
+    "openTeam": "Ekibi aç",
+    "mismatchTitle": "Bu davet farklı bir hesap için",
+    "mismatchBody": "{email} olarak giriş yaptınız, ancak davet başka bir adrese gönderildi. Davet edilen adresle giriş yapın veya bu adresi bu hesaba ekleyip doğrulayın.",
+    "mismatchBodyUnknown": "Davet başka bir adrese gönderildi. Davet edilen adresle giriş yapın veya bu adresi bu hesaba ekleyip doğrulayın.",
+    "switchAccount": "Çıkış yap ve hesap değiştir",
+    "switching": "Çıkış yapılıyor…",
+    "switchFailed": "Çıkış yapılamadı. Tekrar deneyin.",
+    "invalidTitle": "Bu davet artık geçerli değil",
+    "invalidBody": "Davetin süresi dolmuş, iptal edilmiş veya zaten kullanılmış. Bir ekip yöneticisinden yeni bir davet isteyin.",
+    "goToTeams": "Ekiplerinize git"
   }
 }

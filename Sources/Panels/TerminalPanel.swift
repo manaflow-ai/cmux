@@ -24,6 +24,15 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The underlying terminal surface
     let surface: TerminalSurface
+    private(set) var hasReceivedExplicitInput = false
+
+    func recordExplicitInput() {
+        hasReceivedExplicitInput = true
+    }
+
+    func restoreExplicitInputState(_ state: Bool) {
+        hasReceivedExplicitInput = state
+    }
     var fontSizePanelTransfer:
         WorkspaceTerminalFontSizePanelTransfer?
 
@@ -96,6 +105,12 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    /// Set when an agent woken from hibernation did not come back; drives
+    /// `AgentWakeFailureBanner`.
+    @Published var agentWakeFailure: AgentWakeFailure?
+    /// Set by the owning workspace while `agentWakeFailure` is shown.
+    var onRequestAgentWakeRetry: (() -> Void)?
+    var onDismissAgentWakeFailure: (() -> Void)?
     /// A native cloud pane's live attachment state (nil for local terminals).
     /// Written only by the owning cloud session; the view shows it.
     var cloudAttachment: CloudTerminalAttachmentStatus?
@@ -107,6 +122,10 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Optional owner hook for a manual mirror that becomes the active pane.
     /// Ordinary terminals leave this unset.
     var onTerminalFocus: (() -> Void)?
+    /// Optional input hook owned by a manual-mirror session. Workspace routing
+    /// composes this hook into its current owner callback so a panel that moves
+    /// between workspaces keeps its Cloud input behavior.
+    var onManualMirrorExplicitInput: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
     /// Shared monotonic gate for AppKit and workspace-overlay flash renderers.
@@ -156,6 +175,9 @@ final class TerminalPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         self.surface = surface
         self.title = surface.agentPanelTitle.flatMap { AutomaticTerminalTitle($0)?.value } ?? "Terminal"
+        surface.onExplicitInput = { [weak self] in
+            self?.hasReceivedExplicitInput = true
+        }
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -180,6 +202,7 @@ final class TerminalPanel: Panel, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        isRemoteTerminal: Bool = false,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         let surface = TerminalSurface(
@@ -194,7 +217,9 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement, runtimeSpawnPolicy: runtimeSpawnPolicy,
+            focusPlacement: focusPlacement,
+            isRemoteTerminal: isRemoteTerminal,
+            runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)
@@ -797,7 +822,7 @@ final class TerminalPanel: Panel, ObservableObject {
            now < attentionFlashActiveUntil {
             return
         }
-        attentionFlashActiveUntil = now + FocusFlashPattern.duration
+        attentionFlashActiveUntil = now + FocusFlashPattern.current.duration
 
         switch TmuxOverlayExperimentSettings.target() {
         case .bonsplitPane:

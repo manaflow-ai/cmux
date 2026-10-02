@@ -271,7 +271,8 @@ cmux does not checkpoint arbitrary live process state. Ordinary terminals,
 tmux, vim, shells, and unsupported terminal apps reopen as normal terminals.
 For live detach/reattach across cmux quit, crashes, and updates, opt in to the
 local tmux owner with `cmux local-tmux`; see [`docs/local-tmux.md`](docs/local-tmux.md)
-for its lifecycle and machine-sleep limits.
+for its lifecycle and machine-sleep limits. zellij users can use `cmux local-zellij`
+instead; see [`docs/local-zellij.md`](docs/local-zellij.md).
 
 Supported agent sessions can resume when hooks have saved a native session ID.
 Install hooks after installing the agent CLI so its binary is on `PATH`:
@@ -455,7 +456,9 @@ We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) 
 
 ## Contributing
 
-For code contributions, start with the [contributor guide](CONTRIBUTING.md) and
+New here? [Start here](docs/start-here.md) is the short path from "I want to
+change something" to a merged pull request, including what you can fix without a
+Mac. Then the [contributor guide](CONTRIBUTING.md) and
 [fast local checks](CONTRIBUTING.md#fast-checks-before-building-or-pushing).
 
 Ways to get involved:

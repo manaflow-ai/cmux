@@ -2261,7 +2261,7 @@ struct ComputerUseUXTests {
     }
 
     @Test func agentWrappersDeclareHostOwnedComputerUseOnboarding() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
+        let repositoryRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         for wrapperName in [
@@ -2448,7 +2448,7 @@ struct ComputerUseUXTests {
     }
 
     @Test func computerUseSchemaDeclaresPersistedKeys() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
+        let repositoryRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let schemaURL = repositoryRoot.appendingPathComponent("web/data/cmux.schema.json")
@@ -2481,7 +2481,7 @@ struct ComputerUseUXTests {
         let shimSet = try #require(TerminalSurface.installAgentCommandShimsIfPossible(
             wrapperDirectoryURL: binDirectory,
             surfaceId: UUID(),
-            temporaryDirectory: shimRoot,
+            rootDirectory: shimRoot,
             computerUseSettingFileURL: settingURL
         ))
         let shim = try #require(shimSet.shims.first { $0.commandName == "claude" })

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -54,10 +55,21 @@ func newCloudCLIBridge() *cloudCLIBridge {
 }
 
 func defaultCloudCLIBridgeSocketIfExists() string {
-	if info, err := os.Stat(defaultCloudCLIBridgeSocketPath); err == nil && info.Mode()&os.ModeSocket != 0 {
-		return defaultCloudCLIBridgeSocketPath
+	return cloudCLIBridgeSocketIfUsable(defaultCloudCLIBridgeSocketPath, uint32(os.Geteuid()))
+}
+
+// cloudCLIBridgeSocketIfUsable returns path only for a socket that uid owns.
+// Anyone can create this path in /tmp on a shared host; the sticky bit keeps
+// others from replacing a socket this user owns.
+func cloudCLIBridgeSocketIfUsable(path string, uid uint32) string {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode().Type() != os.ModeSocket {
+		return ""
 	}
-	return ""
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Uid != uid {
+		return ""
+	}
+	return path
 }
 
 func (b *cloudCLIBridge) start(ctx context.Context, socketPath string, stderr io.Writer) error {

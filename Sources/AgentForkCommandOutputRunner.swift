@@ -31,6 +31,7 @@ actor AgentForkCommandOutputRunner {
     private let arguments: [String]
     private let environment: [String: String]?
     private let workingDirectory: String?
+    private let outputTimeoutNanoseconds: Int64
     private var processIdentifier: pid_t?
     private var probeRootProcessIdentifier: pid_t?
     private var probeRootStartMicroseconds: Int64?
@@ -52,8 +53,10 @@ actor AgentForkCommandOutputRunner {
         executable: String,
         arguments: [String],
         environment: [String: String]?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        outputTimeoutNanoseconds: Int64 = AgentForkSupport.commandOutputTimeoutNanoseconds
     ) {
+        self.outputTimeoutNanoseconds = outputTimeoutNanoseconds
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
@@ -246,7 +249,7 @@ actor AgentForkCommandOutputRunner {
 
     private func startTimeoutTimer() {
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        timer.schedule(deadline: .now() + .nanoseconds(Int(AgentForkSupport.commandOutputTimeoutNanoseconds)))
+        timer.schedule(deadline: .now() + .nanoseconds(Int(outputTimeoutNanoseconds)))
         timer.setEventHandler { [weak self] in
             self?.cancel()
         }

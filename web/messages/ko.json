@@ -25,6 +25,11 @@
       "message": "Cloud VM 설정에 실패했으며 정리가 아직 완료되지 않았습니다.",
       "action": "다른 머신을 만들기 전에 추적 ID와 함께 지원팀에 문의하세요."
     },
+    "recreateRequired": {
+      "title": "이 머신을 다시 만드세요",
+      "message": "이 머신은 Cloud 업데이트 이전에 만들어져 연결할 수 없습니다.",
+      "action": "새 머신을 만들고 cmux vm pull과 cmux vm push로 파일을 옮긴 다음 이 머신을 삭제하세요."
+    },
     "unsupported": {
       "title": "Cloud VM 작업을 사용할 수 없음",
       "reason": "이 머신 종류는 이 작업을 제공하지 않습니다.",
@@ -134,7 +139,9 @@
     "backToBlog": "블로그로 돌아가기",
     "readTheDocs": "문서 읽기",
     "viewChangelog": "변경 로그 보기",
-    "otherPlatforms": "다른 플랫폼"
+    "otherPlatforms": "다른 플랫폼",
+    "copyCode": "코드 복사",
+    "copied": "복사됨"
   },
   "nav": {
     "docs": "문서",
@@ -346,24 +353,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
+      "coderouterGroup": "Coderouter",
       "coderouterOverview": "개요",
       "team": "팀",
-      "mobileDevices": "모바일 기기"
+      "mobileDevices": "모바일 기기",
+      "settings": "설정",
+      "teams": "팀"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
-      "coderouterLink": "coderouter 열기",
+      "coderouterLink": "Coderouter 열기",
       "iosAppName": "iOS 앱",
       "iosAppDescription": "TestFlight(베타 액세스)를 통해 cmux iOS 앱을 설치하세요.",
       "iosLink": "iOS 앱 열기"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "공유 AI 계정을 관리하고 coderouter로 요청을 라우팅합니다.",
-      "title": "coderouter",
-      "description": "coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
+      "title": "Coderouter",
+      "description": "Coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
       "machines": {
         "title": "머신",
         "description": "최근 {days}일 동안 {team}의 머신별 coderouter 사용량입니다.",
@@ -374,24 +383,170 @@
         "empty": "최근 {days}일 동안 coderouter를 사용한 머신이 없습니다.",
         "unavailable": "머신별 사용량을 일시적으로 확인할 수 없습니다.",
         "estimateNote": "API 환산 금액은 공개 정가를 기준으로 한 추정치이며 실제 지출이 아닙니다."
+      },
+      "metrics": {
+        "title": "30일 사용량",
+        "scope": "{team} 팀 합계",
+        "period": "최근 {days}일",
+        "inputTokens": "입력 토큰",
+        "outputTokens": "출력 토큰",
+        "tokens": "총 토큰",
+        "apiEquivalent": "API 환산 금액",
+        "unpriced": "이 토큰 중 {share}는 정가가 없는 모델에서 발생하여 환산 금액에 포함되지 않았습니다.",
+        "chartLabel": "일별 CodeRouter 토큰 사용량",
+        "privacy": "프롬프트, 출력, 계정 라벨, 멤버 신원은 기록하거나 표시하지 않습니다.",
+        "estimate": "API 환산 금액은 이 토큰을 공개 API 정가(요금표 {version})로 사용했을 때의 금액이며, 실제 결제 금액이 아닙니다.",
+        "unavailable": "팀 사용량을 일시적으로 확인할 수 없습니다."
       }
     },
     "accountMenu": {
       "label": "계정 메뉴",
       "settings": "설정",
       "billing": "결제",
+      "switchAccount": "계정 전환",
       "signOut": "로그아웃",
       "signingOut": "로그아웃 중…",
       "signOutError": "로그아웃할 수 없습니다. 다시 시도하세요.",
       "organizationSwitchError": "조직을 전환할 수 없습니다. 다시 시도하세요.",
-      "signIn": "로그인"
+      "signIn": "로그인",
+      "upgrade": "업그레이드"
     },
     "billing": {
       "plan": {
         "heading": "내 개인 플랜",
         "free": "무료",
-        "pro": "Pro",
-        "loading": "불러오는 중…"
+        "pro": "Pro"
+      },
+      "teamPanel": {
+        "notFound": "이 팀을 사용할 수 없습니다. 팀에서 나갔거나 팀이 삭제되었을 수 있습니다.",
+        "unavailable": "팀 결제 정보를 불러올 수 없습니다. 잠시 후 다시 시도하세요.",
+        "welcome": "Team이 활성화되었습니다. 팀 멤버 페이지에서 팀원을 초대하세요.",
+        "freeBody": "{team}은(는) 무료 플랜을 사용 중입니다. Team은 모든 멤버에게 클라우드 에이전트를 제공하며 청구서는 하나로 통합됩니다.",
+        "upgradeCta": "이 팀 업그레이드",
+        "askAdmin": "결제는 팀 관리자만 변경할 수 있습니다. {team}의 관리자에게 업그레이드를 요청하세요.",
+        "memberReadOnly": "이 플랜은 팀 관리자만 변경할 수 있습니다.",
+        "grantedBody": "cmux 팀이 {team}에 Team 액세스를 부여했습니다. 관리할 구독이 없습니다.",
+        "seatsUsed": "{seats}개 중 {members}개 사용",
+        "overSeat": "{team}에는 멤버가 {members}명 있고 유료 시트는 {seats}개입니다. 시트 수는 멤버 수를 따르므로 구독이 자동으로 갱신됩니다.",
+        "addSeats": "시트 추가"
+      },
+      "teamList": {
+        "heading": "결제 범위",
+        "personal": "개인 계정",
+        "planBadges": {
+          "free": "무료",
+          "team": "Team",
+          "pro": "Pro",
+          "max": "Max",
+          "founders": "Founders"
+        }
+      },
+      "banners": {
+        "team_admin_required": "이 팀의 결제는 팀 관리자만 관리할 수 있습니다.",
+        "team_not_found": "해당 팀을 사용할 수 없습니다. 팀에서 나갔거나 팀이 삭제되었을 수 있습니다.",
+        "authorization_unavailable": "팀 권한을 확인할 수 없습니다. 잠시 후 다시 시도하세요.",
+        "personal_team_not_upgradable_to_team": "개인 계정은 Pro 또는 Max를 사용합니다. Team을 구매하려면 팀을 만드세요."
+      },
+      "team": {
+        "createCta": "팀 만들기"
+      },
+      "title": "요금제 및 결제",
+      "picker": {
+        "current": "현재 요금제",
+        "upgradeTo": "{plan}(으)로 업그레이드",
+        "switchTo": "{plan}(으)로 전환",
+        "cancelPlan": "요금제 해지",
+        "resume": "{plan} 재개",
+        "renewsOn": "{date}에 갱신",
+        "endsOn": "{date}에 종료",
+        "perMonth": "월",
+        "perSeatMonth": "좌석당 월",
+        "paymentMethod": "결제 수단 관리",
+        "invoices": "청구서",
+        "heading": "요금제",
+        "actionError": "요금제를 변경하지 못했습니다. 다시 시도하세요.",
+        "unavailable": {
+          "cancelScheduled": "변경하려면 먼저 요금제를 재개하세요.",
+          "granted": "cmux에서 제공한 요금제입니다. 변경할 항목이 없습니다.",
+          "adminOnly": "팀 관리자만 요금제를 변경할 수 있습니다."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "macOS용 cmux 터미널 전체 기능",
+            "내 키로 모든 CLI 에이전트 실행",
+            "로컬 세션 기록"
+          ],
+          "go": [
+            "실행 중인 Cloud VM 1대",
+            "매월 40 VM 시간",
+            "저장된 VM 2대"
+          ],
+          "pro": [
+            "Cloud VM의 클라우드 에이전트",
+            "최대 5대의 Cloud VM, VM당 최대 vCPU 4개와 8 GB RAM",
+            "cmux iOS 앱"
+          ],
+          "max": [
+            "최대 5대의 Cloud VM, VM당 최대 vCPU 16개와 32 GB RAM",
+            "더 큰 머신 크기",
+            "Pro의 모든 기능"
+          ],
+          "team": [
+            "모든 멤버에게 Pro의 모든 기능",
+            "팀 전체에 청구서 하나",
+            "우선 지원"
+          ]
+        },
+        "billedAnnually": "연간 청구"
+      },
+      "change": {
+        "title": "{plan}(으)로 전환할까요?",
+        "upgradeBody": "{plan}이(가) 지금 시작됩니다. 이번 결제 기간의 남은 기간에 대해 오늘 {amount}을(를) 결제합니다. {date}부터는 매월 {price}을(를) 결제합니다.",
+        "downgradeBody": "{plan}이(가) 지금 시작됩니다. 현재 요금제의 사용하지 않은 부분 {credit}은(는) 다음 청구서에 적립됩니다. {date}의 다음 청구 금액은 {amount}입니다.",
+        "confirm": "{plan}(으)로 전환",
+        "keep": "현재 요금제 유지",
+        "switching": "전환 중…",
+        "previewError": "가격을 계산하지 못했습니다. 다시 시도하세요.",
+        "paymentFailed": "카드가 거절되었습니다. 결제 수단을 업데이트한 후 다시 시도하세요.",
+        "error": "요금제를 전환하지 못했습니다. 다시 시도하세요."
+      },
+      "cancelDialog": {
+        "title": "{plan}을(를) 해지할까요?",
+        "body": "{date}까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
+        "bodyNoDate": "이번 결제 기간이 끝날 때까지 {plan}을(를) 사용할 수 있습니다. 그 후에는 다음을 사용할 수 없습니다:",
+        "reasonLabel": "해지하는 이유 (선택)",
+        "otherPlaceholder": "자세히 알려 주세요 (선택)",
+        "confirm": "요금제 해지",
+        "keep": "{plan} 유지",
+        "error": "요금제를 해지하지 못했습니다. 다시 시도하세요.",
+        "resumeError": "요금제를 재개하지 못했습니다. 다시 시도하세요.",
+        "reasons": {
+          "too_expensive": "너무 비쌈",
+          "missing_feature": "필요한 기능이 없음",
+          "not_using": "자주 사용하지 않음",
+          "other": "기타"
+        }
+      },
+      "welcome": {
+        "title": "{plan}에 오신 것을 환영합니다",
+        "body": "요금제가 활성화되었습니다. 먼저 해 볼 것:",
+        "ios": "iOS 앱 설치",
+        "cloud": "Cloud 열기",
+        "team": "팀 만들기",
+        "banner": "지금 {plan}을(를) 사용 중입니다.",
+        "bannerLink": "요금제 및 결제"
+      },
+      "appStore": {
+        "title": "App Store를 통해 결제됨",
+        "body": "이 플랜은 cmux iPhone 앱에서 구입했으며 Apple이 청구합니다. App Store 구독에서 변경하거나 취소하세요.",
+        "manage": "App Store에서 관리"
       }
     },
     "mobileDevices": {
@@ -402,7 +557,6 @@
       "loading": "기기 로드 중…",
       "empty": "이 팀에 등록된 기기가 없습니다.",
       "unavailable": "기기를 불러올 수 없습니다. 페이지를 새로 고친 후 다시 시도하세요.",
-      "retry": "다시 시도",
       "mutationError": "기기 변경을 완료할 수 없습니다.",
       "revoke": "액세스 취소",
       "deviceId": "기기",
@@ -422,6 +576,516 @@
       "activeDevices": "활성 기기",
       "directoryRevision": "목록 리비전",
       "savingRelaySettings": "저장 중…"
+    },
+    "settings": {
+      "nav": {
+        "title": "설정",
+        "profile": "프로필",
+        "auth": "이메일 및 인증",
+        "notifications": "알림",
+        "sessions": "세션",
+        "apiKeys": "API 키",
+        "account": "계정",
+        "billing": "결제",
+        "teamsGroup": "팀",
+        "createTeam": "팀 만들기",
+        "accountGroup": "계정",
+        "billingGroup": "결제",
+        "planBilling": "요금제 및 결제"
+      },
+      "ui": {
+        "save": "저장",
+        "saving": "저장 중…",
+        "cancel": "취소",
+        "editLabel": "{label} 편집",
+        "required": "필수 항목입니다.",
+        "saveError": "저장할 수 없습니다. 다시 시도하세요.",
+        "actionError": "문제가 발생했습니다. 다시 시도하세요.",
+        "working": "처리 중…",
+        "typeToConfirm": "확인하려면 {text}을(를) 입력하세요",
+        "imageSaveError": "이미지를 저장할 수 없습니다. 다시 시도하세요.",
+        "invalidImage": "올바른 이미지 파일을 선택하세요.",
+        "uploadImage": "이미지 업로드",
+        "removeImage": "이미지 제거",
+        "zoom": "확대/축소"
+      },
+      "profile": {
+        "title": "프로필",
+        "description": "이름과 아바타입니다.",
+        "displayNameTitle": "표시 이름",
+        "displayNameDescription": "팀원에게 표시됩니다. 로그인에는 사용되지 않습니다.",
+        "displayNameEmpty": "설정되지 않음",
+        "imageTitle": "프로필 이미지",
+        "imageDescription": "아바타로 사용할 이미지를 업로드하세요.",
+        "imageUpload": "프로필 이미지 변경"
+      },
+      "auth": {
+        "title": "이메일 및 인증",
+        "description": "이메일, 로그인 방법, 다단계 인증입니다.",
+        "emails": {
+          "title": "이메일",
+          "description": "인증된 이메일은 기본 연락처 주소로 지정하거나 로그인에 사용할 수 있습니다.",
+          "add": "이메일 추가",
+          "addSubmit": "추가",
+          "adding": "추가 중…",
+          "cancel": "취소",
+          "inputLabel": "새 이메일 주소",
+          "placeholder": "이메일 입력",
+          "addError": "이메일을 추가할 수 없습니다. 다시 시도하세요.",
+          "added": "{email}을(를) 추가했습니다. 해당 받은편지함에서 인증 링크를 확인하세요.",
+          "addedVerificationFailed": "{email}을(를) 추가했지만 인증 이메일을 보내지 못했습니다. 인증 이메일 보내기로 다시 시도하세요.",
+          "verificationSent": "{email}(으)로 인증 이메일을 보냈습니다.",
+          "actionError": "이메일을 업데이트할 수 없습니다. 다시 시도하세요.",
+          "usedBySomeoneElse": "이 이메일은 이미 다른 사용자가 로그인에 사용하고 있습니다.",
+          "removeTitle": "이메일 제거",
+          "removeBody": "계정에서 {email}을(를) 제거할까요? 나중에 다시 추가할 수 있습니다.",
+          "remove": "제거",
+          "actionsLabel": "{email} 작업",
+          "validation": {
+            "required": "이메일은 필수입니다.",
+            "invalid": "올바른 이메일 주소를 입력하세요.",
+            "duplicate": "이미 계정에 등록된 이메일입니다."
+          },
+          "actions": {
+            "sendVerification": "인증 이메일 보내기",
+            "setPrimary": "기본으로 설정",
+            "useForSignIn": "로그인에 사용",
+            "stopUsingForSignIn": "로그인에 사용 중지",
+            "remove": "제거"
+          },
+          "disabled": {
+            "verifyFirst": "먼저 이 이메일을 인증하세요.",
+            "lastSignInEmail": "마지막 로그인 이메일은 제거할 수 없습니다."
+          },
+          "badges": {
+            "primary": "기본",
+            "unverified": "미인증",
+            "usedForSignIn": "로그인에 사용 중"
+          }
+        },
+        "password": {
+          "title": "비밀번호",
+          "updateDescription": "비밀번호를 변경합니다.",
+          "setDescription": "계정의 비밀번호를 설정합니다.",
+          "update": "비밀번호 변경",
+          "set": "비밀번호 설정",
+          "updateSubmit": "비밀번호 변경",
+          "setSubmit": "비밀번호 설정",
+          "saving": "저장 중…",
+          "cancel": "취소",
+          "saved": "비밀번호를 저장했습니다.",
+          "needsSignInEmail": "비밀번호를 설정하려면 먼저 로그인 이메일을 추가하세요.",
+          "saveError": "비밀번호를 저장할 수 없습니다. 다시 시도하세요.",
+          "oldPassword": "현재 비밀번호",
+          "newPassword": "새 비밀번호",
+          "repeatPassword": "새 비밀번호 확인",
+          "incorrect": "비밀번호가 올바르지 않습니다.",
+          "requirements": "이 비밀번호는 요구 사항을 충족하지 않습니다.",
+          "errors": {
+            "oldPassword": {
+              "required": "현재 비밀번호를 입력하세요."
+            },
+            "newPassword": {
+              "required": "새 비밀번호를 입력하세요.",
+              "tooShort": "{min}자 이상 입력하세요.",
+              "tooLong": "{max}자 이하로 입력하세요."
+            },
+            "newPasswordRepeat": {
+              "required": "새 비밀번호를 다시 입력하세요.",
+              "mismatch": "비밀번호가 일치하지 않습니다."
+            }
+          }
+        },
+        "passkey": {
+          "title": "패스키",
+          "registered": "패스키가 등록되어 있습니다.",
+          "notRegistered": "패스키를 등록하면 비밀번호 없이 로그인할 수 있습니다.",
+          "add": "패스키 추가",
+          "registering": "패스키 대기 중…",
+          "registerError": "패스키를 등록할 수 없습니다. 요청이 취소되었거나 실패했습니다. 다시 시도하세요.",
+          "delete": "패스키 제거",
+          "needsVerifiedEmail": "패스키 로그인을 사용하려면 인증된 로그인 이메일을 추가하세요.",
+          "onlyMethod": "패스키가 유일한 로그인 방법이므로 비활성화할 수 없습니다.",
+          "disableTitle": "패스키 로그인 비활성화",
+          "disableBody": "더 이상 패스키로 로그인할 수 없습니다.",
+          "disable": "비활성화",
+          "disableError": "패스키 로그인을 비활성화할 수 없습니다. 다시 시도하세요."
+        },
+        "otp": {
+          "title": "일회용 코드 로그인",
+          "enabledDescription": "매직 링크 또는 일회용 코드 로그인이 활성화되어 있습니다.",
+          "disabledDescription": "로그인 이메일로 전송되는 매직 링크 또는 일회용 코드로 로그인합니다.",
+          "enable": "활성화",
+          "enableError": "일회용 코드 로그인을 활성화할 수 없습니다. 다시 시도하세요.",
+          "disable": "비활성화",
+          "needsVerifiedEmail": "일회용 코드 로그인을 사용하려면 인증된 로그인 이메일을 추가하세요.",
+          "onlyMethod": "일회용 코드가 유일한 로그인 방법이므로 비활성화할 수 없습니다.",
+          "disableTitle": "일회용 코드 로그인 비활성화",
+          "disableBody": "더 이상 이메일만으로 로그인할 수 없습니다.",
+          "disableConfirm": "비활성화",
+          "disableError": "일회용 코드 로그인을 비활성화할 수 없습니다. 다시 시도하세요."
+        },
+        "mfa": {
+          "title": "다단계 인증",
+          "enabledDescription": "다단계 인증이 활성화되어 있습니다.",
+          "disabledDescription": "다단계 인증이 비활성화되어 있습니다.",
+          "enable": "MFA 활성화",
+          "disable": "MFA 비활성화",
+          "startError": "MFA 설정을 시작할 수 없습니다. 다시 시도하세요.",
+          "enableError": "MFA를 활성화할 수 없습니다. 다시 시도하세요.",
+          "scan": "인증 앱으로 이 QR 코드를 스캔하세요.",
+          "qrAlt": "다단계 인증용 QR 코드",
+          "enterCode": "그런 다음 6자리 코드를 입력하세요:",
+          "incorrect": "코드가 올바르지 않습니다. 다시 시도하세요.",
+          "cancel": "취소",
+          "disableTitle": "다단계 인증 비활성화",
+          "disableBody": "로그인할 때 더 이상 인증 앱의 코드를 요구하지 않습니다.",
+          "disableConfirm": "MFA 비활성화",
+          "disableError": "MFA를 비활성화할 수 없습니다. 다시 시도하세요."
+        },
+        "connected": {
+          "title": "연결된 계정",
+          "description": "cmux 계정에 연결된 다른 서비스의 계정입니다.",
+          "usedForSignIn": "로그인에 사용 중",
+          "useForSignIn": "로그인에 사용",
+          "stopUsingForSignIn": "로그인에 사용 중지",
+          "remove": "연결 해제",
+          "lastMethod": "유일한 로그인 방법입니다.",
+          "actionsLabel": "{provider} 작업",
+          "actionError": "연결된 계정을 업데이트할 수 없습니다. 다시 시도하세요.",
+          "usedBySomeoneElse": "이 계정은 이미 다른 사용자가 로그인에 사용하고 있습니다.",
+          "removeTitle": "{provider} 연결 해제",
+          "removeBody": "더 이상 이 계정으로 로그인할 수 없습니다. 이 계정으로 로그인하면 다시 연결할 수 있습니다."
+        }
+      },
+      "notifications": {
+        "title": "알림",
+        "description": "cmux의 이메일 알림입니다.",
+        "heading": "받을 이메일 선택",
+        "empty": "설정할 이메일 카테고리가 없습니다.",
+        "cannotDisable": "(비활성화할 수 없음)",
+        "saveError": "이 환경설정을 저장할 수 없습니다. 다시 시도하세요."
+      },
+      "sessions": {
+        "title": "세션",
+        "description": "로그인되어 있는 기기입니다.",
+        "heading": "활성 세션",
+        "explanation": "로그인되어 있는 기기 목록입니다. 세션을 취소하면 해당 기기에서 로그아웃됩니다.",
+        "revokeAll": "다른 모든 세션 취소",
+        "revokeAllTitle": "다른 세션 취소",
+        "revokeAllBody": "{count, plural, other {다른 세션 #개}}에서 로그아웃합니다. 이 세션은 로그인 상태로 유지됩니다.",
+        "revokeAllConfirm": "세션 취소",
+        "revokeAllError": "일부 세션을 취소하지 못했습니다. 남아 있는 세션이 목록에 표시됩니다.",
+        "revokeError": "세션을 취소할 수 없습니다. 다시 시도하세요.",
+        "empty": "활성 세션이 없습니다.",
+        "columns": {
+          "session": "세션",
+          "ip": "IP 주소",
+          "location": "위치",
+          "lastUsed": "마지막 사용"
+        },
+        "current": "현재 세션",
+        "other": "다른 세션",
+        "impersonation": "대리 로그인",
+        "signedIn": "{date}에 로그인",
+        "actionsLabel": "세션 작업",
+        "revoke": "취소",
+        "cannotRevokeCurrent": "현재 세션은 취소할 수 없습니다.",
+        "unknownIp": "-",
+        "unknownLocation": "알 수 없음",
+        "never": "없음"
+      },
+      "apiKeys": {
+        "title": "API 키",
+        "description": "프로그램이 계정에 액세스할 수 있게 하는 키입니다.",
+        "disabled": "이 프로젝트에서는 개인 API 키가 활성화되어 있지 않습니다.",
+        "create": "API 키 만들기",
+        "createTitle": "API 키 만들기",
+        "createDescription": "API 키를 사용하면 프로그램에서 계정에 액세스할 수 있습니다.",
+        "descriptionLabel": "설명",
+        "descriptionPlaceholder": "예: Development, Production, CI",
+        "descriptionRequired": "설명은 필수입니다.",
+        "expiresIn": "만료 기간",
+        "expiry": {
+          "1d": "1일",
+          "7d": "7일",
+          "30d": "30일",
+          "90d": "90일",
+          "1y": "1년",
+          "never": "만료 없음"
+        },
+        "cancel": "취소",
+        "createSubmit": "만들기",
+        "creating": "만드는 중…",
+        "createError": "API 키를 만들 수 없습니다. 다시 시도하세요.",
+        "showTitle": "API 키",
+        "showBody": "API 키가 생성되었습니다.",
+        "showWarning": "안전한 곳에 복사해 두세요. 다시 볼 수 없습니다.",
+        "secretLabel": "비밀 API 키",
+        "copy": "복사",
+        "copied": "복사됨",
+        "copyError": "복사할 수 없습니다. 키를 선택해 직접 복사하세요.",
+        "acknowledge": "이 키를 다시 볼 수 없다는 것을 이해했습니다.",
+        "close": "닫기",
+        "search": "키 검색",
+        "statusFilter": "상태별 필터",
+        "status": {
+          "valid": "유효",
+          "expired": "만료됨",
+          "revoked": "취소됨"
+        },
+        "empty": "아직 API 키가 없습니다.",
+        "noMatches": "필터와 일치하는 API 키가 없습니다.",
+        "columns": {
+          "description": "설명",
+          "status": "상태",
+          "key": "키",
+          "expiresAt": "만료",
+          "createdAt": "생성일"
+        },
+        "never": "없음",
+        "actionsLabel": "{description} 작업",
+        "revoke": "취소",
+        "revokeTitle": "API 키 취소",
+        "revokeBody": "API 키 *****{lastFour}을(를) 취소할까요? 이 키를 사용하는 앱은 즉시 액세스 권한을 잃습니다.",
+        "revokeAcknowledge": "이 API 키를 사용하는 모든 앱의 연결이 해제된다는 것을 이해했습니다.",
+        "revokeConfirm": "키 취소",
+        "revokeError": "API 키를 취소할 수 없습니다. 다시 시도하세요."
+      },
+      "account": {
+        "title": "계정",
+        "description": "결제, 로그아웃, 계정 삭제입니다.",
+        "billingTitle": "결제",
+        "billingDescription": "플랜, 청구서, 결제 수단입니다.",
+        "billingLink": "결제 열기",
+        "signOutTitle": "로그아웃",
+        "signOutDescription": "현재 세션을 종료합니다.",
+        "signOut": "로그아웃",
+        "signingOut": "로그아웃 중…",
+        "signOutError": "로그아웃할 수 없습니다. 다시 시도하세요.",
+        "deleteTitle": "계정 삭제",
+        "deleteDescription": "계정과 관련된 모든 데이터를 영구적으로 삭제합니다.",
+        "delete": "계정 삭제",
+        "deleteConfirmTitle": "계정을 삭제할까요?",
+        "deleteConfirmBody": "이 작업은 되돌릴 수 없으며 계정과 관련된 모든 데이터가 삭제됩니다.",
+        "deleteAcknowledge": "내 계정과 데이터가 영구적으로 삭제된다는 것을 이해했습니다.",
+        "deleteConfirm": "계정 삭제",
+        "deleteError": "계정을 삭제할 수 없습니다. 다시 시도하세요."
+      }
+    },
+    "teams": {
+      "common": {
+        "copy": "복사",
+        "copied": "복사됨",
+        "copyFailed": "복사 실패"
+      },
+      "plan": {
+        "free": "무료",
+        "go": "Go",
+        "pro": "Pro",
+        "max": "Max",
+        "team": "Team"
+      },
+      "role": {
+        "admin": "관리자",
+        "member": "멤버"
+      },
+      "errors": {
+        "generic": "문제가 발생했습니다. 다시 시도하세요.",
+        "network_error": "cmux에 연결할 수 없습니다. 네트워크 연결을 확인한 후 다시 시도하세요.",
+        "unauthorized": "세션이 종료되었습니다. 다시 로그인하세요.",
+        "forbidden": "이 작업을 수행할 권한이 없습니다.",
+        "team_not_found": "이 팀은 더 이상 존재하지 않습니다.",
+        "invalid_request": "요청이 올바르지 않습니다. 입력 항목을 확인한 후 다시 시도하세요.",
+        "rate_limited": "요청이 너무 많습니다. 잠시 기다린 후 다시 시도하세요.",
+        "last_admin": "팀에는 관리자가 최소 한 명 있어야 합니다. 먼저 다른 멤버를 관리자로 지정하세요.",
+        "member_not_found": "해당 사용자는 더 이상 멤버가 아닙니다.",
+        "invitation_not_found": "해당 초대는 더 이상 존재하지 않습니다.",
+        "invitation_invalid": "이 초대는 유효하지 않거나, 만료되었거나, 이미 사용되었습니다.",
+        "email_mismatch": "이 초대는 다른 이메일 주소로 전송되었습니다.",
+        "link_not_found": "해당 초대 링크는 더 이상 존재하지 않습니다.",
+        "link_invalid": "이 초대 링크는 유효하지 않거나, 만료되었거나, 취소되었거나, 인원이 가득 찼습니다.",
+        "team_has_active_subscription": "팀을 삭제하기 전에 팀 구독을 취소하세요.",
+        "service_unavailable": "서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도하세요."
+      },
+      "list": {
+        "title": "팀",
+        "description": "팀은 멤버, 결제, coderouter 계정을 공유합니다. 팀을 열어 관리하세요.",
+        "create": "팀 만들기",
+        "count": "{count, plural, other {팀 #개}}",
+        "selected": "현재",
+        "emptyTitle": "아직 팀이 없습니다",
+        "emptyBody": "팀을 만들어 사람들을 초대하고 하나의 플랜을 공유하세요."
+      },
+      "new": {
+        "title": "팀 만들기",
+        "description": "팀 이름을 정하고 플랜을 선택한 다음 사람들을 초대하세요.",
+        "stepsLabel": "단계",
+        "steps": {
+          "name": "이름",
+          "plan": "플랜",
+          "invite": "초대"
+        },
+        "nameTitle": "팀 이름 정하기",
+        "nameLabel": "팀 이름",
+        "namePlaceholder": "Acme Engineering",
+        "nameError": {
+          "empty": "팀 이름을 입력하세요.",
+          "tooLong": "{max}자 이하로 입력하세요."
+        },
+        "cancel": "취소",
+        "createAction": "팀 만들기",
+        "creating": "만드는 중…",
+        "planTitle": "{team}의 플랜 선택",
+        "planDescription": "플랜은 나중에 팀 결제 페이지에서 변경할 수 있습니다.",
+        "freeName": "무료",
+        "freePrice": "$0",
+        "teamName": "Team",
+        "teamPrice": "시트당 월 ${price}",
+        "featureMembers": "멤버, 역할, 초대",
+        "featureProForEveryone": "모든 멤버에게 Pro의 모든 기능 제공",
+        "featureCentralBilling": "팀 전체 결제 통합 관리",
+        "featurePrioritySupport": "우선 지원",
+        "chooseFree": "무료로 계속하기",
+        "chooseTeam": "Team으로 업그레이드 (${price}/시트/월)",
+        "upgradeLater": "시트 수는 멤버 수를 따릅니다. 멤버마다 요금이 청구되며, 누군가 참여하거나 나가면 합계가 갱신됩니다.",
+        "inviteTitle": "{team}에 사람 초대",
+        "inviteDescription": "선택 사항입니다. 나중에 팀의 멤버 페이지에서 초대할 수도 있습니다.",
+        "inviteByEmail": "이메일로 초대",
+        "inviteByLink": "초대 링크",
+        "backToPlan": "플랜으로 돌아가기",
+        "finish": "팀으로 이동"
+      },
+      "invite": {
+        "emailsLabel": "이메일 주소",
+        "emailsPlaceholder": "name@example.com, another@example.com",
+        "invalidEmail": "올바른 이메일 주소가 아닙니다",
+        "removeEmail": "{email} 제거",
+        "roleLabel": "역할",
+        "roleMember": "멤버",
+        "roleAdmin": "관리자",
+        "count": "{count}/{max}",
+        "send": "초대 보내기",
+        "sending": "보내는 중…",
+        "invalidCount": "{count, plural, other {보내기 전에 잘못된 주소 #개를 수정하거나 제거하세요.}}",
+        "overflow": "{count, plural, other {주소 #개가 추가되지 않았습니다. 요청당 최대 {max}개까지 가능합니다.}}",
+        "sent": "{count, plural, other {초대 #개를 보냈습니다.}}"
+      },
+      "inviteFailure": {
+        "generic": "초대할 수 없음",
+        "already_member": "이미 멤버임",
+        "invite_failed": "초대를 보낼 수 없음"
+      },
+      "links": {
+        "expiryLabel": "만료",
+        "expiry": {
+          "1": "1일 후",
+          "7": "7일 후",
+          "30": "30일 후",
+          "never": "만료 없음"
+        },
+        "maxUsesLabel": "최대 사용 횟수",
+        "maxUsesPlaceholder": "무제한",
+        "maxUsesInvalid": "최대 사용 횟수는 1에서 {max} 사이의 정수여야 합니다. 무제한으로 하려면 비워 두세요.",
+        "create": "링크 만들기",
+        "creating": "만드는 중…",
+        "memberOnly": "링크로 참여한 사람은 멤버가 됩니다. 필요하면 나중에 관리자로 지정하세요.",
+        "showOnce": "지금 이 링크를 복사하세요. 한 번만 표시됩니다.",
+        "empty": "활성 초대 링크가 없습니다.",
+        "createdAt": "{at}에 생성됨",
+        "expiresAt": "{at}에 만료",
+        "neverExpires": "만료 없음",
+        "uses": "{count}/{max}회 사용",
+        "usesUnlimited": "{count, plural, other {#회 사용}}",
+        "revoke": "취소",
+        "revokeTitle": "이 초대 링크를 취소할까요?",
+        "revokeBody": "링크를 가진 사람은 더 이상 참여할 수 없습니다. 이미 참여한 사람은 멤버로 유지됩니다.",
+        "actionsFor": "링크 작업({created})"
+      },
+      "shell": {
+        "allTeams": "모든 팀",
+        "tabsLabel": "팀 설정",
+        "tabs": {
+          "general": "일반",
+          "members": "멤버",
+          "apiKeys": "API 키",
+          "billing": "결제"
+        },
+        "notFoundTitle": "팀을 찾을 수 없음",
+        "notFoundBody": "이 팀이 존재하지 않거나 내가 멤버가 아닙니다.",
+        "backToTeams": "팀 목록으로 돌아가기"
+      },
+      "general": {
+        "imageTitle": "팀 이미지",
+        "imageDescription": "cmux 전반에서 팀 이름 옆에 표시됩니다.",
+        "imageUpload": "팀 이미지 업로드",
+        "nameTitle": "팀 이름",
+        "nameDescription": "모든 멤버에게 표시됩니다.",
+        "nameReadOnly": "관리자만 팀 이름을 변경할 수 있습니다.",
+        "nameError": {
+          "empty": "팀 이름을 입력하세요.",
+          "tooLong": "{max}자 이하로 입력하세요."
+        },
+        "profileTitle": "이 팀에서 사용할 이름",
+        "profileDescription": "이 팀의 다른 멤버에게 보이는 이름입니다. 비워 두면 계정 이름이 사용됩니다.",
+        "profileLabel": "팀 표시 이름",
+        "leaveTitle": "팀 나가기",
+        "leaveDescription": "이 팀의 공유 계정과 결제에 더 이상 액세스할 수 없습니다.",
+        "leaveAction": "팀 나가기",
+        "leaveBlocked": "유일한 관리자입니다. 나가기 전에 다른 멤버를 관리자로 지정하거나 팀을 삭제하세요.",
+        "leaveConfirmTitle": "{team}에서 나갈까요?",
+        "leaveConfirmBody": "다시 참여하려면 새 초대가 필요합니다.",
+        "deleteTitle": "팀 삭제",
+        "deleteDescription": "팀, 멤버의 액세스 권한, 초대 링크를 영구적으로 삭제합니다.",
+        "deleteAction": "팀 삭제",
+        "deleteConfirmTitle": "{team}을(를) 삭제할까요?",
+        "deleteConfirmBody": "이 작업은 되돌릴 수 없습니다.",
+        "openBilling": "팀 결제 열기"
+      },
+      "members": {
+        "title": "멤버",
+        "count": "{count, plural, other {멤버 #명}}",
+        "memberColumn": "멤버",
+        "roleColumn": "역할",
+        "actionsColumn": "작업",
+        "you": "나",
+        "unnamed": "이름 없는 멤버",
+        "remove": "제거",
+        "removeTitle": "{name}을(를) 제거할까요?",
+        "removeBody": "이 멤버는 즉시 팀에 액세스할 수 없게 됩니다. 나중에 다시 초대할 수 있습니다.",
+        "inviteTitle": "사람 초대",
+        "inviteDescription": "이메일 초대를 보냅니다. 쉼표, 공백 또는 줄바꿈으로 구분된 목록을 붙여 넣으세요(최대 20개).",
+        "pendingTitle": "대기 중인 초대",
+        "pendingDescription": "아직 수락되지 않은 초대입니다.",
+        "pendingEmpty": "대기 중인 초대가 없습니다.",
+        "unknownEmail": "알 수 없는 주소",
+        "expires": "{at}에 만료",
+        "resend": "다시 보내기",
+        "resent": "보냄",
+        "revoke": "취소",
+        "linksTitle": "초대 링크",
+        "linksDescription": "누구나 멤버로 참여할 수 있는 재사용 가능한 링크입니다.",
+        "seatNudge": "멤버이거나 초대된 사람이 {used}명이지만 플랜의 시트는 {seats}개입니다. 초대는 계속 가능하며, 모두를 포함하려면 {over, plural, other {시트 #개}}를 추가하세요.",
+        "seatNudgeAction": "시트 관리",
+        "actions": {
+          "makeAdmin": "관리자로 지정",
+          "makeMember": "멤버로 변경",
+          "remove": "팀에서 제거",
+          "leave": "팀 나가기"
+        },
+        "actionsFor": "{name} 작업",
+        "lastAdminReason": "팀에는 관리자가 한 명 이상 있어야 합니다. 먼저 다른 멤버를 관리자로 지정하세요.",
+        "demoteSelfTitle": "관리자 권한을 내려놓을까요?",
+        "demoteSelfBody": "이 팀의 관리자 권한을 잃게 됩니다. 다른 관리자가 다시 부여할 수 있습니다.",
+        "demoteSelfConfirm": "멤버로 변경"
+      },
+      "apiKeys": {
+        "title": "팀 API 키",
+        "description": "이 팀을 대신해 작동하는 키입니다. 키를 가진 사람은 누구나 팀의 액세스 권한을 사용할 수 있으므로 안전하게 보관하세요.",
+        "create": "팀 API 키 만들기",
+        "disabled": "이 프로젝트에서는 팀 API 키가 활성화되어 있지 않습니다.",
+        "forbidden": "이 팀의 키를 보려면 이 팀에서 API 키 관리 권한이 필요합니다."
+      }
     },
     "coderouterAccounts": {
       "transferAction": "이전",
@@ -448,10 +1112,6 @@
       "apiKeysTitle": "API 키",
       "apiKeysDescription": "스크립트와 에이전트용 장기 키를 만드세요. 비밀 값은 한 번만 표시됩니다.",
       "apiKeysCount": "{count, plural, one {키 #개} other {키 #개}}",
-      "apiKeysLoading": "API 키 로드 중…",
-      "apiKeysLoadError": "API 키를 불러오지 못했습니다. 잠시 후 다시 시도하세요.",
-      "apiKeysRetry": "다시 시도",
-      "apiKeysEmptyBody": "API 키가 아직 없습니다. CodeRouter 클라이언트를 인증할 키를 만드세요.",
       "apiKeyPrefixColumn": "키",
       "apiKeyStatusColumn": "상태",
       "apiKeySecretTitle": "지금 이 키를 복사하세요",
@@ -472,6 +1132,111 @@
       "apiKeyUsageDetail": "최근 30일: 완료 {completions}회 · 토큰 {tokens}개 ({input} 입력 / {output} 출력) · API 환산 {value}",
       "apiKeyUsageUnavailable": "사용량을 사용할 수 없음",
       "revokeApiKeyConfirmBody": "이 키를 사용하는 클라이언트는 즉시 인증할 수 없게 됩니다."
+    },
+    "cloud": {
+      "title": "Cloud 머신 및 Mac 액세스",
+      "description": "머신별 아웃바운드 네트워크를 설정하고, 비공개 Cloud VM 네트워크에 WireGuard로 액세스할 수 있는 Mac을 확인합니다. iPhone 및 Iroh 페어링 기록은 별도로 관리됩니다.",
+      "macAccessTitle": "Mac 액세스",
+      "machines": {
+        "title": "머신",
+        "empty": "Cloud 머신이 없습니다.",
+        "personal": "개인",
+        "team": "팀",
+        "status": {
+          "provisioning": "시작 중",
+          "running": "실행 중",
+          "failed": "실패",
+          "paused": "일시 중지됨",
+          "destroyed": "삭제됨"
+        }
+      },
+      "network": {
+        "open": "네트워크",
+        "title": "{name}의 아웃바운드 네트워크",
+        "description": "이 머신이 연결할 수 있는 대상을 선택하세요. 변경 사항은 재시작 없이 즉시 적용됩니다.",
+        "loading": "네트워크 정책을 불러오는 중…",
+        "loadError": "이 머신의 네트워크 정책을 불러올 수 없습니다.",
+        "saveError": "이 네트워크 정책을 적용할 수 없습니다.",
+        "unsupported": "이 머신은 아웃바운드 네트워크 제어를 지원하지 않습니다.",
+        "retry": "다시 시도",
+        "appliedLabel": "상태:",
+        "applied": {
+          "applied": "적용됨",
+          "pending": "적용 중",
+          "failed": "적용 실패"
+        },
+        "unsaved": "저장되지 않은 변경 사항",
+        "refresh": "새로고침",
+        "modeLabel": "아웃바운드 액세스",
+        "mode": {
+          "full": {
+            "label": "전체 인터넷",
+            "description": "모든 공개 주소."
+          },
+          "allowlist": {
+            "label": "허용 목록",
+            "description": "지정한 프리셋, 도메인, IP 범위만."
+          },
+          "none": {
+            "label": "인터넷 없음",
+            "description": "아래에 나열된 cmux 호스트만."
+          }
+        },
+        "presetsTitle": "프리셋",
+        "presetsNote": "각 프리셋은 정확한 호스트 이름을 추가합니다. 다른 하위 도메인을 사용하는 서비스에는 도메인이 더 필요할 수 있습니다.",
+        "domainsTitle": "도메인",
+        "domainsNote": "정확한 호스트 이름만, 포트 443의 HTTPS만 허용됩니다. 와일드카드는 아직 지원되지 않습니다.",
+        "domainInput": "도메인",
+        "rangesTitle": "IP 범위",
+        "rangesNote": "공급자 방화벽이 머신 외부에서 이 규칙을 적용합니다. 포트를 비워 두면 모든 포트가 허용됩니다. 포트를 지정하려면 프로토콜이 필요합니다.",
+        "cidrInput": "IP 범위(CIDR)",
+        "portInput": "포트",
+        "protocolInput": "프로토콜",
+        "anyProtocol": "모두",
+        "noteInput": "메모(선택 사항)",
+        "allPorts": "모든 포트",
+        "dnsLabel": "DNS 허용",
+        "dnsNote": "IP 범위가 가리키는 이름을 도구가 확인할 수 있게 합니다. 도메인에는 DNS가 필요하지 않습니다. 열린 DNS는 아웃바운드 채널입니다. 프로세스가 조회하는 이름에 데이터를 담아 외부로 보낼 수 있습니다.",
+        "requiredTitle": "항상 허용",
+        "requiredNote": "cmux는 머신에 CLI를 설치하고 업데이트하기 위해 모든 모드에서 이 호스트가 필요합니다.",
+        "add": "추가",
+        "remove": "제거",
+        "discard": "변경 사항 취소",
+        "close": "닫기",
+        "apply": "적용"
+      },
+      "revokeApiKeyConfirmBody": "이 키를 사용하는 클라이언트는 즉시 인증할 수 없게 됩니다.",
+      "apiKeysEmptyTitle": "아직 API 키가 없습니다",
+      "apiKeysEmptyHint": "CodeRouter 클라이언트를 인증할 키를 만드세요.",
+      "unavailableTitle": "공유 계정을 사용할 수 없습니다",
+      "unavailableBody": "지금은 cmux가 공유 계정 서비스에 연결할 수 없습니다. cr add로 추가한 계정과 Anthropic 및 Bedrock 계정은 계속 작동합니다."
+    },
+    "notFound": {
+      "title": "페이지를 찾을 수 없습니다",
+      "body": "이 대시보드 페이지가 없거나 이동되었습니다.",
+      "home": "대시보드로 이동"
+    },
+    "states": {
+      "errorTitle": "{section}을(를) 불러오지 못했습니다",
+      "errorTitleGeneric": "이 섹션을 불러오지 못했습니다",
+      "reason": {
+        "network": "연결을 확인한 다음 다시 시도하세요.",
+        "unavailable": "cmux를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도하세요.",
+        "forbidden": "이 항목에 액세스할 권한이 없습니다.",
+        "notFound": "더 이상 존재하지 않거나 액세스할 권한이 없습니다.",
+        "rateLimited": "요청이 너무 많습니다. 잠시 기다린 다음 다시 시도하세요.",
+        "generic": "문제가 발생했습니다. 다시 시도하세요."
+      },
+      "retry": "다시 시도",
+      "retrying": "다시 시도하는 중…"
+    },
+    "upgrade": {
+      "title": "Pro 필요",
+      "cloud": "Cloud VM과 클라우드 에이전트는 Pro에 포함됩니다.",
+      "testflight": "cmux iOS 앱은 Pro에 포함됩니다.",
+      "mobileDevices": "휴대폰과 태블릿 연결은 Pro에 포함됩니다.",
+      "action": "Pro로 업그레이드",
+      "comparePlans": "요금제 비교"
     }
   },
   "community": {
@@ -1348,7 +2113,9 @@
           "ampIntegration": "Amp용 cmux 훅을 켜거나 끕니다. 끄더라도 번들 플러그인은 설치된 상태로 남아 있으며 동작하지 않습니다.",
           "suppressSubagentNotifications": "중첩된 Codex 또는 Claude 하위 에이전트의 표시되는 완료 알림과 상태 변경을 억제하면서 해당 이벤트는 Feed 텔레메트리에 유지합니다.",
           "workspaceAutoNaming": "에이전트 대화 내용을 기반으로 워크스페이스와 탭의 이름을 자동으로 지정하는 선택적 AI 기능입니다. 활성화하면 cmux가 각 에이전트의 자체 바이너리를 사용해 지원되는 에이전트 세션을 짧은 제목으로 요약합니다. 수동 이름 변경이 항상 우선합니다.",
-          "autoNamingAgent": "각 세션의 자동 이름을 생성하는 에이전트를 지정합니다. \"auto\"(기본값)는 각 세션을 해당 세션 자체의 에이전트로 이름 지정합니다. 임의의 에이전트 슬러그(claude, codex, grok, opencode, pi, omp, …)를 지정하면 다른 에이전트의 세션을 포함한 모든 세션의 이름 지정을 재정의합니다. 구동할 수 없거나 설치되지 않은 에이전트는 세션 자체의 에이전트로 대체되므로 이름 지정이 중단되지 않습니다."
+          "autoNamingAgent": "각 세션의 자동 이름을 생성하는 에이전트를 지정합니다. \"auto\"(기본값)는 각 세션을 해당 세션 자체의 에이전트로 이름 지정합니다. 임의의 에이전트 슬러그(claude, codex, grok, opencode, pi, omp, …)를 지정하면 다른 에이전트의 세션을 포함한 모든 세션의 이름 지정을 재정의합니다. 구동할 수 없거나 설치되지 않은 에이전트는 세션 자체의 에이전트로 대체되므로 이름 지정이 중단되지 않습니다.",
+          "agentAutoResume": "cmux가 실행한 에이전트의 턴이 재시도 가능한 업스트림 오류(모델 용량 초과, 과부하, 연결 끊김)로 끝나면 백오프를 적용해 `continue`를 보냅니다. 사람의 입력을 기다리는 턴은 재개하지 않습니다.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "cmux가 종료 전에 확인을 요청하는 시점을 제어합니다. DEV 빌드는 이 설정과 관계없이 항상 즉시 종료됩니다. 기존 app.warnBeforeQuit도 boolean 대체값으로 계속 허용됩니다.",
@@ -1367,8 +2134,8 @@
           "sessionContentAlignment": "sessionContentMaxWidth가 활성화된 경우 터미널 및 내장 에이전트 채팅 콘텐츠의 가로 배치입니다.",
           "copyOnSelect": "true이면 선택이 확정될 때 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다. false이면 cmux는 Ghostty copy-on-select 재정의를 내보내지 않으며, 선택 클립보드 동작은 Ghostty 설정과 기본값이 제어합니다.",
           "scrollSpeed": "마우스 휠이나 트랙패드 스크롤 이벤트 한 번에 터미널이 이동하는 거리를 조정합니다. 1보다 큰 값은 스크롤을 빠르게, 1보다 작은 값은 느리게 합니다.",
-          "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",
-          "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
+          "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 TextBox 입력을 기본으로 표시합니다.",
+          "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
         },
         "notifications": {
           "soundWhenFocused": "알림을 보낸 패널이 이미 포커스된 상태여도 알림음을 재생합니다. 기본값은 꺼짐이며, 포커스된 패널은 링과 깜박임만 표시합니다.",
@@ -1399,7 +2166,13 @@
           "compactAgentStatus": "각 워크스페이스를 한 줄로 표시합니다. 제목 앞의 색상 아이콘 하나가 에이전트, 읽지 않음, 풀 리퀘스트 상태를 나타내며 에이전트 상태 행(예: 실행 중, 입력 필요), 브랜치 및 디렉터리 행, 풀 리퀘스트 행을 대신하고, 그 세부 정보는 아이콘의 도움말로 옮겨집니다. 다른 상태 항목은 자체 행을 유지합니다.",
           "compactStatusIcons": "상태별로 compactAgentStatus 글리프를 대체하는 SF Symbol 이름입니다(예: {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}). 설정하지 않은 상태는 기본 기호를 사용하며, 표시할 수 없는 이름도 기본 기호로 돌아갑니다.",
           "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
-          "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
+          "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다.",
+          "showAgentUsage": "Claude Code 또는 Codex 상태 항목에 코딩 에이전트 사용량을 덧붙입니다. 모델과 사용한 컨텍스트 창을 표시하고, Claude Code에서는 Anthropic이 공개한 정가를 기준으로 한 API 비용 추정치(메인 스레드와 서브에이전트)도 함께 표시합니다. 이 비용은 추정치이며 구독 청구액이 아닙니다. 배치 및 우선 처리 등급, 파트너 가격, 고속 모드, 서버 도구 요금은 반영하지 않습니다.",
+          "beta": {
+            "conversations": {
+              "enabled": "사이드바 선택기에 통합 대화 보기를 표시합니다."
+            }
+          }
         },
         "fileExplorer": {
           "description": "오른쪽 사이드바 파일 탐색기(파일 트리) 설정입니다.",
@@ -1409,7 +2182,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "액션별 선택적 컨텍스트 조건자(VS Code 스타일 `when` 절)이며 cmux 액션 ID를 키로 사용합니다. 각 값은 컨텍스트 키를 !, &&, || 및 괄호로 조합한 불리언 표현식입니다. 불리언 키: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. 타입이 있는 키는 비교를 지원합니다: 문자열 sidebarMode(files, find, sessions, feed, dock 중 하나)와 정수 paneCount, workspaceCount입니다. 비교 연산자는 ==, !=, =~(정규식), <, <=, >, >=, `in [a, b]`이며, 알 수 없거나 존재하지 않는 키는 false로 평가됩니다. 불리언 리터럴 true와 false도 사용할 수 있으며, `key == false`는 `!key`와 같습니다. 액션의 단축키는 이 절이 참일 때만 실행되며, 다른 단축키와의 충돌도 그때만 발생합니다. 예: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" }는 오른쪽 사이드바에 포커스가 있을 때를 제외한 모든 곳에서 Ctrl+1–9로 워크스페이스를 선택합니다. { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" }는 워크스페이스에 패널이 여러 개 있을 때 바인딩을 찾기 사이드바로 한정합니다.",
+          "when": "액션별 선택적 컨텍스트 조건자(VS Code 스타일 `when` 절)이며 cmux 액션 ID를 키로 사용합니다. 각 값은 컨텍스트 키를 !, &&, || 및 괄호로 조합한 불리언 표현식입니다. 불리언 키: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, terminalAlternateScreen, workspaceCanvasLayout. 타입이 있는 키는 비교를 지원합니다: 문자열 sidebarMode(files, find, sessions, feed, dock 중 하나)와 정수 paneCount, workspaceCount입니다. 비교 연산자는 ==, !=, =~(정규식), <, <=, >, >=, `in [a, b]`이며, 알 수 없거나 존재하지 않는 키는 false로 평가됩니다. 불리언 리터럴 true와 false도 사용할 수 있으며, `key == false`는 `!key`와 같습니다. 액션의 단축키는 이 절이 참일 때만 실행되며, 다른 단축키와의 충돌도 그때만 발생합니다. 예: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" }는 오른쪽 사이드바에 포커스가 있을 때를 제외한 모든 곳에서 Ctrl+1–9로 워크스페이스를 선택합니다. { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" }는 워크스페이스에 패널이 여러 개 있을 때 바인딩을 찾기 사이드바로 한정합니다.",
           "showModifierHoldHints": "Cmd 또는 Control을 누르고 있는 동안 단축키 힌트 칩을 표시합니다."
         },
         "fileEditor": {
@@ -1463,9 +2236,17 @@
       "customActionsDesc": "<actions>actions</actions> 항목은 cmux가 실행하는 재사용 가능한 동작입니다. 같은 동작을 Command Palette, 서피스 탭 바, 단축키 또는 플러스 버튼 메뉴에서 사용할 때 액션을 사용하세요. 재사용 가능한 셸 명령과 워크스페이스 레이아웃에는 <commands>commands</commands>를 계속 사용하세요. Command Palette에서 숨길 액션은 <palette>palette</palette>를 false로 설정합니다.",
       "actionTypes": "액션 유형",
       "actionTypeBuiltin": "cmux.newTerminal, cmux.newBrowser, cmux.splitRight, cmux.splitDown 같은 내장 cmux 액션의 별칭입니다.",
+      "actionTypeBuiltinCopy": "복사용 내장 동작: cmux.copyWorkingDirectory는 터미널의 작업 디렉터리를, cmux.copyProjectRoot는 Git 저장소의 루트(저장소 밖에서는 작업 디렉터리)를, cmux.copyScreen은 보이는 화면을 복사합니다.",
+      "actionTypeBuiltinCopyRemote": "SSH, 클라우드, 원격 tmux 워크스페이스에서는 cmux가 다른 호스트의 Git 저장소를 확인할 수 없으므로 cmux.copyProjectRoot가 원격 작업 디렉터리를 복사합니다.",
       "actionTypeCommand": "터미널에서 셸 텍스트를 실행합니다. target으로 현재 터미널 또는 현재 패널의 새 탭을 선택합니다.",
       "actionTypeAgent": "지원되는 코딩 에이전트를 시작합니다. 현재 codex와 claude를 지원하며 선택적 인수를 줄 수 있습니다.",
       "actionTypeWorkspaceCommand": "commands의 이름 있는 워크스페이스 정의를 실행합니다. 여러 패널 레이아웃, 사용자 지정 작업 디렉터리, 시작 명령에 사용합니다.",
+      "actionTypeSetting": "전역 cmux.json의 설정 하나를 변경합니다. 예를 들어 true/false 설정을 전환하거나 값 목록을 순환할 수 있습니다. 아래 설정 액션을 참고하세요.",
+      "actionTypeSettingPreset": "settingPresets에 있는 이름 있는 설정 그룹을 한 번에 적용합니다.",
+      "settingActions": "설정 액션",
+      "settingActionsDesc": "설정 액션은 설정 <path>path</path>와 다음 중 정확히 하나를 지정합니다: <set>set</set>(값 쓰기), <toggle>toggle: true</toggle>(true/false 설정 전환), <cycle>cycle</cycle>(목록의 다음 값으로 이동하고 마지막 값 다음에는 처음으로 돌아감), <unset>unset: true</unset>(cmux.json에서 키를 제거해 설정 창의 값이나 기본값이 적용되게 함). toggle과 cycle은 설정 창에서 지정한 값을 포함해 cmux가 현재 사용 중인 값에서 시작합니다. settingPreset 액션은 <presets>settingPresets</presets>의 항목을 적용합니다. 각 항목은 부분 cmux.json이며 중첩 객체는 키 단위로 병합됩니다. cmux는 저장하기 전에 모든 변경을 스키마로 검사하고, 주석과 다른 키는 그대로 두며, 변경을 즉시 적용합니다. 설정 액션과 프리셋은 전역 cmux.json과 그 파일이 참조하는 팩에서만 실행되며, 프로젝트 설정에서는 선언할 수 없습니다.",
+      "settingActionsCli": "같은 변경은 터미널에서도 할 수 있습니다: <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle>, <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "<confirm>confirm: true</confirm>를 지정하면 cmux가 저장하기 전에 확인하고 같은 변경을 하는 cmux config 명령을 보여줍니다. 경로는 모든 \".\"에서 나뉘므로 키 자체에 \".\"가 들어 있으면(예: ~/src/app.web에 대한 <byCwd>workspaceGroups.byCwd</byCwd> 항목) 이 방법으로 변경할 수 없습니다. cmux.json에서 직접 편집하세요.",
       "actionFields": "액션 필드",
       "actionFieldTitle": "Command Palette 행 제목, 서피스 버튼 레이블, 메뉴 항목 제목, 신뢰 프롬프트 제목입니다. 항목에서 재정의할 수 있습니다.",
       "actionFieldSubtitle": "Command Palette의 보조 텍스트입니다. description은 subtitle의 별칭으로 사용할 수 있습니다.",
@@ -1534,7 +2315,6 @@
       "restartNew": "새 워크스페이스 만들기 (기본값)"
     },
     "keyboardShortcuts": {
-      "fileEditorWordWrap": "파일 편집기 자동 줄 바꿈 전환 (Option+Z).",
       "title": "키보드 단축키",
       "description": "카테고리별로 정리된 cmux의 모든 키보드 단축키.",
       "metaDescription": "워크스페이스, 서피스, 분할 패널, 브라우저, 알림, 검색, 창 관리를 위한 cmux의 모든 macOS 키보드 단축키.",
@@ -1598,7 +2378,8 @@
         "wn-reload": "설정 새로고침",
         "wn-quit": "종료"
       },
-      "metaTitle": "키보드 단축키"
+      "metaTitle": "키보드 단축키",
+      "fileEditorWordWrap": "파일 편집기 자동 줄 바꿈 전환 (Option+Z)."
     },
     "api": {
       "title": "CLI 레퍼런스",
@@ -1861,7 +2642,7 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox(베타)",
+      "textBox": "TextBox",
       "ios": "iOS 앱",
       "cloudSection": "cmux Cloud",
       "cloudOverview": "개요",
@@ -1876,7 +2657,11 @@
       "remoteSection": "원격 액세스",
       "customizeSection": "사용자 지정 및 관리",
       "basicsSection": "기본",
-      "remoteTmux": "원격 tmux 미러링"
+      "remoteTmux": "원격 tmux 미러링",
+      "coderouterSection": "CodeRouter",
+      "coderouterOverview": "개요",
+      "coderouterAgents": "에이전트와 모델",
+      "coderouterCli": "CLI 및 문제 해결"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -2021,11 +2806,10 @@
       "daemonPath": "데몬 바이너리는 원격 호스트의 ~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote에 저장되며 앱에 포함된 SHA-256 매니페스트에 대해 확인됩니다."
     },
     "textBox": {
-      "title": "TextBox(베타)",
-      "metaTitle": "TextBox(베타)",
-      "metaDescription": "새 터미널 탭, 분할, 작업공간에 사용할 cmux 베타 TextBox 입력을 설정합니다.",
+      "title": "TextBox",
+      "metaTitle": "TextBox",
+      "metaDescription": "새 터미널 탭, 분할, 작업공간에 사용할 cmux TextBox 입력을 설정합니다.",
       "intro": "TextBox는 터미널로 보내기 전에 프롬프트를 작성하는 cmux의 리치 터미널 입력 화면입니다.",
-      "betaCallout": "TextBox는 베타 기능입니다. 테스트 중에는 기본값과 동작이 변경될 수 있습니다.",
       "defaultsTitle": "기본값",
       "defaultsDesc": "TextBox 설정은 Settings > TextBox에 있습니다.",
       "showSetting": "Show TextBox on New Terminals는 새 작업공간, 터미널 탭, 터미널 분할을 TextBox가 보이는 상태로 열고 포커스는 터미널에 유지합니다.",
@@ -2033,7 +2817,8 @@
       "maxLinesSetting": "TextBox Max Lines는 내용이 스크롤되기 전 TextBox의 최대 높이를 제한합니다.",
       "configTitle": "cmux.json",
       "configDesc": "동일한 기본값을 ~/.config/cmux/cmux.json의 terminal 아래에 설정할 수 있습니다.",
-      "focusNote": "복원된 세션은 저장된 TextBox 표시 및 포커스 상태를 유지합니다. 이 기본값은 새로 생성된 터미널 화면에만 적용됩니다."
+      "focusNote": "복원된 세션은 저장된 TextBox 표시 및 포커스 상태를 유지합니다. 이 기본값은 새로 생성된 터미널 화면에만 적용됩니다.",
+      "betaCallout": "TextBox는 베타 기능입니다. 테스트 중에는 기본값과 동작이 변경될 수 있습니다."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: cmux에서의 OpenCode 멀티 에이전트",
@@ -2134,12 +2919,18 @@
       "limitsTitle": "플랜 한도",
       "limitsDesc": "플랜 한도는 공유 CPU나 메모리 풀이 아니라 머신 수를 기준으로 합니다. 각 머신은 해당 크기만큼의 리소스를 받습니다.",
       "limitsFree": "무료 계정은 머신을 만들 수 없습니다.",
-      "limitsPaid": "Pro 및 Max 계정은 활성 머신을 최대 50대까지 가질 수 있습니다. 실행 중이거나 시작 중인 머신이 활성 머신입니다.",
-      "limitsTeam": "Team 계정은 유료 시트 하나당 활성 머신을 최대 50대까지 가질 수 있습니다.",
-      "limitsMax": "24 GB보다 큰 머신에는 cmux Max가 필요합니다.",
+      "limitsPaid": "Pro 및 Max 계정은 활성 머신을 최대 5대까지 가질 수 있습니다. 실행 중이거나 시작 중인 머신이 활성 머신입니다.",
+      "limitsTeam": "Team 계정은 유료 시트 하나당 활성 머신을 최대 5대까지 가질 수 있습니다.",
+      "limitsMax": "8 GB보다 큰 머신에는 cmux Max가 필요합니다. Max 머신은 최대 32 GB와 vCPU 16개까지 가능합니다.",
       "limitsPricing": "현재 가격은 가격 페이지를 확인하세요. 사용량 기반 과금이나 초과 요금은 없습니다.",
+      "agentUpdatesTitle": "코딩 에이전트를 최신 상태로 유지",
+      "agentUpdatesDesc": "이 설정을 켜면 머신이 Claude Code, Codex, OpenCode, pi, agent-browser를 업데이트합니다. 머신을 만든 뒤와 연결할 때마다 확인하며, 24시간에 최대 한 번입니다. 업데이트는 분리된 상태로 실행되므로 연결을 막지 않습니다.",
+      "agentUpdatesSource": "각 도구는 공식 GitHub 릴리스에서 가져오며, 릴리스 에셋의 sha256 다이제스트로 검증합니다. npm은 사용하지 않습니다. 릴리스는 공개된 지 3일이 지난 후에만 설치되며, 업데이트가 이전 버전을 설치하는 일은 없습니다. 실행 중인 에이전트는 시작할 때의 파일을 계속 사용하고, 업데이트가 실패하면 현재 버전이 그대로 남습니다.",
+      "agentUpdatesStatus": "마지막 확인 결과는 /etc/cmux/agent-updates.state에, 업데이트 로그는 /var/log/cmux-agent-updates.log에 있습니다. 실패한 확인은 다음 연결 때 다시 실행됩니다.",
+      "agentUpdatesToggle": "새 머신 시트에서는 이 설정이 기본으로 켜져 있습니다. 기존 머신에서 바꾸려면 머신을 오른쪽 클릭하고 에이전트를 최신 상태로 유지를 선택하거나 cmux vm agent-updates를 실행하세요. cmux vm new는 --agent-updates latest를 전달하지 않으면 이미지의 버전을 유지합니다. 업데이트를 끄면 이미 설치된 버전이 유지됩니다.",
+      "agentUpdatesNetwork": "업데이트는 github.com, api.github.com, objects.githubusercontent.com, release-assets.githubusercontent.com만 사용합니다. cmux는 허용 목록과 인터넷 없음을 포함한 모든 네트워크 모드에서 이 호스트를 허용하므로, 네트워크 정책이 업데이트를 막지 않습니다.",
       "resizeTitle": "크기 조정",
-      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 4 GB 단위로 최대 256 GB, 메모리는 최대 64 GB, CPU는 최대 32 vCPU까지 늘릴 수 있습니다. 실제 최대치는 플랜에 따라 정해집니다.",
+      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 4 GB 단위로 최대 256 GB, 메모리는 최대 32 GB, CPU는 최대 16 vCPU까지 늘릴 수 있습니다. 실제 최대치는 플랜에 따라 정해집니다.",
       "pauseTitle": "일시 중지와 재개",
       "pauseDesc": "cmux vm pause는 머신의 컴퓨팅을 중지합니다. 디스크, 워크스페이스, 터미널 기록은 유지되고, 실행 중인 프로세스는 중지됩니다. cmux vm resume은 머신을 다시 시작합니다. 일시 중지된 머신을 열거나 그 머신에서 명령을 실행해도 머신이 시작됩니다.",
       "pauseIdle": "머신은 유휴 상태여도 스스로 일시 중지되지 않습니다. 일시 중지하거나 삭제할 때까지 계속 실행됩니다.",
@@ -2195,7 +2986,8 @@
       "guestDesc": "머신 안에서 cmux 명령은 해당 머신의 세션을 제어합니다. tree, new-workspace, new-split, send, send-key, read-screen, terminal, layout, env, notify, open-url, self를 지원합니다. cmux self는 소유자, 현재 머신, 다른 머신을 보여줍니다. cmux vm verb peer를 사용하면 머신 안에서 다른 머신을 제어할 수 있습니다.",
       "guestHostOnly": "로그인, AI 계정 업로드, 그리고 new, delete, checkpoint, fork, resize, pause, domains, open, vpn 같은 머신 수명 주기 명령은 Mac에서만 실행됩니다.",
       "iosTitle": "iPhone",
-      "iosDesc": "cmux iOS 앱은 Cloud 머신을 관리하지 않습니다. 시작 중인 머신은 자리 표시자 카드로 표시됩니다."
+      "iosDesc": "cmux iOS 앱은 Cloud 머신을 관리하지 않습니다. 시작 중인 머신은 자리 표시자 카드로 표시됩니다.",
+      "coderouterLink": "CodeRouter 문서: 지원 계정, 공유, 사용량"
     },
     "cloudNetworking": {
       "title": "Cloud 파일과 네트워킹",
@@ -2260,7 +3052,8 @@
       "accountsTitle": "AI 계정과 모델 라우팅",
       "accountsDesc": "팀용 에이전트 계정을 업로드하고 모델 라우팅을 확인합니다.",
       "preflightTitle": "스크립트 체크리스트",
-      "preflightDesc": "스크립트가 머신을 만들거나 사용하기 전에 다음 읽기 전용 확인을 실행하세요. 로그인 여부를 확인하고, 머신과 플랜 한도를 보여주며, 디렉터리가 어떤 머신을 사용하는지 보여줍니다."
+      "preflightDesc": "스크립트가 머신을 만들거나 사용하기 전에 다음 읽기 전용 확인을 실행하세요. 로그인 여부를 확인하고, 머신과 플랜 한도를 보여주며, 디렉터리가 어떤 머신을 사용하는지 보여줍니다.",
+      "coderouterLink": "CodeRouter 전체 명령 레퍼런스"
     },
     "cloudTroubleshooting": {
       "title": "Cloud 보안 및 문제 해결",
@@ -2288,7 +3081,7 @@
       "errPlan": "Cloud VM에는 유료 플랜이 필요함",
       "fixPlan": "무료 계정은 머신을 만들 수 없습니다. 가격 페이지에서 업그레이드하세요.",
       "errSize": "선택한 크기에 더 높은 플랜이 필요함",
-      "fixSize": "24 GB보다 큰 머신에는 cmux Max가 필요합니다. 더 작은 크기를 고르거나 업그레이드하세요.",
+      "fixSize": "8 GB보다 큰 머신에는 cmux Max가 필요합니다. 더 작은 크기를 고르거나 업그레이드하세요.",
       "errLimit": "활성 머신 한도에 도달함",
       "fixLimit": "머신을 일시 중지하거나 삭제한 뒤 다시 시도하세요.",
       "errLocked": "머신이 잠겨 있음",
@@ -2317,6 +3110,177 @@
       "fixTransferDisabled": "관리 정책이 파일 전송을 끄고 있습니다. 관리자에게 문의하세요.",
       "supportTitle": "도움 받기",
       "supportDesc": "생성에 실패하면 알림의 Copy Error를 사용하고, 추적 ID가 있으면 함께 포함해 지원팀에 문의하세요."
+    },
+    "ui": {
+      "onThisPage": "이 페이지 내용",
+      "copyPage": "페이지 복사",
+      "copyPageDesc": "LLM용 Markdown으로 복사",
+      "copied": "복사됨",
+      "pageActions": "더 많은 페이지 작업",
+      "openInChatGPT": "ChatGPT에서 열기",
+      "openInClaude": "Claude에서 열기",
+      "openInDesc": "이 페이지에 대해 질문하기",
+      "askPrompt": "{url} 문서를 읽고 내용에 대한 질문에 답해 주세요.",
+      "previous": "이전",
+      "next": "다음",
+      "helpful": "이 페이지가 도움이 되었나요?",
+      "yes": "예",
+      "no": "아니요",
+      "thanks": "의견을 보내 주셔서 감사합니다.",
+      "raiseIssue": "이슈 등록",
+      "openNavigation": "탐색 열기",
+      "closeNavigation": "탐색 닫기",
+      "searchShortcut": "문서 검색 (⌘K)",
+      "navigation": "문서"
+    },
+    "coderouterOverview": {
+      "title": "CodeRouter",
+      "metaTitle": "CodeRouter 모델 라우팅",
+      "metaDescription": "CodeRouter는 Codex, Claude Code, OpenCode, Pi 요청을 팀의 AI 구독과 API 키에 분산하고, 계정이 한도에 도달하면 다른 계정으로 전환합니다.",
+      "intro": "CodeRouter는 cmux 뒤에서 동작하는 모델 라우터입니다. 코딩 에이전트가 CodeRouter로 요청을 보내면, CodeRouter는 각 요청을 팀이 추가한 구독 또는 API 키로 전달합니다. 계정이 속도 제한을 받거나, 거부되거나, 중단되면 CodeRouter가 작업을 다른 계정으로 옮기므로 에이전트는 계속 실행됩니다.",
+      "whyTitle": "사용하는 이유",
+      "whyPool": "여러 ChatGPT, Claude, OpenCode Go 구독과 API 키를 모아 팀과 공유합니다.",
+      "whyFailover": "한 계정이 사용 한도에 도달해도 에이전트가 계속 작업합니다.",
+      "whyCloud": "머신에 자격 증명을 저장하지 않고 cmux Cloud 머신에 모델 접근 권한을 제공합니다.",
+      "whyUsage": "계정별, API 키별, Cloud 머신별 토큰 사용량을 확인합니다.",
+      "accountsTitle": "지원 계정",
+      "accountsDesc": "각 계정은 해당 제공업체의 API를 사용하는 에이전트를 처리합니다. Codex와 Pi는 하나의 풀을 공유하고, Claude Code는 Claude 계정으로 구성된 별도의 풀을 사용합니다.",
+      "accountColumn": "계정",
+      "servesColumn": "처리 대상",
+      "addColumn": "추가 방법",
+      "accountChatgpt": "ChatGPT 구독(개인 또는 팀 워크스페이스)",
+      "accountOpenAiKey": "OpenAI API 키",
+      "accountOpenRouterKey": "OpenRouter API 키",
+      "accountOpencodeGo": "OpenCode Go 구독",
+      "accountClaudeSubscription": "Claude Max 또는 Pro(Claude Code 설정 토큰)",
+      "accountAnthropicKey": "Anthropic API 키",
+      "accountBedrock": "Amazon Bedrock 자격 증명",
+      "addDashboard": "CodeRouter 대시보드",
+      "accountsDashboard": "CodeRouter 대시보드에서도 API 키, Claude 토큰, Bedrock 자격 증명을 추가할 수 있습니다. 대시보드는 모든 계정을 상태, 쿨다운, 활성 세션과 함께 보여줍니다:",
+      "routingTitle": "라우팅 방식",
+      "routingSticky": "각 에이전트 세션은 계정이 정상인 동안 같은 계정에 머물러 제공업체의 프롬프트 캐시를 유지합니다. 새 세션은 활성 세션이 가장 적은 계정으로 갑니다.",
+      "routingFailover": "제공업체가 속도 제한을 반환하거나, 자격 증명을 거부하거나, 응답하지 않으면 CodeRouter는 해당 계정을 쿨다운 상태로 두고 다른 계정에서 요청을 재시도합니다. 재시도는 모델 출력이 에이전트에 도달하기 전에만 하므로, 스트리밍이 시작된 응답이 두 번 전송되는 일은 없습니다.",
+      "routingProvider": "제공업체 요청은 CodeRouter의 호스팅 서비스가 보냅니다. 따라서 제공업체 트래픽은 Mac이나 Cloud 머신이 아닌 CodeRouter에서 나갑니다.",
+      "quickstartTitle": "Mac에서 빠르게 시작하기",
+      "stepInstall": "CodeRouter CLI를 설치합니다. coderouter와 cr 두 이름으로 설치됩니다. cmux cr을 실행해도 되며, 처음 실행하면 설치를 제안합니다.",
+      "stepLogin": "cmux 계정으로 로그인합니다. cr login이 브라우저를 열면 표시된 코드를 승인하세요.",
+      "stepAdd": "구독을 추가합니다. cr add는 제공업체 메뉴를 열고, cr add codex는 브라우저에서 ChatGPT에 로그인합니다.",
+      "stepRun": "cr codex, cr opencode, cr pi로 CodeRouter를 통해 에이전트를 실행합니다. 에이전트 이름 뒤의 인수는 그대로 에이전트에 전달됩니다.",
+      "cloudTitle": "cmux Cloud 머신에서",
+      "cloudDesc": "모든 Cloud 머신은 생성될 때 CodeRouter에 연결됩니다. 머신의 Claude Code, Codex, OpenCode, Pi는 로그인이나 설정 없이 팀의 계정을 사용합니다.",
+      "cloudLink": "Cloud 머신에서 에이전트가 설정되는 방식",
+      "teamsTitle": "팀과 공유",
+      "teamsScope": "계정은 로그인한 팀에 속합니다. cr org list는 팀 목록을 보여주고, cr org switch는 cr이 사용하는 팀을 바꿉니다. cmux coderouter 명령은 --team '<id>'를 받습니다.",
+      "teamsPrivate": "새 계정은 추가한 사람만 쓸 수 있는 비공개 상태입니다. 대시보드에서 '팀과 공유'를 누르면 모든 멤버와 팀의 Cloud 머신이 사용할 수 있고, '비공개로 전환'으로 되돌릴 수 있습니다.",
+      "teamsPersonal": "개인 팀에서는 비공개 계정도 내 Cloud 머신에 사용됩니다. 조직의 Cloud 머신은 공유 계정만 사용하므로, 머신이 계정을 쓰게 하려면 먼저 공유하세요.",
+      "teamsManage": "팀 멤버라면 누구나 팀의 공유 계정을 추가, 이름 변경, 비활성화, 이전, 제거할 수 있습니다. cr transfer는 확인 후 계정을 다른 팀으로 옮깁니다.",
+      "usageTitle": "사용량과 한도",
+      "usageLimits": "각 제공업체는 요청을 처리한 계정의 사용량을 그 계정의 플랜과 한도에 따라 측정합니다. CodeRouter는 작업을 여러 계정에 분산하지만 개별 계정의 한도를 늘리지는 않습니다.",
+      "usageCr": "cr은 각 구독의 할당량 상태를 보여줍니다. --watch를 붙이면 30초마다 새로 고치고, --json을 붙이면 스크립트용으로 출력합니다.",
+      "usageMachines": "cmux coderouter machines는 각 Cloud 머신의 30일 토큰 사용량과 API 환산 금액을 보여줍니다. 머신 안에서는 cmux coderouter usage가 해당 머신의 사용량을 일, 워크스페이스, 에이전트, 모델별로 나누어 보여줍니다.",
+      "usageEstimate": "API 환산 금액은 공개 정가 기준의 추정치이며, 청구 금액이 아닙니다.",
+      "privacyTitle": "자격 증명과 개인정보",
+      "privStored": "제공업체 자격 증명은 암호화된 후 저장됩니다. 저장된 자격 증명을 반환하는 CodeRouter API나 대시보드 화면은 없습니다. 계정에는 라벨, 이메일, 또는 마스킹된 키만 표시됩니다.",
+      "privArgv": "cr add와 cmux coderouter claude add는 셸 기록에 남을 수 있는 명령 인수로 제공업체 자격 증명을 받지 않습니다. 환경 변수, 표준 입력, 또는 숨겨진 프롬프트에서 읽습니다.",
+      "privLocal": "cr add codex와 cr add opencode는 브라우저에서 제공업체에 로그인합니다. cr codex는 해당 실행에만 CodeRouter 설정을 Codex에 전달하며, 평소의 Codex 로그인과 설정은 바꾸지 않습니다.",
+      "privCloud": "Cloud 머신은 자격 증명을 보관하지 않습니다. 머신의 에이전트는 공개 자리 표시자 키를 CodeRouter 비공개 주소로 보내고, 머신의 네트워크 엣지가 그 머신에 묶인 서명된 자격 증명을 추가합니다. CodeRouter는 다른 머신에서 온 해당 자격 증명을 거부하며, 머신이 삭제되면 이를 폐기합니다.",
+      "privRequestId": "모든 CodeRouter 응답에는 요청을 식별하는 x-coderouter-request-id 헤더가 포함됩니다.",
+      "nextTitle": "다음 단계",
+      "nextAgents": "에이전트와 모델: Mac과 Cloud 머신에서 각 에이전트 설정하기",
+      "nextCli": "CLI 및 문제 해결: 모든 명령과 흔한 오류",
+      "nextCloud": "cmux Cloud"
+    },
+    "coderouterAgents": {
+      "title": "CodeRouter 에이전트와 모델",
+      "metaTitle": "CodeRouter 에이전트와 모델",
+      "metaDescription": "Mac과 cmux Cloud 머신에서 CodeRouter를 통해 Claude Code, Codex, OpenCode, Pi를 실행하고, 각 에이전트가 사용할 모델을 선택합니다.",
+      "intro": "이 페이지는 Mac과 cmux Cloud 머신에서 각 에이전트가 CodeRouter에 연결되는 방식과 각 에이전트가 모델을 고르는 방식을 설명합니다.",
+      "agentColumn": "에이전트",
+      "macColumn": "Mac에서",
+      "cloudColumn": "Cloud 머신에서",
+      "automatic": "자동",
+      "experimental": "(실험적)",
+      "claudeMacCell": "CodeRouter API 키",
+      "macTitle": "Mac에서",
+      "macDesc": "cr은 이미 설치된 에이전트를 시작하고 해당 실행에서 CodeRouter를 가리키게 합니다. 에이전트는 PATH에 있어야 합니다. 에이전트 이름 뒤의 모든 내용은 그대로 전달됩니다.",
+      "codexDesc": "cr codex는 CodeRouter 모델 제공업체로 Codex를 실행합니다. exec, review, resume 같은 하위 명령도 같은 방식으로 동작합니다. cr naked는 CodeRouter를 거치지 않고 일반 Codex를 실행합니다.",
+      "opencodeDesc": "cr opencode는 팀의 OpenCode Go 계정 모델을 불러오고, --model을 지정하지 않으면 첫 번째 모델을 사용합니다. --model 값은 이 모델 중 하나여야 합니다. 다른 제공업체를 쓰려면 일반 opencode를 실행하세요.",
+      "piDesc": "cr pi는 Codex와 같은 모델을 가진 coderouter 제공업체를 Pi에 추가하고, --model을 지정하지 않으면 첫 번째 모델을 사용합니다. 제공업체는 고정되어 있으므로 --provider는 거부됩니다. Pi 지원은 실험적입니다.",
+      "claudeTitle": "Claude Code와 기타 API 클라이언트",
+      "claudeDesc": "cr에는 Claude Code 실행기가 없습니다. Mac의 Claude Code나 Anthropic Messages API 또는 OpenAI Responses API를 사용하는 도구를 라우팅하려면 CodeRouter API 키를 만들고 도구가 coderouter.dev를 가리키게 하세요.",
+      "apiKeyCreate": "CodeRouter 대시보드의 API 키 섹션에서 키를 만듭니다. 키는 crk_로 시작하며 한 번만 표시됩니다. 키를 만들거나 폐기하려면 해당 팀에서 API 키를 관리할 권한이 필요하며, 개인 팀에서는 항상 이 권한이 있습니다:",
+      "apiKeyScope": "조직의 API 키는 팀의 공유 계정만 사용합니다. 개인 팀의 키는 비공개 계정도 사용할 수 있습니다. CodeRouter는 Chat Completions가 아닌 OpenAI Responses API를 제공합니다.",
+      "apiKeyLogin": "브라우저를 열 수 없는 머신에서는 cr login --api-key로 키를 사용해 cr에 로그인하고, CODEROUTER_API_KEY로 한 번의 명령에 키를 제공할 수 있습니다. 키는 대시보드에서 폐기하거나, 키를 사용하는 머신에서 cr logout을 실행하세요.",
+      "cloudTitle": "cmux Cloud 머신에서",
+      "cloudDesc": "Cloud 머신은 설정이 필요 없습니다. 머신 환경이 OPENAI_BASE_URL과 ANTHROPIC_BASE_URL을 CodeRouter 비공개 주소로 지정하고, 셸이나 에이전트가 처음 시작될 때 cmux가 각 에이전트의 설정을 작성합니다:",
+      "cloudClaude": "Claude Code는 환경에서 ANTHROPIC_BASE_URL과 자리 표시자 ANTHROPIC_API_KEY를 읽습니다. 첫 실행 질문에는 이미 답이 입력되어 있습니다.",
+      "cloudCodex": "Codex에는 ~/.codex/config.toml에 cmux 모델 제공업체가 설정됩니다.",
+      "cloudPi": "Pi에는 ~/.pi/agent/models.json에 제공업체 재정의가 설정됩니다.",
+      "cloudOpencode": "OpenCode는 처음 시작할 때 CodeRouter에서 제공업체 목록을 내려받아 ~/.config/opencode/opencode.json에 저장합니다.",
+      "cloudYours": "cmux는 파일이 없을 때만 작성하므로 직접 수정한 내용은 유지됩니다. 이미 다른 모델 제공업체를 지정한 Codex 설정은 그대로 둡니다.",
+      "cloudRun": "에이전트는 평소처럼 실행합니다. cmux coderouter agent는 단독 프롬프트를 에이전트의 일회성 실행 형식으로 바꿉니다. 머신 안에서는 현재 터미널에서 실행하고, Mac에서는 cmux vm agent처럼 지정한 머신에서 에이전트를 시작합니다.",
+      "cloudAccounts": "Cloud 머신은 머신을 소유한 팀의 계정을 사용합니다. 사용 가능한 계정이 없다고 에이전트가 알리면, 계정을 추가하거나 기존 계정을 해당 팀과 공유하세요.",
+      "modelsTitle": "모델",
+      "modelsCodex": "Codex와 Pi는 CodeRouter가 선택한 계정의 모델 카탈로그를 사용합니다. 카탈로그는 /v1/models에서 제공되므로 Codex의 모델 선택기에는 계정이 사용할 수 있는 모델이 표시됩니다. 모델은 Codex의 -m 플래그나 /model 명령으로 선택합니다. OpenRouter 키의 경우 CodeRouter는 접두사 없는 OpenAI 모델 ID를 openai/'<model>' 형식으로 보냅니다.",
+      "modelsOpencode": "OpenCode는 팀의 OpenCode Go 계정 모델을 나열합니다.",
+      "modelsClaude": "Claude Code는 --model 또는 /model로 선택한 모델을 보내고, CodeRouter는 이를 선택된 계정으로 전달합니다. 구독 계정과 API 키 계정은 Anthropic이 해당 계정에 허용한 모델을 제공합니다.",
+      "modelsBedrock": "Bedrock 계정은 내장 매핑 표로 Claude 모델 ID를 Bedrock 모델 ID로 변환하며, Bedrock ID는 그대로 통과시킵니다. 매핑이 없는 모델은 not_found_error를 반환합니다. 다른 모델을 매핑하려면 --model을 붙여 계정을 추가하세요:",
+      "modelsList": "Cloud 머신 안에서는 cmux coderouter models가 Codex 모델 카탈로그를 JSON으로 출력합니다."
+    },
+    "coderouterCli": {
+      "title": "CodeRouter CLI 및 문제 해결",
+      "metaTitle": "CodeRouter CLI 및 문제 해결",
+      "metaDescription": "cr CLI와 cmux coderouter 명령, cmux Cloud 머신 안에서 동작하는 기능, 흔한 CodeRouter 오류 해결 방법.",
+      "intro": "CodeRouter에는 두 가지 명령 세트가 있습니다. coderouter로도 설치되는 cr은 로그인, 구독 관리, 에이전트 실행을 담당합니다. cmux coderouter는 로그인된 cmux 앱을 통해 팀의 Claude 계정과 Cloud 머신 사용량을 관리하고, 나머지 모든 명령은 cr에 넘깁니다.",
+      "installTitle": "설치와 로그인",
+      "installDesc": "설치 프로그램은 체크섬이 검증된 바이너리를 ~/.coderouter/bin에 내려받고, cr을 그 바이너리에 연결하며, 해당 디렉터리를 셸의 PATH에 추가합니다. 다시 실행하면 업데이트됩니다. arm64와 x64의 macOS와 Linux를 지원합니다. 같은 CLI가 npm과 PyPI에도 게시되어 있습니다.",
+      "loginDesc": "cr login은 브라우저를 열고 대체 링크를 출력합니다. 로컬 브라우저가 없으면 --device-auth를 사용해 다른 기기에서 링크를 열거나, cr login --code로 코드나 매직 링크를 붙여넣으세요.",
+      "crTitle": "cr",
+      "crDesc": "명령 없이 실행하면 cr은 계정과 사용량을 보여줍니다. 에이전트 라우팅은 항상 명시적입니다. 일반 codex, opencode, pi는 CodeRouter 없이도 그대로 동작합니다.",
+      "crAddCodex": "개인 ChatGPT 워크스페이스와 팀 ChatGPT 워크스페이스가 같은 이메일을 쓸 수 있습니다. 워크스페이스마다 cr add codex를 한 번씩 실행하고 브라우저에서 워크스페이스를 선택하세요. CodeRouter는 이를 별도의 계정으로 유지합니다.",
+      "cmuxTitle": "cmux coderouter",
+      "cmuxDesc": "이 명령은 cmux 앱을 통해 실행되므로 앱이 실행 중이고 로그인되어 있어야 합니다(cmux auth login). 기계가 읽을 수 있는 출력에는 --json을, 선택된 팀이 아닌 다른 팀을 대상으로 하려면 --team '<id>'를 추가하세요.",
+      "claudeAddDesc": "claude add oauth-token은 CLAUDE_CODE_OAUTH_TOKEN 또는 --stdin에서 읽습니다. 둘 다 없는 터미널에서는 claude setup-token을 실행하고 그 명령이 출력한 토큰을 읽습니다. claude add api-key는 ANTHROPIC_API_KEY, --stdin, 또는 숨겨진 프롬프트에서 읽습니다. claude add bedrock은 AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, 선택 사항인 AWS_SESSION_TOKEN을 읽고, 리전은 --region, AWS_REGION, 또는 AWS_DEFAULT_REGION에서 가져옵니다.",
+      "accountSelector": "'<account>'에는 계정의 ID, 라벨, 또는 마스킹된 식별자를 쓸 수 있습니다. disable은 다시 enable할 때까지 계정을 순환에서 제외합니다.",
+      "passthroughDesc": "그 밖의 모든 cmux coderouter 명령과 모든 cmux cr 명령은 cr을 그대로 실행합니다. cr이 없으면 cmux가 설치 프로그램 실행을 제안합니다. cmux는 자신의 환경 변수나 로그인 정보를 cr에 넘기지 않습니다.",
+      "guestTitle": "Cloud 머신 안에서",
+      "guestDesc": "각 Cloud 머신에는 자체 cmux가 있으며, 그 CodeRouter 명령은 로그인이 필요 없습니다. 계정 관리는 Mac에서만 하므로 머신 안에서는 claude, login, logout이 거부됩니다.",
+      "troubleTitle": "문제 해결",
+      "troubleDesc": "첫 번째 열의 메시지는 에이전트, cr, 또는 cmux가 출력하는 내용입니다.",
+      "symptomColumn": "메시지 또는 증상",
+      "fixColumn": "해결 방법",
+      "errSignIn": "Sign in with `cr login` and retry. (또는: Missing coderouter route token.)",
+      "fixSignIn": "cr login을 실행하세요. API 클라이언트라면 키가 설정되어 있고 crk_로 시작하는지 확인하세요.",
+      "errExpired": "Your coderouter session expired or was revoked.",
+      "fixExpired": "cr login을 다시 실행하세요. 폐기된 API 키는 즉시 동작을 멈추므로 새 키를 만드세요.",
+      "errNoCodex": "No healthy Codex subscription is currently available.",
+      "fixNoCodex": "cr을 실행해 각 계정의 상태를 확인하세요. cr add로 계정을 추가하거나 쿨다운이 끝나기를 기다리세요. 조직의 Cloud 머신이라면 계정을 팀과 공유하세요.",
+      "errNoClaude": "No Claude upstream account is configured for this team.",
+      "fixNoClaude": "cr add claude 또는 cmux coderouter claude add로 계정을 추가하세요. 조직의 Cloud 머신이라면 팀과 공유하세요.",
+      "errClaudeCooling": "Every Claude upstream account of this team is cooling down or disabled.",
+      "fixClaudeCooling": "쿨다운이 끝난 후 재시도하거나, cmux coderouter claude enable로 비활성화된 계정을 활성화하거나, 다른 계정을 추가하세요.",
+      "errBedrockModel": "Bedrock 계정에서 발생한 not_found_error",
+      "fixBedrockModel": "해당 모델에 Bedrock 매핑이 없습니다. 계정을 제거하고 --model '<claude-id>=<bedrock-id>'를 붙여 다시 추가하세요.",
+      "errBedrockRegion": "The team's Bedrock account is missing a region.",
+      "fixBedrockRegion": "계정을 제거하고 --region을 붙이거나 AWS_REGION을 설정한 상태로 다시 추가하세요.",
+      "errNotInstalled": "CodeRouter CLI is not installed.",
+      "fixNotInstalled": "설치 프로그램을 실행하거나, cmux cr이 설치를 제안할 때 y로 답하세요.",
+      "errAgentMissing": "Codex is not installed or is not on PATH (또는 OpenCode, 또는 Pi).",
+      "fixAgentMissing": "에이전트를 설치하세요. cr은 PATH에서 찾은 에이전트를 실행합니다.",
+      "errCodexLoop": "`codex` resolves back to coderouter.",
+      "fixCodexLoop": "codex 명령이 cr을 가리키고 있습니다. 실제 Codex 실행 파일이 PATH에서 가장 먼저 오도록 하세요.",
+      "errOpencodeModel": "`'<model>'` is not a coderouter OpenCode model.",
+      "fixOpencodeModel": "OpenCode Go 계정의 모델을 선택하거나, 다른 제공업체를 쓰려면 일반 opencode를 실행하세요.",
+      "errOpencodeMachine": "cmux: OpenCode provider configuration is unavailable; retry in one minute.",
+      "fixOpencodeMachine": "머신이 OpenCode 제공업체 목록을 내려받지 못했습니다. 1분 기다린 후 OpenCode를 다시 시작하세요.",
+      "errEdge": "CodeRouter: TLS edge unreachable, or route rejected (머신 안의 cmux auth status에 표시).",
+      "fixEdge": "머신이 CodeRouter에 연결할 수 없거나, CodeRouter가 머신의 자격 증명을 거부했습니다. 잠시 후 재시도하세요. 계속되면 머신 이름과 cmux auth status --json 출력을 첨부해 지원팀에 문의하세요.",
+      "errUnavailable": "coderouter is temporarily unavailable. Retry shortly.",
+      "fixUnavailable": "CodeRouter나 계정 저장소를 잠시 사용할 수 없습니다. 재시도하고, 오류가 계속되면 요청 ID와 함께 보고하세요.",
+      "diagnoseTitle": "진단",
+      "diagnoseDesc": "cr doctor는 cr의 로그인 여부와 사용 중인 CodeRouter 엔드포인트를 출력합니다. cmux coderouter status는 cmux 로그인 상태, 선택된 팀, 그 팀의 Claude 계정을 보여줍니다.",
+      "supportTitle": "도움 받기",
+      "supportDesc": "실패한 요청을 보고할 때는 x-coderouter-request-id 응답 헤더 값을 포함하세요. 이 값으로 CodeRouter 기록에서 해당 요청을 찾을 수 있습니다."
     }
   },
   "legal": {
@@ -4222,7 +5186,8 @@
   "pricing": {
     "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
     "signedOutNotice": "로그인되어 있지 않습니다. 로그인하여 현재 요금제를 확인하거나 기존 구매를 복원하세요.",
-    "signedOutSignIn": "로그인"
+    "signedOutSignIn": "로그인",
+    "manageInAppStore": "App Store에서 관리"
   },
   "platforms": {
     "macos": "macOS",
@@ -4389,6 +5354,60 @@
     "signedOutBody": "명령줄 애플리케이션이 로그인을 기다리고 있습니다. cmux 계정으로 로그인하면 이 터미널 연결이 완료됩니다. 이 요청을 시작하지 않았다면 이 페이지를 닫으세요.",
     "signInButton": "로그인"
   },
+  "cmuxSignIn": {
+    "signInTitle": "cmux에 로그인",
+    "signInSubtitle": "앱, cloud, 대시보드를 하나의 계정으로.",
+    "signUpTitle": "cmux 계정 만들기",
+    "signUpSubtitle": "앱, cloud, 대시보드를 하나의 계정으로.",
+    "continueWithProvider": "{provider}(으)로 계속",
+    "signInWithPasskey": "패스키로 로그인",
+    "orContinueWith": "또는 다음으로 계속",
+    "emailLabel": "이메일",
+    "emailPlaceholder": "you@company.com",
+    "continueWithEmail": "이메일로 계속",
+    "emailCodeTab": "이메일",
+    "emailPasswordTab": "이메일 & 비밀번호",
+    "passwordLabel": "비밀번호",
+    "repeatPasswordLabel": "비밀번호 확인",
+    "signInButton": "로그인",
+    "createAccountButton": "계정 만들기",
+    "forgotPassword": "비밀번호를 잊으셨나요?",
+    "noAccount": "계정이 없으신가요?",
+    "signUpLink": "가입하기",
+    "haveAccount": "이미 계정이 있으신가요?",
+    "signInLink": "로그인",
+    "checkEmailTitle": "이메일을 확인하세요",
+    "checkEmailBody": "{email}(으)로 보낸 6자 영숫자 코드를 입력하세요.",
+    "codeLabel": "코드",
+    "back": "뒤로",
+    "resendCode": "코드 다시 보내기",
+    "chooseAccountTitle": "계정 선택",
+    "chooseAccountSubtitle": "cmux로 계속하려면",
+    "useAnotherAccount": "다른 계정 사용",
+    "forgetAccount": "이 목록에서 {account} 삭제",
+    "signedOut": "로그아웃됨",
+    "signingInAs": "{account}(으)로 로그인하는 중…",
+    "sessionEnded": "이 계정은 로그아웃되었습니다. 계속하려면 다시 로그인하세요.",
+    "redirecting": "로그인하는 중…",
+    "lastUsed": "최근 사용",
+    "legal": "계속하면 {terms} 및 {privacy}에 동의하게 됩니다.",
+    "termsOfService": "이용약관",
+    "privacyPolicy": "개인정보 처리방침",
+    "signUpDisabled": "지금은 새 계정을 만들 수 없습니다.",
+    "noMethods": "지금은 로그인할 수 없습니다. 나중에 다시 시도하세요.",
+    "embeddedDisabled": "삽입된 페이지에서는 로그인 버튼이 비활성화됩니다. 이 페이지를 새 탭에서 여세요.",
+    "errorInvalidEmail": "올바른 이메일 주소를 입력하세요.",
+    "errorPasswordRequired": "비밀번호를 입력하세요.",
+    "errorPasswordTooShort": "{min}자 이상 입력하세요.",
+    "errorPasswordTooLong": "{max}자 이하로 입력하세요.",
+    "errorPasswordsDontMatch": "비밀번호가 일치하지 않습니다.",
+    "errorWrongPassword": "이메일 또는 비밀번호가 올바르지 않습니다.",
+    "errorInvalidCode": "유효하지 않은 코드입니다. 이메일을 확인하고 다시 시도하세요.",
+    "errorInvalidTotp": "유효하지 않은 2단계 인증 코드입니다.",
+    "errorSignUpNotAllowed": "지금은 새 계정을 만들 수 없습니다.",
+    "errorPasskey": "패스키 로그인이 완료되지 않았습니다. 다시 시도하거나 다른 방법을 사용하세요.",
+    "errorGeneric": "문제가 발생했습니다. 다시 시도하세요."
+  },
   "MobileRelease106": {
     "title": "1.0.6의 새로운 기능",
     "releaseLabel": "1.0.6 · 2026년 9월",
@@ -4398,5 +5417,27 @@
     "updateDetail": "cmux {stableVersion} 이상 또는 NIGHTLY {nightlyVersion} 이상이 필요합니다. 각 Mac의 설정 > 모바일에서 iOS 페어링을 활성화하세요.",
     "rollbackTitle": "이전 Mac 빌드를 계속 사용해야 하나요?",
     "rollbackDetail": "제공되는 동안 TestFlight > 이전 빌드에서 cmux BETA 1.0.5 ({rollbackBuild})를 사용하세요. 이후 빌드는 새로운 연결 서비스를 사용하므로 이 빌드를 정확히 선택하세요."
+  },
+  "teamInvite": {
+    "loading": "초대를 불러오는 중…",
+    "title": "{team}에 참여",
+    "titleUnknown": "이 팀에 참여",
+    "body": "cmux에서 이 팀에 초대되었습니다.",
+    "join": "팀 참여",
+    "joining": "참여하는 중…",
+    "signedInAs": "{email}(으)로 로그인됨",
+    "alreadyMemberTitle": "이미 {team}의 멤버입니다",
+    "alreadyMemberTitleUnknown": "이미 이 팀의 멤버입니다",
+    "alreadyMemberBody": "팀을 열어 관리하세요.",
+    "openTeam": "팀 열기",
+    "mismatchTitle": "이 초대는 다른 계정용입니다",
+    "mismatchBody": "{email}(으)로 로그인되어 있지만 초대는 다른 주소로 전송되었습니다. 초대받은 주소로 로그인하거나, 이 계정에 해당 주소를 추가하고 인증하세요.",
+    "mismatchBodyUnknown": "초대가 다른 주소로 전송되었습니다. 초대받은 주소로 로그인하거나, 이 계정에 해당 주소를 추가하고 인증하세요.",
+    "switchAccount": "로그아웃하고 계정 전환",
+    "switching": "로그아웃 중…",
+    "switchFailed": "로그아웃할 수 없습니다. 다시 시도하세요.",
+    "invalidTitle": "이 초대는 더 이상 유효하지 않습니다",
+    "invalidBody": "만료되었거나, 취소되었거나, 이미 사용되었습니다. 팀 관리자에게 새 초대를 요청하세요.",
+    "goToTeams": "내 팀으로 이동"
   }
 }

@@ -40,6 +40,23 @@ cat > "$FAKE_BIN/xcrun" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'xcrun %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+if [ "${1:-}" = "notarytool" ]; then
+  key="" key_id="" issuer="" prev=""
+  for arg in "$@"; do
+    case "$prev" in
+      --key) key="$arg" ;;
+      --key-id) key_id="$arg" ;;
+      --issuer) issuer="$arg" ;;
+      --apple-id|--password|--team-id) echo "fake xcrun: Apple ID credentials must not be used" >&2; exit 90 ;;
+    esac
+    prev="$arg"
+  done
+  [ -f "$key" ] || { echo "fake xcrun: --key file missing" >&2; exit 91; }
+  [ "$(stat -c %a "$key" 2>/dev/null || stat -f %Lp "$key")" = 600 ] || { echo "fake xcrun: --key file must be mode 600" >&2; exit 92; }
+  [ "$(cat "$key")" = fixture-p8 ] || { echo "fake xcrun: --key file content" >&2; exit 93; }
+  [ "$key_id" = FIXTUREKEY ] && [ "$issuer" = fixture-issuer ] || { echo "fake xcrun: key id or issuer" >&2; exit 94; }
+  printf 'notary-key %s\n' "$key" >> "$CMUX_TEST_CALL_LOG"
+fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ]; then
   printf '{"id":"fixture-id","status":"%s"}\n' "${CMUX_TEST_NOTARY_STATUS:-Accepted}"
 fi
@@ -87,6 +104,8 @@ printf 'notarize-helper %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
 EOF
 chmod +x "$FAKE_BIN"/*
 
+FIXTURE_P8_BASE64="$(printf 'fixture-p8' | base64)"
+
 run_helper() {
   CMUX_TEST_CALL_LOG="$LOG" \
   CMUX_TEST_SOURCE_APP="$APP" \
@@ -103,9 +122,9 @@ run_helper() {
   CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
   CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$HELPER_STATE" \
   CMUX_APP_ENTITLEMENTS="$TMP_DIR/cmux.nightly.entitlements" \
-  APPLE_ID=fixture@example.com \
-  APPLE_APP_SPECIFIC_PASSWORD=fixture-password \
-  APPLE_TEAM_ID=FIXTURETEAM \
+  ASC_API_KEY_ID="${TEST_ASC_API_KEY_ID-FIXTUREKEY}" \
+  ASC_API_ISSUER_ID="${TEST_ASC_API_ISSUER_ID-fixture-issuer}" \
+  ASC_API_KEY_P8_BASE64="${TEST_ASC_API_KEY_P8_BASE64-$FIXTURE_P8_BASE64}" \
   APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
   "$SCRIPT" "$APP" "$DMG" "$IMMUTABLE"
 }
@@ -118,6 +137,29 @@ if ! grep -Fxq \
   echo "FAIL: nightly packaging did not finish the early Computer Use notarization" >&2
   exit 1
 fi
+if ! grep -q '^notary-key ' "$LOG"; then
+  echo "FAIL: notarytool did not authenticate with the team API key" >&2
+  exit 1
+fi
+while read -r _ key_path; do
+  if [ -e "$key_path" ]; then
+    echo "FAIL: decoded API key was left on disk: $key_path" >&2
+    exit 1
+  fi
+done < <(grep '^notary-key ' "$LOG")
+for missing in TEST_ASC_API_KEY_ID TEST_ASC_API_ISSUER_ID TEST_ASC_API_KEY_P8_BASE64; do
+  before="$(grep -c '^xcrun notarytool ' "$LOG" || true)"
+  rm -rf "$TMP_DIR/cmux-nightly-mount"
+  if (export "$missing="; run_helper) >/dev/null 2>&1; then
+    echo "FAIL: notarization must fail when ${missing#TEST_} is empty" >&2
+    exit 1
+  fi
+  if [ "$(grep -c '^xcrun notarytool ' "$LOG" || true)" != "$before" ]; then
+    echo "FAIL: notarytool ran without ${missing#TEST_}" >&2
+    exit 1
+  fi
+done
+echo "PASS: nightly notarization uses the team API key and deletes it"
 if [ "$(grep -c '^xcrun notarytool submit ' "$LOG")" -ne 1 ]; then
   echo "FAIL: expected exactly one notarization submission" >&2
   exit 1
@@ -212,9 +254,9 @@ CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
 CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
 CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
 CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
-APPLE_ID=fixture@example.com \
-APPLE_APP_SPECIFIC_PASSWORD=fixture-password \
-APPLE_TEAM_ID=FIXTURETEAM \
+ASC_API_KEY_ID=FIXTUREKEY \
+ASC_API_ISSUER_ID=fixture-issuer \
+ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
 APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
 "$SCRIPT" "$RC_APP" "$TMP_DIR/cmux-rc-macos.dmg" "$TMP_DIR/cmux-rc-immutable.dmg"
 for expected in \

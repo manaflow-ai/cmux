@@ -99,6 +99,55 @@ struct SurfaceCatalogTests {
         }
     }
 
+    @Test("A membership-less terminal placement still fails closed")
+    func membershiplessTerminalPlacementFailsClosed() throws {
+        // The membership-less preview allowance is for displays and forwarded
+        // ports only. A terminal with no view metadata has no local-preview
+        // reading, so it must keep failing closed rather than projecting with
+        // no remote provenance.
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog(live: live)
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        var resource = terminal(machine, "term_1")
+        resource.remoteViews = nil
+        catalog.upsert(resource)
+
+        #expect(throws: SurfaceCatalogError.unavailable(
+            resource.id,
+            reason: "remote placement data is unavailable"
+        )) {
+            try catalog.remoteView(
+                for: SurfaceResourcePlacement(resource: resource.id, remoteWorkspaceID: "a")
+            )
+        }
+    }
+
+    @Test("A display placement keeps its daemon tab identity")
+    func displayPlacementKeepsDaemonTabIdentity() throws {
+        // A display that really is a daemon tab must resolve to that tab. The
+        // membership-less allowance only applies when the resource carries no
+        // view metadata at all.
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog(live: live)
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let workspace = SurfaceRemoteWorkspace(id: "a", name: "Workspace a", index: 0, focused: true)
+        var resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .display, key: "display_1"),
+            title: "Display", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: workspace, remoteViews: nil, port: nil, url: nil
+        )
+        resource.remoteViews = [SurfaceRemoteView(tabID: "tab_d", workspace: workspace)]
+        catalog.upsert(resource)
+
+        let view = try catalog.remoteView(
+            for: SurfaceResourcePlacement(resource: resource.id, remoteWorkspaceID: "a")
+        )
+        #expect(view?.tabID == "tab_d")
+        #expect(view?.workspace.id == "a")
+    }
+
     @Test("Duplicate remote tab placement fails closed")
     func duplicateRemoteTabPlacementFailsClosed() throws {
         let machine = SurfaceMachineID.cloud("vivid-newt")

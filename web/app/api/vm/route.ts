@@ -1,3 +1,5 @@
+import { parseCreateNetworkPolicy } from "../../../services/vms/networkPolicyRoute";
+import { parseCreateAgentUpdates } from "../../../services/vms/agentUpdatesRoute";
 import {
   creatorFor,
   creatorUserIds,
@@ -42,6 +44,7 @@ import {
   type VmEntitlements,
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
+import { vcpusByMemoryMb } from "../../../services/vms/images/sizes";
 import {
   inferVmProviderForImage,
   resolveVmImage,
@@ -92,6 +95,7 @@ import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 // stuck-provisioning alert. The plan allows more (app/v1/responses/route.ts
 // uses 1800).
 export const maxDuration = 600;
+const VM_CREATE_ADMISSION_BUDGET_MS = 200;
 
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -100,6 +104,11 @@ export async function GET(request: Request): Promise<Response> {
     { "cmux.vm.operation": "list" },
     "/api/vm GET failed",
     async ({ user, span }) => {
+      // List traffic is the natural idle-path signal from the Cloud sidebar.
+      // Start warming only after auth so an unauthenticated poll cannot open a
+      // provider socket or database pool on every fresh function instance.
+      void preconnectCloudDb();
+      runAfterResponse(() => preconnectFreestyle());
       let billingTeamId: string | null = null;
       let listEntitlements: ReturnType<typeof resolveVmEntitlements> | null = null;
       const requestedBillingTeamId = requestedVmTeamIdFromRequest(request);
@@ -185,6 +194,11 @@ export async function GET(request: Request): Promise<Response> {
         // (epoch ms); null on paid plans or when the window is disabled. Clients
         // render countdowns from this instead of re-deriving the policy.
         freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
+        // "image" keeps the baked coding-agent pins; "latest" updates them on attach.
+        agentUpdates: entry.agentUpdates,
+        // Contract recorded when the provider attached cmux-tui. This is
+        // rollout metadata, not a live daemon probe.
+        cmuxTuiContract: entry.cmuxTuiContract,
       }));
       const limits = listEntitlements
         ? {
@@ -218,6 +232,11 @@ export async function GET(request: Request): Promise<Response> {
               const plan = upgradePlanForMemory(mb, listEntitlements.planId);
               return plan ? [[String(mb), plan]] : [];
             })),
+          // vCPUs for every size above, so a client labels a size without its own table.
+          vcpusByMemoryMb: vcpusByMemoryMb([
+            ...memoryOptionsMbForPlan(listEntitlements.planId, process.env),
+            ...lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
+          ]),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
           imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
@@ -231,9 +250,10 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  // Warm the Freestyle and database connections while the caller is being verified.
-  preconnectFreestyle();
-  preconnectCloudDb();
+  // Database warming is an optimization only: its driver may wait on a
+  // provider-controlled connect deadline, so it must never delay validation or
+  // turn an authenticated create into an unbounded database health check.
+  void preconnectCloudDb();
   return withAuthedVmApiRoute(
     request,
     "/api/vm",
@@ -242,7 +262,31 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
+      // Start the provider probe only after authentication. It is shared by
+      // concurrent creates, so the first authenticated request pays the cold
+      // connection once and unauthenticated traffic cannot consume provider
+      // capacity. The await below is bounded by the probe's own timeout.
+      const warmupStartedAt = performance.now();
+      const freestyleWarmup = preconnectFreestyle();
+      const connectionInitDuration = freestyleWarmup.then(
+        () => ({ durationMs: performance.now() - warmupStartedAt, endedAtMs: Date.now() }),
+      );
+      let admissionRecorded = false;
+      let admissionStartedAt = performance.now();
+      /** Records request validation even when it exits before provisioning. */
+      const recordAdmission = () => {
+        if (admissionRecorded) return;
+        admissionRecorded = true;
+        const durationMs = performance.now() - admissionStartedAt;
+        timing.record("admission", durationMs);
+        setSpanAttributes(span, {
+          "cmux.vm.admission_ms": Math.round(durationMs * 100) / 100,
+          "cmux.vm.admission_budget_ms": VM_CREATE_ADMISSION_BUDGET_MS,
+          "cmux.vm.admission_within_budget": durationMs <= VM_CREATE_ADMISSION_BUDGET_MS,
+        });
+      };
       setResponseFinalizer((response) => {
+        recordAdmission();
         timing.finish({ status: response.status });
         // Per-stage timings travel with the response too, so a client or a
         // smoke run sees where a create spent its time without Axiom.
@@ -265,6 +309,8 @@ export async function POST(request: Request): Promise<Response> {
       const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
+      const machineOptions = parseCreateMachineOptions(candidate);
+      if (!machineOptions.ok) return machineOptions.response;
 
       // Resolve provider/image only after the paid-plan boundary. A free or
       // unknown plan must receive `vm_requires_pro` without consulting
@@ -291,6 +337,19 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
 
+      // Only Freestyle creation needs this probe. Other providers must not
+      // wait behind an unrelated connection check, while the Freestyle path
+      // still overlaps the probe with authentication and request parsing.
+      if (provider === "freestyle") {
+        const connectionInit = await connectionInitDuration;
+        timing.record("connection_init", connectionInit.durationMs, { endedAtMs: connectionInit.endedAtMs });
+      }
+      // Admission starts after provider-specific connection readiness. Its
+      // budget describes only request validation; the durable begin_create
+      // phase is recorded inside the workflow and remains authoritative.
+      admissionStartedAt = performance.now();
+      recordAdmission();
+
       // Wire the machine to coderouter inside the workflow: the route token
       // is bound to the VM row id, so provisioning runs after the row exists
       // and before the provider call, and a failure fails the create.
@@ -316,6 +375,8 @@ export async function POST(request: Request): Promise<Response> {
         memoryMb,
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
+        networkPolicy: machineOptions.networkPolicy,
+        agentUpdates: machineOptions.agentUpdates,
         teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.
@@ -348,9 +409,19 @@ export async function POST(request: Request): Promise<Response> {
         // (~2 s measured) for data this response already had.
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
+        agentUpdates: created.agentUpdates,
       });
     },
   );
+}
+
+/** The create body's outbound network policy and agent-update setting. */
+function parseCreateMachineOptions(candidate: Record<string, unknown>) {
+  const networkPolicy = parseCreateNetworkPolicy(candidate.networkPolicy);
+  if (!networkPolicy.ok) return networkPolicy;
+  const agentUpdates = parseCreateAgentUpdates(candidate.agentUpdates);
+  if (!agentUpdates.ok) return agentUpdates;
+  return { ok: true as const, networkPolicy: networkPolicy.policy, agentUpdates: agentUpdates.setting };
 }
 
 /**

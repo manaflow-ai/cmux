@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
@@ -16,6 +15,7 @@ from claude_teams_test_utils import (
     accept_fixture_socket_authentication,
     resolve_cmux_cli,
 )
+from fake_socket_env import cli_environment, unwrap_capability
 
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
@@ -84,7 +84,7 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
                 return
             if accept_fixture_socket_authentication(line, self.wfile):
                 continue
-            request = json.loads(line.decode("utf-8"))
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
                     request["method"],
@@ -149,6 +149,11 @@ def creation_cases(command: str | None) -> list[tuple[str, list[str], str]]:
             ["new-workspace"],
             "workspace.create",
         ),
+        (
+            "workspace create",
+            ["workspace", "create"],
+            "workspace.create",
+        ),
     ]
     if command is None:
         return cases
@@ -166,15 +171,7 @@ def invoke_cli(
     subprocess.CompletedProcess[str],
     list[tuple[str, dict[str, object]]],
 ]:
-    env = os.environ.copy()
-    for key in [
-        "CMUX_SOCKET_PASSWORD",
-        "CMUX_SOCKET_CAPABILITY",
-        "CMUX_WORKSPACE_ID",
-        "CMUX_SURFACE_ID",
-        "CMUX_TAB_ID",
-    ]:
-        env.pop(key, None)
+    env = cli_environment()
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
     request_start = state.request_count()

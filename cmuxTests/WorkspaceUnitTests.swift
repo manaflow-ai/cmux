@@ -2372,6 +2372,69 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(palette.map(\.hex), ["#2244FF", "#00F5D4"])
     }
 
+    @MainActor
+    func testSettingsFileStoreResolvesWorkspaceColorsSubtleSelection() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().workspaceColors.subtleSelection.userDefaultsKey
+        let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+        let isolatedKeys = [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]
+        let previousValues = isolatedKeys.reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in isolatedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        isolatedKeys.forEach { defaults.removeObject(forKey: $0) }
+        XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "subtleSelection": true
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertTrue(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
+
+        // A non-boolean value is rejected, so the setting reverts to its default.
+        let invalidSettingsURL = directoryURL.appendingPathComponent("invalid.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "subtleSelection": "yes"
+              }
+            }
+            """,
+            to: invalidSettingsURL
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: invalidSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        XCTAssertFalse(SidebarTabItemSettingsSnapshot(defaults: defaults).subtleSelection)
+    }
+
     func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {
         let defaults = UserDefaults.standard
         let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
@@ -3513,6 +3576,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
+            initialTerminalIsRemote: Bool,
             initialTerminalInput: String?,
             initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
             initialTerminalStartsOnFirstVisit: Bool,
@@ -3532,6 +3596,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 configTemplate: configTemplate,
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
+                initialTerminalIsRemote: initialTerminalIsRemote,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
                 initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
@@ -3831,6 +3896,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialSurface: NewWorkspaceInitialSurface,
             initialTerminalCommand: String?,
+            initialTerminalIsRemote: Bool,
             initialTerminalInput: String?,
             initialTerminalStartupRestoreAgent: SessionRestorableAgentSnapshot?,
             initialTerminalStartsOnFirstVisit: Bool,
@@ -3850,6 +3916,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 configTemplate: configTemplate,
                 initialSurface: initialSurface,
                 initialTerminalCommand: initialTerminalCommand,
+                initialTerminalIsRemote: initialTerminalIsRemote,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalStartupRestoreAgent: initialTerminalStartupRestoreAgent,
                 initialTerminalStartsOnFirstVisit: initialTerminalStartsOnFirstVisit,
@@ -4911,7 +4978,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
         return window
     }
 
-    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
+    func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() throws {
         let workspace = Workspace()
         guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
             XCTFail("Expected focused pane in new workspace")
@@ -4920,6 +4987,10 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 
         let staleCurrentDirectory = workspace.currentDirectory
         let requestedDirectory = "/tmp/cmux-requested-split-cwd-\(UUID().uuidString)"
+        // A missing local cwd resolves to its nearest existing parent (#16248),
+        // so the requested directory must exist for the split to inherit it.
+        try FileManager.default.createDirectory(atPath: requestedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: requestedDirectory) }
         guard let sourcePanel = workspace.newTerminalSurface(
             inPane: sourcePaneId,
             focus: false,
@@ -7427,12 +7498,20 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
     }
 
-    func testSidebarBranchDirectoryEntriesStayStableAcrossFocusedSplitChanges() {
+    func testSidebarBranchDirectoryEntriesStayStableAcrossFocusedSplitChanges() throws {
         let workspace = Workspace()
-        let leftLiveDirectory = "/repo/left/live"
-        let rightFocusedDirectory = "/repo/right/focused"
-        let leftFocusedDirectory = "/repo/left/focused"
-        let rightRequestedDirectory = "/repo/right/requested"
+        // New splits resolve local cwds against the filesystem (#16248), so
+        // the inherited directories must exist.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-dirs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let leftLiveDirectory = root.appendingPathComponent("left/live", isDirectory: true).path
+        let rightFocusedDirectory = root.appendingPathComponent("right/focused", isDirectory: true).path
+        let leftFocusedDirectory = root.appendingPathComponent("left/focused", isDirectory: true).path
+        let rightRequestedDirectory = root.appendingPathComponent("right/requested", isDirectory: true).path
+        for directory in [leftLiveDirectory, rightFocusedDirectory, leftFocusedDirectory, rightRequestedDirectory] {
+            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        }
 
         guard let leftPanelId = workspace.focusedPanelId else {
             XCTFail("Expected initial focused panel")

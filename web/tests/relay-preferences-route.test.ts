@@ -32,12 +32,17 @@ function deps(overrides: Partial<RelayPreferenceDeps> = {}): RelayPreferenceDeps
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
+    isDevRateLimitBypassAllowed: () => false,
     ...overrides,
   };
 }
 
-function getRequest(): Request {
-  return new Request("https://cmux.dev/api/relay/preferences");
+function getRequest(clientNamespace?: string): Request {
+  return new Request("https://cmux.dev/api/relay/preferences", {
+    headers: clientNamespace
+      ? { "x-cmux-app-namespace": clientNamespace }
+      : undefined,
+  });
 }
 
 function putRequest(body: unknown): Request {
@@ -158,6 +163,24 @@ describe("/api/relay/preferences", () => {
     }));
     expect(limited.status).toBe(429);
     expect(await limited.json()).toEqual({ error: "rate_limited", source: "account_budget" });
+  });
+
+  test("skips preference limits for an authorized development team", async () => {
+    let checks = 0;
+    const response = await handleGetRelayPreference(
+      getRequest("dev.cmux.ios.grid"),
+      deps({
+        isVercel: () => true,
+        rateLimitRuleId: () => "relay-preference",
+        checkRateLimit: async () => {
+          checks += 1;
+          return { rateLimited: true };
+        },
+        isDevRateLimitBypassAllowed: () => true,
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(checks).toBe(0);
   });
 
   test("rejects unauthenticated callers", async () => {
