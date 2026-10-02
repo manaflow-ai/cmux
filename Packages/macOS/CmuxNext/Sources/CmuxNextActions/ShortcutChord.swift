@@ -1,7 +1,7 @@
 public import AppKit
 
 /// A two-key shortcut (`["ctrl+b", "c"]` in cmux.json), as the old app's
-/// tmux-style bindings: the first key arms it, the next key runs the action.
+/// Prefix-chord bindings: the first key arms it, the next key runs the action.
 /// The first key needs Command or Control, since only those reach the key
 /// router; the second may be a plain key.
 public nonisolated struct ShortcutChord: Hashable, Sendable {

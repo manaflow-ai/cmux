@@ -85,10 +85,6 @@ impl Tx<'_> {
         Ok(parent)
     }
 
-    fn last_sort_key(&self) -> Option<String> {
-        self.state.live_tasks().map(|t| t.sort_key.clone()).max()
-    }
-
     fn sort_key_taken(&self, key: &str, except: &str) -> bool {
         self.state.live_tasks().any(|t| t.sort_key == key && t.id != except)
     }
@@ -118,16 +114,24 @@ impl Tx<'_> {
         if let Some(due) = &p.due {
             validate_due(due)?;
         }
+        // A client key is used when valid and free; otherwise the task is
+        // appended after the last one (rebalancing if the keys ran out).
         let sort_key = match &p.sort_key {
             Some(k) if sort_key::is_valid(k) && !self.sort_key_taken(k, &p.id) => k.clone(),
-            _ => sort_key::between(self.last_sort_key().as_deref(), None).unwrap_or_else(|| "V".to_owned()),
+            _ => {
+                let last = self.ordered_ids(&p.id).last().cloned();
+                self.place(&p.id, last.as_deref(), None)
+            }
         };
         let number = self.state.settings.next_number;
         let mut task = Task {
             id: p.id.clone(),
             number,
             title,
-            description: Description { text: p.description.clone().unwrap_or_default(), version: 1 },
+            description: Description {
+                text: p.description.clone().unwrap_or_default(),
+                version: 1,
+            },
             status: status.clone(),
             priority: p.priority.unwrap_or(Priority::None),
             assignee,
@@ -203,7 +207,8 @@ impl Tx<'_> {
             return Err(invalid("project and clear_project are exclusive"));
         }
         if let Some(r) = &p.project {
-            next.project = Some(self.state.resolve_project(r).ok_or_else(|| not_found("project", r))?);
+            next.project =
+                Some(self.state.resolve_project(r).ok_or_else(|| not_found("project", r))?);
         } else if p.clear_project {
             next.project = None;
         }
@@ -275,24 +280,25 @@ impl Tx<'_> {
             }
         }
         if let Some(status) = new_status {
-            self.set_status(&id, &status, false);
+            self.set_status(&id, &status, StatusMove::Manual);
         }
         Ok(self.result_for_task(&id))
     }
 
-    /// Move a task to `status` and emit `task.status_changed`. `by_flow` marks
-    /// automatic agent-flow moves; explicit moves record `manual_status_at`.
-    pub(crate) fn set_status(&mut self, id: &str, status: &str, by_flow: bool) {
+    /// Move a task to `status` and emit `task.status_changed`. Only a manual
+    /// move that changes the status records `manual_status_at`, which stops
+    /// the agent flow from overriding it.
+    pub(crate) fn set_status(&mut self, id: &str, status: &str, mode: StatusMove) {
         let from_status = self.state.tasks[id].status.clone();
+        if from_status == status {
+            return;
+        }
         let from = self.state.statuses[&from_status].category;
         let to = self.state.statuses[status].category;
         let now = self.now;
         let task = self.state.tasks.get_mut(id).expect("validated task");
-        if !by_flow {
+        if mode == StatusMove::Manual {
             task.manual_status_at = Some(now);
-        }
-        if task.status == status {
-            return;
         }
         task.status = status.to_owned();
         task.updated_at = now;
@@ -304,44 +310,111 @@ impl Tx<'_> {
             json!({
                 "from": from_status, "to": status,
                 "from_category": from, "to_category": to,
-                "by_agent_flow": by_flow,
+                "by_agent_flow": mode == StatusMove::Flow,
+                "cascade": mode == StatusMove::Cascade,
             }),
         ));
     }
 
+    /// Live tasks in manual order, without `except`.
+    fn ordered_ids(&self, except: &str) -> Vec<String> {
+        let mut tasks: Vec<_> = self.state.live_tasks().filter(|t| t.id != except).collect();
+        tasks.sort_by(|a, b| a.sort_key.cmp(&b.sort_key));
+        tasks.into_iter().map(|t| t.id.clone()).collect()
+    }
+
+    /// A free key for `id` between the tasks `after` and `before` (ids, both
+    /// already neighbours in manual order). When the gap is used up (the key
+    /// would pass `sort_key::MAX_LEN`), every other live task gets a fresh
+    /// evenly spaced key first, in the same commit (owner rebalance).
+    pub(crate) fn place(&mut self, id: &str, after: Option<&str>, before: Option<&str>) -> String {
+        let key_of = |tx: &Self, t: Option<&str>| t.map(|t| tx.state.tasks[t].sort_key.clone());
+        let lower = key_of(self, after);
+        let upper = key_of(self, before);
+        if let Some(key) = sort_key::between(lower.as_deref(), upper.as_deref())
+            && !self.sort_key_taken(&key, id)
+        {
+            return key;
+        }
+        self.rebalance(id);
+        let lower = key_of(self, after);
+        let upper = key_of(self, before);
+        sort_key::between(lower.as_deref(), upper.as_deref()).expect("a rebalanced gap has room")
+    }
+
+    fn rebalance(&mut self, except: &str) {
+        let order = self.ordered_ids(except);
+        // Even keys with room between them: every second key of a sequence.
+        let keys = sort_key::sequence(order.len() * 2);
+        for (index, task_id) in order.iter().enumerate() {
+            let key = keys[index * 2 + 1].clone();
+            let task = self.state.tasks.get_mut(task_id).expect("live task");
+            if task.sort_key != key {
+                task.sort_key = key;
+                let snapshot = task.clone();
+                self.events.push(EventKind::upsert(
+                    "task.moved",
+                    Entity::Task(Box::new(snapshot)),
+                    json!({"rebalance": true}),
+                ));
+            }
+        }
+    }
+
     pub(super) fn task_move(&mut self, p: &TaskMove) -> Result<OpResult, Reject> {
         let id = self.task_id(&p.task)?;
-        let key_of = |tx: &Self, r: &Option<String>| -> Result<Option<String>, Reject> {
+        let neighbour = |tx: &Self, r: &Option<String>| -> Result<Option<String>, Reject> {
             match r {
                 Some(r) => {
                     let other = tx.task_id(r)?;
                     if other == id {
                         return Err(invalid("a task cannot be placed next to itself"));
                     }
-                    Ok(Some(tx.state.tasks[&other].sort_key.clone()))
+                    Ok(Some(other))
                 }
                 None => Ok(None),
             }
         };
-        let after = key_of(self, &p.after)?;
-        let before = key_of(self, &p.before)?;
-        let key = match (&after, &before) {
-            (None, None) => sort_key::between(self.last_sort_key().as_deref(), None),
-            _ => sort_key::between(after.as_deref(), before.as_deref()),
-        }
-        .ok_or_else(|| invalid("after must sort before before"))?;
-        if self.sort_key_taken(&key, &id) {
-            return Err(conflict("sort key collision; read again and retry"));
-        }
+        let after = neighbour(self, &p.after)?;
+        let before = neighbour(self, &p.before)?;
+        let order = self.ordered_ids(&id);
+        let position = |t: &str| order.iter().position(|o| o == t).expect("live task");
+        // Complete the gap: one named neighbour implies the other.
+        let (after, before) = match (after, before) {
+            (Some(a), Some(b)) => {
+                if position(&a) >= position(&b) {
+                    return Err(invalid("after must sort before before"));
+                }
+                (Some(a), Some(b))
+            }
+            (Some(a), None) => {
+                let next = order.get(position(&a) + 1).cloned();
+                (Some(a), next)
+            }
+            (None, Some(b)) => {
+                let previous = position(&b).checked_sub(1).map(|i| order[i].clone());
+                (previous, Some(b))
+            }
+            (None, None) => (order.last().cloned(), None),
+        };
+        let key = self.place(&id, after.as_deref(), before.as_deref());
         let task = self.state.tasks.get_mut(&id).expect("validated task");
         task.sort_key = key;
         task.updated_at = self.now;
         let snapshot = task.clone();
-        self.events.push(EventKind::upsert("task.moved", Entity::Task(Box::new(snapshot)), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.moved",
+            Entity::Task(Box::new(snapshot)),
+            serde_json::Value::Null,
+        ));
         Ok(self.result_for_task(&id))
     }
 
-    pub(super) fn task_set_archived(&mut self, reference: &str, archived: bool) -> Result<OpResult, Reject> {
+    pub(super) fn task_set_archived(
+        &mut self,
+        reference: &str,
+        archived: bool,
+    ) -> Result<OpResult, Reject> {
         let id = self.task_id(reference)?;
         let task = self.state.tasks.get_mut(&id).expect("validated task");
         if task.archived != archived {
@@ -349,7 +422,11 @@ impl Tx<'_> {
             task.updated_at = self.now;
             let snapshot = task.clone();
             let kind = if archived { "task.archived" } else { "task.unarchived" };
-            self.events.push(EventKind::upsert(kind, Entity::Task(Box::new(snapshot)), serde_json::Value::Null));
+            self.events.push(EventKind::upsert(
+                kind,
+                Entity::Task(Box::new(snapshot)),
+                serde_json::Value::Null,
+            ));
         }
         Ok(self.result_for_task(&id))
     }
@@ -369,7 +446,12 @@ impl Tx<'_> {
             .collect();
         for relation in relations {
             self.state.relations.remove(&relation);
-            self.events.push(EventKind::remove("task.relation.removed", "relation", &relation, json!({"cascade": true})));
+            self.events.push(EventKind::remove(
+                "task.relation.removed",
+                "relation",
+                &relation,
+                json!({"cascade": true}),
+            ));
         }
         let children: Vec<String> = self
             .state
@@ -383,7 +465,11 @@ impl Tx<'_> {
             task.parent = None;
             task.updated_at = self.now;
             let snapshot = task.clone();
-            self.events.push(EventKind::upsert("task.updated", Entity::Task(Box::new(snapshot)), json!({"fields": ["parent"], "cascade": true})));
+            self.events.push(EventKind::upsert(
+                "task.updated",
+                Entity::Task(Box::new(snapshot)),
+                json!({"fields": ["parent"], "cascade": true}),
+            ));
         }
         let sessions: Vec<String> = self.state.active_sessions(&id).map(|s| s.id.clone()).collect();
         for session in sessions {
@@ -395,9 +481,21 @@ impl Tx<'_> {
         task.attention = None;
         task.updated_at = self.now;
         let snapshot = task.clone();
-        self.events.push(EventKind::upsert("task.deleted", Entity::Task(Box::new(snapshot)), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.deleted",
+            Entity::Task(Box::new(snapshot)),
+            serde_json::Value::Null,
+        ));
         Ok(result)
     }
+}
+
+/// Why a status changes (only `Manual` blocks the agent flow).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StatusMove {
+    Manual,
+    Flow,
+    Cascade,
 }
 
 /// Keep `started_at`, `completed_at` and `canceled_at` consistent with the category.

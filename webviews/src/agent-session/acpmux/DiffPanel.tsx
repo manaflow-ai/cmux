@@ -1,4 +1,4 @@
-// The changes one turn made, after the Codex Changes pane in manaflow-ai/codex-atlas-clone
+// The changes one turn made, ported from the changes pane in the agent-pane reference prototype
 // (src/changes/parts/Header.tsx, DiffList.tsx and ChangesTree.tsx): a pill with the totals,
 // a round toolbar, stacked per-file diffs on @pierre/diffs with a custom file header, and a
 // filterable @pierre/trees file tree.
@@ -163,7 +163,7 @@ export function DiffPanel({
           return next;
         });
       },
-      // Marking a file viewed folds it away, as in Codex; unmarking opens it again.
+      // Marking a file viewed folds it away; unmarking opens it again.
       toggleViewed: (path) => {
         revealing.current = undefined;
         const marking = !viewed.has(path);

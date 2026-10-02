@@ -25,6 +25,9 @@ public enum PaletteKeyCommand: Equatable, Sendable {
     case escape
     /// Backspace in an empty field: pop a page.
     case back
+    /// Cmd-W: run the selected row's `closeCommand` and keep the palette
+    /// open. Not consumed when the row has none.
+    case closeItem
     /// Typing while the Actions menu is open filters it.
     case actionsFilterAppend(String)
     case actionsFilterDeleteBackward

@@ -21,7 +21,7 @@ enum PaneHandlers {
 
     /// The pane next to `pane` in `direction` on its screen, by displayed
     /// frames and the window's focus history (the most recently focused of
-    /// several adjacent panes, and of a niri column; focus.md section 4a).
+    /// several adjacent panes, and of a strip column; focus.md section 4a).
     static func neighbor(of pane: LayoutPaneID, direction: LayoutDirection, in content: WorkspaceContentController) -> LayoutPaneID? {
         guard let screen = content.layoutModel.screen(containing: pane) else { return nil }
         // One logical line: sticky columns before and after the strip.

@@ -63,6 +63,12 @@
       "title" : "Color",
       "type" : "string"
     },
+    "appearance.statusIndicator.honorStatusStyle" : {
+      "default" : true,
+      "description" : "A status that asks for a style (cmux status set --style) uses it.",
+      "title" : "Let Statuses Choose Their Style",
+      "type" : "boolean"
+    },
     "appearance.statusIndicator.size" : {
       "default" : 1,
       "description" : "appearance.statusIndicator.size",
@@ -132,7 +138,7 @@
       "default" : [
 
       ],
-      "description" : "Hosts such as mail.google.com or *.figma.com.",
+      "description" : "Hosts such as mail.google.com or *.example.com.",
       "items" : {
         "type" : "string"
       },
@@ -585,6 +591,34 @@
       "minimum" : 0.10000000000000001,
       "title" : "Top Sections Height",
       "type" : "number"
+    },
+    "status.inferCommandBusy" : {
+      "default" : true,
+      "description" : "A shell command that runs a while shows as busy.",
+      "title" : "Show Running Commands",
+      "type" : "boolean"
+    },
+    "status.inferCommandBusyAfter" : {
+      "default" : 3,
+      "description" : "status.inferCommandBusyAfter",
+      "maximum" : 600,
+      "minimum" : 0,
+      "title" : "Show After",
+      "type" : "number"
+    },
+    "status.runNotifyMinimumSeconds" : {
+      "default" : 10,
+      "description" : "cmux status run notifies when the command took at least this long.",
+      "maximum" : 3600,
+      "minimum" : 0,
+      "title" : "Notify When a Run Takes",
+      "type" : "number"
+    },
+    "status.runNotifyWhenVisible" : {
+      "default" : false,
+      "description" : "status.runNotifyWhenVisible",
+      "title" : "Notify Even When the Terminal Is Visible",
+      "type" : "boolean"
     },
     "ui.animationSpeed" : {
       "default" : "fast",

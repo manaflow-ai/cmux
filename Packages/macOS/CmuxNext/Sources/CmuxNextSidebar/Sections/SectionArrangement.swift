@@ -12,11 +12,12 @@ public nonisolated struct SectionArrangement: Hashable, Sendable, Codable {
         /// icons only when they do not, a second line only when icons do
         /// not fit either.
         case inline
-        /// Tiles in columns (Arc's pinned tiles).
+        /// Tiles in columns.
         case grid
     }
 
-    /// Where leftover space on a line goes (inline and grid).
+    /// Where leftover space on a line goes (inline, and grid with fixed
+    /// columns; a grid with fitted columns stretches its tiles instead).
     public enum Alignment: String, Hashable, Sendable, Codable, CaseIterable {
         case leading
         case center
@@ -41,7 +42,7 @@ public nonisolated struct SectionArrangement: Hashable, Sendable, Codable {
 
     public static let list = SectionArrangement()
     public static let inline = SectionArrangement(layout: .inline)
-    public static let grid = SectionArrangement(layout: .grid, align: .fill)
+    public static let grid = SectionArrangement(layout: .grid)
 
     /// Valid ranges (invariant L4).
     public static let gapRange = 0...32
@@ -51,8 +52,10 @@ public nonisolated struct SectionArrangement: Hashable, Sendable, Codable {
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        layout = try c.decodeIfPresent(Layout.self, forKey: .layout) ?? .list
-        align = try c.decodeIfPresent(Alignment.self, forKey: .align) ?? (layout == .grid ? .fill : .leading)
+        // Unknown values (from a newer app) fall back instead of failing the
+        // whole document (L5); this client never writes the document back.
+        layout = (try? c.decodeIfPresent(String.self, forKey: .layout)).flatMap(Layout.init(rawValue:)) ?? .list
+        align = (try? c.decodeIfPresent(String.self, forKey: .align)).flatMap(Alignment.init(rawValue:)) ?? .leading
         gap = try c.decodeIfPresent(Int.self, forKey: .gap)
         columns = try c.decodeIfPresent(Int.self, forKey: .columns)
     }

@@ -1,0 +1,14 @@
+{
+  "name": "cmux.opener/1",
+  "version": 1,
+  "docs": "Open a URL scheme or file type.",
+  "props": {
+    "types": "string[]",
+    "schemes": "string[]"
+  },
+  "methods": {
+    "open": "(handle|url) -> void"
+  },
+  "events": [],
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

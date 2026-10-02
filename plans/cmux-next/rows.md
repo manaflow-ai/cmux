@@ -1,15 +1,12 @@
 # cmux next: rows (each column a vertical strip of rows)
 
 Status: design 2026-10-01, not implemented. Owner: rows lead (branch `feat-cmux-next-rows`).
-User request (verbatim): "potentially we want to support rows in addition to columns so we go
-beyond niri. so potentially we want D and shift d. but then we'll need new shortcut for the
-zellij equivalent of cmd ctrl n? wait we won't right?? u should start agent on niri-like rows
-(in addition to columns) remember to be careful about ownership, same way that columns stuff
-lives in rust right? well need pretty big rust changes for this, make sure to design it to be
-perfectly cohesive".
+User request (2026-10-01, paraphrased): support rows in addition to columns, with D-based
+chords for new columns and new rows; check whether the auto-layout pane chord (Cmd-Ctrl-N)
+needs a new shortcut; keep ownership in Rust as for columns; design it to be cohesive.
 
 Binding: OWNERSHIP-PRINCIPLES.md, layout-invariants.md, column-sizing.md, sticky-column.md,
-niri.md. Formal model: `formal/LayoutRows.tla`.
+column-scroll.md. Formal model: `formal/LayoutRows.tla`.
 
 ## Answer: Cmd-Ctrl-N needs no new shortcut
 
@@ -53,12 +50,12 @@ action-surfaces lead); Open Diff Viewer moves to Cmd-Ctrl-Shift-G, and
 
 A column is a vertical band of the screen's horizontal strip. A row is a horizontal band of its
 column's vertical strip. The row is to the column what the column is to the screen: the same
-niri rules, transposed. Today's column is exactly a column with one row of full height, so
+column scroll rules, transposed. Today's column is exactly a column with one row of full height, so
 nothing changes until a column gets a second row.
 
 Strongest objection: a "row" in (c) is not a screen-wide band. Two columns scroll vertically on
 their own, so the screen can look ragged (column A shows its first row while column B shows its
-third), and a user who expects a spreadsheet row that spans every column gets bands per column.
+third), and a user who expects a row that spans every column gets bands per column.
 Answer: screen-wide vertical stacking already exists as screens; a screen-wide band would make
 the new-row command move every column off screen, which is the "make room by squashing or
 hiding everything else" behavior that Ctrl chords exist to avoid. The ragged look is a view
@@ -71,7 +68,7 @@ terminal belongs to scrollback, so rows cannot take plain vertical wheel events 
 ```
 Screen { columns: [Column] }                          // horizontal strip, unchanged
 Column { id, width_permille, sticky?, rows: [Row] }    // rows non-empty
-Row    { id, height_permille, root: SplitTree, zellij_auto_layout? }  // id never reused
+Row    { id, height_permille, root: SplitTree, creation_order_auto_layout? }  // id never reused
 SplitTree = Leaf(pane) | Split { id, dir, ratio_permille, a, b } | Stack { panes, expanded }
 ```
 
@@ -201,16 +198,16 @@ Daemon (cmux-tui) under capability `rows-v1`:
 
 - Undo: `ScreenLayoutSnapshot` holds the columns with their rows, so `undo-layout` covers rows.
 - Model change in `model.rs`: `LayoutColumn.root` becomes `rows: Vec<LayoutRow>` (non-empty by
-  construction, like `StackPanes`); `zellij_auto_layout` moves to the row. `Screen::root` stays
+  construction, like `StackPanes`); `creation_order_auto_layout` moves to the row. `Screen::root` stays
   the compat projection for split-tree consumers. The TUI frontend renders rows as a vertical
   chain that fits the height until it gets row scrolling (step 6).
 
 ## Geometry
 
-- G1. A row's height is a share of the column's viewport height, gaps included like niri W3:
+- G1. A row's height is a share of the column's viewport height, gaps included as for column widths:
   `(view - gap) * p - gap`.
 - G2. Fill under, scroll over: when a column's heights sum to at most 1000, its rows fill the
-  column in proportion (niri windows in a column fill its height); above 1000 the rows keep their
+  column in proportion (as stacked panes fill a column today); above 1000 the rows keep their
   heights and the column scrolls vertically. One full-height row is today's column.
 - G3. New Row height: `layout.newRowHeight` = `matchCurrent` (default: the focused row's stored
   height, so a full-height row gives a full-height new row) | `fitScreen` (the column's rows
@@ -229,9 +226,9 @@ Daemon (cmux-tui) under capability `rows-v1`:
   rows (a row pinned to its column's top or bottom edge, same rules as sticky columns) are not
   in `rows-v1`; the field name `sticky` on rows is reserved.
 
-## Viewport (client view state; niri rules on the vertical axis)
+## Viewport (client view state; column scroll rules on the vertical axis)
 
-The column scroll reducer (`ColumnScrollState.reduce`, niri.md) becomes axis-generic
+The column scroll reducer (`ColumnScrollState.reduce`, the column scroll plan) becomes axis-generic
 (`StripScrollState<Axis>`): the horizontal strip uses it as today, and each column with more
 than 1000‰ of rows, sticky columns included, gets its own vertical instance keyed by column id.
 `ColumnViewOffset.fit` keeps its semantics (stay if visible, else the nearer edge) so the
@@ -240,7 +237,7 @@ close-focus lead's strip model check stays valid. The close-focus lead's `ListVi
 `CmuxNextDesign/CloseFocus`, with `FocusAfterClose` and `FocusTopology.screens`) is reused for
 the row axis; the app step builds on 6553984ff79 or later.
 
-- V1. Reveal (niri F1 to F7 transposed): the focused row plus padding fully visible means no
+- V1. Reveal (column scroll rules F1 to F7, transposed): the focused row plus padding fully visible means no
   motion; otherwise align the edge that needs less motion; `layout.centerFocusedRow` mirrors
   `layout.centerFocusedColumn` (default `never`).
 - V2. Camera anchor (L1 to L7 transposed): inserting, removing or resizing a row keeps the
@@ -356,7 +353,7 @@ cmux-tui serves `rows-v1` (awaitingPin until the pin owner cuts a pin).
   Details in formal/README.md.
 - proptest in `cmux-layout-reducer`: random sequences that include the row ops, invariants R1 to
   R5 and idempotent replay; daemon sequences that compare the reducer with the live result.
-- Swift: seeded property tests for the drop resolver with rows, the vertical strip reducer (niri
+- Swift: seeded property tests for the drop resolver with rows, the vertical strip reducer (column scroll
   tests transposed), geometry G1 to G4, decode of `rows` and the compat chain.
 - Live (tagged no-activate build, screenshots): New Row reveal, row scroll with the modifier,
   drop between rows, close of the last pane of a row, rows inside a sticky column, an old app

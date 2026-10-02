@@ -6,20 +6,25 @@ public import CoreGraphics
 public nonisolated enum SidebarBandHeights {
     /// Heights of the bands above and below the list in `available`
     /// points. With scrolling on, each band stops at its share and scrolls
-    /// inside. With it off, the bands take their full content and the list
-    /// shrinks, down to `minimumList`; past that both bands shrink in
-    /// proportion and scroll as a last resort. Sections' `maxRows` caps
-    /// apply in both modes.
+    /// inside; with it off, each takes its full content. Either way the two
+    /// together leave the list `minimumList` (they shrink in proportion and
+    /// scroll inside), but each band keeps at least `bandFloor` of its
+    /// content (one row: Home and Settings never vanish), even when that
+    /// leaves the list less. Sections' `maxRows` caps apply in both modes.
     public static func resolve(above: SidebarRegionLayout, below: SidebarRegionLayout, available: CGFloat,
-                               preferences p: SidebarSectionsPreferences, minimumList: CGFloat) -> (above: CGFloat, below: CGFloat) {
+                               preferences p: SidebarSectionsPreferences, minimumList: CGFloat,
+                               bandFloor: CGFloat = 0) -> (above: CGFloat, below: CGFloat) {
+        var a = above.cappedHeight, b = below.cappedHeight
         if p.stickyBandsScroll {
-            return (above.stickyHeight(available: available, share: CGFloat(p.topBandMaxShare)),
-                    below.stickyHeight(available: available, share: CGFloat(p.bottomBandMaxShare)))
+            a = above.stickyHeight(available: available, share: CGFloat(p.topBandMaxShare))
+            b = below.stickyHeight(available: available, share: CGFloat(p.bottomBandMaxShare))
         }
-        let a = above.cappedHeight, b = below.cappedHeight
         let room = max(0, available - minimumList)
-        guard a + b > room, a + b > 0 else { return (a, b) }
-        let scale = room / (a + b)
-        return (floor(a * scale), floor(b * scale))
+        if a + b > room, a + b > 0 {
+            let scale = room / (a + b)
+            a = floor(a * scale)
+            b = floor(b * scale)
+        }
+        return (max(a, min(above.cappedHeight, bandFloor)), max(b, min(below.cappedHeight, bandFloor)))
     }
 }

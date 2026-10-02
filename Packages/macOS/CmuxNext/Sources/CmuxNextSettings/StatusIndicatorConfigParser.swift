@@ -15,6 +15,43 @@ enum StatusIndicatorConfigParser {
         }
         if let value = reader.points("thickness", range: StatusIndicatorSettings.thicknessRange) { settings.thickness = value }
         if let value = reader.color("color") { settings.color = value }
+        if let value = honoredSources(reader.members["honorStatusStyle"]) {
+            settings.honoredStyleSources = value
+        } else if reader.members["honorStatusStyle"] != nil {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.statusIndicator.honorStatusStyle",
+                                                  message: "expected true, false or a list of sources"))
+        }
+        diagnostics += reader.diagnostics
+        return settings
+    }
+
+    /// `true` (every source), `false` (none) or a list of source names.
+    static func honoredSources(_ value: JSONValue?) -> Set<StatusReport.Source>? {
+        guard let value else { return nil }
+        if let bool = value.boolValue { return bool ? Set(StatusReport.Source.allCases) : [] }
+        guard let items = value.arrayValue else { return nil }
+        var sources = Set<StatusReport.Source>()
+        for item in items {
+            guard let name = item.stringValue, let source = StatusReport.Source(rawValue: name) else { return nil }
+            sources.insert(source)
+        }
+        return sources
+    }
+
+    static let behaviorPath = ["status"]
+
+    /// `status.*`: inferred command busy and run notifications.
+    static func behavior(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> StatusBehaviorSettings {
+        var settings = StatusBehaviorSettings()
+        guard var reader = ConfigFieldReader(root, at: behaviorPath, diagnostics: &diagnostics) else { return settings }
+        if let value = reader.bool("inferCommandBusy") { settings.inferCommandBusy = value }
+        if let value = reader.number("inferCommandBusyAfter", range: StatusBehaviorSettings.inferAfterRange) {
+            settings.inferCommandBusyAfter = value
+        }
+        if let value = reader.number("runNotifyMinimumSeconds", range: StatusBehaviorSettings.runNotifyRange) {
+            settings.runNotifyMinimumSeconds = value
+        }
+        if let value = reader.bool("runNotifyWhenVisible") { settings.runNotifyWhenVisible = value }
         diagnostics += reader.diagnostics
         return settings
     }

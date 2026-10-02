@@ -2562,6 +2562,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "tab search",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "tab.search",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "tab move-to-new-workspace",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5580,6 +5591,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "liveInput",
+      "cli_name" : "action agent-pane-search-chats",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.searchChats",
+      "mcp" : "liveInput",
+      "palette" : "offered"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "agent open-terminal-as-chat",
       "context_menu" : "noObject",
@@ -7493,12 +7515,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "sidebar remove-from-sidebar",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarItem"
+      ],
+      "id" : "sidebar.item.removeEverywhere",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "sidebar remove-item",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarItem"
       ],
       "id" : "sidebar.item.remove",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar hide-app",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarItem"
+      ],
+      "id" : "sidebar.item.hideApp",
       "mcp" : "offered",
       "palette" : "offered"
     },
@@ -7720,6 +7764,50 @@
         "sidebarBackground"
       ],
       "id" : "sidebar.layout.reset",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action app-store-show",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "id" : "appStore.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action app-store-show-installed",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "appStore.showInstalled",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "apps hide",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "app.hide",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "apps unhide",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "app.unhide",
       "mcp" : "offered",
       "palette" : "offered"
     }

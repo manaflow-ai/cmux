@@ -1,7 +1,7 @@
 /// The engine's timer source: one-shot sleeps, cancelled with their task.
 /// Injected so tests drive timers deterministically (idle-wakeups.md:
 /// nothing polls; an app timer is one sleep per firing).
-public protocol AppEngineClock: Sendable {
+public nonisolated protocol AppEngineClock: Sendable {
     func delay(for duration: Duration) async throws
 }
 

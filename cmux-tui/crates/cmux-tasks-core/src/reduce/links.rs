@@ -43,12 +43,15 @@ impl Tx<'_> {
         }
         super::tasks::validate_text(&p.body, "comment")?;
         if let Some(parent) = &p.reply_to {
-            let parent = self.state.comments.get(parent).ok_or_else(|| not_found("comment", parent))?;
+            let parent =
+                self.state.comments.get(parent).ok_or_else(|| not_found("comment", parent))?;
             if parent.task != task {
                 return Err(invalid("reply_to belongs to another task"));
             }
             if parent.reply_to.is_some() {
-                return Err(invalid("threads are one level deep; reply to the thread's first comment"));
+                return Err(invalid(
+                    "threads are one level deep; reply to the thread's first comment",
+                ));
             }
         }
         let comment = Comment {
@@ -63,12 +66,17 @@ impl Tx<'_> {
             deleted: false,
         };
         self.state.comments.insert(comment.id.clone(), comment.clone());
-        self.events.push(EventKind::upsert("task.comment.created", Entity::Comment(comment), json!({"task": task})));
+        self.events.push(EventKind::upsert(
+            "task.comment.created",
+            Entity::Comment(comment),
+            json!({"task": task}),
+        ));
         Ok(OpResult { id: p.id.clone(), key: self.result_for_task(&task).key })
     }
 
     fn own_comment(&self, id: &str) -> Result<Comment, Reject> {
-        let comment = self.state.comments.get(id).cloned().ok_or_else(|| not_found("comment", id))?;
+        let comment =
+            self.state.comments.get(id).cloned().ok_or_else(|| not_found("comment", id))?;
         if comment.deleted {
             return Err(not_found("comment", id));
         }
@@ -85,7 +93,10 @@ impl Tx<'_> {
         }
         super::tasks::validate_text(&p.body, "comment")?;
         if comment.version != p.if_version {
-            return Err(conflict(format!("comment changed: version {} is current", comment.version)));
+            return Err(conflict(format!(
+                "comment changed: version {} is current",
+                comment.version
+            )));
         }
         let c = self.state.comments.get_mut(&p.comment).expect("validated comment");
         c.body = p.body.clone();
@@ -93,7 +104,11 @@ impl Tx<'_> {
         c.edited_at = Some(self.now);
         let snapshot = c.clone();
         let task = snapshot.task.clone();
-        self.events.push(EventKind::upsert("task.comment.updated", Entity::Comment(snapshot), json!({"task": task})));
+        self.events.push(EventKind::upsert(
+            "task.comment.updated",
+            Entity::Comment(snapshot),
+            json!({"task": task}),
+        ));
         Ok(OpResult { id: p.comment.clone(), key: self.result_for_task(&task).key })
     }
 
@@ -105,7 +120,11 @@ impl Tx<'_> {
         c.edited_at = Some(self.now);
         let snapshot = c.clone();
         let task = snapshot.task.clone();
-        self.events.push(EventKind::upsert("task.comment.deleted", Entity::Comment(snapshot), json!({"task": task})));
+        self.events.push(EventKind::upsert(
+            "task.comment.deleted",
+            Entity::Comment(snapshot),
+            json!({"task": task}),
+        ));
         Ok(OpResult { id: id.to_owned(), key: self.result_for_task(&task).key })
     }
 
@@ -134,7 +153,11 @@ impl Tx<'_> {
         }
         let relation = Relation { id: p.id.clone(), kind: p.kind, from: from.clone(), to };
         self.state.relations.insert(relation.id.clone(), relation.clone());
-        self.events.push(EventKind::upsert("task.relation.added", Entity::Relation(relation), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.relation.added",
+            Entity::Relation(relation),
+            serde_json::Value::Null,
+        ));
         Ok(OpResult { id: p.id.clone(), key: self.result_for_task(&from).key })
     }
 
@@ -142,7 +165,12 @@ impl Tx<'_> {
         if self.state.relations.remove(id).is_none() {
             return Err(not_found("relation", id));
         }
-        self.events.push(EventKind::remove("task.relation.removed", "relation", id, serde_json::Value::Null));
+        self.events.push(EventKind::remove(
+            "task.relation.removed",
+            "relation",
+            id,
+            serde_json::Value::Null,
+        ));
         Ok(OpResult { id: id.to_owned(), key: None })
     }
 }

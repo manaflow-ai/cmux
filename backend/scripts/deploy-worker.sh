@@ -42,4 +42,16 @@ fi
 if [ "$env_name" = staging ] || [ "$env_name" = production ]; then
   (cd ../../db && bun migrate.ts --env "$env_name" --verify)
 fi
-./node_modules/.bin/wrangler deploy --env "$env_name" "${extra[@]}" --secrets-file "$secrets"
+# Workflow names are account-wide: a preview gets its own (`cmux-automation-run-preview-<n>`)
+# instead of taking over development's. The generated config sits next to the real one so
+# relative paths still resolve; it is removed on exit.
+config=(--config wrangler.jsonc)
+case "$target" in
+  preview-*)
+    preview_config="wrangler.${target}.generated.jsonc"
+    trap 'rm -f "$secrets" "$preview_config"' EXIT
+    sed "s/\"cmux-automation-run-development\"/\"cmux-automation-run-${target}\"/" wrangler.jsonc > "$preview_config"
+    grep -q "cmux-automation-run-${target}" "$preview_config" || { echo "preview workflow rename failed" >&2; exit 1; }
+    config=(--config "$preview_config") ;;
+esac
+./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" --secrets-file "$secrets"

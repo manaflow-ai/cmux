@@ -14,13 +14,16 @@ public nonisolated enum SidebarLayoutOp: Hashable, Sendable, Codable {
     /// Move an item to `section` at `index` (excluding itself).
     case itemMove(LayoutItemID, section: LayoutSectionID, index: Int)
     case itemRemove(LayoutItemID)
+    /// Remove every item with this ref, in every section ("Remove from
+    /// Sidebar"; `itemRemove` is "Remove from Section").
+    case itemRemoveRef(LayoutItemRef)
     /// Show or hide an item's label on an inline line.
     case itemUpdate(LayoutItemID, showsLabel: Bool)
     /// Back to `SidebarLayoutDocument.defaults`.
     case reset
 
     enum CodingKeys: String, CodingKey {
-        case kind, section, index, id, patch, region, item
+        case kind, section, index, id, patch, region, item, ref
         case showsLabel = "shows_label"
     }
 
@@ -44,6 +47,8 @@ public nonisolated enum SidebarLayoutOp: Hashable, Sendable, Codable {
                              index: try c.decode(Int.self, forKey: .index))
         case "item.remove":
             self = .itemRemove(try c.decode(LayoutItemID.self, forKey: .id))
+        case "item.remove_ref":
+            self = .itemRemoveRef(try c.decode(LayoutItemRef.self, forKey: .ref))
         case "item.update":
             self = .itemUpdate(try c.decode(LayoutItemID.self, forKey: .id), showsLabel: try c.decode(Bool.self, forKey: .showsLabel))
         case "layout.reset":
@@ -79,6 +84,8 @@ public nonisolated enum SidebarLayoutOp: Hashable, Sendable, Codable {
             try c.encode(index, forKey: .index)
         case let .itemRemove(id):
             try c.encode(id, forKey: .id)
+        case let .itemRemoveRef(ref):
+            try c.encode(ref, forKey: .ref)
         case let .itemUpdate(id, showsLabel):
             try c.encode(id, forKey: .id)
             try c.encode(showsLabel, forKey: .showsLabel)
@@ -97,6 +104,7 @@ public nonisolated enum SidebarLayoutOp: Hashable, Sendable, Codable {
         case .itemAdd: "item.add"
         case .itemMove: "item.move"
         case .itemRemove: "item.remove"
+        case .itemRemoveRef: "item.remove_ref"
         case .itemUpdate: "item.update"
         case .reset: "layout.reset"
         }

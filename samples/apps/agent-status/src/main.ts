@@ -5,8 +5,10 @@ type Agent = Cmux.AgentSnapshot
 
 /** Shows the tab that hosts an agent's terminal (user-initiated: called from a tap). */
 async function focusTerminal(terminal: string) {
+  // Capture the click's gesture before the first await, so the owner lets this app move focus.
+  const gesture = cmux.gesture() ?? undefined
   const t = await cmux.terminal.get({ terminal })
-  if (t.tab_id) await cmux.tab.focus({ tab: t.tab_id })
+  if (t.tab_id) await cmux.tab.focus({ tab: t.tab_id }, { gesture })
 }
 
 export function renderStatus() {

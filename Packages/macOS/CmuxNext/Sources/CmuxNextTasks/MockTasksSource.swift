@@ -28,7 +28,13 @@ public final class MockTasksSource: TasksSource {
         sink = nil
     }
 
+    /// Every key the owner received, in order (tests check resends).
+    public private(set) var sentKeys: [String] = []
+    private var connected = true
+
     public func send(_ intent: TasksIntent) {
+        guard connected else { return }
+        sentKeys.append(intent.key)
         if echoImmediately {
             Task { @MainActor [weak self] in self?.commit(intent) }
         } else {
@@ -42,38 +48,89 @@ public final class MockTasksSource: TasksSource {
         for intent in intents { commit(intent) }
     }
 
+    /// Forget held intents (they were lost with the connection).
+    public func dropHeld() {
+        held.removeAll()
+    }
+
     public func disconnect() {
+        connected = false
+        held.removeAll()
         sink?(.connection(.disconnected("Tasks owner unreachable")))
     }
 
+    public func reconnect() {
+        connected = true
+        sink?(.connection(.connected))
+        sink?(.snapshot(snapshot))
+    }
+
+    /// The mock owner's own rules (not `TasksIntent.apply`, so tests compare
+    /// the client's overlay against an independent owner).
     private func commit(_ intent: TasksIntent) {
         guard let sink else { return }
-        if rejectKeys.contains(intent.key) {
-            sink(.settled(key: intent.key, reject: "rejected by the owner"))
+        if committed.contains(intent.key) {
+            sink(.settled(key: intent.key, reject: nil))
             return
         }
-        var tasks = Dictionary(uniqueKeysWithValues: snapshot.tasks.map { ($0.id, $0) })
-        let statuses = Dictionary(uniqueKeysWithValues: snapshot.statuses.map { ($0.id, $0) })
-        intent.apply(to: &tasks, statuses: statuses, prefix: snapshot.settings.keyPrefix)
+        if let reject = owner(intent) {
+            sink(.settled(key: intent.key, reject: reject))
+            return
+        }
+        committed.insert(intent.key)
         seq += 1
-        var changed: TaskItem?
-        switch intent.kind {
-        case let .setStatus(task, _), let .move(task, _, _, _), let .archive(task):
-            changed = tasks[task]
-        case let .create(id, _, _):
-            if !snapshot.tasks.contains(where: { $0.id == id }) {
-                let number = (snapshot.tasks.map(\.number).max() ?? 0) + 1
-                tasks[id]?.number = number
-                tasks[id]?.key = "\(snapshot.settings.keyPrefix)-\(number)"
-            }
-            changed = tasks[id]
-        }
-        snapshot.tasks = Array(tasks.values)
         snapshot.seq = seq
-        if let changed {
-            sink(.event(TasksEvent(seq: seq, tx: intent.key, kind: "task.updated", change: .task(changed))))
+        for task in changed {
+            sink(.event(TasksEvent(seq: seq, tx: intent.key, kind: "task.updated", change: .task(task))))
         }
+        changed.removeAll()
         sink(.settled(key: intent.key, reject: nil))
+    }
+
+    private var committed: Set<String> = []
+    private var changed: [TaskItem] = []
+
+    private func index(_ id: String) -> Int? { snapshot.tasks.firstIndex { $0.id == id } }
+
+    /// Applies one intent to the owner state; returns a reject message.
+    private func owner(_ intent: TasksIntent) -> String? {
+        if rejectKeys.contains(intent.key) { return "rejected by the owner" }
+        switch intent.kind {
+        case let .setStatus(task, status):
+            guard let i = index(task), let target = snapshot.statuses.first(where: { $0.id == status }) else { return "unknown task or status" }
+            snapshot.tasks[i].status = status
+            snapshot.tasks[i].category = target.category
+            changed.append(snapshot.tasks[i])
+        case let .move(task, after, before, _):
+            var order = snapshot.tasks.filter { !$0.archived }.sorted { $0.sortKey < $1.sortKey }.map(\.id)
+            guard order.contains(task) else { return "unknown task" }
+            order.removeAll { $0 == task }
+            let at = after.flatMap { a in order.firstIndex(of: a).map { $0 + 1 } } ?? before.flatMap { order.firstIndex(of: $0) } ?? order.count
+            order.insert(task, at: min(at, order.count))
+            for (rank, id) in order.enumerated() {
+                guard let i = index(id) else { continue }
+                let key = String(format: "%06d", (rank + 1) * 10)
+                if snapshot.tasks[i].sortKey != key {
+                    snapshot.tasks[i].sortKey = key
+                    changed.append(snapshot.tasks[i])
+                }
+            }
+        case let .create(id, title, status):
+            guard index(id) == nil else { return "task id already used" }
+            let statusID = status ?? "st_backlog"
+            guard let target = snapshot.statuses.first(where: { $0.id == statusID }) else { return "unknown status" }
+            let number = (snapshot.tasks.map(\.number).max() ?? 0) + 1
+            let last = snapshot.tasks.map(\.sortKey).max() ?? ""
+            let task = TaskItem(id: id, key: "\(snapshot.settings.keyPrefix)-\(number)", number: number, title: title,
+                                status: statusID, category: target.category, sortKey: last + "5")
+            snapshot.tasks.append(task)
+            changed.append(task)
+        case let .archive(task):
+            guard let i = index(task) else { return "unknown task" }
+            snapshot.tasks[i].archived = true
+            changed.append(snapshot.tasks[i])
+        }
+        return nil
     }
 }
 

@@ -7,8 +7,8 @@
 //! - `start KEY [--no-branch]`: assign to me, move to the started status,
 //!   create or switch to the git branch `<key>-<slug>`.
 //!
-//! `KEY` may be `current`: the task key in the git branch name (`cmx-12-…`),
-//! then `$CMUX_TASK`. `task watch` takes `--count N` and `--timeout SECONDS`
+//! `KEY` may be `current`: `$CMUX_TASK`, then the task key in the git branch
+//! name (`cmx-12-…`). `task watch` takes `--count N` and `--timeout SECONDS`
 //! so agents and MCP get a bounded wait.
 //!
 //! Exit codes of the `task` noun: 0 ok, 1 internal, 2 usage, 3 not found,
@@ -41,7 +41,8 @@ fn fail_body(err: &ErrorBody) -> ExitCode {
 }
 
 fn help() -> String {
-    let mut out = String::from("cmux task: the team's tasks\n\n  serve | catalog | mine | start KEY\n");
+    let mut out =
+        String::from("cmux task: the team's tasks\n\n  serve | catalog | mine | start KEY\n");
     for entry in catalog::all() {
         out.push_str(&format!("  {:24} {}\n", entry.cli.trim_start_matches("task "), entry.docs));
     }
@@ -64,7 +65,12 @@ pub fn run(args: &[String]) -> ExitCode {
     }
     let owner = match owner::resolve(global.team.as_deref(), global.data.clone()) {
         Ok(Owner::Local(local)) => local,
-        Ok(Owner::TeamVm { team }) => return fail(5, &format!("team {team} lives in its team VM; not reachable from this build")),
+        Ok(Owner::TeamVm { team }) => {
+            return fail(
+                5,
+                &format!("team {team} lives in its team VM; not reachable from this build"),
+            );
+        }
         Err(e) => return fail(2, &e),
     };
     let prefix = global.key_prefix.clone().unwrap_or_else(|| DEFAULT_PREFIX.to_owned());
@@ -72,7 +78,11 @@ pub fn run(args: &[String]) -> ExitCode {
         "serve" => return serve(&owner, &prefix),
         "catalog" => return print_catalog(&words[1..]),
         "mine" => {
-            words = [vec!["list".to_owned(), "--mine".to_owned(), "--open".to_owned()], words[1..].to_vec()].concat();
+            words = [
+                vec!["list".to_owned(), "--mine".to_owned(), "--open".to_owned()],
+                words[1..].to_vec(),
+            ]
+            .concat();
         }
         "start" => return start(&owner, &prefix, &global, &words[1..]),
         _ => {}
@@ -80,7 +90,10 @@ pub fn run(args: &[String]) -> ExitCode {
     let mut path: Vec<&str> = vec!["task"];
     path.extend(words.iter().map(String::as_str));
     let Some((entry, used)) = catalog::find_cli(&path) else {
-        return fail(2, &format!("unknown command `task {}`; see `cmux task --help`", words.join(" ")));
+        return fail(
+            2,
+            &format!("unknown command `task {}`; see `cmux task --help`", words.join(" ")),
+        );
     };
     if global.help {
         print!("{}", args::usage(entry));
@@ -98,7 +111,8 @@ pub fn run(args: &[String]) -> ExitCode {
     if entry.class == Class::Stream {
         return watch(&mut conn, params, global.json, global.count, global.timeout);
     }
-    let key = (entry.class == Class::Mutation).then(|| global.key.clone().unwrap_or_else(|| owner::mint("idem_")));
+    let key = (entry.class == Class::Mutation)
+        .then(|| global.key.clone().unwrap_or_else(|| owner::mint("idem_")));
     let params = match resolve_current(params) {
         Ok(p) => p,
         Err(e) => return fail(2, &e),
@@ -127,39 +141,56 @@ pub fn run(args: &[String]) -> ExitCode {
     }
 }
 
-/// The task key in the current git branch (`cmx-12-fix-drag` -> `CMX-12`), then `$CMUX_TASK`.
+/// `$CMUX_TASK` when set, else the task key in the git branch
+/// (`cmx-12-fix-drag` -> `CMX-12`). The owner rejects a key that names no
+/// task, so `issue-123-x` fails loudly instead of matching something else.
 fn current_task() -> Option<String> {
+    if let Some(task) = std::env::var("CMUX_TASK").ok().filter(|t| !t.is_empty()) {
+        return Some(task);
+    }
     let branch = std::process::Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .output()
         .ok()
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned());
-    let from_branch = branch.and_then(|b| {
+    branch.and_then(|b| {
         let name = b.rsplit('/').next()?.to_owned();
         let mut parts = name.splitn(3, '-');
         let prefix = parts.next()?;
         let number = parts.next()?;
-        (prefix.chars().all(|c| c.is_ascii_alphabetic()) && !prefix.is_empty() && number.chars().all(|c| c.is_ascii_digit()) && !number.is_empty())
-            .then(|| format!("{}-{number}", prefix.to_ascii_uppercase()))
-    });
-    from_branch.or_else(|| std::env::var("CMUX_TASK").ok().filter(|t| !t.is_empty()))
+        (prefix.chars().all(|c| c.is_ascii_alphabetic())
+            && !prefix.is_empty()
+            && number.chars().all(|c| c.is_ascii_digit())
+            && !number.is_empty())
+        .then(|| format!("{}-{number}", prefix.to_ascii_uppercase()))
+    })
 }
 
 fn resolve_current(mut params: Value) -> Result<Value, String> {
     if let Some(task) = params.get_mut("task")
         && task.as_str() == Some("current")
     {
-        *task = json!(current_task().ok_or("no current task: the branch has no task key and CMUX_TASK is unset")?);
+        *task = json!(
+            current_task()
+                .ok_or("no current task: the branch has no task key and CMUX_TASK is unset")?
+        );
     }
     Ok(params)
 }
 
 fn print_catalog(words: &[String]) -> ExitCode {
-    let format = words.iter().position(|w| w == "--format").and_then(|i| words.get(i + 1)).map_or("json", String::as_str);
+    let format = words
+        .iter()
+        .position(|w| w == "--format")
+        .and_then(|i| words.get(i + 1))
+        .map_or("json", String::as_str);
     let text = match format {
         "json" => serde_json::to_string_pretty(&catalog::export_json()).unwrap_or_default(),
-        "mcp" => serde_json::to_string_pretty(&catalog::mcp_tools(words.iter().any(|w| w == "--opt-in"))).unwrap_or_default(),
+        "mcp" => {
+            serde_json::to_string_pretty(&catalog::mcp_tools(words.iter().any(|w| w == "--opt-in")))
+                .unwrap_or_default()
+        }
         "ts" => catalog::export_typescript(),
         other => return fail(2, &format!("unknown format {other}; use json, ts or mcp")),
     };
@@ -169,9 +200,16 @@ fn print_catalog(words: &[String]) -> ExitCode {
 
 #[cfg(unix)]
 fn serve(owner: &LocalOwner, prefix: &str) -> ExitCode {
-    let engine = match crate::engine::Engine::open(&owner.dir, &owner.team, prefix, crate::engine::system_clock()) {
+    let engine = match crate::engine::Engine::open(
+        &owner.dir,
+        &owner.team,
+        prefix,
+        crate::engine::system_clock(),
+    ) {
         Ok(engine) => engine,
-        Err(crate::store::OpenError::Locked) => return fail(5, "another Tasks owner already serves this team"),
+        Err(crate::store::OpenError::Locked) => {
+            return fail(5, "another Tasks owner already serves this team");
+        }
         Err(e) => return fail(1, &e.to_string()),
     };
     let socket = owner.socket.display().to_string();
@@ -188,19 +226,31 @@ fn serve(_owner: &LocalOwner, _prefix: &str) -> ExitCode {
     fail(2, "serve needs a Unix socket")
 }
 
-fn watch(conn: &mut Conn, params: Value, json_out: bool, count: Option<u64>, timeout: Option<u64>) -> ExitCode {
+fn watch(
+    conn: &mut Conn,
+    params: Value,
+    json_out: bool,
+    count: Option<u64>,
+    timeout: Option<u64>,
+) -> ExitCode {
     if conn.is_in_process() {
         return fail(5, "watch needs a running owner (`cmux task serve`)");
     }
-    if let Some(seconds) = timeout {
-        conn.set_deadline(std::time::Duration::from_secs(seconds));
-    }
+    // `--timeout` bounds the whole watch, not the gap between events.
+    let deadline = timeout.map(|s| std::time::Instant::now() + std::time::Duration::from_secs(s));
     let mut seen = 0u64;
     if let Err(e) = conn.call("task.subscribe", params, None) {
         return fail_body(&e);
     }
     let mut stdout = std::io::stdout();
     loop {
+        match deadline {
+            Some(deadline) => match deadline.checked_duration_since(std::time::Instant::now()) {
+                Some(left) if !left.is_zero() => conn.set_deadline(left),
+                _ => return ExitCode::SUCCESS,
+            },
+            None => conn.clear_deadline(),
+        }
         match conn.read_line() {
             Ok(ServerLine::Event { event }) => {
                 let text = if json_out {
@@ -249,7 +299,12 @@ fn start(owner: &LocalOwner, prefix: &str, global: &args::Global, words: &[Strin
     let task = &if task == "current" {
         match current_task() {
             Some(t) => t,
-            None => return fail(2, "no current task: the branch has no task key and CMUX_TASK is unset"),
+            None => {
+                return fail(
+                    2,
+                    "no current task: the branch has no task key and CMUX_TASK is unset",
+                );
+            }
         }
     } else {
         task.clone()
@@ -266,7 +321,11 @@ fn start(owner: &LocalOwner, prefix: &str, global: &args::Global, words: &[Strin
     };
     let started = settings.get("started_status").cloned().unwrap_or(Value::Null);
     let key = global.key.clone().unwrap_or_else(|| owner::mint("idem_"));
-    if let Err(e) = conn.call("task.update", json!({"task": task, "assignee": "me", "status": started}), Some(key)) {
+    if let Err(e) = conn.call(
+        "task.update",
+        json!({"task": task, "assignee": "me", "status": started}),
+        Some(key),
+    ) {
         return fail_body(&e);
     }
     let detail = match conn.call("task.get", json!({"task": task}), None) {
@@ -277,10 +336,17 @@ fn start(owner: &LocalOwner, prefix: &str, global: &args::Global, words: &[Strin
     let title = detail.get("title").and_then(Value::as_str).unwrap_or("");
     let branch = format!("{task_key}-{}", slug(title));
     if !no_branch {
-        let inside = std::process::Command::new("git").args(["rev-parse", "--is-inside-work-tree"]).output().is_ok_and(|o| o.status.success());
+        let inside = std::process::Command::new("git")
+            .args(["rev-parse", "--is-inside-work-tree"])
+            .output()
+            .is_ok_and(|o| o.status.success());
         if inside {
-            let exists = std::process::Command::new("git").args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).status().is_ok_and(|s| s.success());
-            let args: Vec<&str> = if exists { vec!["switch", &branch] } else { vec!["switch", "-c", &branch] };
+            let exists = std::process::Command::new("git")
+                .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")])
+                .status()
+                .is_ok_and(|s| s.success());
+            let args: Vec<&str> =
+                if exists { vec!["switch", &branch] } else { vec!["switch", "-c", &branch] };
             match std::process::Command::new("git").args(&args).status() {
                 Ok(status) if status.success() => {}
                 _ => return fail(4, &format!("git could not switch to {branch}")),
@@ -290,7 +356,10 @@ fn start(owner: &LocalOwner, prefix: &str, global: &args::Global, words: &[Strin
     if global.json {
         println!("{}", json!({"task": detail, "branch": branch}));
     } else {
-        println!("{} started on {branch}", detail.get("key").and_then(Value::as_str).unwrap_or(task));
+        println!(
+            "{} started on {branch}",
+            detail.get("key").and_then(Value::as_str).unwrap_or(task)
+        );
     }
     ExitCode::SUCCESS
 }

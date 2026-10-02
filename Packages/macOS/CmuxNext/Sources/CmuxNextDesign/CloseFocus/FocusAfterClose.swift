@@ -32,18 +32,23 @@ public nonisolated enum FocusAfterClose {
 
     // MARK: Panes
 
-    /// The pane to focus after `focused` closed. `before` and `after` are
-    /// the columns of the screen that showed it, in visual order (left
-    /// sticky, strip, right sticky; a split screen is one column), each its
-    /// panes in layout order. `history` is this window's focus history for
-    /// the workspace, newest first. Returns `focused` when it survives.
+    /// The pane to focus after `focused` closed. `before` holds the columns
+    /// of the screen that showed it, in visual order (left sticky, strip,
+    /// right sticky; a split screen is one column), each its panes in layout
+    /// order. `after[i]` holds the panes of that same column (by column
+    /// identity) after the change, empty when the column is gone; a pane
+    /// that moved to another column is not in `after[i]` although it is
+    /// alive. `history` is this window's focus history for the workspace,
+    /// newest first. Returns `focused` when it survives.
     ///
-    /// previousNeighbor: the previous surviving pane in its column, else the
-    /// next one there; when the column went, the column to its left, else
-    /// to its right (the sticky column's left neighbor is the strip's last
-    /// column), entering that column at its most recently focused pane,
-    /// else its first. mostRecent: the newest surviving pane in `history`
-    /// on this screen, else previousNeighbor.
+    /// previousNeighbor: the previous pane of its column that is still in
+    /// that column, else the next one; else any pane now in the column
+    /// (most recently focused first); when the column is empty or gone,
+    /// the nearest non-empty column to the left, else to the right (the
+    /// sticky column's left neighbor is the strip's last column), entering
+    /// that column at its most recently focused pane, else its first.
+    /// mostRecent: the newest pane of `history` that is in `after`, else
+    /// previousNeighbor.
     public static func pane<ID: Hashable>(focused: ID?, before: [[ID]], after: [[ID]], history: [ID],
                                           policy: CloseFocusPolicy) -> ID? {
         let surviving = Set(after.flatMap { $0 })
@@ -52,21 +57,21 @@ public nonisolated enum FocusAfterClose {
         if policy == .mostRecent, let recent = history.first(where: { $0 != focused && surviving.contains($0) }) {
             return recent
         }
-        guard let column = before.firstIndex(where: { $0.contains(focused) }) else {
+        guard let column = before.firstIndex(where: { $0.contains(focused) }), after.indices.contains(column) else {
             return firstPane(after, history: history)
         }
-        let siblings = before[column]
-        if let inColumn = neighbor(of: focused, in: siblings, preferNext: false, where: surviving.contains) {
+        let stayed = Set(after[column])
+        if let inColumn = neighbor(of: focused, in: before[column], preferNext: false, where: stayed.contains) {
             return inColumn
         }
-        // The column is gone (every pane of it closed): the nearest
-        // surviving column to the left, else to the right.
-        let alive = { (index: Int) in before[index].contains(where: surviving.contains) }
+        if let added = history.first(where: stayed.contains) ?? after[column].first { return added }
+        // The column is empty or gone: the nearest non-empty column to the
+        // left, else to the right.
+        let alive = { (index: Int) in after.indices.contains(index) && !after[index].isEmpty }
         let left = before[..<column].indices.last(where: alive)
         let right = before[(column + 1)...].indices.first(where: alive)
         guard let next = left ?? right else { return firstPane(after, history: history) }
-        let panes = before[next].filter(surviving.contains)
-        return history.first(where: panes.contains) ?? panes.first
+        return history.first(where: after[next].contains) ?? after[next].first
     }
 
     private static func firstPane<ID: Hashable>(_ columns: [[ID]], history: [ID]) -> ID? {
@@ -76,7 +81,7 @@ public nonisolated enum FocusAfterClose {
 
     // MARK: Tabs
 
-    /// The tab a pane selects after `selected` closed (Chrome's rule): the
+    /// The tab a pane selects after `selected` closed: the
     /// next shown tab after it, else the previous shown one. `old` is the
     /// strip order before the close, `shown` the tabs that survive and are
     /// not hidden (a collapsed group's members are hidden). When no shown

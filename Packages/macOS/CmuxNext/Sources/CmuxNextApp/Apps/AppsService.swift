@@ -18,6 +18,9 @@ final class AppsService {
     let storage: AppStorageStore
     private let sink = DeferredAppSink()
     private var fingerprints: [String: Int] = [:]
+    private var store: AppStoreWindowController?
+    /// Runs previews of apps that are not installed (sample data, no grant).
+    private lazy var previewHost = AppHost(sink: AppPreviewSink())
 
     init(services: AppServices) {
         self.services = services
@@ -25,7 +28,10 @@ final class AppsService {
         registry = AppRegistry(directory: directory)
         storage = AppStorageStore(directory: directory.appending(path: "storage", directoryHint: .isDirectory))
         host = AppHost(sink: sink)
-        host.grants = { [weak self] manifest in self?.grants(for: manifest) ?? [] }
+        host.grants = { [weak self] manifest in
+            self?.registry.app(manifest.id)?.grants ?? AppGrants.Snapshot(scopes: [], sandboxed: true)
+        }
+        registry.onChange = { [weak self] app in self?.host.refreshGrants(app.manifest) }
     }
 
     func start() {
@@ -45,13 +51,22 @@ final class AppsService {
         sink.attach(AppOperationRouter(router: router, storage: storage, ledger: ledger))
     }
 
-    /// Prototype grants: the manifest's required scopes, for apps the
-    /// registry lets run (first-party samples and `local/` apps only; the
-    /// JSC engine has no OS sandbox). Optional scopes wait for consent UI.
-    func grants(for manifest: AppManifest) -> Set<String> {
-        guard registry.app(manifest.id)?.isActive == true || registry.app(manifest.id) == nil else { return [] }
-        return Set(manifest.scopes.map(\.scope))
+    /// Opens the App Store window (palette "App Store", `appStore.show`):
+    /// on a listing when `appID` is given, else on Installed when asked.
+    /// Drawn in the theme of the window it was opened from.
+    func showStore(appID: String? = nil, installed: Bool = false) {
+        if store == nil {
+            let model = AppStoreModel(catalog: BundledAppStoreCatalog.scanned(), registry: registry, host: host, previewHost: previewHost)
+            model.onRemoved = { [storage] id in await storage.clear(app: id) }
+            let controller = AppStoreWindowController(model: model)
+            controller.onClose = { [weak self] in self?.store = nil }
+            store = controller
+        }
+        store?.setThemeScope(services.windows.active?.themeScope ?? .app)
+        store?.present(appID: appID, installed: installed)
     }
+
+    var storeWindow: NSWindow? { store?.window }
 
     /// Posts `<family>.changed` for streams an app listens to, when the
     /// published mirror changed for that family.
@@ -70,7 +85,7 @@ final class AppsService {
 
 /// The sink the host holds from launch; the real one attaches when the
 /// control router exists.
-final class DeferredAppSink: AppOperationSink, Sendable {
+nonisolated final class DeferredAppSink: AppOperationSink, Sendable {
     private let inner = Mutex<(any AppOperationSink)?>(nil)
 
     func attach(_ sink: any AppOperationSink) { inner.withLock { $0 = sink } }

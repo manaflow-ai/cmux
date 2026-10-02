@@ -1,0 +1,23 @@
+[package]
+name = "cmux-daemon-client"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux2 as a client of the cmux-tui daemon: launch, connect, and a read-only mirror of the session tree."
+
+[lints]
+workspace = true
+
+[dependencies]
+# In-repo path so this crate always builds against the SDK at the same commit.
+cmux-sdk = { path = "../rust" }
+log = "0.4"
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }

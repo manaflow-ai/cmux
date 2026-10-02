@@ -193,7 +193,7 @@ export class MockAcpmuxSocket {
     this.record(target, { update: { sessionUpdate: "available_commands_update", availableCommands: commands } }, at);
   }
 
-  /// Ends a seeded open turn: its permission is answered or withdrawn, its waiting tool settles,
+  /// Ends a seeded open turn: its permission is answered or withdrawn, its waiting or running tool settles,
   /// and the session goes idle. A turn already closed stays as it is.
   private closeSeededTurn(target: string, status: "completed" | "cancelled", allowed = false): void {
     if (!this.openTurns.delete(target)) return;
@@ -201,7 +201,7 @@ export class MockAcpmuxSocket {
       (event) =>
         event.sessionId === target &&
         event.kind === "tool_call" &&
-        (event.msg as any)?.params?.update?.status === "pending",
+        ["pending", "in_progress"].includes((event.msg as any)?.params?.update?.status),
     );
     const toolCallId = (tool?.msg as any)?.params?.update?.toolCallId;
     if (toolCallId)

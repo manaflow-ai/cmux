@@ -13,9 +13,12 @@ struct CloseFocusReducerTests {
         Pane(id: id, tabs: [FocusTopology.Tab(id: "t-\(id)", surface: "s-\(id)", kind: .terminal)], selected: "t-\(id)")
     }
 
-    /// One screen, columns in visual order.
-    static func topology(_ columns: [[String]], workspace: String = "w") -> FocusTopology {
-        FocusTopology(workspace: workspace, panes: columns.flatMap { $0 }.map(pane), screens: [columns])
+    /// One screen, columns in visual order. A column's id is its first
+    /// pane's id unless `ids` names it (a column keeps its id when its
+    /// first pane closes).
+    static func topology(_ columns: [[String]], ids: [String]? = nil, workspace: String = "w") -> FocusTopology {
+        let named = columns.enumerated().map { FocusTopology.Column(id: ids?[$0.offset] ?? "col-\($0.element[0])", panes: $0.element) }
+        return FocusTopology(workspace: workspace, panes: columns.flatMap { $0 }.map(pane), screens: [named])
     }
 
     static func run(_ events: [FocusEvent], from start: FocusState = FocusState()) -> FocusState {
@@ -39,7 +42,7 @@ struct CloseFocusReducerTests {
 
     @Test func closingTheFirstPaneOfAColumnFocusesTheNextPaneThere() {
         var state = Self.focused(["d", "b"], in: [["a"], ["b", "c"], ["d"]])
-        state = Self.run([.topology(Self.topology([["a"], ["c"], ["d"]]))], from: state)
+        state = Self.run([.topology(Self.topology([["a"], ["c"], ["d"]], ids: ["col-a", "col-b", "col-d"]))], from: state)
         #expect(state.pane == "c")
     }
 
@@ -94,13 +97,30 @@ struct CloseFocusReducerTests {
         #expect(state.pane == "a")
     }
 
+    // Rows lead (LayoutRows.tla): a neighbor that moved to another column in
+    // the same snapshot is not "in the column" any more, although alive.
+    @Test func aNeighborMovedToAnotherColumnIsNotTheInColumnSuccessor() {
+        var state = Self.focused(["a", "b2"], in: [["a"], ["b1", "b2"], ["c"]])
+        // b2 closes while another client moves b1 into column c.
+        state = Self.run([.topology(Self.topology([["a"], ["c", "b1"]], ids: ["col-a", "col-c"]))], from: state)
+        #expect(state.pane == "a")
+    }
+
+    @Test func aColumnWhoseOnlyOtherPaneMovedToANewColumnIsGone() {
+        var state = Self.focused(["a", "b2"], in: [["a"], ["b1", "b2"], ["c"]])
+        // b1 moves alone into a new column; column b is gone.
+        state = Self.run([.topology(Self.topology([["a"], ["c"], ["b1"]], ids: ["col-a", "col-c", "col-new"]))], from: state)
+        #expect(state.pane == "a")
+    }
+
     // C2: a pane on a hidden screen is never the successor while the
     // closed pane's screen has one.
     @Test func theSuccessorStaysOnTheSameScreen() {
         var state = FocusState()
-        let before = FocusTopology(workspace: "w", panes: ["x", "a", "b"].map(Self.pane), screens: [[["x"]], [["a"], ["b"]]])
+        let column = { (id: String) in FocusTopology.Column(id: "col-\(id)", panes: [id]) }
+        let before = FocusTopology(workspace: "w", panes: ["x", "a", "b"].map(Self.pane), screens: [[column("x")], [column("a"), column("b")]])
         state = Self.run([.windowKey(true), .topology(before), .focusPane("x", source: .mouse), .focusPane("b", source: .mouse)], from: state)
-        let after = FocusTopology(workspace: "w", panes: ["x", "a"].map(Self.pane), screens: [[["x"]], [["a"]]])
+        let after = FocusTopology(workspace: "w", panes: ["x", "a"].map(Self.pane), screens: [[column("x")], [column("a")]])
         state = Self.run([.topology(after)], from: state)
         #expect(state.pane == "a")
     }

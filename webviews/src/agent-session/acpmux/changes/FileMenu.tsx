@@ -1,5 +1,5 @@
-// A changed file's More menu, after the per-file menu in Codex's changes view: Copy path,
-// Open file in a tab, and Collapse file (Expand file when folded). It is a menu button: it opens on its first
+// A changed file's More menu: Copy path, Open file in a tab,
+// and Collapse file (Expand file when folded). It is a menu button: it opens on its first
 // item, arrows move through the items, Enter or Space runs one, and Escape, Tab or a press
 // elsewhere closes it.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";

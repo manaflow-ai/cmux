@@ -1972,127 +1972,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hosts such as mail.google.com or *.figma.com."
+            "value": "Hosts such as mail.google.com or *.example.com."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "mail.google.com や *.figma.com などのホスト。"
+            "value": "mail.google.com や *.example.com などのホスト。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مضيفون مثل mail.google.com أو *.figma.com."
+            "value": "مضيفون مثل mail.google.com أو *.example.com."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hostovi poput mail.google.com ili *.figma.com."
+            "value": "Hostovi poput mail.google.com ili *.example.com."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Værter som mail.google.com eller *.figma.com."
+            "value": "Værter som mail.google.com eller *.example.com."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hosts wie mail.google.com oder *.figma.com."
+            "value": "Hosts wie mail.google.com oder *.example.com."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hosts como mail.google.com o *.figma.com."
+            "value": "Hosts como mail.google.com o *.example.com."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hôtes comme mail.google.com ou *.figma.com."
+            "value": "Hôtes comme mail.google.com ou *.example.com."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Host come mail.google.com o *.figma.com."
+            "value": "Host come mail.google.com o *.example.com."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីនដូចជា mail.google.com ឬ *.figma.com។"
+            "value": "ម៉ាស៊ីនដូចជា mail.google.com ឬ *.example.com។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "mail.google.com 또는 *.figma.com 같은 호스트."
+            "value": "mail.google.com 또는 *.example.com 같은 호스트."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verter som mail.google.com eller *.figma.com."
+            "value": "Verter som mail.google.com eller *.example.com."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hosty, np. mail.google.com lub *.figma.com."
+            "value": "Hosty, np. mail.google.com lub *.example.com."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hosts como mail.google.com ou *.figma.com."
+            "value": "Hosts como mail.google.com ou *.example.com."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Хосты вида mail.google.com или *.figma.com."
+            "value": "Хосты вида mail.google.com или *.example.com."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "โฮสต์ เช่น mail.google.com หรือ *.figma.com"
+            "value": "โฮสต์ เช่น mail.google.com หรือ *.example.com"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "mail.google.com veya *.figma.com gibi ana makineler."
+            "value": "mail.google.com veya *.example.com gibi ana makineler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Хости на кшталт mail.google.com або *.figma.com."
+            "value": "Хости на кшталт mail.google.com або *.example.com."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy chủ như mail.google.com hoặc *.figma.com."
+            "value": "Máy chủ như mail.google.com hoặc *.example.com."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "例如 mail.google.com 或 *.figma.com 等主机。"
+            "value": "例如 mail.google.com 或 *.example.com 等主机。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "例如 mail.google.com 或 *.figma.com 等主機。"
+            "value": "例如 mail.google.com 或 *.example.com 等主機。"
           }
         }
       }
@@ -23446,6 +23446,1054 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "關閉：頂部與底部區段永不捲動，工作區列表變小。"
+          }
+        }
+      }
+    },
+    "settings.statusIndicator.honorStatusStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let Statuses Choose Their Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスのスタイル指定を許可"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح للحالات باختيار نمطها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli statusima da biraju stil"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lad statusser vælge deres stil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Status dürfen ihren Stil wählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que los estados elijan su estilo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Laisser les statuts choisir leur style"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti agli stati di scegliere lo stile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យស្ថានភាពជ្រើសរចនាប័ទ្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "상태가 스타일을 고르도록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La statuser velge stil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwól statusom wybierać styl"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que status escolham o estilo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить статусам выбирать стиль"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้สถานะเลือกรูปแบบเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durumlar kendi stilini seçsin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити статусам обирати стиль"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép trạng thái chọn kiểu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许状态选择样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許狀態選擇樣式"
+          }
+        }
+      }
+    },
+    "settings.statusIndicator.honorStatusStyle.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A status that asks for a style (cmux status set --style) uses it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スタイルを指定したステータス(cmux status set --style)はそのスタイルを使います。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تستخدم الحالة التي تطلب نمطًا (cmux status set --style) ذلك النمط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Status koji traži stil (cmux status set --style) koristi ga."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En status, der beder om en stil (cmux status set --style), bruger den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Status, der einen Stil anfordert (cmux status set --style), verwendet ihn."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un estado que pide un estilo (cmux status set --style) lo usa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un statut qui demande un style (cmux status set --style) l’utilise."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uno stato che chiede uno stile (cmux status set --style) lo usa."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ថានភាពដែលស្នើរចនាប័ទ្ម (cmux status set --style) ប្រើវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스타일을 요청한 상태(cmux status set --style)는 그 스타일을 씁니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En status som ber om en stil (cmux status set --style), bruker den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Status, który prosi o styl (cmux status set --style), używa go."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um status que pede um estilo (cmux status set --style) o usa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Статус, запросивший стиль (cmux status set --style), использует его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สถานะที่ขอรูปแบบ (cmux status set --style) จะใช้รูปแบบนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil isteyen bir durum (cmux status set --style) onu kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Статус, що просить стиль (cmux status set --style), використовує його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trạng thái yêu cầu một kiểu (cmux status set --style) sẽ dùng kiểu đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请求样式的状态(cmux status set --style)会使用该样式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要求樣式的狀態(cmux status set --style)會使用該樣式。"
+          }
+        }
+      }
+    },
+    "settings.status.inferCommandBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Running Commands"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のコマンドを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار الأوامر قيد التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži pokrenute naredbe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis kørende kommandoer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Laufende Befehle anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar comandos en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les commandes en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra i comandi in esecuzione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញពាក្យបញ្ជាកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실행 중인 명령 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis kjørende kommandoer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż uruchomione polecenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar comandos em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать выполняемые команды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงคำสั่งที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışan komutları göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати запущені команди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện lệnh đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示正在运行的命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示正在執行的命令"
+          }
+        }
+      }
+    },
+    "settings.status.inferCommandBusy.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A shell command that runs a while shows as busy."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "しばらく実行されるシェルコマンドを処理中として表示します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يظهر أمر الصدفة الذي يعمل لفترة على أنه مشغول."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naredba ljuske koja radi neko vrijeme prikazuje se kao zauzeta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En shell-kommando, der kører et stykke tid, vises som optaget."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Shell-Befehl, der eine Weile läuft, wird als beschäftigt angezeigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un comando de shell que tarda un rato se muestra como ocupado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une commande shell qui dure un moment s’affiche comme occupée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un comando della shell che dura un po’ appare occupato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យបញ្ជា shell ដែលដំណើរការយូរ បង្ហាញថារវល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "잠시 실행되는 셸 명령을 작업 중으로 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En skallkommando som kjører en stund, vises som opptatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polecenie powłoki działające dłużej jest pokazywane jako zajęte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um comando de shell que demora aparece como ocupado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Долго работающая команда оболочки показывается как занятая."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำสั่ง shell ที่ทำงานนานจะแสดงว่ากำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir süre çalışan kabuk komutu meşgul görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Команда оболонки, що працює довго, показується як зайнята."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lệnh shell chạy lâu được hiện là đang bận."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "运行一段时间的 shell 命令显示为忙碌。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "執行一段時間的 shell 命令顯示為忙碌。"
+          }
+        }
+      }
+    },
+    "settings.status.inferCommandBusyAfter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show After"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示までの時間"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži nakon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis efter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anzeigen nach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar tras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra dopo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "표시 시점"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis etter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż po"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar após"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать через"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงหลังจาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şu süreden sonra göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати через"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "延迟显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "延遲顯示"
+          }
+        }
+      }
+    },
+    "settings.status.runNotifyMinimumSeconds": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify When a Run Takes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行がこの時間を超えたら通知"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإشعار عندما يستغرق التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obavijesti kad pokretanje traje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giv besked, når en kørsel tager"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Benachrichtigen, wenn ein Lauf dauert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avisar cuando una ejecución tarde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notifier quand une exécution dure"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notifica quando un’esecuzione dura"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជូនដំណឹងពេលដំណើរការយូរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실행이 이만큼 걸리면 알림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsle når en kjøring tar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Powiadom, gdy uruchomienie trwa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notificar quando uma execução levar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уведомлять, если запуск длится"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แจ้งเตือนเมื่อการทำงานใช้เวลา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalıştırma şu kadar sürerse bildir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сповіщати, якщо запуск триває"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thông báo khi lần chạy mất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "运行超过此时长时通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "執行超過此時長時通知"
+          }
+        }
+      }
+    },
+    "settings.status.runNotifyMinimumSeconds.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux status run notifies when the command took at least this long."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux status run はコマンドがこの時間以上かかったときに通知します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يرسل cmux status run إشعارًا عندما يستغرق الأمر هذه المدة على الأقل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run obavještava kad naredba traje barem ovoliko."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run giver besked, når kommandoen tog mindst så lang tid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run benachrichtigt, wenn der Befehl mindestens so lange dauerte."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run avisa cuando el comando tardó al menos esto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run notifie quand la commande a duré au moins ce temps."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run notifica quando il comando ha impiegato almeno questo tempo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run ជូនដំណឹងពេលពាក្យបញ្ជាយូរយ៉ាងហោចណាស់ប៉ុណ្ណេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run은 명령이 이 시간 이상 걸리면 알립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run varsler når kommandoen tok minst så lang tid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run powiadamia, gdy polecenie trwało co najmniej tyle."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run notifica quando o comando levou pelo menos esse tempo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run уведомляет, если команда шла не меньше этого."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run แจ้งเตือนเมื่อคำสั่งใช้เวลาอย่างน้อยเท่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run, komut en az bu kadar sürdüğünde bildirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run сповіщає, якщо команда тривала щонайменше стільки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux status run thông báo khi lệnh chạy ít nhất bằng thời gian này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "命令至少运行这么久时 cmux status run 会通知。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "命令至少執行這麼久時 cmux status run 會通知。"
+          }
+        }
+      }
+    },
+    "settings.status.runNotifyWhenVisible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify Even When the Terminal Is Visible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルが表示中でも通知"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإشعار حتى عندما تكون الطرفية ظاهرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obavijesti i kad je terminal vidljiv"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giv besked, selv når terminalen er synlig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Auch benachrichtigen, wenn das Terminal sichtbar ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avisar aunque el terminal esté visible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notifier même si le terminal est visible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notifica anche se il terminale è visibile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជូនដំណឹងទោះ terminal មើលឃើញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널이 보여도 알림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsle selv når terminalen er synlig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Powiadamiaj, nawet gdy terminal jest widoczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Notificar mesmo com o terminal visível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Уведомлять, даже если терминал виден"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แจ้งเตือนแม้เทอร์มินัลมองเห็นอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal görünürken bile bildir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сповіщати, навіть коли термінал видно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thông báo cả khi terminal đang hiện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端可见时也通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機可見時也通知"
           }
         }
       }

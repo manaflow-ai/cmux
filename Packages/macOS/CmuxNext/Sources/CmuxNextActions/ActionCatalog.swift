@@ -57,6 +57,7 @@ public nonisolated enum ActionCatalog {
         HistoryActionCatalog.self,
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
+        AppStoreActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {

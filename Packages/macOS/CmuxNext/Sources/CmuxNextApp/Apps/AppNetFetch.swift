@@ -7,7 +7,7 @@ import Foundation
 /// stores cookies or caches, caps the body at 2 MiB, and drops Set-Cookie
 /// from the response. The supervisor's egress gate (spec section 10)
 /// replaces it.
-final class AppNetFetch: Sendable {
+nonisolated final class AppNetFetch: Sendable {
     static let maxBody = 2 * 1024 * 1024
     static let strippedHeaders: Set<String> = ["authorization", "cookie", "proxy-authorization"]
     private let session: URLSession

@@ -113,7 +113,7 @@ public struct SidebarMock {
             .group(SidebarGroup(id: GroupID("grp-infra"), name: "infra", color: .orange, isCollapsed: true, workspaces: [
                 ws("ws-infra-1", local, "fleet", "cmux-ci wait 4812", .symbol("server.rack"), activity: .busy),
                 ws("ws-infra-2", local, "tailscale", "tsadmin devices", .symbol("network")),
-                ws("ws-infra-3", local, "subrouter", "cmux-lawrence:31415", .symbol("arrow.triangle.branch"), unread: .count(2)),
+                ws("ws-infra-3", local, "subrouter", "router-host:31415", .symbol("arrow.triangle.branch"), unread: .count(2)),
                 ws("ws-infra-4", local, "pscale", "cmux-prod  staging", .symbol("cylinder.split.1x2")),
             ])),
             .workspace(ws("ws-local-5", local, "zed", "zed/repo  main", .swatch(.cyan))),

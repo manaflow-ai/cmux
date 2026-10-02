@@ -1,4 +1,4 @@
-// The changes view while a scope loads, when it fails, and when it has nothing, after Codex's
+// The changes view while a scope loads, when it fails, and when it has nothing, as
 // centered states: "Couldn't load changes" with Retry, and "No changes".
 import React from "react";
 

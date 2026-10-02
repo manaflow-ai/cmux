@@ -20,13 +20,20 @@ fn clock() -> Clock {
 }
 
 fn create(engine: &mut Engine, i: usize) {
-    let request = Request { id: i as u64, op: "task.create".to_owned(), params: json!({"id": format!("task_{i}"), "title": format!("Task {i}")}), key: Some(format!("k{i}")), origin: None };
+    let request = Request {
+        id: i as u64,
+        op: "task.create".to_owned(),
+        params: json!({"id": format!("task_{i}"), "title": format!("Task {i}")}),
+        key: Some(format!("k{i}")),
+        origin: None,
+    };
     let outcome = engine.handle(&Principal::user("usr_a"), request).unwrap();
     assert!(outcome.reply.is_ok(), "{:?}", outcome.reply.err());
 }
 
 fn segment(dir: &Path) -> std::path::PathBuf {
-    let mut files: Vec<_> = fs::read_dir(dir.join("log")).unwrap().map(|e| e.unwrap().path()).collect();
+    let mut files: Vec<_> =
+        fs::read_dir(dir.join("log")).unwrap().map(|e| e.unwrap().path()).collect();
     files.sort();
     files.pop().unwrap()
 }
@@ -80,4 +87,30 @@ proptest! {
         let engine = Engine::open(dir.path(), "local", "CMX", clock()).unwrap();
         prop_assert_eq!(engine.state().seq as usize, complete + 1);
     }
+}
+
+/// Recovery across many snapshots and segment rotations (small limits).
+#[test]
+fn recovers_across_snapshots_and_rotations() {
+    let dir = tempfile::tempdir().unwrap();
+    let limits = cmux_tasks::store::Limits { segment_bytes: 4_096, snapshot_every: 50 };
+    let live = {
+        let mut engine = Engine::open_with(dir.path(), "local", "CMX", clock(), limits).unwrap();
+        for i in 0..1_200 {
+            create(&mut engine, i);
+        }
+        engine.state().clone()
+    };
+    let segments = fs::read_dir(dir.path().join("log")).unwrap().count();
+    assert!(segments > 10, "expected rotations, found {segments} segments");
+    let engine = Engine::open_with(dir.path(), "local", "CMX", clock(), limits).unwrap();
+    assert_eq!(engine.state(), &live);
+    // A damaged newest snapshot falls back to an older one plus the log.
+    let mut snaps: Vec<_> =
+        fs::read_dir(dir.path().join("snapshots")).unwrap().map(|e| e.unwrap().path()).collect();
+    snaps.sort();
+    fs::write(snaps.last().unwrap(), b"{broken").unwrap();
+    drop(engine);
+    let engine = Engine::open_with(dir.path(), "local", "CMX", clock(), limits).unwrap();
+    assert_eq!(engine.state(), &live);
 }

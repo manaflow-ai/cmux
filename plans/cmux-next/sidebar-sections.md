@@ -11,7 +11,7 @@ The left sidebar is an ordered list of **sections** in three **regions**:
 
 | Region | Behavior | Default content |
 | --- | --- | --- |
-| Top | sticky under the titlebar row; never scrolls with the list | section "Home" (hidden title): Home, built-in look |
+| Top | sticky under the titlebar row; never scrolls with the list | section (hidden title): Home, then the App Store, built-in look |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
 | Bottom | sticky above the room bar | section (hidden title), one line: Settings (icon + label) at the leading edge, the account avatar (icon only) at the trailing edge |
 
@@ -49,7 +49,7 @@ too". Candidates:
 | shelves | pairs with rooms ("this room's shelves"); playful, ownable | a second invented noun next to rooms; "shelf" also suggests a drawer that slides out (Yoink, Dropover); translators need a metaphor |
 | docks | sticky feel | collides with the macOS Dock |
 | zones / areas | neutral | read as regions, not as named lists |
-| stacks | Arc-like | collides with Leo's "stack of workspaces" |
+| stacks | switchable sets | collides with Leo's "stack of workspaces" |
 | groups / folders | familiar | taken by workspace groups and bookmark folders |
 
 Recommendation: **sections** for the user-facing noun, **regions** for top/middle/bottom (shown in
@@ -65,8 +65,8 @@ A room (wire `profile`) chooses which workspaces a window shows. Two models:
   section has `scope`: `allRooms` (default) or `room(id)`. Room-scoped sections show only while
   their room is shown; the Workspaces section always lists the shown room's workspaces (today's
   behavior). Home, Settings and the account stay put when you switch rooms, which is what built-in
-  chrome should do; a "Project X" section with pinned tabs can belong to one room (Arc's per-space
-  pinned tabs, while global sections behave like Arc's favorites).
+  chrome should do; a "Project X" section with pinned tabs can belong to one room
+  (per-room pinned tabs), while global sections stay the same in every room.
 - **B. One layout per room.** Every room owns a complete layout, copied from the default when the
   room is created. Maximal freedom, but adding Home back or moving Settings must be repeated in
   every room, and a new room starts from a stale copy.
@@ -86,10 +86,21 @@ Arrangement { layout: list|inline|grid, align: leading|center|trailing|fill, gap
 Item { id: "itm_<base32>", ref: {kind, value}, shows_label: Bool }  // id stable across moves
 ```
 
+`section.update` patches each arrangement field alone (`layout`, `align`, `gap`, `columns`; null
+clears `gap` or `columns`), so concurrent edits of different fields both apply. Unknown `layout`,
+`align` or `look` values from a newer app decode to the defaults on an older client (it never writes
+the document back; it sends ops). The shared cases in
+`Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json` run against
+both reducers (Swift and cmux-tui-core).
+
 Arrangement is a small flexbox (Lawrence, 2026-10-02): `list` puts one item per row; `inline` puts
 items on one line with icon and label while they fit (an item with `shows_label: false` shows its icon
-only), then icons only, then wraps; `grid` puts tiles in columns (Arc's pinned tiles). `align` places
-the leftover space on a line (`fill` spreads it between items, so two items sit at both edges).
+only), then icons only, then wraps; `grid` puts tiles in columns. `align` places
+the leftover space on a line (`fill` spreads it between items, so two items sit at both edges; one
+item stays leading). `align` defaults to leading for every layout; a grid with fitted columns
+stretches its tiles, and a grid with fixed columns places every line by the leftover of a full
+line, so columns line up. Precedence: a section's inline or grid arrangement always wins; the tray
+and lines-icons looks only tile built-in sections whose arrangement is a list (the default).
 
 Order inside a region is the order of `sections` filtered by region. Invariants, checked by the pure
 reducer and its tests:
@@ -116,6 +127,7 @@ Ops (each carries a client-chosen idempotency key; replay returns the stored res
 | `item.move` | `id`, `section`, `index` | across sections and regions |
 | `item.remove` | `id` | |
 | `item.update` | `id`, `shows_label` | |
+| `item.remove_ref` | `ref` | every copy ("Remove from Sidebar"); `item.remove` is "Remove from Section" |
 | `layout.reset` | — | back to the defaults |
 
 A remove-Home convenience is `item.remove` on the `builtIn(home)` item; re-adding inserts it at the
@@ -131,16 +143,22 @@ top of the first top-region section (creating one when the region is empty).
 | Region scroll offsets, hover, drag gap | client | client | gestures |
 | Look variants (prototype) | Debug Settings tunable | client | DEV only |
 
-Wire contract (capability `sidebar-layout-v1`, home daemon, personal store next to rooms and groups):
+Wire contract (capability `sidebar-layout-v1`, `cmux.protocol/2` state operations in
+`cmux-tui-core::state`, personal state of the home session; branch feat-cmux-next-sidebar-layout-store):
 
-| cmd | params | data |
+| operation | params | result |
 | --- | --- | --- |
-| `sidebar-layout-get` | `{}` | `{layout: SidebarLayoutDocument}` (defaults when never written) |
-| `sidebar-layout-op` | `{idempotency_key, transaction?, op}` | `{layout, revision, replayed}` |
+| `sidebar_layout.get` | `{}` | `SidebarLayoutSnapshot {revision: decimal string, sections}` |
+| `sidebar_layout.update` | `{op}` with the request's idempotency key | `MutationResult<SidebarLayoutSnapshot>` |
 
-Event: `personal-changed` with `kind: "sidebar-layout"` and the new revision. The reducer is the same
-pure function in Rust (store) and Swift (client overlay for the intent log); Swift tests and the
-Rust tests share fixture JSON (`Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-*.json`).
+`op` is one `SidebarLayoutOp` (section 4, plus `item.remove_ref {ref}`: every copy of a ref). The
+commit path writes the row, the replay record and one `session.events` batch with a `state_upsert`
+of resource `sidebar_layout`, id `user`; session snapshots carry `extra.state.sidebar_layout`. A
+reducer reject is `validation.invalid` with the reason and writes nothing (no replay record: a
+retry runs again); a no-op commits no change and keeps the layout revision. A stored row that no
+longer parses reads as the defaults. The reducer is the same in Rust and Swift; the shared cases in
+`Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json` run against
+both.
 
 Client: the confirmed mirror is written only by `sidebar-layout-get` replies and events; pending ops
 form the intent log (visible = mirror + pending; an op leaves on echo or reject, reject animates
@@ -197,7 +215,10 @@ Look: setting `sidebar.sectionLook` in cmux.json and Settings > Appearance > Sid
 `quiet` (Lawrence, 2026-10-02); Debug Settings `sidebar.sections.look` overrides it in DEV. The band
 caps are settings too: `sidebar.topBandMaxShare` (default 1/3), `sidebar.bottomBandMaxShare`
 (default 1/4), `sidebar.stickyBandsScroll` (default true; false = the bands never scroll and the list
-shrinks to three rows, then both bands shrink in proportion as a last resort). Looks:
+shrinks to three rows). In both modes the two bands together leave the list three rows (they
+shrink in proportion and scroll inside), and each band keeps at least its first row, so Home and
+Settings never vanish in a short window. The two shares together are at most 0.8; past that both
+shrink in proportion. Looks:
 
 - quiet: icon + label rows, no fill at rest; a hairline separates the sticky bands from the list.
 - card: each section of a sticky band sits in a rounded inset card.

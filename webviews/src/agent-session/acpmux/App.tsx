@@ -36,6 +36,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { DateLine } from "./conversation/DateLine";
+import { SearchChats } from "./SearchChats";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 
@@ -60,6 +61,8 @@ declare global {
         registryJS?: string;
         layout?: Record<string, unknown>;
       }): void;
+      /// An app action for the page (CmuxNextAgentPane AgentPaneView): "searchChats" toggles Search chats.
+      command?(name: string): void;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -120,7 +123,7 @@ const MessageRow = memo(
   (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
 );
 
-/// Tool calls and thoughts as Codex's quiet rows (inside an open "Worked for", or live).
+/// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
 const ToolActivityRow = memo(
   function ToolActivityRow({ row }: RowProps) {
     return <ToolRows row={row} />;
@@ -198,7 +201,7 @@ const PermissionRow = memo(
 );
 const EDITED_FILES_SHOWN = 3;
 
-/// "Edited N files", after Codex's card (EditedFilesCard in codex-atlas-clone's
+/// "Edited N files", ported from EditedFilesCard in the reference prototype's
 /// src/conversation/cards.tsx): totals, View changes, and the first files with their counts;
 /// each file opens the changes at that file. One edited file is named in the title instead.
 const EditedFilesRow = memo(
@@ -690,9 +693,9 @@ function AcpmuxPane() {
       forkable ? { fork: (throughSeq) => void callNative("chat.fork", { throughSeq }).catch(() => undefined) } : {},
     [forkable],
   );
-  // A new chat centers its composer under the hero, as Codex's home does.
+  // A new chat centers its composer under the hero.
   const freshChat = isNewChat(snapshot);
-  // Codex's turn shape: work folds under "Worked for" until opened.
+  // Turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(
     () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
     [snapshot.rows, expanded, snapshot.isWorking],
@@ -784,6 +787,9 @@ function AcpmuxPane() {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
     void callNative("chat.new").catch(() => undefined);
   }, []);
+  // Search chats opens from the app's agentPane.searchChats action (Cmd-K by default, editable in
+  // Settings and cmux.json), which calls the bridge's command("searchChats").
+  const [searching, setSearching] = useState(false);
   // While the narrow-pane overlay is open, Escape closes it and focus moves into it.
   useEffect(() => {
     if (sidebar !== "open" || wide) return;
@@ -825,6 +831,9 @@ function AcpmuxPane() {
       },
     };
     window.cmuxAcpmuxBridge = {
+      command(name) {
+        if (name === "searchChats") setSearching((open) => !open);
+      },
       receive(next) {
         if (next.protocolVersion !== 1) return;
         const change = diffRows(rowsRef.current, next.rows);
@@ -1050,6 +1059,20 @@ function AcpmuxPane() {
           onStop={() => void callNative("chat.cancel")}
         />
       </div>
+      {searching && (
+        <SearchChats
+          sessions={snapshot.sessions}
+          onClose={() => setSearching(false)}
+          onSelect={(sessionId) => {
+            setSearching(false);
+            selectSession(sessionId);
+          }}
+          onNewChat={() => {
+            setSearching(false);
+            newChat();
+          }}
+        />
+      )}
     </section>
   );
 }

@@ -1,0 +1,16 @@
+{
+  "name": "cmux.section/1",
+  "version": 1,
+  "docs": "A sidebar section the user places in a sidebar region.",
+  "props": {
+    "title": "string",
+    "symbol": "string?",
+    "defaultRegion": "top|middle|bottom?",
+    "maxRows": "integer?"
+  },
+  "methods": {
+    "render": "scene"
+  },
+  "events": [],
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

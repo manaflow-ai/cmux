@@ -76,7 +76,7 @@ nonisolated enum TabGroupActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "tabGroup.moveToNewColumn",
                 title: String(localized: "action.tabGroup.moveToNewColumn", defaultValue: "Move Tab Group to New Column", bundle: .module),
-                keywords: ["group", "move", "column", "niri"], category: .tab, symbol: "rectangle.split.3x1",
+                keywords: ["group", "move", "column"], category: .tab, symbol: "rectangle.split.3x1",
                 surfaces: [.palette], targets: [.tabGroup], cliName: "tab-group move-to-column"
             ),
             ActionDescriptor(

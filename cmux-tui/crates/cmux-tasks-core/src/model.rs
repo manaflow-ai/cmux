@@ -66,7 +66,9 @@ impl Category {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Priority {
     #[default]
@@ -396,10 +398,8 @@ impl State {
                 .map(|t| t.id.clone());
         }
         if reference.len() >= 6 && reference.starts_with(crate::ids::prefix::TASK) {
-            let mut matches = self
-                .tasks
-                .values()
-                .filter(|t| !t.deleted && t.id.starts_with(reference));
+            let mut matches =
+                self.tasks.values().filter(|t| !t.deleted && t.id.starts_with(reference));
             let first = matches.next()?;
             return matches.next().is_none().then(|| first.id.clone());
         }
@@ -444,9 +444,10 @@ impl State {
     }
 
     /// Non-terminal sessions of a task.
-    pub fn active_sessions<'a>(&'a self, task: &'a str) -> impl Iterator<Item = &'a AgentSession> + 'a {
-        self.sessions
-            .values()
-            .filter(move |s| s.task == task && !s.status.is_terminal())
+    pub fn active_sessions<'a>(
+        &'a self,
+        task: &'a str,
+    ) -> impl Iterator<Item = &'a AgentSession> + 'a {
+        self.sessions.values().filter(move |s| s.task == task && !s.status.is_terminal())
     }
 }

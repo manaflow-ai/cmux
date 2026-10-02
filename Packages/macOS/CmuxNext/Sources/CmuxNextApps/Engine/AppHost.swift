@@ -19,8 +19,12 @@ public final class AppHost {
     @ObservationIgnored private let sink: any AppOperationSink
     @ObservationIgnored public let events: AppEventHub
     @ObservationIgnored private let clock: any AppEngineClock
-    /// Granted scopes and settings per app (the registry supplies them).
-    @ObservationIgnored public var grants: (AppManifest) -> Set<String> = { Set($0.scopes.map(\.scope)) }
+    /// Grants and settings per app (the registry supplies them). Engines
+    /// read their `AppGrants` per call; `refreshGrants` rewrites it.
+    @ObservationIgnored public var grants: (AppManifest) -> AppGrants.Snapshot = {
+        AppGrants.Snapshot(scopes: Set($0.scopes.map(\.scope)))
+    }
+    @ObservationIgnored private var grantBoxes: [String: AppGrants] = [:]
     @ObservationIgnored public var settings: (AppManifest) -> AppJSON = { .object($0.contributes.settingsDefaults) }
     static let logLimit = 500
 
@@ -94,12 +98,27 @@ public final class AppHost {
 
     public func isRunning(_ appID: String) -> Bool { engines[appID] != nil }
 
+    /// Re-reads the app's grants (revoke, sandbox switch); the next call sees them.
+    public func refreshGrants(_ manifest: AppManifest) {
+        grantBoxes[manifest.id]?.update(grants(manifest))
+    }
+
+    private func grantBox(_ manifest: AppManifest) -> AppGrants {
+        if let box = grantBoxes[manifest.id] {
+            box.update(grants(manifest))
+            return box
+        }
+        let box = AppGrants(grants(manifest))
+        grantBoxes[manifest.id] = box
+        return box
+    }
+
     private func engine(for manifest: AppManifest, directory: URL) async -> AppEngine? {
         if let engine = engines[manifest.id] { return engine }
         if let pending = starting[manifest.id] { return await pending.value }
         let appID = manifest.id
         let configuration = AppEngineConfiguration(
-            manifest: manifest, bundleDirectory: directory, grantedScopes: grants(manifest), settings: settings(manifest), sink: sink,
+            manifest: manifest, bundleDirectory: directory, grants: grantBox(manifest), settings: settings(manifest), sink: sink,
             events: events, clock: clock) { [weak self] output in
                 // task-owner: engine output, in order, to the main actor
                 Task { @MainActor in self?.handle(appID, output) }

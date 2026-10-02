@@ -8,7 +8,7 @@ struct AppEngineTests {
                         clock: any AppEngineClock = ManualAppClock(), events: AppEventHub = AppEventHub(),
                         output: OutputCollector) -> AppEngine {
         AppEngine(configuration: AppEngineConfiguration(
-            manifest: manifest, bundleDirectory: directory, grantedScopes: granted ?? Set(manifest.scopes.map(\.scope)),
+            manifest: manifest, bundleDirectory: directory, grants: AppGrants(.init(scopes: granted ?? Set(manifest.scopes.map(\.scope)))),
             sink: sink, events: events, clock: clock, output: output.sink))
     }
 
@@ -38,7 +38,7 @@ struct AppEngineTests {
         await engine.stop()
     }
 
-    @Test func tapHandlerOpsCarryUserOriginAndMutationsGetIdempotencyKeys() async throws {
+    @Test func gestureTokensGiveUserOriginOnceAndMutationsGetIdempotencyKeys() async throws {
         let (manifest, directory) = try TestApps.sample("running-agents")
         let sink = RecordingSink { request in
             switch request.op {
@@ -62,6 +62,8 @@ struct AppEngineTests {
         let focus = try #require(sink.requests.first { $0.op == "tab.focus" })
         #expect(focus.params["tab"] == "tab_9")
         #expect(focus.idempotencyKey?.isEmpty == false)
+        // The sample captured the click's gesture before its await, so the focus after it is user-initiated too.
+        #expect(focus.origin == .user)
         await engine.stop()
     }
 
@@ -144,7 +146,7 @@ struct AppEngineTests {
         let sink = RecordingSink()
         let output = OutputCollector()
         let engine = AppEngine(configuration: AppEngineConfiguration(
-            manifest: manifest, bundleDirectory: directory, grantedScopes: Set(manifest.scopes.map(\.scope)),
+            manifest: manifest, bundleDirectory: directory, grants: AppGrants(.init(scopes: Set(manifest.scopes.map(\.scope)))),
             settings: ["login": "octocat", "showDrafts": true], sink: sink, clock: ManualAppClock(), output: output.sink))
         try await engine.start()
         await engine.mount("p", export: "renderPRs")
@@ -152,6 +154,28 @@ struct AppEngineTests {
         #expect(sink.requests.first { $0.op == "net.fetch" }?.params["url"]?.stringValue?.hasPrefix("https://api.github.com/search/issues") == true)
         #expect(!sink.requests.contains { $0.op == "integration.request" })
         #expect(await eventually { output.scene("p").nodes.values.contains { $0.type == .emptyState } })
+        await engine.stop()
+    }
+
+    @Test func revokingAScopeOrSandboxingTakesEffectOnTheNextCall() async throws {
+        let (manifest, directory) = try TestApps.bundle(scopes: ["agent:read": "r", "net:api.github.com": "n"], main: """
+            async function agents() { try { await cmux.agent.list({}); return "ok" } catch (e) { return e.code } }
+            async function fetch() { try { await cmux.net.fetch("https://api.github.com/x"); return "ok" } catch (e) { return e.code } }
+            return { agents, fetch }
+            """)
+        let sink = RecordingSink { _ in .success(AppOperationResult(value: ["status": 200, "body": ""])) }
+        let grants = AppGrants(.init(scopes: ["agent:read", "net:api.github.com"]))
+        let engine = AppEngine(configuration: AppEngineConfiguration(manifest: manifest, bundleDirectory: directory, grants: grants, sink: sink,
+                                                                     clock: ManualAppClock(), output: OutputCollector().sink))
+        try await engine.start()
+        #expect(await engine.runCommand("agents") == .success("ok"))
+        #expect(await engine.runCommand("fetch") == .success("ok"))
+        grants.update(.init(scopes: ["net:api.github.com"], sandboxed: true))
+        #expect(await engine.runCommand("agents") == .success("scope.missing"))
+        #expect(await engine.runCommand("fetch") == .success("sandbox.denied"))
+        grants.update(.init(scopes: ["agent:read"], sandboxed: false))
+        #expect(await engine.runCommand("agents") == .success("ok"))
+        #expect(sink.requests.map(\.op) == ["agent.list", "net.fetch", "agent.list"])
         await engine.stop()
     }
 }

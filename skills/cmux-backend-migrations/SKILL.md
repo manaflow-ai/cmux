@@ -75,6 +75,21 @@ Also run `bun run test` in `backend/apps/api` when the drain or a read changes.
    applied one, never apply by hand outside the runner. An applied migration whose PR is
    abandoned blocks every later migration PR: land it, or have an operator remove its row.
 
+## Direct pushes to feat-cmux-next
+
+Agents push straight to `feat-cmux-next`, and nothing blocks a push. A migration must still
+travel through a PR, and three checks catch a mistake:
+- `python3 scripts/verify-local.py` (check `backend-migrations`) fails when your outgoing
+  commits add or change files under `backend/db/migrations` without an open PR into
+  `feat-cmux-next` or `main`. Set `CMUX_BACKEND_MIGRATION_PR=1` only on the PR branch itself
+  before its PR exists.
+- After a push, the `migrations-push-guard` job turns red when a shared migration changed, a
+  number is not above the previous head, a contract migration landed on `feat-cmux-next`, or
+  the lint fails.
+- The staging deploy refuses (step "Staging schema matches this commit", with an annotation
+  and summary naming the commit) while staging lacks a migration of the pushed tree or has
+  one the tree lacks. Fix forward: open the PR with the migration and label it, or revert.
+
 ## Manual commands (operators, emergencies)
 
 ```bash
