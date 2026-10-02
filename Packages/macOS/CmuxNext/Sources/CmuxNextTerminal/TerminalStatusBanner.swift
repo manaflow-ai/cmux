@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Small label over a terminal whose link is down: the last screen stays
 /// visible behind it. Hidden while connected. Subtle gray, no accent.
@@ -11,7 +12,7 @@ final class TerminalStatusBanner: NSView {
         layer?.cornerRadius = 8
         layer?.backgroundColor = NSColor(white: 0.12, alpha: 0.88).cgColor
         layer?.borderColor = NSColor(white: 1, alpha: 0.08).cgColor
-        layer?.borderWidth = 1
+        layer?.borderWidth = Metrics.lineWidth(1)
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.textColor = NSColor(white: 0.85, alpha: 1)
         label.lineBreakMode = .byTruncatingTail

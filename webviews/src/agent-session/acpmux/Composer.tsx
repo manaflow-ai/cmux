@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import type { AcpmuxSnapshot } from "./model";
 import { ArrowUpIcon, PlusIcon, StopIcon } from "./ComposerPickers";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
+import { seededText } from "./composerDraft";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -24,6 +25,9 @@ type Props = {
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   onSend(text: string): void;
   onStop(): void;
+  /// Text the prompt starts with, such as what a chat opened from another tab inherited.
+  /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
+  draft?: string;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
@@ -37,7 +41,7 @@ type Props = {
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
-export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, accessory }: Props) {
+export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leading, accessory }: Props) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -64,6 +68,13 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     sendButton.current?.focus();
     if (snapshot.isWorking) refocusSend.current = false;
   });
+  useEffect(() => {
+    // The prompt's DOM value is the typed text; a draft never replaces it.
+    if (!draft || textarea.current?.value) return;
+    setText((current) => seededText(current, draft));
+    setCaret(draft.length);
+    pendingCaret.current = draft.length;
+  }, [draft]);
   const commands = snapshot.commands;
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
