@@ -72039,13 +72039,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "%1$@・%2$@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "%1$@ ㆍ %2$@"
           }
         },
         "uk": {
@@ -72057,7 +72057,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "%1$@ • %2$@"
           }
         },
         "bs": {
@@ -72075,19 +72075,19 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "%1$@ – %2$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "%1$@: %2$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "%1$@ : %2$@"
           }
         },
         "it": {
@@ -72141,13 +72141,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "%1$@・%2$@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@"
+            "value": "%1$@・%2$@"
           }
         }
       }
