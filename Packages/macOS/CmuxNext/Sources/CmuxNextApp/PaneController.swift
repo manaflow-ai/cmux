@@ -245,7 +245,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func content(for key: String) -> TabContent? {
-        if key.hasPrefix(LocalAgentTab.prefix) { return services.agentTabs.view(for: key).map(TabContent.agent) }
+        if key.hasPrefix(LocalAgentTab.prefix) { return agentContent(key) }
         if key.hasPrefix(LocalBrowserTab.prefix) {
             let local = state?.localBrowserTabs[paneKey]?.first { $0.id == key }
             // A local tab of an incognito window uses its off-the-record profile.

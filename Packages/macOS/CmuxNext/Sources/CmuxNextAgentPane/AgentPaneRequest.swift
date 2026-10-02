@@ -50,6 +50,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "file.open":
+            if let path = params?["path"] as? String, !path.isEmpty,
+               let raw = params?["where"] as? String, let target = AgentPaneFileTarget(rawValue: raw) {
+                self = .openFile(path: path, target: target)
+            } else {
+                self = .unsupported(method)
+            }
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)

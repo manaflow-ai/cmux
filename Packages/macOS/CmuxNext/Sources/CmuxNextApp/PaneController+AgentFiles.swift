@@ -1,0 +1,26 @@
+import AppKit
+import CmuxNextAgentPane
+
+/// An agent tab's changed files open beside it: in a new tab of this pane
+/// (the file preview is a browser page on a `file://` URL until the preview
+/// surface lands), or in the editor app.
+extension PaneController {
+    func agentContent(_ key: String) -> TabContent? {
+        guard let view = services.agentTabs.view(for: key) else { return nil }
+        // Set on each show, so a tab moved to another pane opens files there.
+        view.model.onOpenFile = { [weak self] url, target in self?.openAgentFile(url, target) ?? false }
+        return .agent(view)
+    }
+
+    private func openAgentFile(_ url: URL, _ target: AgentPaneFileTarget) -> Bool {
+        switch target {
+        case .tab:
+            newBrowserTab(url: url)
+            return true
+        case .editor:
+            guard let app = AgentPaneFileOpen.editorApplication() else { return false }
+            NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+            return true
+        }
+    }
+}

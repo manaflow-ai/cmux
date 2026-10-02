@@ -57,8 +57,11 @@ public final class AgentPaneModel {
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
             return AgentPaneReply.success()
-        case .openFile:
-            return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: file.open")
+        case .openFile(let path, let target):
+            guard let onOpenFile, let url = AgentPaneFileOpen.resolve(path), onOpenFile(url, target) else {
+                return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
+            }
+            return AgentPaneReply.success()
         case .unsupported(let method):
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
         }
