@@ -17,9 +17,26 @@ const root = {
 const globals = globalThis as Record<string, unknown>;
 const saved = globals.document;
 globals.document = { documentElement: root, body: null };
-afterAll(() => { globals.document = saved; });
+afterAll(() => {
+  globals.document = saved;
+});
 
-const base: AgentSessionTheme = { isDark: true, pageBackground: "#1e1e2e", surfaceBackground: "#1e1e2e", surfaceElevatedBackground: "#28283a", inputBackground: "#25253a", border: "#333", borderStrong: "#444", text: "#cdd6f4", mutedText: "#a6adc8", softText: "#7f849c", accent: "#cdd6f4", accentSoft: "#585b70", danger: "#f38ba8", shadow: "#000" };
+const base: AgentSessionTheme = {
+  isDark: true,
+  pageBackground: "#1e1e2e",
+  surfaceBackground: "#1e1e2e",
+  surfaceElevatedBackground: "#28283a",
+  inputBackground: "#25253a",
+  border: "#333",
+  borderStrong: "#444",
+  text: "#cdd6f4",
+  mutedText: "#a6adc8",
+  softText: "#7f849c",
+  accent: "#cdd6f4",
+  accentSoft: "#585b70",
+  danger: "#f38ba8",
+  shadow: "#000",
+};
 const ansi = (index: number) => properties.get(`--agent-ansi-${index}`);
 
 test("the terminal palette becomes --agent-ansi-N, and a theme without one clears it", () => {

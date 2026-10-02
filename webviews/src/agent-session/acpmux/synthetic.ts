@@ -10,10 +10,17 @@ import type { AcpmuxRow } from "./model";
 export function syntheticRows(count: number): AcpmuxRow[] {
   const rows: AcpmuxRow[] = [];
   let seq = 0;
-  const next = (row: Omit<AcpmuxRow, "version" | "at">) => { seq += 1; rows.push({ ...row, version: 1, at: seq * 1_000 }); };
+  const next = (row: Omit<AcpmuxRow, "version" | "at">) => {
+    seq += 1;
+    rows.push({ ...row, version: 1, at: seq * 1_000 });
+  };
   const turns = Math.max(1, Math.floor(count / 3));
   for (let turn = 0; turn < turns; turn += 1) {
-    next({ id: `synthetic-user-${turn}`, kind: "user", text: `Question ${turn}: how should the transcript handle item ${turn % 97}?` });
+    next({
+      id: `synthetic-user-${turn}`,
+      kind: "user",
+      text: `Question ${turn}: how should the transcript handle item ${turn % 97}?`,
+    });
     let answer = `Answer ${turn}. ` + "This sentence adds some width to the paragraph. ".repeat(1 + (turn % 5));
     if (turn % 3 === 0) answer += "\n\n- first point\n- second point\n- third point";
     if (turn % 7 === 0) answer += `\n\n\`\`\`swift\nlet value = ${turn}\nprint(value)\n\`\`\``;

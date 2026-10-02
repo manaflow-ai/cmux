@@ -9,9 +9,7 @@ test("composer token insertion appends at the cursor", () => {
 });
 
 test("composer token insertion separates from preceding text", () => {
-  expect(
-    insertComposerToken({ text: "ask about", selectionStart: 9, selectionEnd: 9, token: "$" }),
-  ).toEqual({
+  expect(insertComposerToken({ text: "ask about", selectionStart: 9, selectionEnd: 9, token: "$" })).toEqual({
     text: "ask about $",
     cursor: 11,
   });

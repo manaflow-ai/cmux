@@ -16,10 +16,7 @@ export type DiffViewerStatusOptions = {
   statusOnly?: boolean;
 };
 
-export function createDiffViewerStatus(
-  message: string,
-  options: DiffViewerStatusOptions = {},
-): DiffViewerStatus {
+export function createDiffViewerStatus(message: string, options: DiffViewerStatusOptions = {}): DiffViewerStatus {
   const pending = options.pending === true;
   return {
     error: options.error === true,
@@ -30,10 +27,7 @@ export function createDiffViewerStatus(
   };
 }
 
-export function initialDiffViewerStatus(
-  config: DiffViewerConfig,
-  label: DiffViewerLabelResolver,
-): DiffViewerStatus {
+export function initialDiffViewerStatus(config: DiffViewerConfig, label: DiffViewerLabelResolver): DiffViewerStatus {
   const payload = config.payload;
   if (payload?.pendingReplacement === true) {
     return createDiffViewerStatus(payload.statusMessage ?? label("loadingDiff"), {

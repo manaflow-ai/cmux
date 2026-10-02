@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { applyDiffViewerAppearance, appearanceBackgroundColor, readableColor, resolveDiffViewerAppearance } from "../src/appearance";
+import {
+  applyDiffViewerAppearance,
+  appearanceBackgroundColor,
+  readableColor,
+  resolveDiffViewerAppearance,
+} from "../src/appearance";
 
 let dom: JSDOM | null = null;
 const originalDocument = globalThis.document;
@@ -61,24 +66,26 @@ describe("appearanceBackgroundColor", () => {
     dom = new JSDOM("<!doctype html><html><body></body></html>");
     (globalThis as any).document = dom.window.document;
 
-    applyDiffViewerAppearance(resolveDiffViewerAppearance({
-      themes: {
-        light: {
-          background: "#ffffff",
-          palette: {
-            "1": "#cc0000",
-            "2": "#007a00",
+    applyDiffViewerAppearance(
+      resolveDiffViewerAppearance({
+        themes: {
+          light: {
+            background: "#ffffff",
+            palette: {
+              "1": "#cc0000",
+              "2": "#007a00",
+            },
+          },
+          dark: {
+            background: "#272822",
+            palette: {
+              "9": "#f92672",
+              "10": "#a6e22e",
+            },
           },
         },
-        dark: {
-          background: "#272822",
-          palette: {
-            "9": "#f92672",
-            "10": "#a6e22e",
-          },
-        },
-      },
-    }));
+      }),
+    );
 
     const style = dom.window.document.documentElement.style;
     expect(style.getPropertyValue("--cmux-diff-deletion-fg-light")).toBe("#cc0000");
@@ -91,13 +98,15 @@ describe("appearanceBackgroundColor", () => {
     dom = new JSDOM("<!doctype html><html><body></body></html>");
     (globalThis as any).document = dom.window.document;
 
-    applyDiffViewerAppearance(resolveDiffViewerAppearance({
-      backgroundOpacity: 1,
-      themes: {
-        light: { background: "#feffff" },
-        dark: { background: "#272822" },
-      },
-    }));
+    applyDiffViewerAppearance(
+      resolveDiffViewerAppearance({
+        backgroundOpacity: 1,
+        themes: {
+          light: { background: "#feffff" },
+          dark: { background: "#272822" },
+        },
+      }),
+    );
 
     const style = dom.window.document.documentElement.style;
     expect(style.getPropertyValue("--cmux-diff-surface-fill-light")).toBe("transparent");
@@ -108,13 +117,15 @@ describe("appearanceBackgroundColor", () => {
     dom = new JSDOM("<!doctype html><html><body></body></html>");
     (globalThis as any).document = dom.window.document;
 
-    applyDiffViewerAppearance(resolveDiffViewerAppearance({
-      backgroundOpacity: 0.6,
-      themes: {
-        light: { background: "#feffff" },
-        dark: { background: "#272822" },
-      },
-    }));
+    applyDiffViewerAppearance(
+      resolveDiffViewerAppearance({
+        backgroundOpacity: 0.6,
+        themes: {
+          light: { background: "#feffff" },
+          dark: { background: "#272822" },
+        },
+      }),
+    );
 
     const style = dom.window.document.documentElement.style;
     expect(style.getPropertyValue("--cmux-diff-surface-fill-light")).toBe("transparent");

@@ -68,7 +68,9 @@ const option = (name) => {
   args.splice(index, 2);
   return value;
 };
-const atlas = path.resolve(option("atlas") ?? process.env.CMUX_AGENT_PANE_ATLAS ?? path.join(os.homedir(), "Projects/codex-atlas-clone"));
+const atlas = path.resolve(
+  option("atlas") ?? process.env.CMUX_AGENT_PANE_ATLAS ?? path.join(os.homedir(), "Projects/codex-atlas-clone"),
+);
 const outRoot = path.resolve(option("out") ?? path.join(os.tmpdir(), "cmux-agent-pane-compare"));
 const themeName = option("theme");
 const themeFile = themeName && path.resolve(webviews, "../Resources/ghostty/themes", themeName);
@@ -78,9 +80,14 @@ const anchorText = option("anchor");
 const openFold = args.includes("--open");
 if (openFold) args.splice(args.indexOf("--open"), 1);
 const names = args.length ? args : Object.keys(scenarios);
-for (const name of names) if (!scenarios[name]) throw new Error(`unknown scenario ${name}; known: ${Object.keys(scenarios).join(", ")}`);
+for (const name of names)
+  if (!scenarios[name]) throw new Error(`unknown scenario ${name}; known: ${Object.keys(scenarios).join(", ")}`);
 
-const server = await createServer({ configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"), server: { port: 0, strictPort: false }, logLevel: "error" });
+const server = await createServer({
+  configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+  server: { port: 0, strictPort: false },
+  logLevel: "error",
+});
 await server.listen();
 const url = server.resolvedUrls.local[0];
 try {
@@ -97,19 +104,27 @@ try {
 async function run(browser, name, scenario) {
   const fixture = JSON.parse(fs.readFileSync(path.join(here, scenario.fixture), "utf8"));
   const referencePath = scenario.reference && path.join(atlas, scenario.reference);
-  if (referencePath && !fs.existsSync(referencePath)) throw new Error(`${referencePath} not found; pass --atlas <codex-atlas-clone checkout>`);
+  if (referencePath && !fs.existsSync(referencePath))
+    throw new Error(`${referencePath} not found; pass --atlas <codex-atlas-clone checkout>`);
   const { pane, compare, scale } = scenario;
 
-  const context = await browser.newContext({ viewport: { width: Math.round(pane.width), height: Math.round(pane.height) }, deviceScaleFactor: scale, colorScheme: "dark" });
+  const context = await browser.newContext({
+    viewport: { width: Math.round(pane.width), height: Math.round(pane.height) },
+    deviceScaleFactor: scale,
+    colorScheme: "dark",
+  });
   try {
     const page = await context.newPage();
     // A page that throws is not the pane being measured.
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.addInitScript(({ steps, endAtMs }) => {
-      window.cmuxAcpmuxMockScript = { steps, endAtMs };
-      window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
-    }, { steps: fixture.steps, endAtMs: fixture.endAtMs });
+    await page.addInitScript(
+      ({ steps, endAtMs }) => {
+        window.cmuxAcpmuxMockScript = { steps, endAtMs };
+        window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
+      },
+      { steps: fixture.steps, endAtMs: fixture.endAtMs },
+    );
     await page.goto(url, { waitUntil: "networkidle" });
     // Swift applies the theme once the page has loaded.
     await page.waitForFunction(() => window.cmuxAcpmuxBridge && window.cmuxAcpmuxActions?.["chat.send"]);
@@ -153,8 +168,9 @@ async function run(browser, name, scenario) {
     const side = new PNG({ width: width * 2, height });
     PNG.bitblt(expected, side, 0, 0, width, height, 0, 0);
     PNG.bitblt(actual, side, 0, 0, width, height, width, 0);
-    for (const [file, png] of Object.entries({ ref: expected, actual, diff, side })) fs.writeFileSync(path.join(dir, `${file}.png`), PNG.sync.write(png));
-    const percent = (count) => (100 * count / (width * height)).toFixed(3);
+    for (const [file, png] of Object.entries({ ref: expected, actual, diff, side }))
+      fs.writeFileSync(path.join(dir, `${file}.png`), PNG.sync.write(png));
+    const percent = (count) => ((100 * count) / (width * height)).toFixed(3);
     return `${name}: ${percent(mismatched)}% mismatched, ${percent(strict)}% at threshold 0.02 (${dir})`;
   } finally {
     await context.close();
@@ -171,28 +187,31 @@ function settle(page) {
 /// snap to device pixels, so half a CSS pixel off is as close as it gets.
 async function scrollToAnchor(page, anchor) {
   for (let attempt = 0; attempt < 40; attempt++) {
-    const delta = await page.evaluate(({ text, top, edge }) => {
-      const scroller = document.querySelector(".acpmux-scroll");
-      if (!scroller) return "no transcript scroller (.acpmux-scroll)";
-      const walker = document.createTreeWalker(scroller, NodeFilter.SHOW_TEXT);
-      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-        const at = node.data.indexOf(text);
-        if (at < 0) continue;
-        const range = document.createRange();
-        range.setStart(node, at);
-        range.setEnd(node, at + text.length);
-        const delta = range.getBoundingClientRect().top - top;
-        const from = scroller.scrollTop;
-        scroller.scrollTop += delta;
-        // A capture's text near either end can't reach `top`: the scroll stops at the edge.
-        // A scored scenario must reach it, or the crop would be misaligned.
-        const clamped = edge && Math.abs(delta) > 0.5 && Math.abs(scroller.scrollTop - from) < 0.5;
-        return Math.abs(delta) <= 0.5 || clamped ? 0 : delta;
-      }
-      const before = scroller.scrollTop;
-      scroller.scrollTop += scroller.clientHeight;
-      return scroller.scrollTop === before ? `anchor text not found in one text node: ${text}` : Infinity;
-    }, { ...anchor, edge: Boolean(anchor.edge) });
+    const delta = await page.evaluate(
+      ({ text, top, edge }) => {
+        const scroller = document.querySelector(".acpmux-scroll");
+        if (!scroller) return "no transcript scroller (.acpmux-scroll)";
+        const walker = document.createTreeWalker(scroller, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const at = node.data.indexOf(text);
+          if (at < 0) continue;
+          const range = document.createRange();
+          range.setStart(node, at);
+          range.setEnd(node, at + text.length);
+          const delta = range.getBoundingClientRect().top - top;
+          const from = scroller.scrollTop;
+          scroller.scrollTop += delta;
+          // A capture's text near either end can't reach `top`: the scroll stops at the edge.
+          // A scored scenario must reach it, or the crop would be misaligned.
+          const clamped = edge && Math.abs(delta) > 0.5 && Math.abs(scroller.scrollTop - from) < 0.5;
+          return Math.abs(delta) <= 0.5 || clamped ? 0 : delta;
+        }
+        const before = scroller.scrollTop;
+        scroller.scrollTop += scroller.clientHeight;
+        return scroller.scrollTop === before ? `anchor text not found in one text node: ${text}` : Infinity;
+      },
+      { ...anchor, edge: Boolean(anchor.edge) },
+    );
     if (typeof delta === "string") throw new Error(delta);
     await settle(page);
     if (delta === 0) return;

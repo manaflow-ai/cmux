@@ -22,7 +22,7 @@ import Testing
     }
 
     @Test(.enabled(if: directory != nil)) func renderEverything() async {
-        for variant in OnboardingVariantRegistry.all {
+        for variant in OnboardingModel.Step.allVariants {
             let model = OnboardingModel(services: sample(), start: variant.step)
             let controller = OnboardingWindowController(model: model, variant: variant)
             guard let window = controller.window, let content = window.contentView else { continue }

@@ -175,10 +175,12 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
+            TerminalTimings.contentApplied()
         case .kittyReplay(let replay):
             if surfaceHasContent { swapSurface() }
             restoreKittyReplay(replay)
             surfaceHasContent = true
+            TerminalTimings.contentApplied()
         case .output(let data):
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
@@ -186,6 +188,7 @@ public final class TerminalSession {
             // The surface may have been swapped while waiting (kitty restore fallback).
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
+            TerminalTimings.contentApplied()
         case .resize(let columns, let rows):
             guard columns > 0, rows > 0 else { return }
             await applyCanonicalGrid(TerminalGridSize(columns: columns, rows: rows))

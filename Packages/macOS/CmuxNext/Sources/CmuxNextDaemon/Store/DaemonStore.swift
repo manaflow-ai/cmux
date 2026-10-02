@@ -163,7 +163,10 @@ public final class DaemonStore {
         withOverlayLifted(snapshot: true) {
             applyTree(tree)
             if isProvisional { isProvisional = false }
-            if !isLoaded { isLoaded = true }
+            if !isLoaded {
+                isLoaded = true
+                DaemonLaunchTimings.shared.mark("daemon.first_tree_applied")
+            }
             if restoredEpoch != connectionEpoch {
                 restoredEpoch = connectionEpoch
                 restoredTabIDs = currentTabIDs

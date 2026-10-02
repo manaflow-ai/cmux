@@ -6,9 +6,15 @@ import { syntaxThemes } from "./diffTheme";
 /// through to the rendered tokens (it swaps non-hex colors out and back in), or every
 /// theme silently gets the fallbacks.
 test("highlighted tokens carry the terminal palette variables", async () => {
-  const highlighter = await createHighlighter({ themes: [syntaxThemes.dark as never, syntaxThemes.light as never], langs: ["python", "diff"] });
+  const highlighter = await createHighlighter({
+    themes: [syntaxThemes.dark as never, syntaxThemes.light as never],
+    langs: ["python", "diff"],
+  });
   const colors = (code: string, lang: "python" | "diff", theme: string) =>
-    highlighter.codeToTokens(code, { lang, theme }).tokens.flat().map((token) => token.color ?? "");
+    highlighter
+      .codeToTokens(code, { lang, theme })
+      .tokens.flat()
+      .map((token) => token.color ?? "");
   for (const theme of [syntaxThemes.dark.name, syntaxThemes.light.name]) {
     const python = colors('def greet():\n    return "hi"', "python", theme);
     expect(python.some((color) => color.startsWith("var(--agent-ansi-5,"))).toBe(true);

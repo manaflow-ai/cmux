@@ -163,17 +163,26 @@ public final class OverlaySurfaceView: NSView {
         performWithTheme {
             switch material {
             case .liquidGlass:
-                (materialView as? NSGlassEffectView)?.tintColor = Palette.glassTint
+                (materialView as? NSGlassEffectView)?.tintColor = overlayTint
             case .vibrancy:
-                tintView?.layer?.backgroundColor = Palette.glassTint.cgColor
+                tintView?.layer?.backgroundColor = overlayTint.cgColor
                 materialView?.layer?.borderColor = Palette.separator.cgColor
             case .opaque:
                 let base = Palette.windowBackground.usingColorSpace(.sRGB) ?? Palette.windowBackground
-                let fill = base.withAlphaComponent(1).blended(withFraction: 0.14, of: Palette.textPrimary.withAlphaComponent(1)) ?? base
+                let fill = base.withAlphaComponent(1).blended(withFraction: ChromeTunables.opaqueOverlayLift.value, of: Palette.textPrimary.withAlphaComponent(1)) ?? base
                 materialView?.layer?.backgroundColor = fill.cgColor
                 materialView?.layer?.borderColor = Palette.separator.withAlphaComponent(1).cgColor
             }
         }
         applyShape()
+    }
+
+    /// The theme's glass tint, its alpha scaled by the overlay tint
+    /// strength tunable (1, the default, is the theme tint unchanged).
+    private var overlayTint: NSColor {
+        let tint = Palette.glassTint
+        let strength = ChromeTunables.glassOverlayTintStrength.value
+        guard strength != 1 else { return tint }
+        return tint.withAlphaComponent(min(max(tint.alphaComponent * strength, 0), 1))
     }
 }
