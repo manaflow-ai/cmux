@@ -120,6 +120,33 @@ import Testing
         )
     }
 
+    @Test func authorityUserInfoIsRejectedEvenWhenLaterTextLooksLikeAScheme() {
+        #expect(resolver.navigableURL(from: "localhost:80@evil.example/path?u=http://x") == nil)
+        #expect(resolver.navigableURL(from: "localhost:80@evil.example/path#http://x") == nil)
+        #expect(resolver.navigableURL(from: "localhost:80@evil.example") == nil)
+        #expect(resolver.navigableURL(from: "user@evil.example") == nil)
+        #expect(resolver.navigableURL(from: "user@evil.example/?next=https://x") == nil)
+    }
+
+    @Test func pathAndQueryDataDoNotAffectTheResolvedHost() throws {
+        let local = try #require(resolver.navigableURL(from: "localhost:3000/a?next=http://x"))
+        #expect(local.absoluteString == "http://localhost:3000/a?next=http://x")
+        #expect(local.host == "localhost")
+        #expect(local.user == nil)
+
+        let atPath = try #require(resolver.navigableURL(from: "example.com/@user"))
+        #expect(atPath.absoluteString == "https://example.com/@user")
+        #expect(atPath.host == "example.com")
+
+        let atQuery = try #require(resolver.navigableURL(from: "example.com?x=a@b"))
+        #expect(atQuery.absoluteString == "https://example.com?x=a@b")
+        #expect(atQuery.host == "example.com")
+
+        let portQuery = try #require(resolver.navigableURL(from: "example.com:8443/a?x=a@b&u=http://y"))
+        #expect(portQuery.host == "example.com")
+        #expect(portQuery.port == 8443)
+    }
+
     @Test func preservesSupportedAndRejectedSchemes() throws {
         #expect(try #require(resolver.navigableURL(from: "file:///tmp/example.html")).isFileURL)
         #expect(resolver.navigableURL(from: "mailto:test@example.com") == nil)
