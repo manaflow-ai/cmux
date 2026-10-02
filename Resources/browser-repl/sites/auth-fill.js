@@ -2,10 +2,15 @@
 // REPL) after the user types into cmux's credential sheet: the body of an
 // async function evaluated with WKWebView.callAsyncJavaScript in the app's
 // own content world (not the agent world agent code can script) of the
-// frame that holds the fields. Arguments: __fields ([{ id, type, marker }])
-// and __values ({ id: value }). Only password, username and one-time-code
+// frame that holds the fields. Arguments: __fields ([{ id, type, marker }]),
+// __values ({ id: value }) and __origin, the origin the sheet showed the
+// user. WebKit's frame record is taken before the sheet opens, and the frame
+// may load another origin's document while the user types, so the document
+// that receives the values is checked here, at fill time: a different origin
+// gets nothing (origin_changed). Only password, username and one-time-code
 // inputs are filled, by the same rule as sites/browser-auth.js, and a
 // password only into a password input. The result carries no value.
+if (typeof __origin !== "string" || location.origin !== __origin) return { status: "origin_changed" };
 const kindOf = (el) => {
   if (!(el instanceof HTMLInputElement)) return null;
   const type = (el.getAttribute("type") || "text").toLowerCase();

@@ -52,12 +52,15 @@ enum BrowserReplCredentialRequest {
         guard case .filled(let values) = answer else {
             return ["status": answer == .expired ? "expired" : "cancelled"]
         }
-        guard currentOrigin(webView) == origin, frameOrigin(frameInfo, webView) == fieldsOrigin else {
-            return ["status": "origin_changed"]
-        }
+        guard currentOrigin(webView) == origin else { return ["status": "origin_changed"] }
+        // `frameInfo` records the frame as it was before the sheet opened, so
+        // its origin cannot show a navigation since. auth-fill.js compares
+        // the origin the sheet named with the frame's document as it runs,
+        // in the driver's world, and fills nothing on a mismatch.
         let arguments: [String: Any] = [
             "__fields": fields.map { ["id": $0.id, "type": $0.type, "marker": $0.marker] },
             "__values": values,
+            "__origin": fieldsOrigin,
         ]
         do {
             let result = try await webView.callAsyncJavaScript(
