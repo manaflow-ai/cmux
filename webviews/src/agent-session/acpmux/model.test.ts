@@ -120,3 +120,17 @@ describe("acpmux pane header", () => {
     expect(paneHeader(snapshot({ connection: "disconnected", isWorking: true })).status).toBe("Reconnecting");
   });
 });
+
+describe("turn row estimates", () => {
+  const tool = (id: string, kind: string) => ({ kind: "tool", text: id, tool: { id, title: id, kind, status: "completed" } });
+  const estimate = (row: AcpmuxRow) => layoutConversation([row], 720).heights[0]!;
+  test("the fold line and tool rows estimate their drawn heights", () => {
+    expect(estimate({ id: "worked-u", version: 1, at: 0, kind: "worked" })).toBe(35);
+    expect(estimate({ id: "t", version: 1, at: 0, kind: "activity", items: [1, 2, 3, 4, 5].map((n) => tool(`r${n}`, "read")) })).toBe(140);
+  });
+  test("an edit copied into an open fold estimates as tool rows, not the edited-files card", () => {
+    const items = [tool("e1", "edit"), tool("e2", "edit")];
+    expect(estimate({ id: "e:fold", version: 1, at: 0, kind: "activity", items })).toBe(62);
+    expect(estimate({ id: "e", version: 1, at: 0, kind: "activity", items })).toBe(56);
+  });
+});

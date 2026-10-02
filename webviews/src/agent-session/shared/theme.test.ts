@@ -63,7 +63,9 @@ describe("agent theme", () => {
   // The accent is the theme's text color, so a label on it in the text color
   // (or white on a light accent) can't be read.
   test("labels on the accent use the accent label color", () => {
-    expect(css("../acpmux/styles.css")).toMatch(/\.acpmux-composer button\{[^}]*color:var\(--agent-accent-text/);
+    const acpmux = css("../acpmux/styles.css");
+    expect(acpmux).toMatch(/--acpmux-base:var\(--agent-accent-text/);
+    expect(acpmux).toMatch(/\.acpmux-send-ready[^{]*\{[^}]*color:var\(--acpmux-base\)/);
     const shared = css("./styles.css");
     expect(shared).toMatch(/--color-token-button-foreground:\s*var\(--agent-accent-text/);
     expect(shared).toMatch(/--agent-primary-text:\s*var\(--agent-accent-text/);

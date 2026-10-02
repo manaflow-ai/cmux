@@ -1,3 +1,5 @@
+import type { SlashCommand } from "./slashCommands";
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -13,6 +15,9 @@ export type AcpmuxRow = {
   status?: string;
   error?: string;
   permission?: AcpmuxPermission;
+  /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
+  /// footer need not repeat the time and count.
+  folded?: boolean;
 };
 
 export type AcpmuxActivity = {
@@ -39,7 +44,7 @@ export type AcpmuxSnapshot = {
   protocolVersion: number;
   rows: AcpmuxRow[];
   sessions: AcpmuxSessionEntry[];
-  summary?: { sessionId: string; title?: string; name?: string; harness?: string; model?: string; effort?: string; status?: string; modes?: { availableModes: { id: string; name?: string }[]; currentModeId?: string }; configOptions?: { id: string; name?: string; category?: string; currentValue?: string; options: { value: string; name?: string }[] }[] };
+  summary?: { sessionId: string; title?: string; name?: string; harness?: string; model?: string; effort?: string; status?: string; modes?: { availableModes: { id: string; name?: string; description?: string }[]; currentModeId?: string }; configOptions?: { id: string; name?: string; category?: string; currentValue?: string; options: { value: string; name?: string }[] }[] };
   connection: string;
   sessionId?: string;
   isWorking: boolean;
@@ -47,6 +52,8 @@ export type AcpmuxSnapshot = {
   permission?: AcpmuxPermission;
   catalog: { id: string; name: string; models: { id: string; name?: string }[] }[];
   canLoadOlder: boolean;
+  /** The agent's slash commands, for the composer's `/` menu. */
+  commands?: SlashCommand[];
 };
 
 export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: string[] };
@@ -123,10 +130,13 @@ export function visibleRowRange(rowCount: number, scrollTop: number, viewportHei
 function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
-    // Collapsed tool calls, or the edited-files list (a title and one line per file).
+    // The edited-files list (a title and one line per file), or tool rows (`.cv-tools`: 2px
+    // above 26px rows), which is also how a copy inside an open "Worked for" draws.
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange").length ?? 0;
-    return edits ? 8 + 16 * (1 + edits) : 34;
+    return edits && !isFoldedCopy(row) ? 8 + 16 * (1 + edits) : Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
+  // The 27px disclosure line.
+  if (row.kind === WORKED) return 35;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
@@ -263,6 +273,7 @@ export function visibleLayoutRange(layoutModel: ConversationLayout, scrollTop: n
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
+import { isFoldedCopy, WORKED } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 

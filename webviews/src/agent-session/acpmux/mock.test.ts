@@ -13,6 +13,7 @@ describe("mock transport", () => {
     client.snapshot();
     expect(snapshots.at(-1)?.rows.map((row) => row.kind)).toEqual(["assistant"]);
     expect(snapshots.at(-1)?.summary?.harness).toBe("claude");
+    expect(snapshots.at(-1)?.commands?.map((command) => command.name)).toContain("compact");
     expect((await client.harnesses()).map((harness) => harness.id)).toEqual(["claude", "codex"]);
 
     await client.send("hello");
