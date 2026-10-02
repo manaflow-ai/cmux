@@ -655,13 +655,18 @@ Goal: a person texts the cmux line and talks to their Chief; Chief replies in th
   default, a SIM swap, a stolen phone or a recycled number gives full Chief power by text.
   Decided (Lawrence, 2026-10-02) and built (`mux/text-confirm.ts`): an in-app confirmation for
   destructive or irreversible actions requested by text. Rule `needsConfirmation`: channel text
-  and risk `destructive` or `money` or an irreversible action, unless the owner set
+  and risk `destructive`, `money`, `send-external` or `access` (grants, installs, addresses,
+  tokens, team invites, the text channel), or an action flagged irreversible, unless the owner set
   `text_confirm: off` (`mux.text_confirm.set`, owner's app only). MuxDO ops (idempotency keys
   from the caller): `mux.confirm.request {op, params_hash, risk, summary, source}` by the chief
-  (row in table `confirm`, 15 minutes, at most 20 live pending); `mux.confirm.decide {confirm,
-  approve}` only by a session or install of the chief's owner (never a text, the chief or
-  another user); `mux.confirm.consume {confirm, op, params_hash}` by the chief, once, for exactly
-  the approved op and params. The adapter posts the request as an `approval` part in the chief
+  (row in table `confirm`, at most 64 rows and 20 live pending); `mux.confirm.decide {confirm,
+  approve}` only by the owner's session or Mac, iPhone or web app install acting for no agent,
+  with origin `user` (never a text, a daemon or CLI install, the chief or another user);
+  `mux.confirm.consume {confirm, op, params_hash}` by the chief, once, for exactly the approved
+  op and params, all within 15 minutes of the request. Executor contract: the action's
+  idempotency key derives from the confirm id. Gap: the chief writes both the summary and the
+  params hash; the approval card must render the action from the op and params, not only the
+  summary. The adapter posts the request as an `approval` part in the chief
   conversation and pushes it to the owner's devices.
 
 Decisions (Lawrence, 2026-10-02): T1 a texted Stack sign-in link (above), not reverse
