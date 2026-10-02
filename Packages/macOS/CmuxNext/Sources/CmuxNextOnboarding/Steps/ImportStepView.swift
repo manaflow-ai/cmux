@@ -2,15 +2,17 @@ import AppKit
 import CmuxNextBrowserImport
 import CmuxNextDesign
 
-/// Import: one checkbox per detected browser profile, then one line of
-/// what to bring (bookmarks, history, sign-ins). Continue starts it.
+/// Import: one row per detected browser profile (the browser's own icon,
+/// the profile's picture and name, a checkbox), then one line of what to
+/// bring. Import runs in place: each row shows its progress, then what came
+/// over; the line under the list sums it up.
 final class ImportStepView: NSView {
     private let model: ImportStepModel
     private let list = NSStackView()
     private let kinds = NSStackView()
     private let status = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textTertiary, lines: 2)
     private let access = NSStackView()
-    private var profileBoxes: [String: NSButton] = [:]
+    private var rows: [String: ImportProfileRow] = [:]
     private var kindBoxes: [ImportDataKind: NSButton] = [:]
     private var shownProfiles: [BrowserSourceProfile]?
     private var loop: RenderLoop?
@@ -20,7 +22,7 @@ final class ImportStepView: NSView {
         super.init(frame: .zero)
         list.orientation = .vertical
         list.alignment = .leading
-        list.spacing = 10
+        list.spacing = 2
         list.translatesAutoresizingMaskIntoConstraints = false
         let document = FlippedView()
         document.translatesAutoresizingMaskIntoConstraints = false
@@ -55,7 +57,7 @@ final class ImportStepView: NSView {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
             scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            scroll.heightAnchor.constraint(equalToConstant: 150),
+            scroll.heightAnchor.constraint(equalToConstant: 4 * ImportProfileRow.height + 6),
             document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
             list.leadingAnchor.constraint(equalTo: document.leadingAnchor), list.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             list.topAnchor.constraint(equalTo: document.topAnchor), list.bottomAnchor.constraint(equalTo: document.bottomAnchor),
@@ -72,38 +74,43 @@ final class ImportStepView: NSView {
     @objc private func openSettings() { model.openFullDiskAccessSettings() }
     @objc private func recheck() { model.redetect() }
 
-    @objc private func profileToggled(_ sender: NSButton) {
-        guard let profile = model.profiles.first(where: { profileBoxes[$0.id] === sender }) else { return }
-        model.toggle(profile)
-    }
-
     private func render() {
         let profiles = model.profiles
         if profiles != shownProfiles {
             shownProfiles = profiles
             list.arrangedSubviews.forEach { $0.removeFromSuperview() }
-            profileBoxes = [:]
+            rows = [:]
+            let apps = Dictionary(model.sources.map { ($0.browser, $0.appURL) }, uniquingKeysWith: { first, _ in first })
             for profile in profiles {
-                let box = OnboardingControl.checkbox(OnboardingStrings.profileName(profile), target: self, action: #selector(profileToggled(_:)))
-                profileBoxes[profile.id] = box
-                list.addArrangedSubview(box)
+                let row = ImportProfileRow(profile: profile, appURL: apps[profile.browser] ?? nil) { [weak model] in model?.toggle(profile) }
+                rows[profile.id] = row
+                list.addArrangedSubview(row)
+                row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
             }
         }
         let editable = model.canEditSelection
         for profile in profiles {
-            profileBoxes[profile.id]?.state = model.isSelected(profile) ? .on : .off
-            profileBoxes[profile.id]?.isEnabled = editable
+            rows[profile.id]?.update(checked: model.isSelected(profile), editable: editable, state: model.rowState(profile))
         }
         for (kind, box) in kindBoxes {
             box.state = model.kinds.contains(kind) ? .on : .off
             box.isEnabled = editable
         }
         access.isHidden = !model.needsFullDiskAccess
+        status.stringValue = statusText(profiles)
+    }
+
+    private func statusText(_ profiles: [BrowserSourceProfile]) -> String {
         switch model.phase {
-        case .idle, .detecting: status.stringValue = OnboardingStrings.detecting
-        case .importing(let progress): status.stringValue = progress.map { OnboardingStrings.importing(OnboardingStrings.profileName($0.profile)) } ?? ""
+        case .idle, .detecting: return OnboardingStrings.detecting
+        case .importing: return ""
+        case .finished(let summary):
+            let counts = ImportCountsText.line(summary.counts)
+            let line = counts.isEmpty ? OnboardingStrings.importedNothing : OnboardingStrings.imported(counts)
+            return summary.failures.isEmpty ? line : line + " " + OnboardingStrings.importSomeFailed
+        case .failed(let message): return message
         default:
-            status.stringValue = profiles.isEmpty ? OnboardingStrings.noBrowsers
+            return profiles.isEmpty ? OnboardingStrings.noBrowsers
                 : (model.kinds.contains(.cookies) ? OnboardingStrings.keychainNote : "")
         }
     }

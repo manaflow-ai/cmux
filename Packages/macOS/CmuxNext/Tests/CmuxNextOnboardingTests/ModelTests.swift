@@ -73,7 +73,7 @@ import Testing
         #expect(other.selectedThemeName == nil && other.ended == false)
     }
 
-    @Test func importChecksEverythingAndContinueStartsIt() async {
+    @Test func importChecksEverythingAndImportRunsInPlace() async {
         let services = MockOnboardingServices()
         let work = profile("Profile 1")
         let empty = profile("Profile 2", kinds: [.extensions])
@@ -88,10 +88,67 @@ import Testing
         model.importer.toggle(firefox)
         model.importer.toggle(.history)
         #expect(model.importer.plan.items.map(\.kinds) == [[.bookmarks]])
+        #expect(model.primaryTitle == OnboardingStrings.importButton)
         model.next()
         await settle { if case .finished = model.importer.phase { true } else { false } }
         #expect(services.plans.count == 1)
+        #expect(model.step == .importData, "Import stays on the step so its rows show the result")
+        #expect(model.primaryTitle == OnboardingStrings.continueButton)
+        model.next()
         #expect(model.step == .theme)
+        #expect(services.plans.count == 1, "Continue after an import does not run it again")
+    }
+
+    @Test func nothingCheckedContinuesWithoutImporting() async {
+        let services = MockOnboardingServices()
+        let work = profile("Profile 1")
+        services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [work])]
+        let model = OnboardingModel(services: services, start: .importData)
+        model.stepDidAppear()
+        await settle { model.importer.phase == .ready }
+        model.importer.toggle(work)
+        #expect(model.primaryTitle == OnboardingStrings.continueButton)
+        model.next()
+        #expect(model.step == .theme && services.plans.isEmpty)
+    }
+
+    @Test func rowsShowEachProfilesProgressThenItsCounts() async {
+        let services = MockOnboardingServices()
+        let work = profile("Profile 1")
+        let side = profile("Profile 2")
+        let skipped = profile("Profile 3")
+        services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [work, side, skipped])]
+        services.holdsImport = true
+        services.summary = ImportSummary(batches: [], failures: [side.id: "locked"])
+        let model = OnboardingModel(services: services, start: .importData)
+        model.stepDidAppear()
+        await settle { model.importer.phase == .ready }
+        model.importer.toggle(skipped)
+        model.next()
+        await settle { services.importGate != nil }
+        // The mock's one report is the first profile starting on bookmarks: its base.
+        #expect(model.importer.rowState(work) == .importing(.bookmarks, ImportCounts()))
+        #expect(model.importer.rowState(side) == .waiting)
+        #expect(model.importer.rowState(skipped) == .idle)
+        services.importGate?.resume()
+        await settle { model.importer.summary != nil }
+        #expect(model.importer.rowState(work) == .done(ImportCounts()), "a row's first report is its base")
+        #expect(model.importer.rowState(side) == .failed("locked"))
+        #expect(model.importer.rowState(skipped) == .idle)
+    }
+
+    @Test func edgeLeadsTheList() async {
+        let services = MockOnboardingServices()
+        let chrome = profile("Default")
+        let edge = profile("Default", browser: .edge)
+        let edgeBeta = profile("Default", browser: .edgeBeta)
+        services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [chrome]),
+                            BrowserSource(browser: .edgeBeta, appURL: nil, profiles: [edgeBeta]),
+                            BrowserSource(browser: .edge, appURL: nil, profiles: [edge])]
+        let model = OnboardingModel(services: services, start: .importData)
+        model.stepDidAppear()
+        await settle { model.importer.phase == .ready }
+        #expect(model.importer.profiles == [edge, edgeBeta, chrome], "Edge first (stable, then its channels), otherwise detection order")
     }
 
     @Test func leavingTheFlowLetsTheImportFinish() async {
