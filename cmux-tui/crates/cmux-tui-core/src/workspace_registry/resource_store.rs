@@ -3952,7 +3952,6 @@ fn upsert_resource_terminal(
     let existing = read_terminal(transaction, &terminal.terminal_id)?;
     validate_terminal_transition(existing.as_ref(), terminal)?;
     if terminal.lifecycle != TerminalLifecycle::Tombstoned
-        && terminal.workspace_key != DETACHED_TERMINAL_WORKSPACE_KEY
         && existing.as_ref().is_none_or(|stored| stored.workspace_key != terminal.workspace_key)
     {
         require_live_workspace(transaction, &terminal.workspace_key)?;
