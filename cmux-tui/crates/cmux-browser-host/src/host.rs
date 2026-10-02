@@ -204,7 +204,9 @@ impl Host {
             .and_then(Value::as_u64)
             .map(|n| n as usize)
             .unwrap_or(DEFAULT_MAX_OUTPUT);
+        let started = std::time::Instant::now();
         let outcome = session.vm.eval(code, timeout);
+        let duration_ms = started.elapsed().as_millis() as u64;
         let mut stream = session.gate.masker().stream();
         let mut text = String::new();
         for (_, line) in &outcome.output {
@@ -219,6 +221,7 @@ impl Host {
             "output": text,
             "truncated": truncated,
             "error": error,
+            "durationMs": duration_ms,
             "createdBy": session.created_by.actor,
         }))
     }
