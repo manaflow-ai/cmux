@@ -52,7 +52,7 @@ describe("mock transport", () => {
     for (const mark of ["input", "running", "error", "unread"] as const) expect(marks).toContain(mark);
     expect(snapshot.sessions.filter((entry) => entry.pinned).map((entry) => entry.displayTitle)).toEqual(["Add retry backoff to the fleet uploader", "Resume sessions after a daemon restart"]);
     expect(new Set(snapshot.sessions.map((entry) => entry.hostKind))).toEqual(new Set(["local", "cloud"]));
-    expect(snapshot.sessions.filter((entry) => entry.pullRequest?.reviewReady).map((entry) => entry.pullRequest!.number)).toEqual([16642, 212, 88]);
+    expect(snapshot.sessions.filter((entry) => entry.pullRequest?.reviewReady).map((entry) => entry.pullRequest!.number)).toEqual([16488, 212, 88]);
     expect(snapshot.sessions.every((entry) => entry.preview)).toBe(true);
     // The largest project is long enough to fold behind Show more.
     expect(groupByProject(snapshot.sessions).find((group) => group.label === "cmux")!.sessions.length).toBeGreaterThan(GROUP_ROWS + 1);
