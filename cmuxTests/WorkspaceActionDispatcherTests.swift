@@ -54,6 +54,31 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
         XCTAssertEqual(manager.tabs.map(\.id), [second.id, third.id, first.id])
     }
 
+    func testPinActionUnpinsMultipleTargetsWithExistingOrdering() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.setPinned(first, pinned: true)
+        manager.setPinned(second, pinned: true)
+        manager.setPinned(third, pinned: true)
+        let target = WorkspaceActionDispatcher.Target(
+            workspaceIds: [second.id, third.id],
+            anchorWorkspaceId: second.id
+        )
+
+        let state = try XCTUnwrap(WorkspaceActionDispatcher.pinState(in: manager, target: target))
+        let result = WorkspaceActionDispatcher.performPinAction(state, in: manager)
+
+        XCTAssertFalse(state.pinned)
+        XCTAssertEqual(result.targetWorkspaceIds, [second.id, third.id])
+        XCTAssertEqual(result.changedWorkspaceIds, [second.id, third.id])
+        XCTAssertTrue(first.isPinned)
+        XCTAssertFalse(second.isPinned)
+        XCTAssertFalse(third.isPinned)
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id, second.id])
+    }
+
     func testCapturedPinStateKeepsLabelAndActionConsistent() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.tabs.first)

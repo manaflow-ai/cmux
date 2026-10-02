@@ -6,7 +6,6 @@ Regression tests for OMX HUD panes through cmux's tmux compatibility shim.
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
@@ -14,6 +13,7 @@ import threading
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
+from fake_socket_env import cli_environment, unwrap_capability
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 PANE_ID = "33333333-3333-4333-8333-333333333333"
@@ -52,7 +52,7 @@ class FakeCmuxState:
                     "focused": True,
                     "pane_id": PANE_ID,
                     "pane_ref": "pane:1",
-                    "title": "leader",
+                    "title": "leader #{unknown}",
                 }
             ]
             if self.split_created:
@@ -151,7 +151,7 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             if not line:
                 return
 
-            request = json.loads(line.decode("utf-8"))
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
                     request["method"],
@@ -183,12 +183,10 @@ def run_cli(
     fake_home: Path,
     args: list[str],
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env = cli_environment(socket_path, home=fake_home)
     env["CMUX_WORKSPACE_ID"] = "workspace:1"
     env["CMUX_SURFACE_ID"] = "surface:1"
     env["TMUX_PANE"] = f"%{PANE_ID}"
-    env["HOME"] = str(fake_home)
     env["CMUX_OMX_CMUX_BIN"] = cli_path
     return subprocess.run(
         [cli_path, "--socket", str(socket_path), *args],
@@ -429,6 +427,69 @@ def assert_omx_hud_absolute_height_resize_does_not_override_user_layout(
         raise AssertionError(f"expected fake HUD rows to remain user-controlled, got {state.hud_rows}")
 
 
+def assert_tmux_short_formats_are_expanded(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+) -> None:
+    short = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "display-message",
+            "-p",
+            "#S:#I.#P #W #T #D #F",
+        ],
+    )
+    long = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "display-message",
+            "-p",
+            "#{session_name}:#{window_index}.#{pane_index} "
+            "#{window_name} #{pane_title} #{pane_id} #{window_flags}",
+        ],
+    )
+    if short.returncode != 0 or long.returncode != 0:
+        raise AssertionError(
+            "tmux format probe returned non-zero\n"
+            f"short stdout={short.stdout.strip()} stderr={short.stderr.strip()}\n"
+            f"long stdout={long.stdout.strip()} stderr={long.stderr.strip()}"
+        )
+    if short.stdout != long.stdout or "#S" in short.stdout or "#{unknown}" in short.stdout:
+        raise AssertionError(
+            "short tmux formats did not match their long forms or leaked unresolved tokens\n"
+            f"short={short.stdout!r}\nlong={long.stdout!r}"
+        )
+
+    unclosed = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["__tmux-compat", "display-message", "-p", "#{unclosed"],
+    )
+    if unclosed.returncode != 0 or unclosed.stdout.strip() != "#{unclosed":
+        raise AssertionError(
+            f"tmux unclosed marker should remain literal: {unclosed.stdout!r} {unclosed.stderr!r}"
+        )
+
+    escaped = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["__tmux-compat", "display-message", "-p", "##S #S"],
+    )
+    if escaped.returncode != 0 or escaped.stdout.strip() != "#S cmux":
+        raise AssertionError(
+            f"tmux ## escape/short format mismatch: {escaped.stdout!r} {escaped.stderr!r}"
+        )
+
+
 def assert_omx_hud_feature_probe_is_supported(
     cli_path: str,
     socket_path: Path,
@@ -512,6 +573,7 @@ def main() -> int:
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
+                assert_tmux_short_formats_are_expanded(cli_path, socket_path, fake_home)
                 assert_omx_hud_feature_probe_is_supported(cli_path, socket_path, fake_home)
                 assert_omx_hud_unsupported_feature_probe_fails(cli_path, socket_path, fake_home)
                 assert_omx_hud_splits_down_with_compact_size(

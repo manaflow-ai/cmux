@@ -96,3 +96,40 @@ func makeWindow() {
 SWIFT
 
 python3 scripts/lint_auxiliary_window_close_shortcuts.py --repo-root "$TMP_DIR"
+
+# Identifier assigned through a named constant (the MobilePairingWindowController
+# pattern) must be resolved and enforced, not silently skipped.
+cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
+private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.settings",
+]
+SWIFT
+
+cat > "$TMP_DIR/Sources/NewWindow.swift" <<'SWIFT'
+import AppKit
+
+final class ConstantWindowController {
+    static let windowIdentifier = "cmux.constantWindow"
+
+    func makeWindow() {
+        let window = NSWindow()
+        window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
+    }
+}
+SWIFT
+
+if python3 scripts/lint_auxiliary_window_close_shortcuts.py --repo-root "$TMP_DIR" >"$TMP_DIR/constant.out" 2>&1; then
+    echo "Expected constant-assigned auxiliary-window identifier to fail when missing" >&2
+    exit 1
+fi
+grep -q "cmux.constantWindow" "$TMP_DIR/constant.out"
+grep -q "Sources/NewWindow.swift:8" "$TMP_DIR/constant.out"
+
+cat > "$TMP_DIR/Sources/cmuxApp.swift" <<'SWIFT'
+private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.constantWindow",
+    "cmux.settings",
+]
+SWIFT
+
+python3 scripts/lint_auxiliary_window_close_shortcuts.py --repo-root "$TMP_DIR"

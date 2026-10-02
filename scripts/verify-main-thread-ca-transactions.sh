@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_PATH="${1:-${CMUX_APP_PATH:-}}"
 TAG="${CMUX_TAG:-ca-main-thread}"
-SOCKET_PATH="${CMUX_SOCKET_PATH:-/tmp/cmux-debug-${TAG}.sock}"
+SOCKET_PATH="${CMUX_CA_ASSERT_SOCKET_PATH:-/tmp/cmux-debug-${TAG}.sock}"
 LOG_PATH="${CMUX_CA_ASSERT_LOG:-/tmp/cmux-ca-main-thread-${TAG}.log}"
 HOLD_SECONDS="${CMUX_CA_ASSERT_HOLD_SECONDS:-8}"
 READY_TIMEOUT_SECONDS="${CMUX_CA_ASSERT_READY_TIMEOUT_SECONDS:-60}"
@@ -12,6 +12,7 @@ APP_PID_FILE="${CMUX_CA_ASSERT_PID_FILE:-/tmp/cmux-ca-main-thread-${TAG}.pid}"
 if [ -z "$APP_PATH" ]; then
   echo "usage: CMUX_APP_PATH=/path/to/cmux.app $0" >&2
   echo "   or: $0 /path/to/cmux.app" >&2
+  echo "optional: CMUX_CA_ASSERT_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock" >&2
   exit 2
 fi
 
@@ -34,6 +35,16 @@ fi
 if [ ! -x "$BINARY" ]; then
   echo "ERROR: cmux executable not found in $APP_PATH" >&2
   exit 2
+fi
+
+# A Debug app relocated from another host's DerivedData keeps that host's
+# absolute PackageFrameworks rpath first; on a CI host with its own DerivedData
+# at that path dyld binds the wrong frameworks. Prefer the app's own siblings.
+# Set on the exec line: /usr/bin/env (this script's shebang) strips DYLD_*.
+APP_FRAMEWORKS=""
+PRODUCTS_DIR="$(dirname "$APP_PATH")"
+if [ -d "$PRODUCTS_DIR/PackageFrameworks" ]; then
+  APP_FRAMEWORKS="$PRODUCTS_DIR:$PRODUCTS_DIR/PackageFrameworks"
 fi
 
 APP_PID=""
@@ -72,6 +83,7 @@ trap cleanup EXIT
 kill_recorded_app
 rm -f "$SOCKET_PATH" "$LOG_PATH"
 
+DYLD_FRAMEWORK_PATH="$APP_FRAMEWORKS" \
 CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 \
 CA_DEBUG_TRANSACTIONS=1 \
 CMUX_UI_TEST_MODE=1 \

@@ -1,6 +1,8 @@
 import XCTest
 import Bonsplit
 import Darwin
+import CmuxSidebar
+
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)

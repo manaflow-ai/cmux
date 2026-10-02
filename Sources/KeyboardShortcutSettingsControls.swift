@@ -202,6 +202,7 @@ struct ShortcutRecorderSettingsControl: View {
             onUndoButtonPressed: rejectedAttempt != nil ? { rejectedAttempt = nil } : nil,
             hasPendingRejection: rejectedAttempt != nil,
             isDisabled: isDisabled,
+            firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
             onRecorderFeedbackChanged: { rejectedAttempt = $0 }
         )
         .onChange(of: shortcut) { _, _ in

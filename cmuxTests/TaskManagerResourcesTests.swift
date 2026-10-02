@@ -43,6 +43,7 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(definition.assetName, "AgentIcons/Antigravity")
     }
 
+
     func testAttributedPayloadProratesSharedResourceMeasurements() {
         let summary = resourceSummary()
 
