@@ -2,6 +2,10 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
 import { t } from "./i18n";
+import { ModelPickerCascade } from "./ModelPickerCascade";
+import { ModelPickerColumns } from "./ModelPickerColumns";
+import { ModelPickerRecents } from "./ModelPickerRecents";
+import { modelPickerVariant, type ModelPickerVariant } from "./modelPickerVariant";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -75,14 +79,30 @@ type Props = {
   onEffort(configId: string, value: string): void;
   /// How long a combo must hold before it counts as recent (tests shorten it).
   settleMs?: number;
+  /// Starts a new chat in another harness (the picker variants offer it).
+  onHarness?(harness: string): void;
+  /// Which model picker to draw; the DEV switch (modelPickerVariant.ts) when unset.
+  variant?: ModelPickerVariant;
 };
+
+const VARIANTS = { cascade: ModelPickerCascade, columns: ModelPickerColumns, recents: ModelPickerRecents };
 
 /// The composer bar's controls: the
 /// permission mode (in the warning color when it skips approvals) and a
 /// Plan/Build toggle after the attach button, then the model and the effort as
 /// two dropdowns and the context used at the right. Groups are set apart by a
 /// hairline; each control shows only when the agent offers it.
-export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs = RECENT_SETTLE_MS }: Props) {
+export function ComposerPickers({
+  snapshot,
+  onModel,
+  onMode,
+  onEffort,
+  onHarness,
+  settleMs = RECENT_SETTLE_MS,
+  variant: chosen,
+}: Props) {
+  const [stored] = useState(modelPickerVariant);
+  const variant = chosen ?? stored;
   const summary = snapshot.summary;
   const models: Choice[] = (snapshot.catalog.find((harness) => harness.id === summary?.harness)?.models ?? []).map(
     (model) => ({ id: model.id, name: model.name || model.id }),
@@ -149,6 +169,24 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
     pending.current = undefined;
     if (wanted.effort !== currentEffort) onEffort(effortId, wanted.effort);
   }, [summary?.sessionId, current, currentEffort, effortId, effortValues, onEffort]);
+  // One pick of a model and effort: the model first, then the effort once the agent reports
+  // that model offering it (the effect above); the same model only changes the effort.
+  const land = (pickedModel: string, pickedEffort?: string) => {
+    // Any new pick replaces a combo still waiting on its effort.
+    pending.current = undefined;
+    if (pickedModel !== current) {
+      pending.current = pickedEffort
+        ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
+        : undefined;
+      onModel(pickedModel);
+    } else if (
+      effort &&
+      pickedEffort &&
+      pickedEffort !== currentEffort &&
+      efforts.some((choice) => choice.id === pickedEffort)
+    )
+      onEffort(effort.id, pickedEffort);
+  };
   const [more, setMore] = useState(false);
   const [query, setQuery] = useState("");
   const modelSections = modelMenu({
@@ -165,21 +203,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
     },
     onCombo: (id) => {
       const [pickedModel, pickedEffort] = id.split("\u0000");
-      if (!pickedModel) return;
-      // Any new pick replaces a combo still waiting on its effort.
-      pending.current = undefined;
-      if (pickedModel !== current) {
-        pending.current = pickedEffort
-          ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
-          : undefined;
-        onModel(pickedModel);
-      } else if (
-        effort &&
-        pickedEffort &&
-        pickedEffort !== currentEffort &&
-        efforts.some((choice) => choice.id === pickedEffort)
-      )
-        onEffort(effort.id, pickedEffort);
+      if (pickedModel) land(pickedModel, pickedEffort || undefined);
     },
     // A plain model pick replaces any combo still waiting on its effort.
     onModel: (id) => {
@@ -188,6 +212,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
     },
   });
   const usage = summary?.usage;
+  const VariantPicker = VARIANTS[variant === "current" ? "cascade" : variant];
 
   return (
     <div className="acpmux-chips">
@@ -221,7 +246,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
         </button>
       )}
       <span className="acpmux-chips-spacer" />
-      {models.length > 0 && (
+      {models.length > 0 && variant === "current" && (
         <Picker
           label={PICKER_LABELS.model}
           className="acpmux-model"
@@ -239,6 +264,23 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
             setQuery("");
           }}
           align="end"
+        />
+      )}
+      {models.length > 0 && variant !== "current" && (
+        <VariantPicker
+          catalog={snapshot.catalog}
+          harness={harness}
+          model={current}
+          label={model?.name ?? summary?.model ?? PICKER_LABELS.model}
+          efforts={efforts}
+          effort={currentEffort}
+          recents={recents}
+          onLand={land}
+          onEffort={(value) => {
+            pending.current = undefined;
+            if (effort) onEffort(effort.id, value);
+          }}
+          onHarness={onHarness}
         />
       )}
       {effort && efforts.length > 0 && (
@@ -624,12 +666,12 @@ export const ChevronIcon = () => (
     <path d="M4.6 6.3 8 9.6l3.4-3.3" />
   </Icon>
 );
-const ChevronRightIcon = () => (
+export const ChevronRightIcon = () => (
   <Icon>
     <path d="m6.25 4.25 3.5 3.75-3.5 3.75" />
   </Icon>
 );
-const SearchIcon = () => (
+export const SearchIcon = () => (
   <Icon size={16}>
     <circle cx="7" cy="7" r="4.25" />
     <path d="m10.25 10.25 3 3" />

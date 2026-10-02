@@ -270,6 +270,7 @@ export class MockAcpmuxSocket {
           `mock-session-${this.sessions.length + 1}`,
           String(params.cwd ?? from?.cwd ?? "~/code/cmux"),
           Date.now(),
+          params._meta?.acpmux?.harness === "codex" ? "codex" : "claude",
         );
         // It runs on the same machine, with the harness's model the catalog offers.
         if (from?.host) Object.assign(created, { host: from.host, hostKind: from.hostKind });
@@ -299,6 +300,19 @@ export class MockAcpmuxSocket {
           });
         this.queue = turn.catch(() => undefined);
         return turn;
+      }
+      // The pickers' switches land on the session the way an agent reports them.
+      case "session/set_model":
+        this.touch(target, { model: String(params.modelId) }, false);
+        return {};
+      case "session/set_config_option": {
+        const session = this.sessions.find((entry) => entry.sessionId === target);
+        const options = (session?.configOptions ?? []) as { id: string; currentValue?: string }[];
+        const configOptions = options.map((option) =>
+          option.id === params.configId ? { ...option, currentValue: String(params.value) } : option,
+        );
+        this.touch(target, { configOptions }, false);
+        return {};
       }
       case "git.scope.diff":
         return mockScopeDiff(target, params.scope);

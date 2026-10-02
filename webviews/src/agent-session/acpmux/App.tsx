@@ -647,6 +647,7 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onModel={(modelId) => void callNative("chat.model", { modelId })}
       onMode={(modeId) => void callNative("chat.mode", { modeId })}
       onEffort={(configId, value) => void callNative("chat.effort", { configId, value })}
+      onHarness={(harness) => void callNative("chat.new", { harness })}
     />
   );
 }

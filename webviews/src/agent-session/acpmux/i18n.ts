@@ -16,6 +16,19 @@ const en = {
   "turn.stopped": "You stopped after {time}",
   "approval.title": "How should the agent's actions be approved?",
   "effort.title": "Effort",
+  "picker.recent": "Recent",
+  "picker.more": "More…",
+  "picker.moreModels": "More models",
+  "picker.allModels": "All models",
+  "picker.reasoning": "Reasoning",
+  "picker.harness": "Harness",
+  "picker.provider": "Provider",
+  "picker.family": "Family",
+  "picker.model": "Model",
+  "picker.newChat": "New chat",
+  "picker.search": "Type to search models",
+  "picker.noMatches": "No matching models",
+  "picker.back": "Back",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -34,6 +47,19 @@ const ja: Record<StringKey, string> = {
   "turn.stopped": "{time} 後に停止しました",
   "approval.title": "エージェントの操作をどのように承認しますか？",
   "effort.title": "推論の強さ",
+  "picker.recent": "最近",
+  "picker.more": "その他…",
+  "picker.moreModels": "その他のモデル",
+  "picker.allModels": "すべてのモデル",
+  "picker.reasoning": "推論",
+  "picker.harness": "ハーネス",
+  "picker.provider": "プロバイダ",
+  "picker.family": "ファミリー",
+  "picker.model": "モデル",
+  "picker.newChat": "新しいチャット",
+  "picker.search": "入力してモデルを検索",
+  "picker.noMatches": "一致するモデルはありません",
+  "picker.back": "戻る",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

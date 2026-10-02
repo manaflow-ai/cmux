@@ -1,0 +1,237 @@
+/* Model picker variants (DEV comparison, modelPickerVariant.ts): cascade, columns, recents-first.
+   They build on the composer menu (.acpmux-menu, .acpmux-menu-item, .acpmux-menu-active).
+   Theme tokens only; motion only for viewers who allow it. */
+.acpmux-mp {
+  --acpmux-mp-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
+  --acpmux-mp-gap: 4px;
+}
+.acpmux-mp .acpmux-menu-search {
+  font-size: 13px;
+}
+.acpmux-mp-row:active {
+  background: var(--acpmux-mp-press);
+}
+.acpmux-mp-detail {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--acpmux-composer-dim);
+  font-size: 12px;
+}
+.acpmux-mp-chevron {
+  flex: none;
+  display: inline-flex;
+  margin-right: -4px;
+  color: var(--agent-muted);
+}
+.acpmux-mp-chevron .acpmux-icon {
+  width: 14px;
+  height: 14px;
+}
+.acpmux-mp-open {
+  background: var(--acpmux-menu-hover);
+}
+.acpmux-mp-more .acpmux-menu-label,
+.acpmux-mp-more .acpmux-mp-detail {
+  color: var(--agent-muted);
+}
+.acpmux-mp .acpmux-menu-header {
+  min-height: 22px;
+  margin-top: 2px;
+}
+.acpmux-mp .acpmux-menu-header:first-child {
+  margin-top: 0;
+}
+.acpmux-mp-entry {
+  position: relative;
+}
+.acpmux-mp-panel {
+  box-sizing: border-box;
+  padding: 10px 12px 12px;
+}
+.acpmux-mp-panel .acpmux-effort-track {
+  margin-top: 0;
+}
+
+/* A: cascade. Submenus open beside their row, to the chip's side of the pane (left), with
+   their bottom on the row so the best row sits next to the pointer. */
+.acpmux-mp-cascade {
+  overflow: visible;
+  max-height: none;
+  width: 280px;
+}
+.acpmux-mp-cascade .acpmux-mp-sub {
+  position: absolute;
+  right: calc(100% + 10px);
+  bottom: -6px;
+  z-index: 1;
+  min-width: 210px;
+  max-height: min(360px, 60vh);
+  overflow: auto;
+  padding: 6px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: var(--acpmux-menu-bg);
+  box-shadow:
+    inset 0 0 0 0.5px var(--acpmux-composer-edge),
+    0 10px 30px var(--agent-shadow, rgb(0 0 0 / 0.35));
+}
+.acpmux-mp-cascade .acpmux-mp-sub:has(.acpmux-mp-sub) {
+  overflow: visible;
+  max-height: none;
+}
+.acpmux-mp-cascade .acpmux-mp-panel {
+  width: 240px;
+  padding: 12px;
+}
+
+/* B: columns. One wide popover; each column's best row sits at its bottom, over the
+   reasoning slider and the recents strip along the edge nearest the chip. */
+.acpmux-mp-columns {
+  width: min(600px, 100%);
+  max-width: 100%;
+  max-height: min(460px, 70vh);
+}
+.acpmux-mp-grid {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--acpmux-mp-gap);
+}
+.acpmux-mp-column {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 2px;
+  border-radius: 10px;
+}
+.acpmux-mp-column + .acpmux-mp-column {
+  box-shadow: inset 0.5px 0 0 var(--acpmux-composer-edge);
+  padding-left: calc(2px + var(--acpmux-mp-gap));
+}
+.acpmux-mp-column-rows {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+/* A provider's or family's default shows in the next column on hover; the row keeps its width for the name. */
+.acpmux-mp-column:is([data-column="provider"], [data-column="family"]) .acpmux-mp-detail {
+  display: none;
+}
+.acpmux-mp-column-focus > .acpmux-menu-header {
+  color: var(--agent-text);
+}
+.acpmux-mp-reasoning {
+  margin-top: 6px;
+  padding: 8px 8px 10px;
+  box-shadow: inset 0 0.5px 0 var(--acpmux-composer-edge);
+}
+.acpmux-mp-reasoning-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.acpmux-mp-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 6px;
+  box-shadow: inset 0 0.5px 0 var(--acpmux-composer-edge);
+}
+.acpmux-mp-strip .acpmux-mp-row {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-mp-strip .acpmux-mp-row:hover {
+  background: var(--acpmux-menu-hover);
+}
+.acpmux-mp-strip .acpmux-mp-row:active {
+  background: var(--acpmux-mp-press);
+}
+.acpmux-mp-strip .acpmux-mp-detail {
+  max-width: none;
+}
+
+/* C: recents-first. "More models" drills in place under a breadcrumb; a hovered row's next
+   layer opens right above it, indented on a hairline, so the row stays under the pointer. */
+.acpmux-mp-recents {
+  width: 300px;
+  max-height: min(560px, 70vh);
+}
+.acpmux-mp-recents .acpmux-mp-sub {
+  margin: 4px 0 2px 14px;
+  padding-left: 6px;
+  box-shadow: inset 0.5px 0 0 var(--acpmux-composer-edge);
+}
+.acpmux-mp-recents .acpmux-mp-panel {
+  padding: 8px 8px 10px 12px;
+}
+.acpmux-mp-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  margin-bottom: 4px;
+  color: var(--agent-muted);
+  font-size: 12px;
+}
+.acpmux-mp-crumb-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.acpmux-mp-crumb {
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.acpmux-mp-crumb[aria-current="location"] {
+  color: var(--agent-text);
+}
+.acpmux-mp-crumb:hover {
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+}
+.acpmux-mp-crumb:active {
+  background: var(--acpmux-mp-press);
+}
+.acpmux-mp-crumb:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-mp-back {
+  width: 24px;
+  padding: 0;
+  font-size: 16px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-mp-row,
+  .acpmux-mp-crumb,
+  .acpmux-mp-column > .acpmux-menu-header {
+    transition:
+      background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out),
+      color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
+  }
+  .acpmux-mp-sub {
+    animation: acpmux-mp-in var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
+  }
+  @keyframes acpmux-mp-in {
+    from {
+      opacity: 0;
+    }
+  }
+}
