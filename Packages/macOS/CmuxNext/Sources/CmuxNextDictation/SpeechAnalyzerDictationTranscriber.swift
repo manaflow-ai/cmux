@@ -428,4 +428,12 @@ func traceInput(_ analyzerInput: AnalyzerInput, _ buffer: AVAudioPCMBuffer, raw:
     dictationTrace.error("TRACE in cap=\(traceTime(raw.bufferStartTime ?? .invalid), privacy: .public) raw=\(raw.buffer.frameLength, privacy: .public)@\(raw.buffer.format.sampleRate, privacy: .public) fed=\(traceTime(analyzerInput.bufferStartTime ?? .invalid), privacy: .public) n=\(buffer.frameLength, privacy: .public) rms=\(rms, privacy: .public) common=\(buffer.format.commonFormat.rawValue, privacy: .public)")
     return analyzerInput
 }
-func traceEnv(_ key: String) -> Double? { ProcessInfo.processInfo.environment[key].flatMap(Double.init) }
+/// Reads KEY=VALUE lines from /tmp/cc-next-dictation/trace.env: the transcriber's process does not see the launch environment.
+func traceEnv(_ key: String) -> Double? {
+    guard let text = try? String(contentsOfFile: "/tmp/cc-next-dictation/trace.env", encoding: .utf8) else { return nil }
+    for line in text.split(whereSeparator: \.isNewline) {
+        let parts = line.split(separator: "=", maxSplits: 1)
+        if parts.count == 2, parts[0] == key { return Double(parts[1].trimmingCharacters(in: .whitespaces)) }
+    }
+    return nil
+}
