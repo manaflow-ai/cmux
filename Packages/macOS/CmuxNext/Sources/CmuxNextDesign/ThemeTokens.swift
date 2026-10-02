@@ -117,7 +117,7 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
 
     /// `color`, pushed away from `surface` (toward white or black) until it
     /// reaches `minimum` contrast.
-    static func readable(_ color: ThemeRGB, over surface: ThemeRGB, minimum: Double) -> ThemeRGB {
+    public static func readable(_ color: ThemeRGB, over surface: ThemeRGB, minimum: Double) -> ThemeRGB {
         guard color.contrast(with: surface) < minimum else { return color }
         let pole: ThemeRGB = surface.relativeLuminance < 0.18 ? .white : .black
         var step = 0.0
