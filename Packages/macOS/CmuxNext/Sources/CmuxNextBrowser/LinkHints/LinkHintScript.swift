@@ -6,12 +6,12 @@ public import Foundation
 /// element, so page styles cannot restyle them. The host keeps the targets
 /// and clicks by position, so no element reference crosses calls. A scroll
 /// or resize removes the labels (their positions would be stale).
-public nonisolated enum LinkHintScript {
-    static let overlayTag = "cmux-link-hints"
+public nonisolated extension LinkHintSession {
+    internal static let overlayTag = "cmux-link-hints"
 
     /// Returns a JSON string: `[{x, y, left, top, href}]`, at most 1000,
     /// in document order. Hidden, disabled and covered elements are skipped.
-    public static let collect = """
+    static let collectScript = """
     (() => {
       const selector = 'a[href],area[href],button,input:not([type=hidden]),select,textarea,summary,label[for],' +
         '[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],' +
@@ -38,7 +38,7 @@ public nonisolated enum LinkHintScript {
 
     /// Draws `labels` (uppercase, monospace) at each target's top-left
     /// corner, replacing any earlier labels.
-    public static func draw(_ hints: [(label: String, target: LinkHintTarget)]) -> String {
+    static func drawScript(_ hints: [(label: String, target: LinkHintTarget)]) -> String {
         let items = hints.map { ["label": $0.label, "left": $0.target.left, "top": $0.target.top] as [String: Any] }
         let json = (try? JSONSerialization.data(withJSONObject: items)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         return """
@@ -72,7 +72,7 @@ public nonisolated enum LinkHintScript {
 
     /// Shows only labels that start with `prefix`, the typed part dimmed.
     /// Returns false when the labels are gone (scrolled away).
-    public static func narrow(_ prefix: String) -> String {
+    static func narrowScript(_ prefix: String) -> String {
         """
         ((prefix) => {
           const host = document.querySelector('\(overlayTag)');
@@ -85,12 +85,12 @@ public nonisolated enum LinkHintScript {
             label.replaceChildren(...(prefix && !label.hidden ? [typed] : []), text.slice(label.hidden ? 0 : prefix.length).toUpperCase());
           }
           return true;
-        })(\(literal(prefix)))
+        })(\(scriptLiteral(prefix)))
         """
     }
 
     /// Removes the labels. Returns false when they were already gone.
-    public static let remove = """
+    static let removeScript = """
     (() => {
       const host = document.querySelector('\(overlayTag)');
       if (!host) return false;
@@ -100,7 +100,7 @@ public nonisolated enum LinkHintScript {
     """
 
     /// `text` as a JavaScript string literal.
-    static func literal(_ text: String) -> String {
+    internal static func scriptLiteral(_ text: String) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: [text]),
               let array = String(data: data, encoding: .utf8) else { return "''" }
         return String(array.dropFirst().dropLast())
@@ -108,7 +108,7 @@ public nonisolated enum LinkHintScript {
 
     /// The targets the collect script returned; empty when it returned
     /// anything else.
-    public static func targets(from value: BrowserJSValue) -> [LinkHintTarget] {
+    static func targets(from value: BrowserJSValue) -> [LinkHintTarget] {
         guard case .string(let json) = value,
               let targets = try? JSONDecoder().decode([LinkHintTarget].self, from: Data(json.utf8)) else { return [] }
         return targets

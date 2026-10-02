@@ -29,9 +29,9 @@ final class LinkHintController {
         cancel()
         session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, openInSplit: openInSplit, notice: notice)
         work = Task { [weak self] in
-            let value = try? await tab.evaluate(LinkHintScript.collect, world: .isolated)
+            let value = try? await tab.evaluate(LinkHintSession.collectScript, world: .isolated)
             guard !Task.isCancelled else { return }
-            self?.collected(value.map(LinkHintScript.targets(from:)) ?? [], from: tab)
+            self?.collected(value.map(LinkHintSession.targets(from:)) ?? [], from: tab)
         }
     }
 
@@ -73,7 +73,7 @@ final class LinkHintController {
         }
         session = nil
         // task-owner: fire-and-forget overlay removal; nothing waits on it.
-        Task { _ = try? await tab.evaluate(LinkHintScript.remove, world: .isolated) }
+        Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated) }
     }
 
     private func collected(_ targets: [LinkHintTarget], from tab: CEFTab) {
@@ -85,7 +85,7 @@ final class LinkHintController {
             session = nil
             return
         }
-        let draw = LinkHintScript.draw(current.keys.hints ?? [])
+        let draw = LinkHintSession.drawScript(current.keys.hints ?? [])
         work = Task { [weak self] in
             _ = try? await tab.evaluate(draw, world: .isolated)
             guard !Task.isCancelled else { return }
@@ -101,7 +101,7 @@ final class LinkHintController {
         case .narrow(let prefix):
             guard current.keys.hints != nil else { return }
             work = Task { [weak self] in
-                let shown = try? await tab.evaluate(LinkHintScript.narrow(prefix), world: .isolated)
+                let shown = try? await tab.evaluate(LinkHintSession.narrowScript(prefix), world: .isolated)
                 guard !Task.isCancelled, shown != .bool(true) else { return }
                 // The labels are gone (the page scrolled): end the session.
                 self?.cancel()
@@ -111,7 +111,7 @@ final class LinkHintController {
             work?.cancel()
             work = Task {
                 // Labels a scroll removed mean stale positions: click nothing.
-                guard (try? await tab.evaluate(LinkHintScript.remove, world: .isolated)) == .bool(true) else { return }
+                guard (try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated)) == .bool(true) else { return }
                 switch current.keys.mode {
                 case .follow: await Self.click(target, in: tab)
                 case .newSplit: if let url = target.href { current.openInSplit(url) }

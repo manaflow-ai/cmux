@@ -66,7 +66,7 @@ public nonisolated struct LinkHintSession: Equatable, Sendable {
     /// there is nothing to label, else what the keys typed so far mean.
     public mutating func show(_ targets: [LinkHintTarget]) -> Outcome {
         let usable = mode == .newSplit ? targets.filter { $0.href != nil } : targets
-        let labels = LinkHintLabels.make(count: usable.count)
+        let labels = LinkHintSession.labels(count: usable.count)
         hints = Array(zip(labels, usable)).map { (label: $0.0, target: $0.1) }
         guard !usable.isEmpty else { return .cancel }
         // Letters typed early that fit no label are dropped from the end.

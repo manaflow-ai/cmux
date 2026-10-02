@@ -27,7 +27,7 @@ import Testing
 
     @Test(arguments: [1, 2, 13, 14, 15, 100, 196, 197, 1000])
     func labelsAreDistinctAndPrefixFree(count: Int) {
-        let labels = LinkHintLabels.make(count: count)
+        let labels = LinkHintSession.labels(count: count)
         #expect(labels.count == count)
         #expect(Set(labels).count == count)
         for a in labels {
@@ -37,12 +37,12 @@ import Testing
         }
         let lengths = Set(labels.map(\.count))
         #expect(lengths.count <= 2 && (lengths.max() ?? 0) - (lengths.min() ?? 0) <= 1)
-        #expect(labels.allSatisfy { $0.allSatisfy { LinkHintLabels.alphabet.contains(String($0)) } })
+        #expect(labels.allSatisfy { $0.allSatisfy { LinkHintSession.alphabet.contains(String($0)) } })
     }
 
     @Test func fewTargetsGetSingleHomeRowLetters() {
-        #expect(LinkHintLabels.make(count: 3).allSatisfy { $0.count == 1 })
-        #expect(LinkHintLabels.make(count: 0).isEmpty)
+        #expect(LinkHintSession.labels(count: 3).allSatisfy { $0.count == 1 })
+        #expect(LinkHintSession.labels(count: 0).isEmpty)
     }
 
     // MARK: Session keys
@@ -96,17 +96,17 @@ import Testing
          {"x":5,"y":6,"left":4,"top":4,"href":null},
          {"x":7,"y":8,"left":6,"top":6}]
         """
-        let targets = LinkHintScript.targets(from: .string(json))
+        let targets = LinkHintSession.targets(from: .string(json))
         #expect(targets.map(\.href) == [URL(string: "https://a.example/"), nil, nil, nil])
         #expect(targets.map(\.x) == [1, 3, 5, 7])
-        #expect(LinkHintScript.targets(from: .string("nope")).isEmpty)
-        #expect(LinkHintScript.targets(from: .bool(true)).isEmpty)
+        #expect(LinkHintSession.targets(from: .string("nope")).isEmpty)
+        #expect(LinkHintSession.targets(from: .bool(true)).isEmpty)
     }
 
     @Test func aTypedPrefixIsAQuotedLiteral() {
-        #expect(LinkHintScript.literal("sa") == "\"sa\"")
-        #expect(LinkHintScript.literal("'); x('") == "\"'); x('\"")
-        #expect(LinkHintScript.narrow("sa").contains("})(\"sa\")"))
+        #expect(LinkHintSession.scriptLiteral("sa") == "\"sa\"")
+        #expect(LinkHintSession.scriptLiteral("'); x('") == "\"'); x('\"")
+        #expect(LinkHintSession.narrowScript("sa").contains("})(\"sa\")"))
     }
 
     // MARK: Letters the page passed on
