@@ -128,6 +128,12 @@ On the merge of `feat-cmux-next` (2026-10-01):
   `history.list`/`bookmark.list`; the incoming bookmark, history, theme, browser profile,
   accounts and remote actions are marked for the CLI.
 
+On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
+
+- `cmux mcp serve` and `cmux mcp tools [--json]`: MCP tools from the v2 catalog and the
+  app's CLI actions, over the CLI's own transport (mcp.md). Off unless cmux.json sets
+  `mcp.enabled`.
+
 ## Numeric refs replacement
 
 The old CLI's refs and selector flags have no Rust equivalent; `cmux` takes the
