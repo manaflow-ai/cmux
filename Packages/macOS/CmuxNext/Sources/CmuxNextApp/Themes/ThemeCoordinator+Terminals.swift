@@ -38,8 +38,8 @@ extension ThemeCoordinator {
     /// home daemon stores them. An entry waits while its machine is not
     /// connected; one whose terminal is gone is dropped.
     func migrateTerminalThemes() {
-        guard home.supports(DaemonCapabilities.shared.personalTerminals), !terminalThemes.themes.isEmpty else { return }
-        for (legacy, theme) in terminalThemes.themes {
+        guard home.supports(DaemonCapabilities.shared.personalTerminals), !terminalThemes.migratableThemes.isEmpty else { return }
+        for (legacy, theme) in terminalThemes.migratableThemes {
             guard let split = legacy.lastIndex(of: ":") else { continue }
             let machine = String(legacy[..<split]), tabID = String(legacy[legacy.index(after: split)...])
             guard let daemon = services.machines.daemon(machine: machine), daemon.store.isLoaded,

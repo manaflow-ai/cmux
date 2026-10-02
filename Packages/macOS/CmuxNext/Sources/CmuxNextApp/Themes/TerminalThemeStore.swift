@@ -41,6 +41,9 @@ final class TerminalThemeStore {
 
     func theme(for key: String) -> String? { themes[key] }
 
+    /// The themes to move into personal state (`ThemeCoordinator.migrateTerminalThemes`).
+    var migratableThemes: [String: String] { themes }
+
     /// Sets or clears (nil) one terminal's theme.
     func set(_ theme: String?, for key: String) {
         guard themes[key] != theme else { return }
