@@ -2,40 +2,43 @@ import { unstable_rethrow } from "next/navigation";
 import { connection } from "next/server";
 import { getTranslations } from "next-intl/server";
 import { cache, Suspense, type ReactNode } from "react";
-import { SiteHeader } from "../components/site-header";
-import { Link } from "../../../i18n/navigation";
-import { ProCtaLink } from "../components/pro-cta-link";
-import { ProWelcomeBanner } from "../components/pro-welcome-banner";
+import { SiteHeader } from "../../components/site-header";
+import { Link } from "../../../../i18n/navigation";
+import { ProCtaLink } from "../../components/pro-cta-link";
+import { ProWelcomeBanner } from "../../components/pro-welcome-banner";
 import {
   MAX_CHECKOUT_URL,
   GO_CHECKOUT_URL,
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
   withCheckoutInterval,
-} from "../../lib/billing";
+} from "../../../lib/billing";
 import {
   CHECKOUT_SOURCE_PARAM,
   CHECKOUT_SOURCE_PRICING_PAGE,
   checkoutAttributionParamsFrom,
   withCheckoutAttribution,
-} from "../../../services/analytics/checkoutAttribution";
-import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
-import { getStackServerApp, isStackConfigured } from "../../lib/stack";
+} from "../../../../services/analytics/checkoutAttribution";
+import { DOWNLOAD_CONFIRMATION_HREF } from "../../../lib/download";
+import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import {
   MAX_PLAN_ID,
   GO_PLAN_ID,
   resolveProPlanStatus,
-} from "../../../services/billing/pro";
+  type BillingManagementKind,
+  type PersonalBillingSource,
+} from "../../../../services/billing/pro";
+import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "../../../../services/billing/apple/config";
 import {
   buildAlternates,
   openGraphDefaults,
   twitterSummary,
-} from "../../../i18n/seo";
-import { pricingSeoCopy } from "../../../i18n/audited-seo";
+} from "../../../../i18n/seo";
+import { pricingSeoCopy } from "../../../../i18n/audited-seo";
 import {
   fallbackContentLocales,
   hasFallbackContent,
-} from "../../../i18n/locale-availability";
+} from "../../../../i18n/locale-availability";
 import {
   CurrentPlanBadge,
   DisabledButton,
@@ -50,20 +53,20 @@ import {
   visibleProFeatures,
   type CompareRow,
   type FaqItem,
-} from "../../components/pricing-shared";
+} from "../../../components/pricing-shared";
 import {
   PricingCheckoutButton,
   PricingView,
-} from "../../components/pricing-checkout";
-import { PricingAudienceSelector } from "../../components/pricing-audience-selector";
+} from "../../../components/pricing-checkout";
+import { PricingAudienceSelector } from "../../../components/pricing-audience-selector";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
-} from "../../../services/billing/plans";
-import { isVaultEnabled } from "../../../services/vault/config";
-import { isGoPlanEnabled } from "../../../services/billing/goPlanFlag";
+} from "../../../../services/billing/plans";
+import { isVaultEnabled } from "../../../../services/vault/config";
+import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -204,6 +207,23 @@ function PricingContent({
   };
 }) {
   const canManageBilling = snapshot.billingManagement === "stripe";
+  // An App Store subscriber never gets Stripe checkout for a personal plan:
+  // every personal action becomes "Manage in the App Store", plus Stripe's
+  // "Manage billing" while a Stripe subscription still bills them.
+  const appStoreAction = snapshot.billingSource === "apple"
+    ? (size?: "compact") => (
+        <div className="space-y-2">
+          <SecondaryLink href={APPLE_MANAGE_SUBSCRIPTIONS_URL} size={size}>
+            {t("manageInAppStore")}
+          </SecondaryLink>
+          {canManageBilling ? (
+            <SecondaryLink href="/api/billing/portal" size={size}>
+              {t("manageBilling")}
+            </SecondaryLink>
+          ) : null}
+        </div>
+      )
+    : null;
   // Max satisfies every "is Pro" check, so the Pro card must not call a Max
   // subscriber's plan current; only the Max card does.
   const isMax = snapshot.planId === MAX_PLAN_ID;
@@ -301,7 +321,7 @@ function PricingContent({
               ) : null
             }
           >
-            {isGo ? (
+            {appStoreAction ? appStoreAction() : isGo ? (
               <div className="space-y-2">
                 {canManageBilling ? (
                   <SecondaryLink href="/api/billing/portal">
@@ -338,7 +358,7 @@ function PricingContent({
           ) : null
         }
       >
-        {isProCurrent ? (
+        {appStoreAction ? appStoreAction() : isProCurrent ? (
           <div className="space-y-2">
             <SecondaryLink href="/api/billing/portal">
               {t("manageBilling")}
@@ -371,7 +391,7 @@ function PricingContent({
           isMax ? <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge> : null
         }
       >
-        {isMax ? (
+        {appStoreAction ? appStoreAction() : isMax ? (
           <div className="space-y-2">
             <SecondaryLink href="/api/billing/portal">
               {t("manageBilling")}
@@ -422,7 +442,7 @@ function PricingContent({
             {t("free.cta")}
           </PrimaryLink>
         ),
-        pro: isProCurrent ? (
+        pro: appStoreAction ? appStoreAction("compact") : isProCurrent ? (
           <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
         ) : (canManageBilling && !isGo) || isMax ? (
           <SecondaryLink href="/api/billing/portal" size="compact">
@@ -438,7 +458,7 @@ function PricingContent({
             {t("pro.cta")}
           </ProCtaLink>
         ),
-        max: isMax ? (
+        max: appStoreAction ? appStoreAction("compact") : isMax ? (
           <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
         ) : canManageBilling && !snapshot.isPro ? (
           <SecondaryLink href="/api/billing/portal" size="compact">
@@ -610,7 +630,9 @@ type PlanSnapshot = {
   authenticated: boolean;
   planId: "free" | "go" | "pro" | "max";
   isPro: boolean;
-  billingManagement: "stripe" | "none";
+  billingManagement: BillingManagementKind;
+  /** An App Store subscriber manages personal plans in the App Store. */
+  billingSource?: PersonalBillingSource;
 };
 
 /**
@@ -657,5 +679,6 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     planId: status.planId,
     isPro: status.isPro,
     billingManagement: status.billingManagement,
+    billingSource: status.billingSource,
   };
 }

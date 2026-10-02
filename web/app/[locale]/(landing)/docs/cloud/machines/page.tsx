@@ -68,6 +68,18 @@ cmux vm new --detach --json`}</CodeBlock>
       </ul>
       <p>{t("limitsPricing")}</p>
 
+      <DocsHeading level={2} id="agent-updates">{t("agentUpdatesTitle")}</DocsHeading>
+      <p>{t("agentUpdatesDesc")}</p>
+      <p>{t("agentUpdatesSource")}</p>
+      <p>{t("agentUpdatesStatus")}</p>
+      <CodeBlock lang="bash">{`cat /etc/cmux/agent-updates.state
+tail /var/log/cmux-agent-updates.log`}</CodeBlock>
+      <p>{t("agentUpdatesToggle")}</p>
+      <CodeBlock lang="bash">{`cmux vm new --agent-updates latest
+cmux vm agent-updates brave-otter
+cmux vm agent-updates brave-otter image`}</CodeBlock>
+      <p>{t("agentUpdatesNetwork")}</p>
+
       <DocsHeading level={2} id="resize">{t("resizeTitle")}</DocsHeading>
       <p>{t("resizeDesc")}</p>
       <CodeBlock lang="bash">{`cmux vm resize brave-otter --memory 16G

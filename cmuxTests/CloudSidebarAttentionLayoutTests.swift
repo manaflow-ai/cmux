@@ -44,6 +44,10 @@ struct CloudSidebarAttentionLayoutTests {
         defer { fixture.close() }
         fixture.coordinator.apply(nodes: fixture.nodes())
         let outline = try #require(fixture.coordinator.outlineView)
+        // Cloud workspaces start collapsed; open ws_1 so a terminal row exists.
+        if let folder = CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes).first(where: { $0.id == fixture.folderID("ws_1") }) {
+            outline.expandItem(folder)
+        }
         let readNode = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.structureTag == kind })
         let unreadNode = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes(unread: ["term_ws_1"]))
             .first { $0.id == readNode.id })
