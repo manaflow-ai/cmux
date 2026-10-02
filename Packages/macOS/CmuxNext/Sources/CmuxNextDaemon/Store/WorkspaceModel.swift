@@ -18,7 +18,7 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var icon: String?
     public internal(set) var title: String?
     /// Closed by the daemon at its next start (incognito); from the daemon's
-    /// state resources (`DaemonStore.sessionState`).
+    /// state resources (`DaemonStore.session`).
     public internal(set) var ephemeral = false
     /// Status line, progress, and newest log line hooks and the CLI report
     /// (`workspace_status.*`); from the daemon's state resources.

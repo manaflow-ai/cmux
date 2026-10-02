@@ -25,13 +25,13 @@ extension PaneController {
                 select(outside.id)
             }
             groupCommand("update-tab-group", intent: .setTabGroupCollapsed(group, collapsed: collapsed)) { connection, transaction in
-                if v2 { return try await connection.updateTabGroup(group.rawValue, collapsed: collapsed) }
+                if v2 { return try await connection.state.updateTabGroup(group.rawValue, collapsed: collapsed) }
                 _ = try await connection.updateTabGroup(group, collapsed: collapsed, transaction: transaction)
             }
         case .moveGroup(let id, let to):
             let group = TabGroupID_(id)
             groupCommand("move-tab-group") { connection, transaction in
-                if v2 { return try await connection.moveTabGroup(group.rawValue, toPane: paneResource, index: to) }
+                if v2 { return try await connection.state.moveTabGroup(group.rawValue, toPane: paneResource, index: to) }
                 _ = try await connection.moveTabGroup(group, to: handle, index: to, transaction: transaction)
             }
         case .addToGroup(let tabID, let id, let index):
@@ -39,14 +39,14 @@ extension PaneController {
             let surface = tab.surface, resource = tab.resourceID
             let group = TabGroupID_(id)
             groupCommand("add-tabs-to-group") { connection, transaction in
-                if v2, let resource { return try await connection.addTabs([resource], toTabGroup: group.rawValue, index: index) }
+                if v2, let resource { return try await connection.state.addTabs([resource], toTabGroup: group.rawValue, index: index) }
                 _ = try await connection.addTabs([surface], toGroup: group, index: index, transaction: transaction)
             }
         case .removeFromGroup(let tabID, _):
             guard let tab = tab(tabID) else { return }
             let surface = tab.surface, resource = tab.resourceID
             groupCommand("remove-tabs-from-group") { connection, transaction in
-                if v2, let resource { return try await connection.removeTabsFromTabGroup([resource]) }
+                if v2, let resource { return try await connection.state.removeTabsFromTabGroup([resource]) }
                 _ = try await connection.removeTabsFromGroup([surface], transaction: transaction)
             }
         case .createGroup(let item, let tabs):
@@ -55,7 +55,7 @@ extension PaneController {
             let name = item.name, color = item.colorToken.rawValue
             groupCommand("create-tab-group") { connection, transaction in
                 if v2, resources.count == surfaces.count, !resources.isEmpty {
-                    _ = try await connection.createTabGroup(tabs: resources, name: name, color: color)
+                    _ = try await connection.state.createTabGroup(tabs: resources, name: name, color: color)
                     return
                 }
                 _ = try await connection.createTabGroup(in: handle, tabs: surfaces, name: name, color: color, transaction: transaction)
@@ -74,12 +74,12 @@ extension PaneController {
         switch command {
         case .rename(_, let name):
             groupCommand("update-tab-group") { c, t in
-                if v2 { return try await c.updateTabGroup(id, name: name) }
+                if v2 { return try await c.state.updateTabGroup(id, name: name) }
                 _ = try await c.updateTabGroup(group, name: name, transaction: t)
             }
         case .setColor(_, let color):
             groupCommand("update-tab-group") { c, t in
-                if v2 { return try await c.updateTabGroup(id, color: color.rawValue) }
+                if v2 { return try await c.state.updateTabGroup(id, color: color.rawValue) }
                 _ = try await c.updateTabGroup(group, color: .set(color.rawValue), transaction: t)
             }
         case .newTab(let id):
@@ -89,12 +89,12 @@ extension PaneController {
             }
         case .ungroup:
             groupCommand("ungroup-tab-group") { c, t in
-                if v2 { return try await c.ungroupTabGroup(id) }
+                if v2 { return try await c.state.ungroupTabGroup(id) }
                 _ = try await c.ungroupTabGroup(group, transaction: t)
             }
         case .close:
             groupCommand("close-tab-group") { c, t in
-                if v2 { return try await c.closeTabGroup(id) }
+                if v2 { return try await c.state.closeTabGroup(id) }
                 _ = try await c.closeTabGroup(group, transaction: t)
             }
         case .moveToNewWindow:
@@ -116,12 +116,12 @@ extension PaneController {
         if let group {
             let id = CmuxNextDaemon.TabGroupID(rawValue: group)
             groupCommand("add-tabs-to-group") { c, t in
-                if let resource { return try await c.addTabs([resource], toTabGroup: group) }
+                if let resource { return try await c.state.addTabs([resource], toTabGroup: group) }
                 _ = try await c.addTabs([surface], toGroup: id, transaction: t)
             }
         } else {
             groupCommand("remove-tabs-from-group") { c, t in
-                if let resource { return try await c.removeTabsFromTabGroup([resource]) }
+                if let resource { return try await c.state.removeTabsFromTabGroup([resource]) }
                 _ = try await c.removeTabsFromGroup([surface], transaction: t)
             }
         }

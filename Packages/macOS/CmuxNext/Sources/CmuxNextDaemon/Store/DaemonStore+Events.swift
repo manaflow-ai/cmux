@@ -53,7 +53,7 @@ extension DaemonStore {
         return withOverlayLifted {
             var followup = Followup.none
             for envelope in batch {
-                if envelope.sequence > snapshotBarrier || isLifecycle(envelope.event) || isSessionState(envelope.event) {
+                if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
                     if applyEvent(envelope.event, sequence: envelope.sequence) == .resync { followup = .resync }
                 } else if let transaction = envelope.event.clientTransactionID {
                     // Superseded by the snapshot (which holds its result),
@@ -77,25 +77,11 @@ extension DaemonStore {
         runAppliedWaiters(nil)
     }
 
-    /// `session.events` items are not part of `list-workspaces`, so a tree
-    /// snapshot never supersedes them.
-    private func isSessionState(_ event: DaemonEvent) -> Bool {
-        if case .sessionState = event { return true }
-        return false
-    }
-
-    private func isLifecycle(_ event: DaemonEvent) -> Bool {
-        switch event {
-        case .connected, .disconnected, .daemonShutdown: true
-        default: false
-        }
-    }
-
     private func applyState(_ event: DaemonEvent) -> Followup {
         switch event {
         case .connected(let identity, _):
             connectionEpoch += 1
-            sessionStateKnown = !identity.supports(DaemonCapabilities.shared.stateResources)
+            session.connected(servesStateResources: identity.supports(DaemonCapabilities.shared.stateResources))
             connectionState = .connected(identity)
             noteHandshake(identity)
             return .resync
@@ -243,9 +229,7 @@ extension DaemonStore {
             tabsBySurface[status.surface]?.setAgent(status)
             return .none
 
-        case .sessionState(let item):
-            applySessionState(item)
-            return .none
+        case .sessionState(let item): session.apply(item, to: workspaces); return .none
         case .bookmarksChanged(let profile, _):
             onBookmarksChanged?(profile)
             return .none

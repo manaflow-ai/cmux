@@ -2,7 +2,7 @@ import Foundation
 
 /// The `session.events` stream that carries the daemon's state resources
 /// (closed history, workspace status, ephemeral workspaces, screen metadata
-/// and groups, tab records, terminal progress) to `DaemonStore.sessionState`.
+/// and groups, tab records, terminal progress) to `DaemonStore.session`.
 ///
 /// Opened after the handshake, without blocking it, when the daemon's
 /// `identify` advertises `state-resources-v1`. Its lines arrive on the
@@ -14,28 +14,18 @@ extension DaemonConnection {
     /// `session.events`); otherwise the store never learns about them.
     public nonisolated var mirrorsSessionState: Bool { configuration.sessionEvents }
 
-    /// A fresh `stream_<32 hex>` id.
-    static func newStreamID() -> String {
-        "stream_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-    }
-
-    struct StreamOpened: Decodable {
-        var streamID: String
-        enum CodingKeys: String, CodingKey { case streamID = "stream_id" }
-    }
-
     /// Opens `session.events` on connection `serial` when the daemon serves
     /// the state resources.
     func openSessionEvents(serial: UInt64) async {
         guard configuration.sessionEvents, isReady, self.serial == serial,
               identity?.supports(DaemonCapabilities.shared.stateResources) == true else { return }
-        let id = Self.newStreamID()
+        let id = SessionEventsWire.newStreamID()
         sessionStream = id
         do {
             _ = try await resourceRequest({ requestID in
                 ResourceRequestEnvelope(id: requestID, operation: "session.events",
                                         params: ["stream_id": .string(id)], idempotencyKey: nil)
-            }, as: StreamOpened.self)
+            }, as: SessionEventsWire.Opened.self)
         } catch {
             guard sessionStream == id else { return }
             sessionStream = nil
@@ -57,5 +47,19 @@ extension DaemonConnection {
         case .snapshot, .delta:
             break
         }
+    }
+}
+
+/// Wire shapes of the `session.events` stream request.
+enum SessionEventsWire {
+    /// A fresh `stream_<32 hex>` id.
+    static func newStreamID() -> String {
+        "stream_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    }
+
+    /// The `session.events` reply.
+    struct Opened: Decodable {
+        var streamID: String
+        enum CodingKeys: String, CodingKey { case streamID = "stream_id" }
     }
 }

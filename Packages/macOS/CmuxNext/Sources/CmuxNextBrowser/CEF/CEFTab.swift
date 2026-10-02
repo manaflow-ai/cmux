@@ -27,6 +27,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
+    /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
+    @ObservationIgnored public internal(set) var isAgentDriven = false
 
     /// Rects in `contentView` coordinates where native UI covers the page.
     public var occlusionRects: [CGRect] = [] {
@@ -114,6 +116,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         browserID = browser
         isCreationPending = false
         applyPageBackground()
+        applyPasswordFill()
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if

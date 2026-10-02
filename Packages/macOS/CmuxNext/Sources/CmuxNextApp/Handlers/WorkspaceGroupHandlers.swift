@@ -81,7 +81,7 @@ enum WorkspaceGroupHandlers {
             try context.sidebar().handle(.closeGroup(sidebarID(group)))
             let id = group.id, v2 = home.store.servesStateResources
             home.send("delete-personal-group") {
-                if v2 { return try await $0.deleteWorkspaceGroup(id.rawValue) }
+                if v2 { return try await $0.state.deleteWorkspaceGroup(id.rawValue) }
                 try await $0.deletePersonalGroup(id)
             }
         })
@@ -103,7 +103,7 @@ enum WorkspaceGroupHandlers {
             guard let key = try? await windows.createWorkspace(WorkspaceSpawn(), into: target), let session = local.store.registryID else { return }
             let workspace = WorkspaceKey(rawValue: key), resource = local.store.personalStateID(session: session, key: workspace)
             local.send("set-personal-workspace") {
-                try await $0.placePersonalWorkspace(session: session, key: workspace, resource: resource, group: .set(id))
+                try await $0.state.placePersonalWorkspace(session: session, key: workspace, resource: resource, group: .set(id))
             }
         }
     }

@@ -381,6 +381,41 @@ CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const c
 // every cookie was handled: a = written, s1 = {"written","rejected"}.
 // Returns 0 when nothing was started (bad path or JSON).
 CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* profile_cache_path, int reply, const char* json);
+// Browser import: saved passwords into the Chromium password store of
+// profile_cache_path (a persistent profile; an off-the-record key returns 0),
+// the store autofill reads, encrypted with cmux's own Keychain key. Every
+// field is UTF-8 with an explicit length (no terminator needed). The shim
+// copies the entries before it returns, so the caller zeroes its buffers at
+// once; the shim zeroes its copies when the store has taken them. Values are
+// never logged. REPLY with `reply` and browser 0 follows: s1 = {"added",
+// "duplicate","conflict","rejected"} (counts only). Returns 0 when nothing was
+// started (bad path, or the fork lacks cmux_password_import: API 15).
+typedef struct {
+  const char* url;
+  size_t url_length;
+  const char* signon_realm;
+  size_t signon_realm_length;
+  const char* username;
+  size_t username_length;
+  const char* password;
+  size_t password_length;
+  // Microseconds since 1601 (Chromium time); 0 = now.
+  int64_t created;
+} cmux_shim_password_entry;
+CMUX_SHIM_EXPORT int cmux_shim_import_passwords(const char* profile_cache_path, int reply, const cmux_shim_password_entry* entries,
+                                                int count);
+// sizeof(cmux_shim_password_entry): Swift writes entries at the C offsets
+// (url 0, url_length 8, signon_realm 16, signon_realm_length 24, username 32,
+// username_length 40, password 48, password_length 56, created 64) and
+// refuses to call when this is not 72.
+CMUX_SHIM_EXPORT int cmux_shim_password_entry_size(void);
+// 1 when this fork can write passwords (cmux_password_import, API 15).
+CMUX_SHIM_EXPORT int cmux_shim_password_import_available(void);
+// Turns Chromium's password filling on or off in one tab. An agent-driven
+// tab has it off: a page script could otherwise read a filled password
+// after an automated click (plans/cmux-next/browser.md, "Secure sign-in").
+// Returns 0 when the fork lacks cmux_tab_set_password_fill (API 15).
+CMUX_SHIM_EXPORT int cmux_shim_set_password_fill(int browser_id, int enabled);
 // The visible entry's SSL status as JSON {"secure","certStatus",
 // "contentStatus","sslVersion","url","chain":[base64 DER, leaf first]}, or
 // NULL. Free with cmux_shim_free_owned.

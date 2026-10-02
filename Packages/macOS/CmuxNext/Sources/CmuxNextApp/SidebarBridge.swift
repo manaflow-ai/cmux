@@ -19,6 +19,8 @@ final class SidebarBridge {
     private var selectionObservation: Task<Void, Never>?
     private var widthObservation: Task<Void, Never>?
     private var profileObservation: Task<Void, Never>?
+    /// Item presentation for sidebar sections (SidebarBridge+Sections).
+    var sectionsObservation: Task<Void, Never>?
 
     init(services: AppServices, state: WindowState) {
         self.services = services
@@ -41,6 +43,7 @@ final class SidebarBridge {
             focus.send(.focusTarget(.content, source: .keyboard))
         }
         observe()
+        observeSections()
     }
 
     func teardown() {
@@ -48,6 +51,7 @@ final class SidebarBridge {
         selectionObservation?.cancel()
         widthObservation?.cancel()
         profileObservation?.cancel()
+        sectionsObservation?.cancel()
     }
 
     private func observe() {
@@ -79,7 +83,7 @@ final class SidebarBridge {
                 guard let self else { return }
                 state.sidebarWidth = Double(width)
                 state.sidebarHidden = presentation == .hidden
-                self.services.windows.stateDidChange(state)
+                self.services.windows.recordSaver.stateDidChange(state)
             }
         }
         selectionObservation = Task { [weak self] in
@@ -172,6 +176,10 @@ final class SidebarBridge {
             return registry.makeContextMenu(for: .sidebarBackground)
         case .profile(let id):
             return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue))
+        case .layoutItem(let id):
+            return registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue))
+        case .layoutSection(let id):
+            return registry.makeContextMenu(for: .sidebarSection, target: ActionTargetRef(kind: .sidebarSection, id: id.rawValue))
         }
     }
 

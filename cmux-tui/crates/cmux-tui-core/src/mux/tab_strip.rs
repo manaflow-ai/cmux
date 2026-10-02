@@ -154,11 +154,11 @@ impl Mux {
                 }
                 output = Some(result);
                 let write = strip_state_write(&presentation, edit);
-                let mut plan = ResourceMutationPlan::new(
+                let mut plan = ResourceMutationPlan::replacing(
                     projection.patch,
                     projection.result,
                     projection.changes,
-                    move |state| *state = projected,
+                    projected,
                 )
                 .with_state_write(write);
                 if let Some(ledger) = ledger {

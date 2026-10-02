@@ -51,10 +51,10 @@ public final class OnboardingModel {
     /// and moves on or finishes.
     public func next() {
         switch step {
+        case .importData where importer.justStarted:
+            return
         case .importData where importer.canStart:
             importer.start()
-            return
-        case .importData where importer.justStarted:
             return
         case .theme: theme.commit()
         default: break

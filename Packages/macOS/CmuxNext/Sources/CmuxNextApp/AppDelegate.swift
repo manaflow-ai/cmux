@@ -123,6 +123,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.paletteShortcutEditor = shortcutEditor
         services.palette.shortcutRecorder.editor = shortcutEditor
         settings.start()
+        // macOS posts no notification when an MDM profile changes; activation
+        // is the event-driven backstop next to the managed-file watchers.
+        Task { [weak settings] in
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                settings?.managedPreferencesMayHaveChanged()
+            }
+        }
         services.tabBarButtons.start(settings: settings)
         services.cache.browserTabs.preference.follow(settings)
         services.notifications.follow(settings)
@@ -131,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.themes.start()
         services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
+        services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1)
             // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
@@ -146,6 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerSettingsDebugMethods(services)
                 if let router = control.service?.router {
                     BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
+                    services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
             } catch {

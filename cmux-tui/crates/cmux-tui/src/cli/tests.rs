@@ -1,5 +1,9 @@
 use super::*;
 
+// The app fallback and the app scopes exist on unix only (cli.rs).
+#[cfg(unix)]
+mod action_surface_parity;
+
 fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
 }

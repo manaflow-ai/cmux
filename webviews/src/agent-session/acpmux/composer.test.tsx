@@ -64,6 +64,17 @@ describe("acpmux composer slash menu", () => {
   const active = () => dom.window.document.querySelector(".acpmux-slash-active .acpmux-slash-name")?.textContent;
   const menu = () => dom.window.document.querySelector(".acpmux-slash-menu");
   const type = async (value: string) => act(async () => typeInto(textarea(), value));
+  const plusButton = () =>
+    dom.window.document.querySelector(".acpmux-composer-plus .acpmux-picker-button") as HTMLButtonElement;
+  /// Opens + and picks one of its rows, as a click does.
+  const pickPlus = async (id: string) => {
+    await act(async () => plusButton().click());
+    await act(async () => {
+      dom.window.document
+        .querySelector(`.acpmux-composer-plus [data-value="${id}"]`)!
+        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+  };
   /// jsdom fires `select` a task after the caret moves; let it land inside act.
   const settle = async () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   const key = async (name: string, isComposing = false) =>
@@ -197,15 +208,25 @@ describe("acpmux composer slash menu", () => {
     expect(textarea().value).toBe("/review ");
   });
 
-  test("+ opens the command menu ahead of a draft, and only when the agent has commands", async () => {
-    const plus = () => dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement;
+  test("+ opens an add menu: Mention puts an @ at the caret, and Commands opens the command menu ahead of a draft", async () => {
+    const items = async () => {
+      await act(async () => plusButton().click());
+      const names = [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) =>
+        item.getAttribute("data-value"),
+      );
+      await act(async () => plusButton().click());
+      return names;
+    };
     await render(snapshot());
-    // The slot stays so the chips don't jump when the command list arrives.
-    expect(plus().disabled).toBe(true);
+    expect(await items()).toEqual(["mention"]);
     await render(snapshot(commands));
-    expect(plus().disabled).toBe(false);
+    expect(await items()).toEqual(["mention", "commands"]);
+    await type("look at");
+    await pickPlus("mention");
+    expect(textarea().value).toBe("look at @");
+    expect(dom.window.document.activeElement).toBe(textarea());
     await type("look at main");
-    await act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
+    await pickPlus("commands");
     await settle();
     expect(textarea().value).toBe("/ look at main");
     expect(rows()).toEqual(["/compact", "/review", "/pr-comments"]);
@@ -216,8 +237,7 @@ describe("acpmux composer slash menu", () => {
   });
 
   test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {
-    const plus = async () =>
-      act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
+    const plus = () => pickPlus("commands");
     await render(snapshot(commands));
     await type("/Users/leo/x.txt is broken");
     await plus();
@@ -236,8 +256,7 @@ describe("acpmux composer slash menu", () => {
   });
 
   test("what + wrote never reaches the agent: Send and leaving the composer take the draft back", async () => {
-    const plus = async () =>
-      act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
+    const plus = () => pickPlus("commands");
     const submit = async () =>
       act(async () => {
         dom.window.document

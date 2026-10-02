@@ -115,11 +115,17 @@ extension ColumnScrollState {
         let added = live.subtracting(old.columns.map(\.id))
         var restored = false
         if let point = restore {
-            if removed.contains(point.opened), focusedColumn == point.column, let at = new.index(of: point.column) {
+            // Only when the opened column was focused and its close moved
+            // focus back: an unfocused close (the user went back first, or
+            // the CLI closed it) must not scroll the focused column away
+            // (close-focus.md, found by ColumnScrollCloseModelCheckTests S3).
+            if removed.contains(point.opened), oldColumn == point.opened, focusedColumn == point.column,
+               let at = new.index(of: point.column) {
                 spring.target = new.columns[at].frame.minX + point.relativeOffset
                 restored = true
                 restore = nil
-            } else if removed.contains(point.column) || (focusedColumn != point.opened && focusedColumn != point.column) {
+            } else if removed.contains(point.column) || removed.contains(point.opened)
+                        || (focusedColumn != point.opened && focusedColumn != point.column) {
                 restore = nil
             }
         }

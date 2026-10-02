@@ -109,7 +109,7 @@ enum TabHandlers {
         controller.state.selection.select(tab.id, in: paneModel.id)
         controller.focus.send(.selectTab(pane: paneModel.id, tab: tab.id, workspace: workspace.id, source: .intent))
         ctx.services.paneController(for: paneModel)?.select(StripTabID(tab.id))
-        ctx.services.windows.stateDidChange(controller.state)
+        ctx.services.windows.recordSaver.stateDidChange(controller.state)
         if let window = controller.window { WindowActivation.show(window, .raise) }
     }
 

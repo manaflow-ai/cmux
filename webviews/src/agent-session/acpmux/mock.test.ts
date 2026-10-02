@@ -398,4 +398,41 @@ describe("mock daemon", () => {
       expect([entry.sessionId, asked]).toEqual([entry.sessionId, entry.pendingPermissions]);
     }
   });
+
+  test("the worked session's git scopes hold the turn's edits, half staged, over one commit", async () => {
+    const { call, sent } = open();
+    const paths = async (scope: string, sessionId = "mock-session") =>
+      ((await call("git.scope.diff", { sessionId, scope }))?.files ?? []).map((file: any) => file.path);
+    expect(await paths("staged")).toEqual(["Sources/Fleet/retry.ts"]);
+    expect(await paths("unstaged")).toEqual(["Sources/Fleet/upload.ts", "Sources/Fleet/upload.test.ts"]);
+    expect(await paths("uncommitted")).toEqual([
+      "Sources/Fleet/retry.ts",
+      "Sources/Fleet/upload.ts",
+      "Sources/Fleet/upload.test.ts",
+    ]);
+    expect(await paths("committed")).toEqual(["Sources/Fleet/manifest.ts"]);
+    expect((await paths("branch")).length).toBe(4);
+    // Each file carries its counts and a patch from its first hunk; the set carries its totals.
+    const branch = await call("git.scope.diff", { sessionId: "mock-session", scope: "branch" });
+    expect(branch.root).toBe("~/code/cmux");
+    for (const file of branch.files) {
+      expect(file.patch.startsWith("@@ -")).toBe(true);
+      expect(file.patch.split("\n").filter((line: string) => line.startsWith("+")).length).toBe(file.additions);
+    }
+    expect(branch.additions).toBe(branch.files.reduce((sum: number, file: any) => sum + file.additions, 0));
+    expect(await call("git.status", { sessionId: "mock-session" })).toEqual({
+      branch: "feat-upload-retry",
+      upstream: "origin/main",
+      base: "main",
+      ahead: 1,
+      behind: 0,
+    });
+    // Another project's session has no changes; a folder outside git fails to load.
+    const { sessions } = await call("_acpmux/watch");
+    const other = sessions.find((entry: any) => entry.cwd === "~/code/acpmux").sessionId;
+    expect(await paths("uncommitted", other)).toEqual([]);
+    const dotfiles = sessions.find((entry: any) => entry.cwd === "~/code/dotfiles").sessionId;
+    expect(await call("git.scope.diff", { sessionId: dotfiles, scope: "branch" })).toBeUndefined();
+    expect(sent.at(-1)?.error?.message).toBe("Not a git repository");
+  });
 });

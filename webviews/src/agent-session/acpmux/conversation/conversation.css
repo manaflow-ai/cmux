@@ -36,6 +36,18 @@
 
 /* ---------- User bubble ---------- */
 
+/* The date over the first prompt of a day (DateLine.tsx). */
+.cv-date-line {
+  display: block;
+  padding-top: 8px;
+  text-align: center;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: 20px;
+  letter-spacing: var(--cv-tracking, 0.045px);
+  color: var(--cv-text-muted);
+  font-variant-numeric: tabular-nums;
+}
 .cv-user {
   flex: 1;
   min-width: 0;
@@ -325,6 +337,51 @@
   display: block;
   margin: 0 1px 13px 13px;
 }
+/* An opened edit (EditDiff.tsx): the file's name and line counts over its diff. */
+.cv-edit-diff {
+  margin: 4px 0 6px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--cv-codeblock-bg);
+  box-shadow: inset 0 0 0 1px var(--cv-codeblock-ring);
+}
+.cv-edit-diff__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--cv-codeblock-ring);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--cv-codeblock-text);
+}
+.cv-edit-diff__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-edit-diff__add {
+  color: var(--acpmux-add);
+}
+.cv-edit-diff__del {
+  color: var(--acpmux-del);
+}
+.cv-edit-diff__copy {
+  margin-left: auto;
+  color: var(--cv-codeblock-actions);
+}
+.cv-edit-diff__body {
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cv-edit-diff__empty {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--cv-text-muted);
+}
 .cv-link.is-file {
   color: var(--cv-text);
 }
@@ -375,8 +432,7 @@
   left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
   right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
 }
-.acpmux-permission,
-.acpmux-queue {
+.acpmux-permission {
   padding-left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
   padding-right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
 }
@@ -407,8 +463,10 @@
   color: var(--cv-text-muted);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
-  cursor: pointer;
   user-select: none;
+}
+.cv-worked.is-toggle {
+  cursor: pointer;
 }
 .cv-worked.has-divider::after {
   content: "";
@@ -423,6 +481,30 @@
   margin-top: 3px;
   margin-left: 2px;
 }
+/* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
+@keyframes cv-thinking-sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-thinking {
+    color: transparent;
+    background: linear-gradient(
+        90deg,
+        var(--cv-text-muted) 40%,
+        var(--cv-text) 50%,
+        var(--cv-text-muted) 60%
+      )
+      0 0 / 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: cv-thinking-sweep 2s linear infinite;
+  }
+}
 
 .cv-tools {
   margin: 2px 0 0;
@@ -430,6 +512,12 @@
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
+}
+/* An opened run's calls; past nine 26px rows the list scrolls, as Codex's does. */
+.cv-tool-run {
+  max-height: 234px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .cv-tool {
   all: unset;
@@ -465,7 +553,7 @@
 .cv-thought .cv-tool__text {
   white-space: normal;
 }
-.cv-worked:hover,
+.cv-worked.is-toggle:hover,
 .cv-tool.is-toggle:hover {
   color: var(--cv-text);
 }
@@ -500,6 +588,34 @@
 .cv-tool.is-toggle:hover .cv-rotor.is-hover,
 .cv-tool.is-toggle:focus-visible .cv-rotor.is-hover {
   visibility: visible;
+}
+/* A shell call's card: "Shell", then the command and its output in mono, then a failed exit code. */
+.cv-shell {
+  margin: 4px 0 8px;
+  padding: 8px 12px 10px;
+  border-radius: 12px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-text-muted);
+}
+.cv-shell__label,
+.cv-shell__exit {
+  font: 13px/20px var(--cv-font);
+}
+.cv-shell__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  font: 12px/18px var(--cv-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cv-shell__exit {
+  margin-top: 6px;
+  text-align: right;
 }
 .cv-tool-output {
   margin: 4px 0 8px;

@@ -33,6 +33,7 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
+pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
 pub(crate) mod personal_store;
@@ -69,9 +70,7 @@ pub(crate) use journal_extensions::{
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
-pub use personal_browser_profiles::{
-    BrowserProfileInput, BrowserProfileUpdate, PersonalBrowserProfile,
-};
+pub use personal_browser_profiles::{BrowserProfileInput, BrowserProfileUpdate};
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
 pub use personal_store::{DEFAULT_PROFILE_ID, PersonalSnapshot};
 pub use presentation_store::{

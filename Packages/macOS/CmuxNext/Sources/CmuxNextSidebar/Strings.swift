@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// Localized strings. Keys live in Resources/Localizable.xcstrings (en, ja).
@@ -21,6 +22,23 @@ enum Strings {
     static var activityRunning: String { String(localized: "sidebar.a11y.running", defaultValue: "Agent running", bundle: .module) }
     static var activityNeedsInput: String { String(localized: "sidebar.a11y.needsInput", defaultValue: "Needs input", bundle: .module) }
     static var activityError: String { String(localized: "sidebar.a11y.error", defaultValue: "Error", bundle: .module) }
+    static var activityDone: String { String(localized: "sidebar.a11y.done", defaultValue: "Done", bundle: .module) }
+    static var activityPaused: String { String(localized: "sidebar.a11y.paused", defaultValue: "Paused", bundle: .module) }
+    static func activityProgress(_ percent: Int) -> String {
+        String(format: String(localized: "sidebar.a11y.progress", defaultValue: "%d%% done", bundle: .module), percent)
+    }
+
+    /// Spoken status of a row's indicator, nil when idle.
+    static func activity(_ state: StatusIndicatorState) -> String? {
+        switch state {
+        case .idle: nil
+        case .busy: state.progress.map { activityProgress(Int(($0 * 100).rounded())) } ?? activityRunning
+        case .paused: activityPaused
+        case .waiting: activityNeedsInput
+        case .error: activityError
+        case .success: activityDone
+        }
+    }
     static var closeButton: String { String(localized: "sidebar.a11y.closeWorkspace", defaultValue: "Close workspace", bundle: .module) }
     static func groupCount(_ value: Int) -> String { String(localized: "sidebar.a11y.groupCount", defaultValue: "\(value) workspaces", bundle: .module) }
     static var sidebarLabel: String { String(localized: "sidebar.a11y.sidebar", defaultValue: "Workspaces", bundle: .module) }

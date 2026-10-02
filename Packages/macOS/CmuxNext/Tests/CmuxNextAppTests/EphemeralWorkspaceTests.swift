@@ -24,7 +24,7 @@ import Testing
     func services(_ daemon: StateDaemon) async throws -> AppServices {
         let services = ActionBindingCoverageTests.boundServices()
         services.daemon.start(makeConnection: { daemon.connection() })
-        try await waitUntil { services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.sessionStateKnown }
+        try await waitUntil { services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.session.known }
         return services
     }
 
@@ -38,11 +38,11 @@ import Testing
         let key = StateDaemon.workspaceKey
         #expect(services.daemon.store.workspaces.first?.ephemeral == true)
         #expect(services.windows.isIncognito(workspace: key))
-        await services.windows.awaitEphemeralFlags()
+        await EphemeralWorkspaces.awaitFlags(services.windows)
         #expect(!services.windows.registry.value.discarding.contains(key))
         #expect(!daemon.operations.contains("workspace.close"))
         // Its id is never written to the app's crash ledger.
-        #expect(services.windows.isEphemeral(key))
+        #expect(EphemeralWorkspaces.isEphemeral(key, services.windows))
     }
 
     @Test func newIncognitoWindowCreatesAnEphemeralWorkspace() async throws {

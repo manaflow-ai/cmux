@@ -84,6 +84,7 @@ import Testing
         }
         #expect(SettingsSchema.descriptor(for: ["ui", "animationSpeed"])?.defaultValue == .string(empty.animationSpeed.rawValue))
         #expect(SettingsSchema.descriptor(for: ["window", "titlebar"])?.defaultValue == .string(empty.titlebar.rawValue))
+        #expect(SettingsSchema.descriptor(for: ["window", "rail"])?.defaultValue == .string(empty.rail.rawValue))
         #expect(SettingsSchema.descriptor(for: ["browser", "defaultEngine"])?.defaultValue == .string(empty.browserDefaultEngine.rawValue))
         #expect(SettingsSchema.descriptor(for: ["focusRing", "enabled"])?.defaultValue == .bool(empty.focusRing.enabled))
         #expect(SettingsSchema.descriptor(for: ["notifications", "dismissal"])?.defaultValue == .string(empty.notifications.dismissal.rawValue))

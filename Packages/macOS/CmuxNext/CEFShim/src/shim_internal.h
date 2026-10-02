@@ -26,6 +26,11 @@ struct ForkApi {
   int (*tab_activate)(int) = nullptr;
   // API version 14: one history step to an entry (Back/Forward menus).
   int (*tab_go_to_offset)(int, int) = nullptr;
+  // API version 15: saved passwords into a profile's password store
+  // (entries laid out as cmux_shim_password_entry, which cef_cmux.h's
+  // cmux_password_entry matches), and password filling per tab.
+  int (*password_import)(const char*, const cmux_shim_password_entry*, int, void (*)(void*, int, int, int, int), void*) = nullptr;
+  int (*tab_set_password_fill)(int, int) = nullptr;
   int (*tab_window_id)(int) = nullptr;
   char* (*ext_actions)(int, int) = nullptr;
   int (*ext_action_run)(int, const char*, int, int) = nullptr;

@@ -1,0 +1,632 @@
+{
+  "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default.",
+  "properties" : {
+    "AllowedSignInMethods" : {
+      "description" : "Sign-in methods the app offers.",
+      "items" : {
+        "enum" : [
+          "sso",
+          "password",
+          "oauth"
+        ],
+        "type" : "string"
+      },
+      "title" : "AllowedSignInMethods",
+      "type" : "array"
+    },
+    "app.quitBehavior" : {
+      "default" : "ask",
+      "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
+      "enum" : [
+        "ask",
+        "keep",
+        "end-keep-layout",
+        "end-everything"
+      ],
+      "title" : "When Quitting",
+      "type" : "string"
+    },
+    "appearance.borders" : {
+      "default" : "default",
+      "description" : "None removes every border, hairline and separator in the app.",
+      "enum" : [
+        "default",
+        "none"
+      ],
+      "title" : "Borders",
+      "type" : "string"
+    },
+    "appearance.density" : {
+      "default" : "compact",
+      "description" : "appearance.density",
+      "enum" : [
+        "compact",
+        "comfortable"
+      ],
+      "title" : "Density",
+      "type" : "string"
+    },
+    "appearance.focusIndicator" : {
+      "default" : "both",
+      "description" : "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.",
+      "enum" : [
+        "border",
+        "tabs",
+        "both",
+        "none"
+      ],
+      "title" : "Focused Pane",
+      "type" : "string"
+    },
+    "appearance.statusIndicator.color" : {
+      "description" : "appearance.statusIndicator.color",
+      "title" : "Color",
+      "type" : "string"
+    },
+    "appearance.statusIndicator.size" : {
+      "default" : 1,
+      "description" : "appearance.statusIndicator.size",
+      "maximum" : 1.5,
+      "minimum" : 0.5,
+      "title" : "Size",
+      "type" : "number"
+    },
+    "appearance.statusIndicator.style" : {
+      "default" : "arc",
+      "description" : "How sidebar rows, tabs and panes show work in progress.",
+      "enum" : [
+        "arc",
+        "native",
+        "dot",
+        "none"
+      ],
+      "title" : "Style",
+      "type" : "string"
+    },
+    "appearance.statusIndicator.thickness" : {
+      "default" : 1.5,
+      "description" : "appearance.statusIndicator.thickness",
+      "maximum" : 4,
+      "minimum" : 0.5,
+      "title" : "Line Width",
+      "type" : "number"
+    },
+    "appearance.tabBarBackground" : {
+      "default" : "window",
+      "description" : "Window uses the window's own background around the tabs; Darker shades the tab bar.",
+      "enum" : [
+        "window",
+        "darker"
+      ],
+      "title" : "Tab Bar Background",
+      "type" : "string"
+    },
+    "browser.defaultEngine" : {
+      "default" : "chromium",
+      "description" : "New browser tabs open in this engine.",
+      "enum" : [
+        "chromium",
+        "webkit"
+      ],
+      "title" : "Default Engine",
+      "type" : "string"
+    },
+    "browser.hibernatePinnedTabs" : {
+      "default" : false,
+      "description" : "browser.hibernatePinnedTabs",
+      "title" : "Hibernate Pinned Tabs",
+      "type" : "boolean"
+    },
+    "browser.hibernation" : {
+      "default" : "moderate",
+      "description" : "Frees memory; history and position are kept. Also accepts a number from 1 to 1440 in a raw profile.",
+      "enum" : [
+        "moderate",
+        "aggressive",
+        "off"
+      ],
+      "title" : "Hibernate Hidden Tabs",
+      "type" : "string"
+    },
+    "browser.hibernationExclusions" : {
+      "default" : [
+
+      ],
+      "description" : "Hosts such as mail.google.com or *.figma.com.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Never Hibernate",
+      "type" : "array"
+    },
+    "browser.newTabPage" : {
+      "default" : "",
+      "description" : "An address such as https://example.com. Empty opens a blank page.",
+      "title" : "New Tab Page",
+      "type" : "string"
+    },
+    "browser.remoteLocalhost" : {
+      "default" : true,
+      "description" : "browser.remoteLocalhost",
+      "title" : "Open localhost on the Workspace's Machine",
+      "type" : "boolean"
+    },
+    "browser.showBookmarksBar" : {
+      "default" : false,
+      "description" : "A row of bookmarks under each browser toolbar.",
+      "title" : "Show Bookmarks Bar",
+      "type" : "boolean"
+    },
+    "DisableAutoUpdate" : {
+      "description" : "Turn off automatic updates (also honored in the legacy com.cmuxterm.app domain).",
+      "title" : "DisableAutoUpdate",
+      "type" : "boolean"
+    },
+    "DisabledFeatures" : {
+      "description" : "Features to turn off: their UI, actions and host operations are removed.",
+      "items" : {
+        "enum" : [
+          "computerUse",
+          "browserAutomation",
+          "mcp",
+          "cloud",
+          "apps",
+          "remoteHosts"
+        ],
+        "type" : "string"
+      },
+      "title" : "DisabledFeatures",
+      "type" : "array"
+    },
+    "EnrollmentToken" : {
+      "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
+      "title" : "EnrollmentToken",
+      "type" : "string"
+    },
+    "focusRing.color" : {
+      "description" : "focusRing.color",
+      "title" : "Color",
+      "type" : "string"
+    },
+    "focusRing.contrast" : {
+      "default" : "subtle",
+      "description" : "focusRing.contrast",
+      "enum" : [
+        "subtle",
+        "standard",
+        "strong"
+      ],
+      "title" : "Contrast",
+      "type" : "string"
+    },
+    "focusRing.enabled" : {
+      "default" : true,
+      "description" : "focusRing.enabled",
+      "title" : "Show Focus Ring",
+      "type" : "boolean"
+    },
+    "focusRing.showWhenSinglePane" : {
+      "default" : false,
+      "description" : "focusRing.showWhenSinglePane",
+      "title" : "Show With One Pane",
+      "type" : "boolean"
+    },
+    "focusRing.style" : {
+      "default" : "ring",
+      "description" : "focusRing.style",
+      "enum" : [
+        "ring",
+        "glow",
+        "none"
+      ],
+      "title" : "Style",
+      "type" : "string"
+    },
+    "focusRing.width" : {
+      "default" : 1,
+      "description" : "focusRing.width",
+      "maximum" : 8,
+      "minimum" : 0.5,
+      "title" : "Width",
+      "type" : "number"
+    },
+    "history.terminalCommands" : {
+      "default" : false,
+      "description" : "Lists finished shell commands in History. Command lines can contain secrets.",
+      "title" : "Record Terminal Commands",
+      "type" : "boolean"
+    },
+    "layout.centerFocusedColumn" : {
+      "default" : "never",
+      "description" : "layout.centerFocusedColumn",
+      "enum" : [
+        "never",
+        "always",
+        "on-overflow"
+      ],
+      "title" : "Center Focused Column",
+      "type" : "string"
+    },
+    "layout.closeFocus" : {
+      "default" : "previousNeighbor",
+      "description" : "Which pane gets focus when the focused pane closes.",
+      "enum" : [
+        "previousNeighbor",
+        "mostRecent"
+      ],
+      "title" : "Focus After Closing a Pane",
+      "type" : "string"
+    },
+    "layout.defaultColumnWidth" : {
+      "default" : 0.5,
+      "description" : "A share of the window width, for Fixed Width new columns.",
+      "maximum" : 1,
+      "minimum" : 0.10000000000000001,
+      "title" : "Fixed Column Width",
+      "type" : "number"
+    },
+    "layout.minimumPaneHeight" : {
+      "default" : 64,
+      "description" : "layout.minimumPaneHeight",
+      "maximum" : 600,
+      "minimum" : 32,
+      "title" : "Minimum Pane Height",
+      "type" : "number"
+    },
+    "layout.minimumPaneWidth" : {
+      "default" : 200,
+      "description" : "layout.minimumPaneWidth",
+      "maximum" : 800,
+      "minimum" : 80,
+      "title" : "Minimum Pane Width",
+      "type" : "number"
+    },
+    "layout.newColumnWidth" : {
+      "default" : "matchCurrent",
+      "description" : "layout.newColumnWidth",
+      "enum" : [
+        "matchCurrent",
+        "fitScreen",
+        "fixed"
+      ],
+      "title" : "New Column Sizing",
+      "type" : "string"
+    },
+    "layout.paneBorder" : {
+      "default" : "subtle",
+      "description" : "layout.paneBorder",
+      "enum" : [
+        "subtle",
+        "none"
+      ],
+      "title" : "Border",
+      "type" : "string"
+    },
+    "layout.paneBorderColor" : {
+      "description" : "layout.paneBorderColor",
+      "title" : "Border Color",
+      "type" : "string"
+    },
+    "layout.paneBorderWidth" : {
+      "description" : "layout.paneBorderWidth",
+      "maximum" : 4,
+      "minimum" : 0.5,
+      "title" : "Border Width",
+      "type" : "number"
+    },
+    "layout.paneCornerRadius" : {
+      "description" : "layout.paneCornerRadius",
+      "maximum" : 20,
+      "minimum" : 0,
+      "title" : "Corner Radius",
+      "type" : "number"
+    },
+    "layout.panePadding" : {
+      "description" : "layout.panePadding",
+      "maximum" : 16,
+      "minimum" : 0,
+      "title" : "Padding",
+      "type" : "number"
+    },
+    "layout.splitSizing" : {
+      "default" : "even",
+      "description" : "Even gives every pane in the column the same size after a split.",
+      "enum" : [
+        "even",
+        "halve"
+      ],
+      "title" : "Split Sizing",
+      "type" : "string"
+    },
+    "layout.stickyColumnEdge" : {
+      "default" : "right",
+      "description" : "layout.stickyColumnEdge",
+      "enum" : [
+        "right",
+        "left"
+      ],
+      "title" : "Sticky Column Edge",
+      "type" : "string"
+    },
+    "layout.stickyColumnMode" : {
+      "default" : "docked",
+      "description" : "layout.stickyColumnMode",
+      "enum" : [
+        "docked",
+        "overlay"
+      ],
+      "title" : "Sticky Column Mode",
+      "type" : "string"
+    },
+    "layout.stripScrollbar" : {
+      "default" : "auto",
+      "description" : "A thin bar under the columns that shows and moves the visible range.",
+      "enum" : [
+        "auto",
+        "always",
+        "off"
+      ],
+      "title" : "Column Scroll Bar",
+      "type" : "string"
+    },
+    "ManagedTeam" : {
+      "description" : "Team id (team_...) that manages this device.",
+      "title" : "ManagedTeam",
+      "type" : "string"
+    },
+    "MinimumVersion" : {
+      "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
+      "title" : "MinimumVersion",
+      "type" : "string"
+    },
+    "notifications.attention.blinkCount" : {
+      "default" : 2,
+      "description" : "notifications.attention.blinkCount",
+      "maximum" : 10,
+      "minimum" : 1,
+      "title" : "Blinks",
+      "type" : "number"
+    },
+    "notifications.attention.color" : {
+      "description" : "notifications.attention.color",
+      "title" : "Color",
+      "type" : "string"
+    },
+    "notifications.attention.duration" : {
+      "default" : 3,
+      "description" : "notifications.attention.duration",
+      "maximum" : 30,
+      "minimum" : 0.29999999999999999,
+      "title" : "Pulse Duration",
+      "type" : "number"
+    },
+    "notifications.attention.persist" : {
+      "default" : true,
+      "description" : "notifications.attention.persist",
+      "title" : "Keep Ring Until Read",
+      "type" : "boolean"
+    },
+    "notifications.attention.showOnSidebar" : {
+      "default" : true,
+      "description" : "notifications.attention.showOnSidebar",
+      "title" : "Mark the Sidebar Row",
+      "type" : "boolean"
+    },
+    "notifications.attention.showOnTab" : {
+      "default" : true,
+      "description" : "notifications.attention.showOnTab",
+      "title" : "Mark the Tab",
+      "type" : "boolean"
+    },
+    "notifications.attention.style" : {
+      "default" : "blink",
+      "description" : "notifications.attention.style",
+      "enum" : [
+        "blink",
+        "pulse",
+        "steady",
+        "none"
+      ],
+      "title" : "Style",
+      "type" : "string"
+    },
+    "notifications.attention.width" : {
+      "default" : 2,
+      "description" : "notifications.attention.width",
+      "maximum" : 8,
+      "minimum" : 0.5,
+      "title" : "Width",
+      "type" : "number"
+    },
+    "notifications.desktop" : {
+      "default" : "unlessFocused",
+      "description" : "notifications.desktop",
+      "enum" : [
+        "unlessFocused",
+        "always",
+        "whenInactive",
+        "never"
+      ],
+      "title" : "macOS Banners",
+      "type" : "string"
+    },
+    "notifications.dismissal" : {
+      "default" : "keystroke",
+      "description" : "notifications.dismissal",
+      "enum" : [
+        "keystroke",
+        "click",
+        "focus",
+        "explicit",
+        "timeout",
+        "never"
+      ],
+      "title" : "Clear Notification When",
+      "type" : "string"
+    },
+    "notifications.dockBadge" : {
+      "default" : true,
+      "description" : "notifications.dockBadge",
+      "title" : "Unread Count on Dock Icon",
+      "type" : "boolean"
+    },
+    "notifications.quietHours" : {
+      "description" : "No banners or sounds between these times.",
+      "properties" : {
+        "end" : {
+          "title" : "end",
+          "type" : "string"
+        },
+        "start" : {
+          "title" : "start",
+          "type" : "string"
+        }
+      },
+      "title" : "Quiet Hours",
+      "type" : "object"
+    },
+    "notifications.sound" : {
+      "default" : "default",
+      "description" : "notifications.sound",
+      "title" : "Sound",
+      "type" : "string"
+    },
+    "notifications.sources.agent.dismissal" : {
+      "description" : "notifications.sources.agent.dismissal",
+      "enum" : [
+        "keystroke",
+        "click",
+        "focus",
+        "explicit",
+        "timeout",
+        "never"
+      ],
+      "title" : "Agents",
+      "type" : "string"
+    },
+    "notifications.sources.cli.dismissal" : {
+      "description" : "notifications.sources.cli.dismissal",
+      "enum" : [
+        "keystroke",
+        "click",
+        "focus",
+        "explicit",
+        "timeout",
+        "never"
+      ],
+      "title" : "cmux notify",
+      "type" : "string"
+    },
+    "notifications.sources.terminal.dismissal" : {
+      "description" : "notifications.sources.terminal.dismissal",
+      "enum" : [
+        "keystroke",
+        "click",
+        "focus",
+        "explicit",
+        "timeout",
+        "never"
+      ],
+      "title" : "Terminal Programs",
+      "type" : "string"
+    },
+    "notifications.suppressWhileTypingSeconds" : {
+      "default" : 0,
+      "description" : "A pane typed into this recently is marked read at once. 0 turns it off.",
+      "maximum" : 60,
+      "minimum" : 0,
+      "title" : "Quiet After Typing",
+      "type" : "number"
+    },
+    "notifications.timeoutSeconds" : {
+      "default" : 30,
+      "description" : "Used when a source clears after a timeout.",
+      "maximum" : 86400,
+      "minimum" : 1,
+      "title" : "Timeout",
+      "type" : "number"
+    },
+    "RestrictToManagedTeam" : {
+      "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
+      "title" : "RestrictToManagedTeam",
+      "type" : "boolean"
+    },
+    "sidebar.bottomBandMaxShare" : {
+      "default" : 0.25,
+      "description" : "The share of the sidebar the bottom sections fill before they scroll.",
+      "maximum" : 0.90000000000000002,
+      "minimum" : 0.10000000000000001,
+      "title" : "Bottom Sections Height",
+      "type" : "number"
+    },
+    "sidebar.sectionLook" : {
+      "default" : "quiet",
+      "description" : "How the sections above and below the workspace list draw.",
+      "enum" : [
+        "quiet",
+        "card",
+        "tray",
+        "lines",
+        "linesIcons"
+      ],
+      "title" : "Section Look",
+      "type" : "string"
+    },
+    "sidebar.stickyBandsScroll" : {
+      "default" : true,
+      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
+      "title" : "Scroll Tall Sections",
+      "type" : "boolean"
+    },
+    "sidebar.topBandMaxShare" : {
+      "default" : 0.33333333333333331,
+      "description" : "The share of the sidebar the top sections fill before they scroll.",
+      "maximum" : 0.90000000000000002,
+      "minimum" : 0.10000000000000001,
+      "title" : "Top Sections Height",
+      "type" : "number"
+    },
+    "ui.animationSpeed" : {
+      "default" : "fast",
+      "description" : "ui.animationSpeed",
+      "enum" : [
+        "fast",
+        "normal",
+        "off"
+      ],
+      "title" : "Animations",
+      "type" : "string"
+    },
+    "UpdateChannel" : {
+      "description" : "Update channel this device follows.",
+      "enum" : [
+        "stable",
+        "nightly"
+      ],
+      "title" : "UpdateChannel",
+      "type" : "string"
+    },
+    "window.rail" : {
+      "default" : "off",
+      "description" : "A column of buttons for new tabs, agent chats, notifications, history and accounts.",
+      "enum" : [
+        "off",
+        "leading",
+        "afterSidebar"
+      ],
+      "title" : "Action Rail",
+      "type" : "string"
+    },
+    "window.titlebar" : {
+      "default" : "minimal",
+      "description" : "Minimal has no titlebar strip; the top row moves the window.",
+      "enum" : [
+        "minimal",
+        "standard"
+      ],
+      "title" : "Titlebar",
+      "type" : "string"
+    }
+  },
+  "title" : "cmux (com.manaflow.cmux)"
+}

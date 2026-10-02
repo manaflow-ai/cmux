@@ -6,7 +6,9 @@ import Testing
 @Suite struct CLIActionTests {
     @Test func everyCLIActionHasItsOwnCLIName() {
         let cli = ActionCatalog.all.filter(\.cli)
-        #expect(cli.count == ActionSurfaceCatalog.cliNamed.count, "an id in cliNamed is not in the catalog")
+        let ids = Set(ActionCatalog.all.map(\.id))
+        let unknown = ActionSurfaceCatalog.cliNamed.subtracting(ids)
+        #expect(unknown.isEmpty, "cliNamed ids not in the catalog: \(unknown.map(\.rawValue).sorted())")
         for descriptor in cli {
             #expect(descriptor.cliName != ActionDescriptor.defaultCLIName(for: descriptor.id), "\(descriptor.id) has no cliName")
             #expect(!descriptor.isDebugOnly, "\(descriptor.id) is debug-only")
@@ -18,7 +20,7 @@ import Testing
         for id: ActionID in ["focusLeft", "commandPalette", "toggleSidebar", "browserZoomIn", "commandPaletteNext"] {
             #expect(byID[id]?.cli == false, "\(id)")
         }
-        for id: ActionID in ["newTab", "renameWorkspace", "closeTab", "tab.focus", "screen.new", "tabGroup.create", "newWindow"] {
+        for id: ActionID in ["renameWorkspace", "tab.focus", "tabGroup.create", "newWindow"] {
             #expect(byID[id]?.cli == true, "\(id)")
         }
     }

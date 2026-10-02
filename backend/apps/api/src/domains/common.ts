@@ -1,0 +1,86 @@
+import type { Principal, Reject } from "@cmux/ownership"
+import { cloudOpByName, connectionInternalOps, schedulerInternalOps, type CloudOpDef } from "@cmux/protocol"
+import { Exit, Schema } from "effect"
+
+export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
+  ok: false,
+  code,
+  message,
+  ...(details === undefined ? {} : { details })
+})
+
+/** Decodes params with the op's Effect Schema (pure; runs on owner and mirrors alike). */
+export const decodeParams = <T>(op: CloudOpDef, params: unknown): { ok: true; value: T } | ({ ok: false } & Reject) => {
+  const exit = Schema.decodeUnknownExit(op.params as Schema.Codec<T, unknown>)(params ?? {})
+  return Exit.isSuccess(exit) ? { ok: true, value: exit.value } : reject("validation.invalid", "invalid params", String(exit.cause))
+}
+
+export interface GrantLike {
+  readonly op_classes: ReadonlyArray<string>
+  readonly revoked_at: number | null
+  readonly expires_at: number | null
+}
+
+/**
+ * Generic op admission shared by every cloud owner: the op exists for this
+ * owner, the principal kind may call it, and an install's grant covers the
+ * op's risk class. Ownership-specific checks stay in each reducer.
+ */
+export const admit = (
+  owner: CloudOpDef["owner"],
+  opName: string,
+  principal: Principal,
+  grantFor: (principal: Principal) => GrantLike | undefined,
+  now: number
+): Reject | undefined => {
+  const def = cloudOpByName.get(opName) ?? internalOps.get(opName)
+  if (!def || def.owner !== owner) return { code: "validation.invalid", message: `unknown op ${opName} for ${owner}` }
+  const kind = principal.kind ?? "install"
+  if (!def.principals.includes(kind === "agent" ? "install" : kind)) {
+    return { code: "auth.forbidden", message: `${opName} is not allowed for ${kind} principals` }
+  }
+  // A system principal exists only inside its own DO and calls only internal ops (checked above).
+  if (kind === "system") return undefined
+  if (kind !== "session") {
+    const grant = grantFor(principal)
+    if (!grant) return { code: "auth.forbidden", message: "grant not found" }
+    if (grant.revoked_at !== null) return { code: "auth.forbidden", message: "grant revoked" }
+    if (grant.expires_at !== null && grant.expires_at <= now) return { code: "auth.forbidden", message: "grant expired" }
+    if (!grant.op_classes.includes(def.risk)) return { code: "auth.forbidden", message: `grant does not cover ${def.risk}` }
+  }
+  return undefined
+}
+
+/** Ops the Worker sends that are not part of the public catalog. */
+export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
+  [
+    "team.ensure_personal",
+    {
+      name: "team.ensure_personal",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "team",
+      principals: ["session"],
+      params: Schema.Struct({}),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: create the caller's personal team.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  ...schedulerInternalOps.map((d) => [d.name, d] as const),
+  ...connectionInternalOps.map((d) => [d.name, d] as const)
+])
+
+/**
+ * Team-admin ops (policy, team settings) accept any member only because every
+ * team is personal today: the member is the owner. A shared team has no roles
+ * here yet, so it is refused until roles land (tested; do not relax this
+ * without a role check).
+ */
+export const requirePersonalTeamAdmin = (p: Principal, personalTeamId: (user: string) => string): Reject | undefined =>
+  p.user && p.team && p.team === personalTeamId(p.user)
+    ? undefined
+    : { code: "team.roles_required", message: "team admin ops need team roles, which shared teams do not have yet" }

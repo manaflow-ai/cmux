@@ -12,18 +12,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
-import { loadRuntime, createDevBrowser, createNodeHost } from "../lib/dev-driver.mjs";
+import { loadRuntime, createDevBrowser, createNodeHost, createHostedRepl } from "../lib/dev-driver.mjs";
+import { totp, base32Decode } from "../lib/reference-host.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 
 const ns = loadRuntime();
 const T = ns.agentTools;
 
-test("totp: RFC 6238 SHA-1 vectors", () => {
+test("totp (reference host): RFC 6238 SHA-1 vectors", () => {
   const seed = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"; // base32 of "12345678901234567890"
   const vectors = [[59, "94287082"], [1111111109, "07081804"], [1111111111, "14050471"], [1234567890, "89005924"], [2000000000, "69279037"], [20000000000, "65353130"]];
-  for (const [t, code] of vectors) assert.equal(T.totp(seed, t * 1000, { digits: 8 }), code, `t=${t}`);
-  assert.equal(Buffer.from(T.sha1(new TextEncoder().encode("abc"))).toString("hex"), "a9993e364706816aba3e25717850c26c9cd0d89d");
-  assert.throws(() => T.base32Decode("not base32!"), /base32/);
+  for (const [t, code] of vectors) assert.equal(totp(seed, t * 1000, { digits: 8 }), code, `t=${t}`);
+  assert.throws(() => base32Decode("not base32!"), /base32/);
 });
 
 test("domain patterns: browser-use's syntax, with ports and refusals", () => {
@@ -114,7 +114,7 @@ async function withRepl(fn, { maxOutput } = {}) {
   const driver = browser.driver();
   const lines = [];
   const host = createNodeHost({ workDir: dir, sessionId, print: (level, text) => lines.push(text) });
-  const repl = ns.replHost.createBrowserRepl({ host, driver });
+  const repl = createHostedRepl(ns, { host, driver }).repl;
   const outputs = [];
   const run = async (code) => {
     const start = lines.length;
@@ -152,7 +152,7 @@ test("secrets: a registered value never appears in output, errors, page reads or
     await withRepl(async ({ run, dir, sessionTmp, outputs }) => {
       let r = await run(`secrets.load(${JSON.stringify(secretsFile)})`);
       assert.equal(r.error, null);
-      assert.match(r.output, /name: 'apikey', domains: \[ 'localhost' \]/);
+      assert.match(r.output, /name: 'apikey',\s+domains: \[ 'localhost' \],\s+totp: false,\s+agentKnown: true/);
       r = await run(`
         const rec = session.record();
         await page.goto("${primary}/agent-tools.html?peer=${peer}");
@@ -180,11 +180,11 @@ test("secrets: a registered value never appears in output, errors, page reads or
       assert.equal(r.error, null);
       assert.match(r.output, /<secret:apikey>/);
       assert.match(r.output, /password 18 chars/);
-      // Typed one key at a time, the password's characters are not in the trace.
+      // The agent context sends a secret as a handle, so the trace records the
+      // handle by name; the host types the characters.
       const traceFile = filesUnder(sessionTmp).find((f) => f.endsWith("trace.jsonl"));
       const trace = fs.readFileSync(traceFile, "utf8").trim().split("\n").map((l) => JSON.parse(l));
-      assert.ok(trace.some((e) => e.method === "input.key"));
-      assert.ok(trace.every((e) => e.key === undefined && (e.text === undefined || /^<\d+ characters>$/.test(e.text))));
+      assert.ok(trace.some((e) => e.method === "input.insertText" && e.text === "<secret:pw>"));
       // Reading the secrets file and printing it, throwing it, logging it from
       // a listener and spilling a large output all mask it.
       r = await run(`
@@ -236,7 +236,7 @@ test("secrets: a TOTP secret types the current code", async () => {
       assert.equal(r.error, null);
       const code = r.output;
       assert.match(code, /^\d{6}$/);
-      assert.ok([T.totp(seed, before), T.totp(seed, after)].includes(code), `${code} is not the code at ${before} or ${after}`);
+      assert.ok([totp(seed, before), totp(seed, after)].includes(code), `${code} is not the code at ${before} or ${after}`);
       assert.ok(!r.output.includes(seed));
     });
   } finally {

@@ -128,6 +128,31 @@ On the merge of `feat-cmux-next` (2026-10-01):
   `history.list`/`bookmark.list`; the incoming bookmark, history, theme, browser profile,
   accounts and remote actions are marked for the CLI.
 
+On the merges of `feat-cmux-next` (2026-10-02, owner after feat-cmux-next-99):
+
+- Five merges of `feat-cmux-next`; Leo Li's review fixes (`feat-cmux-next-acpmux-onhis`);
+  `feat-cmux-next-followup-rust` (v2 state ops in `cmux-tui-core::state`, window records
+  `window_record.*` with owner = install id and CAS, browser record owner, atomic
+  `workspace.create {ephemeral}`, kept tabs in the state module, closed-history test) and
+  `feat-cmux-next-followup-rust-cli` (`--all-sessions`, `<session>:` ids, coderouter verbs).
+- `ActionDescriptor.cli` derives from the action surface plan (`ActionSurfaceCatalog.cliNamed`);
+  `cliActionIDs` is gone. `cli::tests::action_surface_parity` (Rust) fails when an offered app
+  CLI name parses in the mux grammar first. The nine it found are daemon verbs, so the app
+  actions are `ownerVerb` CLI exemptions; `tab.focus` is `cmux app show-tab --target tab_…`.
+- God-file budget: every cmux-tui file and Swift type is within its baseline (Rust split,
+  `StateResourceClient`, `SessionStateStore`, `WindowRecordSaver`, `TerminalFontScale`).
+- Fixes found by the tagged preflight: ids derived inside an action run use the UUIDv4
+  layout (cmux-tui refused version 8 terminal ids, so `cmux tab new` failed); `cmux acp`
+  in a tagged bundle without `CMUX_TAG` uses the bundle's acpmux home; a kind or `name:`
+  before `:` is not a session (the `name:` escape hung the hosted tests); tab-less
+  terminals carry `lifecycle` on every published record.
+
+On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
+
+- `cmux mcp serve` and `cmux mcp tools [--json]`: MCP tools from the v2 catalog and the
+  app's CLI actions, over the CLI's own transport (mcp.md). Off unless cmux.json sets
+  `mcp.enabled`.
+
 ## Numeric refs replacement
 
 The old CLI's refs and selector flags have no Rust equivalent; `cmux` takes the
@@ -208,9 +233,21 @@ the CLI requests that came with the merge, with the decision taken.
    resolver passes unknown ids through so objects the snapshot has not seen yet work.
 9. `current` means the session's focused object, not the caller's terminal; the caller's
    own terminal is `$CMUX_TUI_TERMINAL_ID`.
-10. `cmux agent message` (the Swift CLI's agent inbox, delivered through Claude and Codex
-    hooks) has no port: it needs a daemon v2 message operation, a Rust verb and hook
+10. `cmux agent message` (Leo Li's PR 16430 owns it) has no port yet: it needs a daemon v2 message operation, a Rust verb and hook
     entries in `agent_hook_install.rs`.
 11. `send`/`read-screen` on a remote-terminal tab need the daemon side of
     `remote-terminal-tabs-v1`, which is not in cmux-tui yet.
-12. Session-qualified ids (`build-box:ws_…`) and `--all-sessions` (federation).
+12. Done: session-qualified ids (`build-box:ws_…`) and `--all-sessions`.
+13. Done: `cmux tab new` reports the created tab and terminal (an earlier `created: []`
+    was a slow snapshot, not a missing path).
+14. With an explicit `--app-socket` but a different app's `CMUX_*` environment, the daemon
+    is found from the environment, not from the named app.
+15. v2 `session.identify` and `capabilities` on `client.metadata.update` (SDK clients
+    still fall back to raw v12 for both).
+16. `cmux tab search [--query Q] [--json]` and MCP `tab_search` over the app's read-only
+    `tabs.search` (PR 16796), and a session-host `foreground_process` per terminal (the
+    PTY's foreground process name) so the search matches vim or htop; next pin.
+17. Rust CLI verbs owned by other lanes, landing as their PRs: `cmux status …` and
+    `cmux terminal <t> wait --until …` (status lead), `cmux browser repl|host` (browser
+    lead), `cmux cua …` (CUA lead), `cmux apps …` (app platform), `cmux task …` (tasks,
+    `cmux_tasks::cli::run` mount after this PR merges).

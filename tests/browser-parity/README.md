@@ -85,10 +85,19 @@ Verdicts use the app's result for a case when there is one.
 ## Backends
 
 - `cmux-dev`: the runtime in `cmux-tui/crates/cmux-browser-host/js` in this Node process on
-  Playwright WebKit through `lib/dev-driver.mjs`. No app build.
+  Playwright WebKit through `lib/dev-driver.mjs`, behind the reference host
+  (`lib/reference-host.mjs`: domain policy, secret vault, TOTP, masking, the
+  contract the Rust host implements). No app build.
 - `oracle`: real Playwright on headless Google Chrome (throwaway profile) with
   a thin shim of the globals (`lib/oracle.mjs`).
 - `cmux`: the app's CLI, one `cmux browser repl --eval -` call per cell.
+- `host-headless`, `host-cef`, `host-webkit`: the Rust browser host
+  (plans/cmux-next/browser-host.md) on one engine, one call per cell:
+  `$PARITY_HOST_BIN eval [--session S] --engine E -` (default
+  `cmux-browser-host`), or with `PARITY_HOST_CLI=<cmux>`
+  `cmux browser repl --engine E --eval -`. `host-cef` and `host-webkit` need a
+  tagged no-activate app connected to the host as its engine provider. Same
+  goldens as `cmux`; `gate.sh --host <engine>` adds them to the gate.
 
 ## Commands
 

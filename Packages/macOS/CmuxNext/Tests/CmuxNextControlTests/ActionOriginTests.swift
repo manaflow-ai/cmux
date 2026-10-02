@@ -54,7 +54,7 @@ import Testing
         let registry = ActionRegistry.standard()
         let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil)
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
-        let focus = try await router.handle(ControlRequest(id: "1", method: "action.describe", params: ["action": "tab focus"])).get()
+        let focus = try await router.handle(ControlRequest(id: "1", method: "action.describe", params: ["action": "app show-tab"])).get()
         #expect(focus["action"]?["focuses"] == true)
         let split = try await router.handle(ControlRequest(id: "2", method: "action.describe", params: ["action": "splitRight"])).get()
         #expect(split["action"]?["focuses"] == false)

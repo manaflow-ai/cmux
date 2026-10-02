@@ -11,6 +11,8 @@ mod coderouter;
 mod command;
 mod federation;
 mod lifecycle;
+#[cfg(unix)]
+mod mcp;
 mod raw;
 mod resolve;
 mod scope_help;
@@ -180,7 +182,7 @@ pub(super) fn canonical_scope(value: &str) -> &str {
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
     #[cfg(unix)]
-    if let Some(code) = run_coderouter(args) {
+    if let Some(code) = mcp::run_if_requested(args).or_else(|| coderouter::run_if_requested(args)) {
         return code;
     }
     #[cfg(unix)]
@@ -267,18 +269,6 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
             2,
         )),
     }
-}
-
-/// `cmux coderouter …` and `cmux cr …` (cli/coderouter.rs). `None` for any
-/// other command.
-#[cfg(unix)]
-fn run_coderouter(args: &[String]) -> Option<i32> {
-    let (global, command_args) = parse_globals(args).ok()?;
-    let (word, rest) = coderouter::split(&command_args)?;
-    Some(match coderouter::parse(word, rest, args) {
-        Ok(invocation) => coderouter::run(&global, invocation),
-        Err(error) => app::failure("usage.invalid", &format!("cmux: {error}"), global.output, 2),
-    })
 }
 
 /// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name when

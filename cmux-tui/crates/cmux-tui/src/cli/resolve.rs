@@ -7,12 +7,12 @@
 use std::io::{BufReader, Write};
 
 use cmux_tui_core::platform::transport;
-use cmux_tui_core::resource::{PROTOCOL, ResourceOperation, ResponseEnvelope};
+use cmux_tui_core::resource::{MAX_MESSAGE_BYTES, PROTOCOL, ResourceOperation, ResponseEnvelope};
 use serde_json::{Map, Value, json};
 
-use super::OutputMode;
 use super::command::{RequestPlan, Resolve, ZoomStep};
 use super::wire::{print_operation_error, random_request_id, read_envelope};
+use super::{GlobalArgs, OutputMode};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -235,6 +235,75 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
     }
 }
 
+/// `--machine` and `--session` name the scope of a request that names none
+/// (or `current`).
+pub(super) fn apply_global_route(
+    global: &GlobalArgs,
+    params: &mut Value,
+) -> Result<(), &'static str> {
+    let Some(params) = params.as_object_mut() else {
+        return Err("request params are not an object");
+    };
+    if let Some(machine) = &global.machine
+        && params.get("machine").is_none_or(|value| value.as_str() == Some("current"))
+    {
+        params.insert("machine".into(), Value::String(machine.clone()));
+    }
+    if let Some(session) = &global.session
+        && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
+    {
+        params.insert("session".into(), Value::String(session.clone()));
+    }
+    Ok(())
+}
+
+pub(super) fn encode_request_bytes(request: &Value) -> Result<Vec<u8>, String> {
+    match serde_json::to_vec(request) {
+        Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => Ok(encoded),
+        Ok(_) => Err("request exceeds the 4 MiB protocol limit".into()),
+        Err(error) => Err(format!("cannot encode request: {error}")),
+    }
+}
+
+/// Reads envelopes until the response to `request_id`: `Ok(Ok(result))`,
+/// `Ok(Err(resource error))`, or `Err` for a transport or protocol failure.
+pub(super) fn read_response(
+    reader: &mut Reader,
+    request_id: &str,
+) -> Result<Result<Value, Value>, String> {
+    loop {
+        let value = read_envelope(reader, false)?
+            .ok_or_else(|| "transport closed before response".to_string())?;
+        if value.get("type").and_then(Value::as_str) != Some("response") {
+            continue;
+        }
+        let response: ResponseEnvelope = serde_json::from_value(value)
+            .map_err(|error| format!("protocol error: invalid response envelope: {error}"))?;
+        if response.id.as_str() != request_id {
+            continue;
+        }
+        response.validate().map_err(|error| format!("protocol error: {}", error.message))?;
+        if response.ok {
+            return Ok(Ok(response.result.unwrap_or(Value::Null)));
+        }
+        let error = response
+            .error
+            .and_then(|error| serde_json::to_value(error).ok())
+            .unwrap_or_else(|| json!({"code": "operation.failed", "message": "request failed"}));
+        return Ok(Err(error));
+    }
+}
+
+/// Writes one encoded request line and flushes it.
+pub(super) fn send(reader: &mut Reader, encoded: &[u8]) -> Result<(), String> {
+    let stream = reader.get_mut();
+    stream
+        .write_all(encoded)
+        .and_then(|()| stream.write_all(b"\n"))
+        .and_then(|()| stream.flush())
+        .map_err(|error| format!("transport error: {error}"))
+}
+
 /// One read on the connection; returns its result.
 pub(super) fn read(
     reader: &mut Reader,
@@ -249,37 +318,11 @@ pub(super) fn read(
         "operation": operation.wire_name(),
         "params": params,
     });
-    let mut encoded = serde_json::to_vec(&request).expect("JSON values serialize");
-    encoded.push(b'\n');
-    reader
-        .get_mut()
-        .write_all(&encoded)
-        .and_then(|()| reader.get_mut().flush())
-        .map_err(|error| Failure::Transport(format!("transport error: {error}")))?;
-    loop {
-        let value = read_envelope(reader, false)
-            .map_err(Failure::Transport)?
-            .ok_or_else(|| Failure::Transport("transport closed before response".into()))?;
-        if value.get("type").and_then(Value::as_str) != Some("response") {
-            continue;
-        }
-        let response: ResponseEnvelope = serde_json::from_value(value).map_err(|error| {
-            Failure::Transport(format!("protocol error: invalid response envelope: {error}"))
-        })?;
-        if response.id.as_str() != id {
-            continue;
-        }
-        if let Err(error) = response.validate() {
-            return Err(Failure::Transport(format!("protocol error: {}", error.message)));
-        }
-        if response.ok {
-            return Ok(response.result.unwrap_or(Value::Null));
-        }
-        let error = response.error.map(|error| serde_json::to_value(error).unwrap_or_default());
-        return Err(Failure::Resource(
-            error
-                .unwrap_or_else(|| json!({"code": "operation.failed", "message": "lookup failed"})),
-        ));
+    let encoded = serde_json::to_vec(&request).expect("JSON values serialize");
+    send(reader, &encoded).map_err(Failure::Transport)?;
+    match read_response(reader, &id).map_err(Failure::Transport)? {
+        Ok(result) => Ok(result),
+        Err(error) => Err(Failure::Resource(error)),
     }
 }
 

@@ -23,7 +23,7 @@ public final class ScreenModel: Identifiable {
     /// The screen group this screen belongs to (`screen-groups-v1`).
     public internal(set) var group: ScreenGroupID?
     /// Color, icon, pin, and group come from the daemon's state resources
-    /// (`DaemonStore.sessionState`), which the raw tree does not carry.
+    /// (`DaemonStore.session`), which the raw tree does not carry.
     @ObservationIgnored var metadataFromState = false
 
     init(_ s: ScreenSnapshot) {

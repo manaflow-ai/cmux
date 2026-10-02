@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "owner": "browser-host",
+  "description": "Catalog ops of the browser host's listener (plans/cmux-next/browser-host.md, step b: the browser.repl.* REPL session ops). Request framing: one JSON line {id, method, params, origin}; reply {id, result} or {id, error: {code, message}}. Param names are the host's wire names. The browser host owns this file; cmux mcp and the generated CLI read it.",
+  "types": {},
+  "operations": {
+    "browser.repl.open": {
+      "class": "mutation",
+      "idempotency": "by_session",
+      "params": {
+        "fields": {
+          "session": {"required": false, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}, "description": "Session name: letters, digits, _, . or -. Default \"default\". Opening an existing session attaches to it."},
+          "engine": {"required": false, "type": {"kind": "enum", "values": ["auto", "headless", "cef", "webkit"]}, "description": "Browser engine. auto picks the default for this machine."}
+        }
+      },
+      "description": "Open a browser REPL session, or attach to it when it exists."
+    },
+    "browser.repl.eval": {
+      "class": "mutation",
+      "idempotency": "at_most_once",
+      "params": {
+        "fields": {
+          "session": {"required": false, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}, "description": "Session name; opened on first use. Default \"default\"."},
+          "code": {"required": true, "type": {"kind": "primitive", "name": "string"}, "description": "JavaScript run in the session's sandboxed VM with the browser API (page, locators, keyboard, mouse, tabs, snapshot). Top-level variables persist between calls. browser_repl_guide describes the API."},
+          "timeoutMs": {"required": false, "type": {"kind": "primitive", "name": "uint32", "minimum": 1, "maximum": 300000}, "description": "How long the code may run, in milliseconds."},
+          "maxOutput": {"required": false, "type": {"kind": "primitive", "name": "uint32", "minimum": 1, "maximum": 200000}, "description": "Most characters of output to return; the rest is cut."}
+        }
+      },
+      "description": "Run JavaScript in a browser REPL session and return its printed output and error. Not replayed: an input whose result is lost is reported in_progress."
+    },
+    "browser.repl.close": {
+      "class": "mutation",
+      "idempotency": "by_session",
+      "params": {
+        "fields": {
+          "session": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}, "description": "Session name."}
+        }
+      },
+      "description": "Close a browser REPL session and its tabs."
+    },
+    "browser.repl.reset": {
+      "class": "mutation",
+      "idempotency": "by_session",
+      "params": {
+        "fields": {
+          "session": {"required": true, "type": {"kind": "primitive", "name": "string", "min_length": 1, "max_length": 64}, "description": "Session name."},
+          "engine": {"required": false, "type": {"kind": "enum", "values": ["auto", "headless", "cef", "webkit"]}, "description": "Engine for the new session."}
+        }
+      },
+      "description": "Close a browser REPL session and open it again empty."
+    },
+    "browser.repl.list": {
+      "class": "read",
+      "params": {"fields": {}},
+      "description": "List the browser REPL sessions on this machine."
+    },
+    "browser.repl.guide": {
+      "class": "read",
+      "params": {"fields": {}},
+      "description": "Return the guide to the browser REPL API (what code passed to browser_repl_eval can call)."
+    }
+  }
+}

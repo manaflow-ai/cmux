@@ -52,9 +52,16 @@ const ID_OPTIONS: &[&str] = &[
     "--other-pane",
 ];
 
-/// `Some((session, id))` when `value` is `<session>:<typed public id>`.
-fn qualified(value: &str) -> Option<(&str, &str)> {
+/// `Some((session, id))` when `value` is `<session>:<typed public id>`. A
+/// kind (`workspace:ws_…`, an action target) and the `name:` escape are not
+/// sessions. `cmux mcp` shares it.
+pub(super) fn qualified(value: &str) -> Option<(&str, &str)> {
     let (session, id) = value.split_once(':')?;
+    // A kind (`workspace:ws_…`, an action target) and the `name:` escape are
+    // not sessions.
+    if session == "name" || cmux_tui_core::resource::is_reserved_selector_token(session) {
+        return None;
+    }
     let (prefix, rest) = id.split_once('_')?;
     let typed = ID_PREFIXES.contains(&prefix)
         && !rest.is_empty()
@@ -290,6 +297,13 @@ mod tests {
 
     fn args(words: &[&str]) -> Vec<String> {
         words.iter().map(|word| (*word).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_kind_or_the_name_escape_is_not_a_session() {
+        assert_eq!(qualified("build-box:ws_1a2b"), Some(("build-box", "ws_1a2b")));
+        assert_eq!(qualified("workspace:ws_1a2b"), None);
+        assert_eq!(qualified("name:ws_1a2b"), None);
     }
 
     #[test]

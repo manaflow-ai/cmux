@@ -3,7 +3,7 @@
 //
 //   node tests/browser-parity/run.mjs check  --backend cmux-dev [--only 03] [-v]
 //   node tests/browser-parity/run.mjs record --backend oracle|cmux-dev [--only 03]
-//   node tests/browser-parity/run.mjs run    --backend cmux|cmux-dev|oracle [--only 03]
+//   node tests/browser-parity/run.mjs run    --backend cmux|cmux-dev|oracle|host-headless|host-cef|host-webkit [--only 03]
 //
 // A scenario is REPL code in the one cmux API, split into cells by
 // `// ---- cell` lines. `emit(key, value)` records a behavior value that the
@@ -20,7 +20,8 @@ import { normalize, diffValues } from "./lib/normalize.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const MARK = "@@PARITY@@";
-const BACKENDS = ["cmux", "cmux-dev", "oracle"];
+const HOST_ENGINES = ["headless", "cef", "webkit"];
+const BACKENDS = ["cmux", "cmux-dev", "oracle", ...HOST_ENGINES.map((e) => `host-${e}`)];
 
 function parseArgs(argv) {
   const args = { mode: argv[0], backend: null, only: null, verbose: false };
@@ -34,7 +35,7 @@ function parseArgs(argv) {
   if (!["record", "check", "run"].includes(args.mode) || !BACKENDS.includes(args.backend)) {
     throw new Error(`usage: run.mjs record|check|run --backend ${BACKENDS.join("|")} [--only PREFIX] [-v]`);
   }
-  if (args.mode === "record" && args.backend === "cmux") throw new Error("record from oracle (behavior) or cmux-dev (cmux-owned format)");
+  if (args.mode === "record" && !["oracle", "cmux-dev"].includes(args.backend)) throw new Error("record from oracle (behavior) or cmux-dev (cmux-owned format)");
   return args;
 }
 
@@ -79,14 +80,18 @@ function wrapCell(origins, cell) {
   return `${prelude(origins)};\n${cell.body}`;
 }
 
-function exec(cmd, argv, { input, timeoutMs = 180_000 } = {}) {
+function exec(cmd, argv, { input, timeoutMs = 180_000, env } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"], env: env ?? process.env });
     let out = "";
     let err = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ code: 127, out, err: `${cmd}: ${e.message}` });
+    });
     child.on("close", (code) => {
       clearTimeout(timer);
       resolve({ code, out, err });
@@ -111,29 +116,62 @@ const backends = {
   // its socket. Each cell is one CLI call; a named session is reset after.
   async cmux(cells, { scenario }) {
     const cli = process.env.PARITY_CMUX_CLI ?? "cmux";
-    const suffix = Math.random().toString(36).slice(2, 8);
-    const sessions = new Set();
-    const outputs = [];
-    try {
-      for (const cell of cells) {
-        const argv = ["browser", "repl"];
-        if (cell.session) {
-          const name = `parity-${scenario}-${cell.session}-${suffix}`;
-          sessions.add(name);
-          argv.push("--session", name);
-        }
-        argv.push("--eval", "-");
-        const r = await exec(cli, argv, { input: cell.code });
-        const lines = r.out.split("\n").filter((l) => !/^\[(ok|error) \| \d+ms\]$/.test(l.trim()));
-        while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-        outputs.push({ output: lines.join("\n"), error: r.code === 0 ? null : r.err.trim() || `exit ${r.code}` });
-      }
-    } finally {
-      for (const name of sessions) await exec(cli, ["browser", "repl", "reset", name]);
-    }
-    return outputs;
+    return runCliCells(cells, scenario, {
+      evalArgv: (session) => ["browser", "repl", ...(session ? ["--session", session] : []), "--eval", "-"],
+      resetArgv: (session) => ["browser", "repl", "reset", session],
+      exec: (argv, opts) => exec(cli, argv, opts),
+    });
   },
 };
+
+// The Rust browser host (plans/cmux-next/browser-host.md) on one engine:
+// host-headless (headless Chromium over the CDP pipe), host-cef (in-app CEF
+// tabs relayed by a tagged no-activate app), host-webkit (in-app WebKit tabs
+// through the app's driver). Same scenarios and goldens on every engine; a
+// deliberate engine difference goes into capabilities.json with a reason.
+//
+// PARITY_HOST_CLI=cmux (default once the Rust CLI verb exists) runs
+//   cmux browser repl --engine E [--session S] --eval -
+// otherwise PARITY_HOST_BIN (default cmux-browser-host) runs
+//   cmux-browser-host eval [--session S] --engine E -
+// and `close --session S` after a named session.
+for (const engine of HOST_ENGINES) {
+  backends[`host-${engine}`] = async (cells, { scenario }) => {
+    const viaCli = process.env.PARITY_HOST_CLI;
+    const bin = viaCli || process.env.PARITY_HOST_BIN || "cmux-browser-host";
+    const env = { ...process.env, CMUX_BROWSER_HOST_ENGINE: engine };
+    return runCliCells(cells, scenario, {
+      evalArgv: viaCli
+        ? (session) => ["browser", "repl", "--engine", engine, ...(session ? ["--session", session] : []), "--eval", "-"]
+        : (session) => ["eval", ...(session ? ["--session", session] : []), "--engine", engine, "-"],
+      resetArgv: viaCli ? (session) => ["browser", "repl", "close", session] : (session) => ["close", "--session", session],
+      exec: (argv, opts) => exec(bin, argv, { ...opts, env }),
+    });
+  };
+}
+
+// One CLI call per cell; output lines without the CLI's status line.
+async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run }) {
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const sessions = new Set();
+  const outputs = [];
+  try {
+    for (const cell of cells) {
+      let name = null;
+      if (cell.session) {
+        name = `parity-${scenario}-${cell.session}-${suffix}`;
+        sessions.add(name);
+      }
+      const r = await run(evalArgv(name), { input: cell.code });
+      const lines = r.out.split("\n").filter((l) => !/^\[(ok|error) \| \d+ms\]$/.test(l.trim()));
+      while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+      outputs.push({ output: lines.join("\n"), error: r.code === 0 ? null : r.err.trim() || `exit ${r.code}` });
+    }
+  } finally {
+    for (const name of sessions) await run(resetArgv(name), {});
+  }
+  return outputs;
+}
 
 function parseEmits(outputs, cells) {
   const emits = [];

@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createDevBrowser, createNodeHost, loadRuntime, loadPlaywright } from "../lib/dev-driver.mjs";
+import { createDevBrowser, createNodeHost, createHostedRepl, loadRuntime, loadPlaywright } from "../lib/dev-driver.mjs";
 import { installSource, collectGroundTruth } from "./ground-truth.mjs";
 import { VisibleDom, simplifyDomSnapshot } from "./chatgpt-formats.mjs";
 
@@ -83,7 +83,7 @@ export async function createCmuxAdapter() {
       const lines = [];
       const driver = browser.driver();
       const host = createNodeHost({ workDir, sessionId: `cmp-${Date.now()}`, print: (_l, t) => lines.push(t) });
-      const repl = ns.replHost.createBrowserRepl({ host, driver });
+      const repl = createHostedRepl(ns, { host, driver }).repl;
       const code = replProgram(steps, {
         // cmux-v: the viewport scope (only cmux has one).
         snapshotCall: (i, mode) => (mode === "viewport" ? "snapshot({ viewport: true })" : i ? "snapshot({ interactive: true })" : "snapshot()"),

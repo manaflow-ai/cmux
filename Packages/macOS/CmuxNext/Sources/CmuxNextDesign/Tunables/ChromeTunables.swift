@@ -61,6 +61,7 @@ public nonisolated enum ChromeTunables {
 /// modules declare their own lists; the App joins them (`TunableCatalog`).
 public nonisolated enum DesignTunables {
     public static var all: [TunableDescriptor] {
-        MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor]
+        MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
+            + StatusIndicatorTunables.all
     }
 }

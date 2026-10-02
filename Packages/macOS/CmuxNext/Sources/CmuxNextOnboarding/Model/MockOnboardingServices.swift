@@ -19,6 +19,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public var holdsImport = false
     /// The progress reports `runImport` sends; nil: one, the first profile starting on bookmarks.
     public var reports: [ImportProgress]?
+    public var passwordStore = false
     public var accountsView: NSView?
     /// Picked screen variants, by step.
     public var variantIDs: [OnboardingModel.Step: String] = [:]
@@ -56,6 +57,8 @@ public final class MockOnboardingServices: OnboardingServices {
         return summary
     }
 
+    public func canImportPasswords() async -> Bool { passwordStore }
+
     public func openExternal(_ url: URL) { opened.append(url) }
 
     public var hasAccountsStep: Bool { accountsView != nil }
@@ -71,9 +74,11 @@ public final class MockOnboardingServices: OnboardingServices {
         let services = MockOnboardingServices()
         services.themeChoices = themes
         services.accountsView = accountsView
+        services.passwordStore = true
         func profile(_ browser: ImportBrowser, _ directory: String, _ name: String) -> BrowserSourceProfile {
-            BrowserSourceProfile(browser: browser, directoryName: directory, displayName: name, path: URL(fileURLWithPath: "/sample/\(directory)"),
-                                 availability: [.bookmarks: .available, .history: .available, .cookies: .available])
+            let passwords: DataAvailability = browser.family == .chromium ? .available : .absent
+            return BrowserSourceProfile(browser: browser, directoryName: directory, displayName: name, path: URL(fileURLWithPath: "/sample/\(directory)"),
+                                        availability: [.bookmarks: .available, .history: .available, .cookies: .available, .passwords: passwords])
         }
         services.sources = [
             BrowserSource(browser: .chrome, appURL: nil, profiles: [profile(.chrome, "Default", "Personal"), profile(.chrome, "Profile 1", "Work")]),

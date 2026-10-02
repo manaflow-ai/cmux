@@ -17,6 +17,7 @@ import crypto from "node:crypto";
 import os from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { createReferenceHost } from "./reference-host.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -370,8 +371,10 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   }
 
   // WebKit content-blocker rules applied with request routing: the last
-  // matching block or ignore-previous-rules rule decides. Main-frame
-  // documents are not routed, as in the app.
+  // matching block or ignore-previous-rules rule decides. A document rule
+  // with load-context child-frame covers iframes only; one without
+  // load-context covers the main frame too. A blocked main-frame document is
+  // reported as tab.navigationBlocked (the request never reaches the server).
   const RESOURCE_TYPES = { image: "image", stylesheet: "style-sheet", script: "script", font: "font", media: "media", fetch: "fetch", xhr: "fetch", websocket: "websocket", ping: "ping", other: "other" };
   let contentRules = [];
   let routed = false;
@@ -381,14 +384,24 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     routed = true;
     await context.route("**/*", (route, request) => {
       const isDocument = request.resourceType() === "document";
-      if (isDocument && request.frame().parentFrame() === null) return route.fallback();
+      let isMain = false;
+      try {
+        isMain = isDocument && request.frame().parentFrame() === null;
+      } catch {}
       const type = isDocument ? "document" : RESOURCE_TYPES[request.resourceType()] || "other";
       let blocked = false;
       for (const r of contentRules) {
         if (!r.re.test(request.url())) continue;
         if (r.types && !r.types.includes(type)) continue;
-        if (isDocument && !r.child) continue;
+        if (isMain && r.child) continue;
         blocked = r.type === "block";
+      }
+      if (blocked && isMain) {
+        let tab = null;
+        try {
+          tab = tabOf.get(request.frame().page());
+        } catch {}
+        if (tab) emit("tab.navigationBlocked", { targetId: tab.targetId, url: request.url() });
       }
       return blocked ? route.abort("blockedbyclient") : route.fallback();
     });
@@ -798,11 +811,33 @@ export function createNodeHost({ workDir, sessionId = "dev", print, readable = n
     },
     fsOp: createFsOp({ workDir, tmpdir, readable }),
     async fetch(url, init = {}) {
-      const res = await fetch(url, { method: init.method, headers: init.headers, body: init.body === undefined ? undefined : Buffer.from(init.body, "base64") });
+      const res = await fetch(url, { method: init.method, headers: init.headers, body: init.body === undefined ? undefined : Buffer.from(init.body, "base64"), redirect: init.redirect || "follow" });
       const body = Buffer.from(await res.arrayBuffer());
       return { status: res.status, statusText: res.statusText, url: res.url, headers: Object.fromEntries(res.headers), base64: body.toString("base64"), redirected: res.redirected };
     },
   };
+}
+
+// The runtime behind the reference host (reference-host.mjs): what agent code
+// sees under the Rust browser host. Every harness builds its REPL here.
+export function createHostedRepl(ns, { host, driver }) {
+  const ref = createReferenceHost(ns, { host, driver });
+  const repl = ns.replHost.createBrowserRepl({ host: ref.host, driver: ref.driver });
+  const evaluate = repl.evaluate;
+  repl.evaluate = async (code, options) => {
+    const r = await evaluate(code, options);
+    if (!r.ok) {
+      r.error = ref.maskText(r.error);
+      ref.maskError(r.exception);
+    }
+    return r;
+  };
+  // Reads a field of the current tab as the host (unmasked), for tests.
+  async function pageValue(selector) {
+    const page = [...repl.session.pages.values()].reverse().find((p) => !p._closed && !String(p._targetId).startsWith("lazy:"));
+    return driver.call("frame.evaluate", { targetId: page._targetId, world: "page", source: "(s) => document.querySelector(s).value", args: [selector], awaitPromise: true });
+  }
+  return { ...ref, repl, pageValue };
 }
 
 // Runs REPL cells the way `cmux browser repl` runs calls: every cell is a
@@ -826,7 +861,7 @@ export async function runDevCells(cells, { workDir } = {}) {
         driver.on("download.finished", (p) => p.path && readable.add(fs.realpathSync(p.path)));
         let current = print;
         const host = createNodeHost({ workDir: dir, sessionId: cell.session || `oneshot-${outputs.length + 1}`, print: (l, t) => current(l, t), readable });
-        entry = { driver, repl: ns.replHost.createBrowserRepl({ host, driver }), setPrint: (p) => (current = p) };
+        entry = { driver, repl: createHostedRepl(ns, { host, driver }).repl, setPrint: (p) => (current = p) };
         if (cell.session) named.set(cell.session, entry);
       }
       entry.setPrint(print);

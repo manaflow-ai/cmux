@@ -48,7 +48,7 @@ close it; never close an outside PR without a human-written explanation.
 
 The server directories listed in [LICENSE](LICENSE) (`web/`, `workers/ci-artifacts/`,
 `workers/iroh-v2/`, `workers/presence/`, `services/iroh-relay-minter/`,
-`cmux-tui/relays/cloudflare-do/`) use the Business Source License, which needs
+`cmux-tui/relays/cloudflare-do/`, `backend/`) use the Business Source License, which needs
 every outside author's CLA grant. Do not merge a PR that changes those
 directories while CLA Assistant is red, and do not copy an outside
 contributor's work there under a `Co-authored-by` trailer unless that person

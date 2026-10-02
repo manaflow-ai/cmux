@@ -40,6 +40,7 @@ export function FileHeader({
         <ChevronDown className="acpmux-fh-chevron" width={14} height={14} />
       </button>
       {file.created && index === 0 && <span className="acpmux-fh-badge">New</span>}
+      {file.deleted && <span className="acpmux-fh-badge">Deleted</span>}
       {file.edits.length > 1 && <span className="acpmux-fh-badge">{`Edit ${index + 1} of ${file.edits.length}`}</span>}
       <span className="acpmux-fh-spacer" />
       <Counts additions={additions} deletions={deletions} />

@@ -64,7 +64,7 @@ final class BrowserTabService {
         }
         updateState = { [weak daemon] tab, update in
             await daemon?.run("tab.update") { connection in
-                try await connection.updateTabRecord(tab, zoom: update.zoom, back: update.back, forward: update.forward)
+                try await connection.state.updateTabRecord(tab, zoom: update.zoom, back: update.back, forward: update.forward)
             } ?? false
         }
         keepsState = { [weak daemon] _ in daemon?.store.servesStateResources ?? false }

@@ -211,6 +211,7 @@
       "close-terminal",
       "close-workspace",
       "copy",
+      "create-bookmark",
       "create-browser-profile",
       "create-personal-group",
       "create-profile",
@@ -220,6 +221,7 @@
       "create-terminal",
       "create-workspace",
       "create-workspace-group",
+      "delete-bookmark",
       "delete-browser-profile",
       "delete-personal-group",
       "delete-profile",
@@ -235,9 +237,11 @@
       "get-size-state",
       "identify",
       "ids",
+      "import-bookmarks",
       "import-session-organization",
       "journal-frontend-event",
       "list-agents",
+      "list-bookmarks",
       "list-clients",
       "list-notifications",
       "list-personal",
@@ -249,6 +253,7 @@
       "list-workspaces",
       "machine-listening-tcp",
       "machine-usage",
+      "move-bookmark",
       "move-browser-profile",
       "move-personal-group",
       "move-profile",
@@ -338,6 +343,7 @@
       "unpin-workspace",
       "unsave-screen-group",
       "unsave-tab-group",
+      "update-bookmark",
       "update-browser-profile",
       "update-frontend-browser-tab",
       "update-personal-group",
@@ -402,6 +408,12 @@
     },
     {
       "name": "bell",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "bookmarks-changed",
       "streams": [
         "subscribe"
       ]

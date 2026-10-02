@@ -41,6 +41,7 @@ public final class Commands {
     public static final CommandMetadata CLOSE_TERMINAL = new CommandMetadata("close-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_WORKSPACE = new CommandMetadata("close-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L), Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1"), Map.entry("key", "workspace-registry-v1")));
     public static final CommandMetadata COPY = new CommandMetadata("copy", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CREATE_BOOKMARK = new CommandMetadata("create-bookmark", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CREATE_BROWSER_PROFILE = new CommandMetadata("create-browser-profile", Authority.CONTROL, 12, "browser-profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CREATE_PERSONAL_GROUP = new CommandMetadata("create-personal-group", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CREATE_PROFILE = new CommandMetadata("create-profile", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -50,6 +51,7 @@ public final class Commands {
     public static final CommandMetadata CREATE_TERMINAL = new CommandMetadata("create-terminal", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 9L)), Map.ofEntries(Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("shell_args", "terminal-shell-args-v1")));
     public static final CommandMetadata CREATE_WORKSPACE = new CommandMetadata("create-workspace", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CREATE_WORKSPACE_GROUP = new CommandMetadata("create-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata DELETE_BOOKMARK = new CommandMetadata("delete-bookmark", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_BROWSER_PROFILE = new CommandMetadata("delete-browser-profile", Authority.CONTROL, 12, "browser-profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_PERSONAL_GROUP = new CommandMetadata("delete-personal-group", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_PROFILE = new CommandMetadata("delete-profile", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -68,9 +70,11 @@ public final class Commands {
     public static final CommandMetadata GET_SIZE_STATE = new CommandMetadata("get-size-state", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata IMPORT_BOOKMARKS = new CommandMetadata("import-bookmarks", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_SESSION_ORGANIZATION = new CommandMetadata("import-session-organization", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata JOURNAL_FRONTEND_EVENT = new CommandMetadata("journal-frontend-event", Authority.CONTROL, 10, "frontend-journal-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_AGENTS = new CommandMetadata("list-agents", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata LIST_BOOKMARKS = new CommandMetadata("list-bookmarks", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_CLIENTS = new CommandMetadata("list-clients", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_NOTIFICATIONS = new CommandMetadata("list-notifications", Authority.CONTROL, 12, "notification-ack-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata LIST_PERSONAL = new CommandMetadata("list-personal", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -85,6 +89,7 @@ public final class Commands {
     public static final CommandMetadata MARK_WORKSPACES_PROVIDER_MANAGED = new CommandMetadata("mark-workspaces-provider-managed", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MINT_TERMINAL_RENDERER = new CommandMetadata("mint-terminal-renderer", Authority.FRONTEND, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MINT_TERMINAL_RENDERER_BY_TERMINAL = new CommandMetadata("mint-terminal-renderer-by-terminal", Authority.FRONTEND, 11, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata MOVE_BOOKMARK = new CommandMetadata("move-bookmark", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_BROWSER_PROFILE = new CommandMetadata("move-browser-profile", Authority.CONTROL, 12, "browser-profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_PERSONAL_GROUP = new CommandMetadata("move-personal-group", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_PROFILE = new CommandMetadata("move-profile", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -186,6 +191,7 @@ public final class Commands {
     public static final CommandMetadata UNREGISTER_BROWSER_PROVIDER = new CommandMetadata("unregister-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNSAVE_SCREEN_GROUP = new CommandMetadata("unsave-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNSAVE_TAB_GROUP = new CommandMetadata("unsave-tab-group", Authority.CONTROL, 12, "saved-tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata UPDATE_BOOKMARK = new CommandMetadata("update-bookmark", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UPDATE_BROWSER_PROFILE = new CommandMetadata("update-browser-profile", Authority.CONTROL, 12, "browser-profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UPDATE_FRONTEND_BROWSER_TAB = new CommandMetadata("update-frontend-browser-tab", Authority.CONTROL, 12, "frontend-browser-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UPDATE_PERSONAL_GROUP = new CommandMetadata("update-personal-group", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -235,6 +241,7 @@ public final class Commands {
         values.put("close-terminal", CLOSE_TERMINAL);
         values.put("close-workspace", CLOSE_WORKSPACE);
         values.put("copy", COPY);
+        values.put("create-bookmark", CREATE_BOOKMARK);
         values.put("create-browser-profile", CREATE_BROWSER_PROFILE);
         values.put("create-personal-group", CREATE_PERSONAL_GROUP);
         values.put("create-profile", CREATE_PROFILE);
@@ -244,6 +251,7 @@ public final class Commands {
         values.put("create-terminal", CREATE_TERMINAL);
         values.put("create-workspace", CREATE_WORKSPACE);
         values.put("create-workspace-group", CREATE_WORKSPACE_GROUP);
+        values.put("delete-bookmark", DELETE_BOOKMARK);
         values.put("delete-browser-profile", DELETE_BROWSER_PROFILE);
         values.put("delete-personal-group", DELETE_PERSONAL_GROUP);
         values.put("delete-profile", DELETE_PROFILE);
@@ -262,9 +270,11 @@ public final class Commands {
         values.put("get-size-state", GET_SIZE_STATE);
         values.put("identify", IDENTIFY);
         values.put("ids", IDS);
+        values.put("import-bookmarks", IMPORT_BOOKMARKS);
         values.put("import-session-organization", IMPORT_SESSION_ORGANIZATION);
         values.put("journal-frontend-event", JOURNAL_FRONTEND_EVENT);
         values.put("list-agents", LIST_AGENTS);
+        values.put("list-bookmarks", LIST_BOOKMARKS);
         values.put("list-clients", LIST_CLIENTS);
         values.put("list-notifications", LIST_NOTIFICATIONS);
         values.put("list-personal", LIST_PERSONAL);
@@ -279,6 +289,7 @@ public final class Commands {
         values.put("mark-workspaces-provider-managed", MARK_WORKSPACES_PROVIDER_MANAGED);
         values.put("mint-terminal-renderer", MINT_TERMINAL_RENDERER);
         values.put("mint-terminal-renderer-by-terminal", MINT_TERMINAL_RENDERER_BY_TERMINAL);
+        values.put("move-bookmark", MOVE_BOOKMARK);
         values.put("move-browser-profile", MOVE_BROWSER_PROFILE);
         values.put("move-personal-group", MOVE_PERSONAL_GROUP);
         values.put("move-profile", MOVE_PROFILE);
@@ -380,6 +391,7 @@ public final class Commands {
         values.put("unregister-browser-provider", UNREGISTER_BROWSER_PROVIDER);
         values.put("unsave-screen-group", UNSAVE_SCREEN_GROUP);
         values.put("unsave-tab-group", UNSAVE_TAB_GROUP);
+        values.put("update-bookmark", UPDATE_BOOKMARK);
         values.put("update-browser-profile", UPDATE_BROWSER_PROFILE);
         values.put("update-frontend-browser-tab", UPDATE_FRONTEND_BROWSER_TAB);
         values.put("update-personal-group", UPDATE_PERSONAL_GROUP);

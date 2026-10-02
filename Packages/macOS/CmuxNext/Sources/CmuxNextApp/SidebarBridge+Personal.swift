@@ -25,7 +25,7 @@ extension SidebarBridge {
             let id = WorkspaceGroupID(rawValue: group.rawValue)
             for workspace in placements(ids) {
                 personal("set-personal-workspace") {
-                    try await $0.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
+                    try await $0.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                         group: .set(id))
                 }
             }
@@ -34,11 +34,11 @@ extension SidebarBridge {
             let id = WorkspaceGroupID(rawValue: group.rawValue), room = state.profileID, members = placements(ids), v2 = statePersonal
             personal("create-personal-group") { connection in
                 // The v2 operation names the group itself.
-                let created = v2 ? WorkspaceGroupID(rawValue: try await connection.createWorkspaceGroup(
+                let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
                     name: name, room: room.rawValue, color: color.rawValue).id)
                     : try await connection.createPersonalGroup(name: name, id: id, room: room, color: color.rawValue).id
                 for workspace in members {
-                    try await connection.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
+                    try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                                 group: .set(created))
                 }
             }
@@ -46,14 +46,14 @@ extension SidebarBridge {
             model.apply(intent)
             let v2 = statePersonal
             personal("update-personal-group") {
-                if v2 { return try await $0.updateWorkspaceGroup(group.rawValue, name: name) }
+                if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, name: name) }
                 try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), name: name)
             }
         case .setGroupColor(let group, let color):
             model.apply(intent)
             let v2 = statePersonal
             personal("update-personal-group") {
-                if v2 { return try await $0.updateWorkspaceGroup(group.rawValue, color: .set(color.rawValue)) }
+                if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, color: .set(color.rawValue)) }
                 try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), color: .set(color.rawValue))
             }
         case .toggleCollapse(.group(let group)):
@@ -61,21 +61,21 @@ extension SidebarBridge {
             guard let collapsed = model.group(group)?.isCollapsed else { return true }
             let v2 = statePersonal
             personal("update-personal-group") {
-                if v2 { return try await $0.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
+                if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
                 try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), collapsed: collapsed)
             }
         case .ungroup(let group):
             model.apply(intent)
             let v2 = statePersonal
             personal("delete-personal-group") {
-                if v2 { return try await $0.deleteWorkspaceGroup(group.rawValue) }
+                if v2 { return try await $0.state.deleteWorkspaceGroup(group.rawValue) }
                 try await $0.deletePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue))
             }
         case .reorderGroup(let group, let index):
             model.apply(intent)
             let v2 = statePersonal
             personal("move-personal-group") {
-                if v2 { return try await $0.moveWorkspaceGroup(group.rawValue, to: index) }
+                if v2 { return try await $0.state.moveWorkspaceGroup(group.rawValue, to: index) }
                 try await $0.movePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), to: index)
             }
         default:
@@ -92,7 +92,7 @@ extension SidebarBridge {
         guard let index = personalIndex(for: position, moving: ids, in: sections) else { return resync() }
         for (offset, workspace) in placements(ids).enumerated() {
             personal("set-personal-workspace") {
-                try await $0.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
+                try await $0.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
                                                     group: group.map { .set($0) } ?? .clear, index: index + offset)
             }
         }

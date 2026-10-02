@@ -60136,127 +60136,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New WebKit Tab (experimental)"
+            "value": "New WebKit Tab"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "علامة تبويب WebKit جديدة (تجريبي)"
+            "value": "علامة تبويب WebKit جديدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Novi WebKit tab (eksperimentalno)"
+            "value": "Novi WebKit tab"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny WebKit-fane (eksperimentel)"
+            "value": "Ny WebKit-fane"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neuer WebKit-Tab (experimentell)"
+            "value": "Neuer WebKit-Tab"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nueva pestaña de WebKit (experimental)"
+            "value": "Nueva pestaña de WebKit"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouvel onglet WebKit (expérimental)"
+            "value": "Nouvel onglet WebKit"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuova scheda WebKit (sperimentale)"
+            "value": "Nuova scheda WebKit"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規 WebKit タブ（試験的）"
+            "value": "新規 WebKit タブ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ថេប WebKit ថ្មី (សាកល្បង)"
+            "value": "ថេប WebKit ថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 WebKit 탭 (실험적)"
+            "value": "새 WebKit 탭"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny WebKit-fane (eksperimentell)"
+            "value": "Ny WebKit-fane"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowa karta WebKit (eksperymentalna)"
+            "value": "Nowa karta WebKit"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova Aba WebKit (experimental)"
+            "value": "Nova Aba WebKit"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новая вкладка WebKit (экспериментальная)"
+            "value": "Новая вкладка WebKit"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แท็บ WebKit ใหม่ (ทดลอง)"
+            "value": "แท็บ WebKit ใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni WebKit Sekmesi (deneysel)"
+            "value": "Yeni WebKit Sekmesi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нова вкладка WebKit (експериментальна)"
+            "value": "Нова вкладка WebKit"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tab WebKit mới (thử nghiệm)"
+            "value": "Tab WebKit mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新建 WebKit 标签页（实验性）"
+            "value": "新建 WebKit 标签页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新增 WebKit 分頁（實驗性）"
+            "value": "新增 WebKit 分頁"
           }
         }
       }
@@ -69558,6 +69558,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "工具"
+          }
+        }
+      }
+    },
+    "action.agentActivity.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Activity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントのアクティビティ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نشاط الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktivnost agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentaktivitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentenaktivität"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Actividad de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activité des agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attività degli agenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សកម្មភាពភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 활동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentaktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktywność agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atividade de agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Активность агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กิจกรรมของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan etkinliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Активність агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hoạt động của tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理活动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理活動"
+          }
+        }
+      }
+    },
+    "action.agentPane.searchChats": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Agent Chats"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのチャットを検索"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "البحث في محادثات الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraži razgovore agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg i agentchats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent-Chats durchsuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar chats del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechercher dans les discussions de l'agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerca chat dell'agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកការជជែករបស់ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 채팅 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk i agentchatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szukaj czatów agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pesquisar conversas do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поиск по чатам агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาแชทของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan sohbetlerinde ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошук у чатах агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm kiếm cuộc trò chuyện của tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索代理聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋代理聊天"
           }
         }
       }

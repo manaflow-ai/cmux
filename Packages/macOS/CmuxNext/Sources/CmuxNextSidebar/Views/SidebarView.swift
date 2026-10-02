@@ -32,6 +32,19 @@ public final class SidebarView: NSView {
     /// No rubber band while every row fits (Finder's sidebar).
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
+    /// Item sections above and below the workspace list
+    /// (plans/cmux-next/sidebar-sections.md); each scrolls inside past its
+    /// share of the height.
+    let aboveRegion = SidebarRegionView(region: .top)
+    let belowRegion = SidebarRegionView(region: .bottom)
+    let aboveScroll = NSScrollView()
+    let belowScroll = NSScrollView()
+    /// Fade the bands' rows out at an edge while more are hidden there.
+    var aboveFade: ScrollEdgeFadeView!
+    var belowFade: ScrollEdgeFadeView!
+    /// Hairlines between the sticky bands and the list (quiet look).
+    let aboveLine = CALayer()
+    let belowLine = CALayer()
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     private(set) var isChromeRevealed = false
@@ -129,6 +142,8 @@ public final class SidebarView: NSView {
         set {
             list.contextMenuProvider = newValue
             profileBar.contextMenuProvider = newValue
+            aboveRegion.contextMenuProvider = newValue
+            belowRegion.contextMenuProvider = newValue
         }
     }
 
@@ -174,6 +189,9 @@ public final class SidebarView: NSView {
         edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
+
+
+        buildBands()
 
         addSubview(footer)
         footer.addSubview(profileBar)
@@ -229,10 +247,12 @@ public final class SidebarView: NSView {
         profileBar.frame = footer.bounds
         profileBar.refresh()
 
-        edgeFade.frame = NSRect(x: 0, y: y, width: b.width, height: max(0, b.height - y - footerHeight))
+        let listFrame = layoutBands(top: y, footerHeight: footerHeight)
+        edgeFade.frame = listFrame
         scrollView.tile()
         syncListWidth()
     }
+
 
     // MARK: Titlebar row
 
@@ -295,6 +315,12 @@ public final class SidebarView: NSView {
         var profiles: [SidebarProfile]
         var activeProfile: ProfileKey?
         var filter: String
+        var layout: SidebarLayoutDocument
+        var itemInfo: [LayoutItemID: SidebarItemInfo]
+        var collapsedSections: Set<LayoutSectionID>
+        var look: SectionsLookVariant
+        var drawsLines: Bool
+        var preferences: SidebarSectionsPreferences
         /// Design tokens (density, overrides, chrome font size). Reading them
         /// inside the tracked closure makes a settings change re-render.
         var metrics: SidebarLayoutMetrics
@@ -313,6 +339,12 @@ public final class SidebarView: NSView {
                     profiles: model.profiles,
                     activeProfile: model.activeProfileID,
                     filter: model.filterText,
+                    layout: model.layout,
+                    itemInfo: model.itemInfo,
+                    collapsedSections: model.collapsedLayoutSections,
+                    look: SidebarSectionTunables.currentLook,
+                    drawsLines: Borders.drawsLines,
+                    preferences: DesignSettings.shared.sidebarSections,
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight
@@ -329,6 +361,9 @@ public final class SidebarView: NSView {
             || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight
         let profilesChanged = lastState?.profiles != state.profiles || lastState?.activeProfile != state.activeProfile
+            || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo
+            || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
+            || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
             || lastState?.active != state.active || lastState?.filter != state.filter || chromeChanged
         lastState = state
