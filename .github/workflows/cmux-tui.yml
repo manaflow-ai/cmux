@@ -759,6 +759,24 @@ jobs:
           cargo test -p cmux-tui-cdp --test chrome_smoke --locked -- \
             --ignored --exact chrome_smoke_requires_configured_browser
 
+      - name: Run browser host Chromium driver test
+        working-directory: cmux-tui
+        env:
+          CMUX_BROWSER_HOST_TEST_CHROME: ${{ steps.chromium.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test_name=browser_host_drives_headless_chromium_over_the_pipe
+          cargo test -p cmux-browser-host --test chromium --locked -- \
+            --ignored --exact "$test_name" --list \
+            | tee "$RUNNER_TEMP/browser-host-tests.txt"
+          grep -Eq "^${test_name}: test$" "$RUNNER_TEMP/browser-host-tests.txt" || {
+            echo "::error::$test_name selected no exact test" >&2
+            exit 1
+          }
+          cargo test -p cmux-browser-host --test chromium --locked -- \
+            --ignored --exact "$test_name" --nocapture
+
   bindings-e2e:
     needs: validate-inputs
     if: inputs.mode == 'full'

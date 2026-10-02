@@ -71,6 +71,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
     /// `layout.stripScrollbar`; "auto" when unset or invalid.
     public var stripScrollbar: StripScrollbarMode = StripScrollbarSetting.fallback
+    /// `sidebar.*` section settings; defaults when unset or invalid.
+    public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `layout.splitSizing`, `layout.newColumnWidth`, sticky defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
     public var splitSizing: SplitSizing = ColumnLayoutSettings.splitSizingFallback
@@ -160,6 +162,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.closeFocus = closeFocus
         if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
