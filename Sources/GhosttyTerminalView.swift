@@ -9335,7 +9335,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // (with cmux's length-bounded ghostty_text_s decoding). cmux already links
         // the libghostty quicklook APIs (used for cmd-click path resolution), so no
         // ghostty-submodule change is needed.
-        guard let surface = self.surface else { return super.quickLook(with: event) }
+        guard let terminalSurface,
+              let surface = terminalSurface.liveSurfaceForGhosttyAccess(reason: "quickLook") else {
+            return super.quickLook(with: event)
+        }
 
         // Grab the word under the cursor from the terminal grid.
         var text = ghostty_text_s()
