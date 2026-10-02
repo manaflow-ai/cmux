@@ -36,3 +36,9 @@ enum HomeStrings {
         String(format: String(localized: "home.typing.one", defaultValue: "%@ is typing", bundle: .module), name)
     }
 }
+
+/// Labels the App passes into the Home types (localized by this module).
+public enum HomeLabels {
+    /// The owner label of a conversation stored only on this Mac.
+    public static var thisMacOnly: String { HomeStrings.thisMacOnly }
+}
