@@ -27,7 +27,7 @@ struct FirstLaunchTests {
     /// isolation checker rejects that pattern in this suite.
     private static func firstTab(in store: DaemonStore, within limit: Duration) async {
         let deadline = ContinuousClock.now + limit
-        while tabs(store) == 0, ContinuousClock.now < deadline {
+        while tabs(store) == 0, ContinuousClock.now < deadline, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
         }
     }
