@@ -323,10 +323,14 @@ Successor(M, N, f) ==
         rs == M.rowsOf[c]
         i  == IndexOf(ps, f)
         j  == IndexOf(rs, r)
-        prevInRow  == {k \in 1..(i - 1) : ps[k] \in LivePanes(N)}
-        nextInRow  == {k \in (i + 1)..Len(ps) : ps[k] \in LivePanes(N)}
-        above      == {k \in 1..(j - 1) : rs[k] \in LiveRows(N)}
-        below      == {k \in (j + 1)..Len(rs) : rs[k] \in LiveRows(N)}
+        \* Candidates must still be in the same column after the change, not
+        \* merely alive: a row lifted into a dock (PinRow) or a pane moved to
+        \* another column is no longer "above" or "beside" the closed pane.
+        stays(q)   == c \in LiveCols(N) /\ q \in LivePanes(N) /\ ColOfRow(N, RowOfPane(N, q)) = c
+        prevInRow  == {k \in 1..(i - 1) : stays(ps[k])}
+        nextInRow  == {k \in (i + 1)..Len(ps) : stays(ps[k])}
+        above      == {k \in 1..(j - 1) : c \in LiveCols(N) /\ rs[k] \in Range(N.rowsOf[c])}
+        below      == {k \in (j + 1)..Len(rs) : c \in LiveCols(N) /\ rs[k] \in Range(N.rowsOf[c])}
         left       == {k \in 1..(IndexOf(M.cols, c) - 1) : M.cols[k] \in LiveCols(N)}
     IN IF prevInRow # {} THEN ps[Max(prevInRow)]
        ELSE IF nextInRow # {} THEN ps[Min(nextInRow)]
