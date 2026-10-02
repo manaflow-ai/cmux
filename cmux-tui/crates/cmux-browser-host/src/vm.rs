@@ -47,8 +47,16 @@ pub struct EvalOutcome {
     pub error: Option<String>,
 }
 
+/// Longest a timer or event callback may run outside an evaluation.
+const CALLBACK_BUDGET: Duration = Duration::from_secs(5);
+/// Longest timer delay (browsers clamp to 2^31-1 ms).
+const MAX_TIMER_DELAY: Duration = Duration::from_millis(2_147_483_647);
+/// Timers fired per loop pass, so input is read between passes.
+const TIMERS_PER_PASS: usize = 64;
+
 enum Input {
-    Eval { code: String, timeout: Duration, reply: mpsc::Sender<EvalOutcome> },
+    Eval { code: String, options: String, timeout: Duration, reply: mpsc::Sender<EvalOutcome> },
+    Stop,
     Result { call_id: f64, outcome: Result<Value, DriverError> },
     Event { name: String, payload: Value },
 }
@@ -70,14 +78,29 @@ impl VmSession {
 
     /// Evaluates REPL code and waits for it (or its timeout).
     pub fn eval(&self, code: &str, timeout: Duration) -> EvalOutcome {
+        self.eval_with(code, timeout, &json!({}))
+    }
+
+    /// `eval` with runtime options (`{"maxOutput": n}`, 0 for no limit).
+    pub fn eval_with(&self, code: &str, timeout: Duration, options: &Value) -> EvalOutcome {
         let (reply, wait) = mpsc::channel();
-        let sent = self.tx.send(Input::Eval { code: code.to_owned(), timeout, reply });
+        let input =
+            Input::Eval { code: code.to_owned(), options: options.to_string(), timeout, reply };
         let stopped =
             || EvalOutcome { output: Vec::new(), error: Some("the session stopped".into()) };
-        if sent.is_err() {
+        if self.tx.send(input).is_err() {
             return stopped();
         }
-        wait.recv().unwrap_or_else(|_| stopped())
+        // The VM answers at its own deadline; the grace covers a VM stuck in
+        // a callback, so a caller never waits forever.
+        match wait.recv_timeout(timeout.saturating_add(CALLBACK_BUDGET * 2)) {
+            Ok(outcome) => outcome,
+            Err(mpsc::RecvTimeoutError::Timeout) => EvalOutcome {
+                output: Vec::new(),
+                error: Some("Error: evaluation timed out (the session did not answer)".into()),
+            },
+            Err(mpsc::RecvTimeoutError::Disconnected) => stopped(),
+        }
     }
 
     /// Delivers a driver event to the runtime (`__cmuxHostOnEvent`).
@@ -88,6 +111,14 @@ impl VmSession {
     /// A handle that delivers events from another thread.
     pub fn events(&self) -> VmEvents {
         VmEvents { tx: self.tx.clone() }
+    }
+}
+
+impl Drop for VmSession {
+    fn drop(&mut self) {
+        // The VM's own closures hold senders too, so a closed channel alone
+        // would never end its loop.
+        let _ = self.tx.send(Input::Stop);
     }
 }
 
@@ -115,7 +146,8 @@ impl Shared {
     fn set_timer(&mut self, id: f64, delay: Duration, repeat: bool) {
         self.clear_timer(id);
         self.timer_seq += 1;
-        let key = (Instant::now() + delay, self.timer_seq);
+        let now = Instant::now();
+        let key = (now.checked_add(delay.min(MAX_TIMER_DELAY)).unwrap_or(now), self.timer_seq);
         self.timers.insert(key, (id, repeat.then_some(delay)));
         self.timer_keys.insert(id.to_bits(), key);
     }
@@ -126,17 +158,20 @@ impl Shared {
         }
     }
 
-    /// Ids of timers due now; repeating timers are scheduled again.
+    /// Ids of timers due now (at most `TIMERS_PER_PASS`); repeating timers
+    /// are scheduled again, after `now`, so they wait for the next pass.
     fn due(&mut self, now: Instant) -> Vec<f64> {
         let mut fired = Vec::new();
-        while let Some((&key, _)) = self.timers.iter().next() {
+        while fired.len() < TIMERS_PER_PASS
+            && let Some((&key, _)) = self.timers.iter().next()
+        {
             if key.0 > now {
                 break;
             }
             let (id, repeat) = self.timers.remove(&key).unwrap_or((0.0, None));
             self.timer_keys.remove(&id.to_bits());
             if let Some(every) = repeat {
-                self.set_timer(id, every.max(Duration::from_millis(1)), true);
+                self.set_timer(id, every.max(Duration::from_millis(4)), true);
             }
             fired.push(id);
         }
@@ -180,12 +215,25 @@ fn run(
     let shared = Rc::new(RefCell::new(Shared::default()));
     let init_error = context.with(|ctx| install(&ctx, &config, &host, &shared, &tx).err());
 
-    let mut queued: VecDeque<(String, Duration, mpsc::Sender<EvalOutcome>)> = VecDeque::new();
+    let mut queued: VecDeque<(String, String, Duration, mpsc::Sender<EvalOutcome>)> =
+        VecDeque::new();
+    // Callbacks outside an evaluation (timers, events, results) get a
+    // budget of their own, so a spinning callback cannot hang the session.
+    // Each callback runs under the earlier of its own budget and the running
+    // evaluation's deadline; afterwards the evaluation's deadline applies again.
+    let callback_deadline = |interrupt_at: &AtomicU64| {
+        let at = (Instant::now() + CALLBACK_BUDGET).duration_since(base).as_millis() as u64;
+        interrupt_at.store(at.min(interrupt_at.load(Ordering::Relaxed)), Ordering::Relaxed);
+    };
+    let restore_deadline = |interrupt_at: &AtomicU64, running: &Option<Running>| {
+        let at = running.as_ref().map_or(u64::MAX, |r| r.deadline.duration_since(base).as_millis() as u64);
+        interrupt_at.store(at, Ordering::Relaxed);
+    };
     let mut running: Option<Running> = None;
     loop {
         // Start the next evaluation when none runs.
         if running.is_none()
-            && let Some((code, timeout, reply)) = queued.pop_front()
+            && let Some((code, options, timeout, reply)) = queued.pop_front()
         {
             if let Some(error) = &init_error {
                 let _ = reply.send(EvalOutcome { output: Vec::new(), error: Some(error.clone()) });
@@ -199,7 +247,8 @@ fn run(
                     .globals()
                     .get("__cmuxReplEval")
                     .map_err(|_| "the REPL runtime did not define __cmuxReplEval".to_owned())?;
-                let promise: Promise = eval.call((code,)).map_err(|error| caught(&ctx, error))?;
+                let promise: Promise =
+                    eval.call((code, options)).map_err(|error| caught(&ctx, error))?;
                 Ok(Persistent::save(&ctx, promise))
             });
             match started {
@@ -222,6 +271,7 @@ fn run(
         }
         let due = shared.borrow_mut().due(Instant::now());
         if !due.is_empty() {
+            callback_deadline(&interrupt_at);
             context.with(|ctx| {
                 if let Ok(on_timer) = ctx.globals().get::<_, Function>("__cmuxHostOnTimer") {
                     for id in due {
@@ -229,7 +279,9 @@ fn run(
                     }
                 }
             });
-            continue;
+            restore_deadline(&interrupt_at, &running);
+            // Jobs the timers queued (promise reactions) run before settling.
+            while !matches!(runtime.execute_pending_job(), Ok(false)) {}
         }
 
         // Settle the running evaluation.
@@ -262,6 +314,11 @@ fn run(
             .into_iter()
             .flatten()
             .min();
+        // Read input before timers that are already due again (fairness).
+        let wake = match wake {
+            Some(at) if at <= Instant::now() => Some(Instant::now()),
+            other => other,
+        };
         let input = match wake {
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(input) => Some(input),
@@ -275,8 +332,14 @@ fn run(
         };
         match input {
             None => {}
-            Some(Input::Eval { code, timeout, reply }) => queued.push_back((code, timeout, reply)),
+            Some(Input::Stop) => break,
+            Some(Input::Eval { code, options, timeout, reply }) => {
+                queued.push_back((code, options, timeout, reply));
+            }
             Some(Input::Result { call_id, outcome }) => context.with(|ctx| {
+                if running.is_none() {
+                    callback_deadline(&interrupt_at);
+                }
                 let (error, result) = match outcome {
                     Ok(value) => (None, Some(value.to_string())),
                     Err(error) => (Some(error.to_json().to_string()), None),
@@ -295,10 +358,19 @@ fn run(
                 ) {
                     let _: rquickjs::Result<()> = on_result.call((call_id, error, result));
                 }
+                if running.is_none() {
+                    interrupt_at.store(u64::MAX, Ordering::Relaxed);
+                }
             }),
             Some(Input::Event { name, payload }) => context.with(|ctx| {
+                if running.is_none() {
+                    callback_deadline(&interrupt_at);
+                }
                 if let Ok(on_event) = ctx.globals().get::<_, Function>("__cmuxHostOnEvent") {
                     let _: rquickjs::Result<()> = on_event.call((name, payload.to_string()));
+                }
+                if running.is_none() {
+                    interrupt_at.store(u64::MAX, Ordering::Relaxed);
                 }
             }),
         }
@@ -403,7 +475,7 @@ fn install(
             "setTimer",
             Function::new(ctx.clone(), move |id: f64, delay: f64, repeat: bool| {
                 let delay = Duration::from_millis(if delay.is_finite() && delay > 0.0 {
-                    delay as u64
+                    delay.min(2_147_483_647.0) as u64
                 } else {
                     0
                 });
@@ -489,6 +561,8 @@ fn install(
                     // policyCheck answers a message or null, not JSON.
                     Ok(Value::Null) if name == "policyCheck" => Ok(None),
                     Ok(Value::String(message)) if name == "policyCheck" => Ok(Some(message)),
+                    // secretDelete: the runtime reads `!!result`.
+                    Ok(Value::Bool(false)) if name == "secretDelete" => Ok(None),
                     Ok(value) => Ok(Some(value.to_string())),
                     Err(message) => Err(rquickjs::Exception::throw_message(&ctx, &message)),
                 }

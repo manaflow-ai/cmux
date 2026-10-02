@@ -235,7 +235,6 @@ fn huge_timer_delays_do_not_crash_the_session() {
 #[test]
 fn eval_options_reach_the_runtime() {
     let (vm, _) = session(0);
-    vm.eval_with("return 1;", Duration::from_secs(5), &json!({"maxOutput": 0}));
-    let out = vm.eval("return globalThis.lastOptions;", Duration::from_secs(5));
+    let out = vm.eval_with("return globalThis.lastOptions;", Duration::from_secs(5), &json!({"maxOutput": 0}));
     assert_eq!(lines(&out), vec![r#""{\"maxOutput\":0}""#]);
 }
