@@ -15,11 +15,27 @@ use crate::workspace_registry::WorkspacePresentationUpdate;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "change", rename_all = "snake_case")]
 pub(crate) enum WorkspaceStatusChange {
-    Set { key: String, text: String, icon: Option<String>, color: Option<String> },
-    Clear { key: Option<String> },
-    Progress { value: Option<f64>, label: Option<String> },
+    Set {
+        key: String,
+        text: String,
+        icon: Option<String>,
+        color: Option<String>,
+        #[serde(skip_serializing_if = "crate::state::status_meta::StatusMeta::is_plain_boxed")]
+        meta: Box<crate::state::status_meta::StatusMeta>,
+    },
+    Clear {
+        key: Option<String>,
+    },
+    Progress {
+        value: Option<f64>,
+        label: Option<String>,
+    },
     ProgressClear,
-    Log { level: String, source: Option<String>, text: String },
+    Log {
+        level: String,
+        source: Option<String>,
+        text: String,
+    },
     LogClear,
 }
 
@@ -73,6 +89,8 @@ impl Mux {
             "selectors": selectors,
             "change": change,
         });
+        // A process owner is honored only on the machine that accepted it.
+        let machine = self.workspace_registry.lock().unwrap().machine_id().as_str().to_owned();
         self.commit_state(
             mutation,
             operation,
@@ -86,15 +104,41 @@ impl Mux {
                 let workspace = public_id.as_str();
                 let now = now_ms();
                 match &change {
-                    WorkspaceStatusChange::Set { key, text, icon, color } => status::set_status(
-                        transaction,
-                        workspace,
-                        key,
-                        text,
-                        icon.as_deref(),
-                        color.as_deref(),
-                        now,
-                    )?,
+                    WorkspaceStatusChange::Set { key, text, icon, color, meta } => {
+                        meta.validate(|id| state.terminal_catalog.contains_key(id))?;
+                        // Checked here, after the replay check, so a retry of
+                        // a committed set returns its stored result.
+                        let owner_process = match meta.owner_pid {
+                            Some(pid) => Some(
+                                crate::state::status_meta::OwnerProcess::current(pid).ok_or_else(
+                                    || {
+                                        anyhow::anyhow!(
+                                            "bad request: owner.pid {pid} is not running"
+                                        )
+                                    },
+                                )?,
+                            ),
+                            None => None,
+                        };
+                        status::set_status(
+                            transaction,
+                            workspace,
+                            key,
+                            text,
+                            icon.as_deref(),
+                            color.as_deref(),
+                            now,
+                        )?;
+                        crate::state::status_meta::write_meta(
+                            transaction,
+                            workspace,
+                            key,
+                            meta,
+                            owner_process,
+                            &machine,
+                            now,
+                        )?;
+                    }
                     WorkspaceStatusChange::Clear { key } => {
                         status::clear_status(transaction, workspace, key.as_deref())?;
                     }
@@ -171,6 +215,9 @@ impl Mux {
     /// Close every ephemeral workspace left by an earlier run, and end the
     /// terminals that only it showed. Runs once at daemon start.
     pub(crate) fn close_ephemeral_workspaces(self: &Arc<Self>) -> anyhow::Result<()> {
+        // Owned status entries a previous run left: re-arm their watches and
+        // drop the ones whose TTL passed while the daemon was down.
+        crate::state::status_owners::resume(self);
         let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         for workspace_id in ephemeral {
             let target = self.with_state(|state| {

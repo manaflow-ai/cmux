@@ -472,6 +472,8 @@ pub(crate) struct TerminalMetadata {
     gate: NotificationGate,
     /// OSC 133 prompt marks since the last take (shell command history).
     shell_marks: Vec<crate::shell_history::ShellMark>,
+    /// The running shell command (`terminal-activity-v1`).
+    activity: crate::terminal_activity::ShellActivity,
 }
 
 impl TerminalMetadata {
@@ -493,6 +495,7 @@ impl TerminalMetadata {
         let kitty = &mut self.kitty;
         let notifications = &mut self.notifications;
         let shell_marks = &mut self.shell_marks;
+        let activity = &mut self.activity;
         self.osc.observe(bytes, |body| {
             let Some(separator) = body.iter().position(|byte| *byte == b';') else {
                 return;
@@ -519,6 +522,10 @@ impl TerminalMetadata {
                 b"99" => observe_kitty_notification(kitty, data),
                 b"133" => {
                     if let Some(mark) = crate::shell_history::ShellMark::parse(data) {
+                        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+                        if activity.observe(mark, now_ms) {
+                            progress.clear();
+                        }
                         if shell_marks.len() == crate::shell_history::MAX_PENDING_MARKS {
                             shell_marks.remove(0);
                         }
@@ -577,6 +584,16 @@ impl TerminalMetadata {
             self.published_progress = current;
             current
         })
+    }
+
+    /// When the running shell command started, if one runs.
+    pub(crate) fn busy_since_ms(&self) -> Option<u64> {
+        self.activity.busy_since_ms()
+    }
+
+    /// Whether the busy fact changed since the last call (marks it taken).
+    pub(crate) fn take_busy_change(&mut self) -> bool {
+        self.activity.take_change()
     }
 
     /// Restore a progress value carried by an authenticated terminal-host

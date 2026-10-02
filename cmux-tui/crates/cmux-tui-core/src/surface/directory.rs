@@ -12,12 +12,22 @@ impl Surface {
         self.as_pty()?.terminal_metadata.lock().unwrap().progress()
     }
 
-    /// Publish a changed OSC 9;4 progress as a terminal upsert. The reader
-    /// calls this after each output chunk, outside the parser lock.
+    /// When the terminal's running shell command started (`terminal-activity-v1`).
+    pub(crate) fn terminal_busy_since_ms(&self) -> Option<u64> {
+        self.as_pty()?.terminal_metadata.lock().unwrap().busy_since_ms()
+    }
+
+    /// Publish a changed OSC 9;4 progress or shell busy state as a terminal
+    /// upsert. The reader calls this after each output chunk, outside the
+    /// parser lock.
     pub(crate) fn publish_pending_progress(&self) {
         let Some(pty) = self.as_pty() else { return };
-        let changed = pty.terminal_metadata.lock().unwrap().take_progress_change();
-        if changed.is_none() {
+        let changed = {
+            let mut metadata = pty.terminal_metadata.lock().unwrap();
+            let progress = metadata.take_progress_change().is_some();
+            metadata.take_busy_change() || progress
+        };
+        if !changed {
             return;
         }
         let Some(mux) = pty.mux.upgrade() else { return };

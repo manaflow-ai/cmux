@@ -448,8 +448,19 @@ pub(crate) fn public_terminal_snapshot(
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
         terminal["cwd"] = json!(cwd);
     }
-    if let Some(progress) = surface.and_then(crate::Surface::terminal_progress) {
-        terminal["extra"] = json!({"progress": progress.to_json()});
+    // Activity facts (`terminal-activity-v1`) describe a live terminal; an
+    // exited one publishes neither.
+    if !matches!(durable.lifecycle, TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned) {
+        let mut extra = Map::new();
+        if let Some(progress) = surface.and_then(crate::Surface::terminal_progress) {
+            extra.insert("progress".into(), progress.to_json());
+        }
+        if let Some(since) = surface.and_then(crate::Surface::terminal_busy_since_ms) {
+            extra.insert("busy".into(), crate::terminal_activity::busy_json(since));
+        }
+        if !extra.is_empty() {
+            terminal["extra"] = Value::Object(extra);
+        }
     }
     if durable.lifecycle == TerminalLifecycle::Exited {
         terminal["exit"] =

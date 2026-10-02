@@ -526,3 +526,77 @@ fn every_state_mutation_takes_an_explicit_idempotency_key() {
     };
     assert_eq!(plan.idempotency_key.as_deref(), Some("mutation_retry"));
 }
+
+#[test]
+fn workspace_status_set_carries_the_loading_fields_the_catalog_declares() {
+    let (operation, params) = sent(&[
+        "workspace",
+        WS,
+        "status",
+        "set",
+        "build",
+        "Building",
+        "--progress",
+        "40%",
+        "--style",
+        "native",
+        "--ttl",
+        "30s",
+        "--owner",
+        "none",
+    ]);
+    assert_eq!(operation, "workspace_status.set");
+    assert_eq!(
+        params,
+        json!({"workspace": WS, "key": "build", "text": "Building", "state": "busy", "progress": 0.4,
+               "style": "native", "ttl_ms": 30000})
+    );
+    let (_, done) = sent(&[
+        "workspace",
+        WS,
+        "status",
+        "set",
+        "run:1",
+        "Tests",
+        "--state",
+        "error",
+        "--exit-code",
+        "2",
+        "--duration-ms",
+        "1500",
+    ]);
+    assert_eq!(done["exit_code"], 2);
+    assert_eq!(done["duration_ms"], 1500);
+    let catalog: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../spec/resource-operations-v2.json"
+    )))
+    .unwrap();
+    let fields =
+        catalog["operations"]["workspace_status.set"]["params"]["fields"].as_object().unwrap();
+    for key in params.as_object().unwrap().keys().chain(done.as_object().unwrap().keys()) {
+        assert!(key == "workspace" || fields.contains_key(key), "catalog lacks {key}");
+    }
+    assert!(
+        rejects(&["workspace", WS, "status", "set", "k", "t", "--state", "spinning"])
+            .contains("--state")
+    );
+    assert!(
+        rejects(&[
+            "workspace",
+            WS,
+            "status",
+            "set",
+            "k",
+            "t",
+            "--state",
+            "info",
+            "--progress",
+            "0.5"
+        ])
+        .contains("busy")
+    );
+    assert!(
+        rejects(&["workspace", WS, "status", "set", "k", "t", "--pid", "99"]).contains("--state")
+    );
+}

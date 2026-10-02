@@ -84,6 +84,15 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
     )
 }
 
+/// The loading-indicator fields of `workspace_status.set`. Local trust for
+/// a process owner is checked by the transport, which alone knows the
+/// connection; whether it runs, inside the commit (after the replay check).
+fn status_set_meta(
+    fields: &Map<String, Value>,
+) -> Result<crate::state::status_meta::StatusMeta, ResourceError> {
+    crate::state::status_meta::StatusMeta::from_fields(fields).map_err(state_error)
+}
+
 /// Map a state failure to its typed protocol error. Registry validation
 /// failures are `bad request: ...`.
 fn state_error(error: anyhow::Error) -> ResourceError {
@@ -500,12 +509,17 @@ pub(crate) fn dispatch(
         | Op::WorkspaceProgressClear
         | Op::WorkspaceLogAppend
         | Op::WorkspaceLogClear => {
+            let meta = match operation {
+                Op::WorkspaceStatusSet => Some(status_set_meta(fields)?),
+                _ => None,
+            };
             let change = match operation {
                 Op::WorkspaceStatusSet => WorkspaceStatusChange::Set {
                     key: string(fields, "key").unwrap_or_default(),
                     text: string(fields, "text").unwrap_or_default(),
                     icon: string(fields, "icon"),
                     color: string(fields, "color"),
+                    meta: Box::new(meta.clone().unwrap_or_default()),
                 },
                 Op::WorkspaceStatusClear => {
                     WorkspaceStatusChange::Clear { key: string(fields, "key") }
@@ -531,6 +545,14 @@ pub(crate) fn dispatch(
                     change,
                 )
                 .map_err(state_error)?;
+            if let Some(meta) = meta {
+                crate::state::status_owners::watch_owners(
+                    mux,
+                    meta.owner_terminal.as_deref(),
+                    meta.owner_pid,
+                    meta.ttl_ms.is_some(),
+                );
+            }
             state_result(mux, commit)
         }
         operation => Err(ResourceError::operation_failed(

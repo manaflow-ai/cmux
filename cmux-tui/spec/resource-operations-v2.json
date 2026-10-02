@@ -2142,7 +2142,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; busy ({since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1). Both are absent once the terminal exits. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
@@ -6209,9 +6209,148 @@
             "kind": "primitive",
             "name": "decimal"
           }
+        },
+        "state": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "WorkspaceStatusState"
+          },
+          "description": "Present when the entry is more than a plain status line (loading indicators)."
+        },
+        "progress": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "float64",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "style": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "WorkspaceStatusStyle"
+            }
+          }
+        },
+        "expires_at_ms": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When the daemon removes the entry (ttl_ms)."
+        },
+        "owner": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "WorkspaceStatusOwner"
+            }
+          }
+        },
+        "target_terminal": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            }
+          }
+        },
+        "exit_code": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "int32"
+            }
+          }
+        },
+        "duration_ms": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          }
         }
       },
       "extra": false
+    },
+    "WorkspaceStatusOwner": {
+      "kind": "object",
+      "fields": {
+        "pid": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "A process that owns the entry. Accepted only from a trusted local client and honored only on the machine that accepted it; its exit removes the entry."
+        },
+        "machine": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Machine id recorded with pid (results only)."
+        },
+        "terminal": {
+          "required": false,
+          "type": {
+            "kind": "resource_id",
+            "resource": "terminal"
+          },
+          "description": "A terminal of this session host that owns the entry; its exit removes the entry."
+        },
+        "agent_session": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceStatusState": {
+      "kind": "enum",
+      "values": [
+        "busy",
+        "success",
+        "error",
+        "waiting",
+        "info"
+      ]
+    },
+    "WorkspaceStatusStyle": {
+      "kind": "enum",
+      "values": [
+        "arc",
+        "native",
+        "dot",
+        "none"
+      ]
     },
     "WorkspaceProgress": {
       "kind": "object",
@@ -17370,6 +17509,74 @@
               "kind": "primitive",
               "name": "string"
             }
+          },
+          "state": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "WorkspaceStatusState"
+            },
+            "description": "Absent is info: a plain status line, as before."
+          },
+          "progress": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "float64",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "description": "Known progress; only with state busy. Absent is indeterminate."
+          },
+          "style": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "WorkspaceStatusStyle"
+            },
+            "description": "Indicator style hint; a client may ignore it by user setting."
+          },
+          "ttl_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 604800000
+            },
+            "description": "The daemon removes the entry this long after the write (at most 7 days)."
+          },
+          "owner": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "WorkspaceStatusOwner"
+            },
+            "description": "Who owns the entry; its end removes the entry in a daemon commit."
+          },
+          "target_terminal": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "terminal"
+            },
+            "description": "The terminal the status is about."
+          },
+          "exit_code": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int32"
+            },
+            "description": "Outcome of a finished run; only with state success or error."
+          },
+          "duration_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Run duration; only with state success or error."
           },
           "expected_revision": {
             "required": false,

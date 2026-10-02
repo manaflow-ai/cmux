@@ -81,6 +81,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     super::closed_history_store::create_closed_history_schema(transaction)?;
     super::window_record_store::create_window_record_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
+    super::status_meta::create_status_meta_schema(transaction)?;
     Ok(())
 }
 

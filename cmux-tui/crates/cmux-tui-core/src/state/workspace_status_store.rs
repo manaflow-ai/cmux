@@ -122,6 +122,7 @@ pub(crate) fn clear_status(
             )?;
         }
     }
+    super::status_meta::delete_meta(transaction, workspace_id, key)?;
     Ok(())
 }
 
@@ -207,7 +208,9 @@ pub(crate) fn forget_workspace(
     workspace_id: &str,
 ) -> anyhow::Result<bool> {
     let mut removed = 0;
-    for table in ["workspace_status_entries", "workspace_progress", "workspace_log"] {
+    for table in
+        ["workspace_status_entries", "workspace_status_meta", "workspace_progress", "workspace_log"]
+    {
         removed += transaction
             .execute(&format!("DELETE FROM {table} WHERE workspace_id = ?1"), [workspace_id])?;
     }
@@ -263,6 +266,8 @@ pub(crate) fn status_snapshot(
             })?
             .collect::<Result<Vec<_>, _>>()?
     };
+    let mut entries = entries;
+    super::status_meta::decorate_entries(connection, workspace_id, &mut entries)?;
     let progress = connection
         .query_row(
             "SELECT value, label, updated_at_ms FROM workspace_progress WHERE workspace_id = ?1",

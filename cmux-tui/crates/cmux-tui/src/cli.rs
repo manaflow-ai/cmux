@@ -16,6 +16,8 @@ mod mcp;
 mod raw;
 mod resolve;
 mod shorthand;
+#[cfg(unix)]
+mod status;
 mod surface;
 mod wire;
 pub(super) use surface::Surface;
@@ -180,7 +182,10 @@ pub(super) fn canonical_scope(value: &str) -> &str {
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
     #[cfg(unix)]
-    if let Some(code) = mcp::run_if_requested(args).or_else(|| coderouter::run_if_requested(args)) {
+    if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| coderouter::run_if_requested(args))
+        .or_else(|| status::run_args(args))
+    {
         return code;
     }
     #[cfg(unix)]
