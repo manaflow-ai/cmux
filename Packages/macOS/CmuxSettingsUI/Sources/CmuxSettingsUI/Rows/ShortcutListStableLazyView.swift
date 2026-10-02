@@ -1,7 +1,8 @@
 import CmuxSettings
 import SwiftUI
 
-/// Lazy inline rendering of shortcut-recorder rows. It keeps the current active
+/// Lazy inline rendering of the shortcut-recorder rows that match the search
+/// query. It keeps the current active
 /// list height as a minimum while inactive so app activation changes cannot
 /// shrink the Settings document while off-screen rows are de-realized.
 @MainActor
@@ -9,11 +10,19 @@ struct ShortcutListStableLazyView: View {
     @Environment(\.controlActiveState) private var controlActiveState
 
     let model: ShortcutListModel
+    let query: ShortcutListSearchQuery
     @State private var measuredHeight: CGFloat = 0
 
     var body: some View {
-        let actions = ShortcutAction.settingsVisibleActions
+        let actions = model.actions(matching: query)
         LazyVStack(spacing: 0) {
+            if actions.isEmpty {
+                Text(String(localized: "settings.shortcuts.search.noResults", defaultValue: "No shortcuts match"))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .accessibilityIdentifier("SettingsShortcutSearchNoResults")
+            }
             ForEach(Array(actions.enumerated()), id: \.element) { index, action in
                 let effective = model.effective(for: action)
                 let snapshot = ShortcutListRowSnapshot(
