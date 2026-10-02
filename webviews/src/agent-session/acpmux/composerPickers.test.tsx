@@ -221,6 +221,12 @@ describe("acpmux composer pickers", () => {
     await act(async () => button("Effort")!.click());
     const model = doc.querySelector<HTMLButtonElement>(".acpmux-effort-model")!;
     expect(model.textContent).toBe("6 Astra");
+    // In WebKit a click doesn't focus a button; its mousedown must not blur the slider and close the popover.
+    for (const target of [model, button("Effort")!]) {
+      const down = new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true });
+      target.dispatchEvent(down);
+      expect(down.defaultPrevented).toBe(true);
+    }
     await act(async () => model.click());
     expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
     expect(button("Model")!.getAttribute("aria-expanded")).toBe("true");

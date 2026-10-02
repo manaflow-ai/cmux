@@ -110,6 +110,12 @@ export function EffortSlider({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? popId : undefined}
+        // WebKit doesn't focus a clicked button, so a mousedown here would blur the slider and
+        // close the popover before the click: the chip would reopen it, the model line would
+        // unmount first. Keeping focus lets each click do its own thing.
+        onMouseDown={(event) => {
+          if (open) event.preventDefault();
+        }}
         onClick={() => {
           if (!open) return show();
           dismiss();
@@ -126,6 +132,7 @@ export function EffortSlider({
             <button
               type="button"
               className="acpmux-effort-model"
+              onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
                 dismiss();
                 onModel?.();
