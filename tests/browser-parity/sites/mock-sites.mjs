@@ -587,8 +587,17 @@ function github(req, url) {
   if (url.pathname === "/acme/private/pull/8") return { html: html(`<main><h1><bdi class="js-issue-title">Fix crash</bdi></h1><span class="State">Open</span><div class="timeline-comment"><a class="author">ada</a><div class="comment-body markdown-body"><p>Fixes #7</p></div></div></main>`, "Fix crash · Pull Request #8") };
   if (url.pathname === "/acme/private/pull/8.diff") return { status: 200, headers: { "content-type": "text/plain" }, body: "diff --git a/a.c b/a.c\n-crash();\n+ok();\n" };
   if (url.pathname === "/acme/private/issues") return { html: html(`<main><div data-testid="list-row"><a href="/acme/private/issues/7" data-testid="issue-pr-title-link">Crash on start</a> <a href="/acme/private/issues/7">#7</a></div><div data-testid="list-row"><a href="/acme/private/pull/8">Fix crash</a></div><a href="/other/repo/issues/1">Unrelated</a></main>`, "Issues · acme/private") };
-  if (url.pathname === "/issues/assigned") return { html: html(`<main><a href="/acme/private/issues/7">Crash on start</a><a href="/other/repo/issues/3">Docs typo</a><a href="/acme/private/issues/7">#7</a></main>`, "Assigned to me") };
-  if (url.pathname === "/pulls/assigned") return { html: html(`<main><a href="/acme/private/pull/8">Fix crash</a></main>`, "Pull requests") };
+  // Live: the assigned dashboard renders its list later from script (no links at load).
+  if (url.pathname === "/issues/assigned" || url.pathname === "/pulls/assigned") return { html: html(`<main><div id="react-root"></div></main>`, "Assigned to me") };
+  // GitHub's search answers JSON to Accept: application/json (shape as observed live).
+  if (url.pathname === "/search" && /application\/json/.test(req.headers.accept || "") && url.searchParams.get("type") === "issues") {
+    const item = (owner, name, number, title, pr) => ({ number, hl_title: title.replace("crash", "<em>crash</em>"), state: "open", labels: [], num_comments: 0, created: "2026-09-01T00:00:00Z", repo: { repository: { owner_login: owner, name } }, issue: { issue: { pull_request_id: pr ? 99 : null } } });
+    const all = [item("acme", "private", 7, "Crash on start", false), item("other", "repo", 3, "Docs typo", false), item("acme", "private", 8, "Fix crash", true)];
+    const page = Number(url.searchParams.get("p") || 1);
+    const q = url.searchParams.get("q") || "";
+    const hits = q.includes("is:pr") ? all.filter((x) => x.issue.issue.pull_request_id) : q.includes("is:issue") ? all.filter((x) => !x.issue.issue.pull_request_id) : all;
+    return { json: { meta: { title: "Search" }, payload: { blackbirdSearchRoute: { results: page === 1 ? hits.slice(0, 2) : page === 2 ? hits.slice(2) : [], result_count: hits.length, page, page_count: 2, type: "issues" } } } };
+  }
   if (url.pathname === "/acme/private/raw/HEAD/README.md") return { status: 200, headers: { "content-type": "text/plain" }, body: "# Private readme\n" };
   return { status: 404, html: html("Page not found", "Page not found · GitHub") };
 }
