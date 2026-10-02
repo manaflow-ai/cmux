@@ -10,7 +10,7 @@ import {
   type OmnibarContext,
   type OmnibarRow,
 } from "./omnibar";
-import { projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
+import { homePath, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -503,7 +503,7 @@ function rowDetail(row: OmnibarRow): string | undefined {
     case "session":
       return row.detail;
     case "folder":
-      return row.path;
+      return homePath(row.path);
     case "history":
       return row.title ? row.url.replace(/^https?:\/\//, "") : undefined;
     default:
