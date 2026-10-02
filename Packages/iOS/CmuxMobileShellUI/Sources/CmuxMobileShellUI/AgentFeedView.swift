@@ -128,7 +128,11 @@ struct AgentFeedView: View {
             now = Date()
             await actions.refresh()
         }
-        .onChange(of: itemsRevision) { _, _ in
+        .onChange(of: itemsRevision) { oldRevision, newRevision in
+            if oldRevision.scopeRevision != newRevision.scopeRevision {
+                composeContext = nil
+                readingItem = nil
+            }
             projection.update(items: items, itemsRevision: itemsRevision)
         }
         .onChange(of: searchText) { _, newSearchText in
