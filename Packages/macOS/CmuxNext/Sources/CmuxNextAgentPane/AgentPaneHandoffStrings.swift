@@ -5,7 +5,7 @@ import Foundation
 /// the native and web surfaces use the same locale without a second resource
 /// loader.
 public enum AgentPaneHandoffStrings {
-    public static let values: [String: String] = [
+    public nonisolated static let values: [String: String] = [
         "continueIn": String(localized: "agentPane.handoff.continueIn", defaultValue: "Continue in…", bundle: .module),
         "review": String(localized: "agentPane.handoff.review", defaultValue: "Review continuation", bundle: .module),
         "fromTo": String(localized: "agentPane.handoff.fromTo", defaultValue: "Continue from %@ in %@", bundle: .module),

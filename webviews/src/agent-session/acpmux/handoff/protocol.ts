@@ -1,5 +1,7 @@
 import { servesOperation } from "../operations";
 
+export const MAX_CAPSULE_BYTES_V1 = 65536;
+
 export const HANDOFF_OPS = {
   prepare: "_acpmux/handoff_prepare",
   get: "_acpmux/handoff_get",
@@ -80,8 +82,7 @@ export function handoffRecord(value: unknown): Handoff {
   if (!Number.isSafeInteger(record.revision) || record.revision < 1 || source.sessionId === target.sessionId || source.cwd !== target.cwd
     || source.harness === target.harness || !["draft", "starting", "started", "discarded"].includes(record.state)
     || !Number.isSafeInteger(record.source.seq) || record.source.seq < 0
-    || typeof capsule.text !== "string" || !Number.isSafeInteger(capsule.maxBytes) || capsule.maxBytes <= 0
-    || capsule.maxBytes > 1024 * 1024 || new TextEncoder().encode(capsule.text).length > capsule.maxBytes
+    || typeof capsule.text !== "string" || capsule.maxBytes !== MAX_CAPSULE_BYTES_V1 || new TextEncoder().encode(capsule.text).length > capsule.maxBytes
     || !Array.isArray(capsule.memoryRefs) || capsule.memoryRefs.some((ref: unknown) => typeof ref !== "string")
     || typeof context.truncated !== "boolean"
     || [context.fromSeq, context.toSeq, context.bytes, context.totalBytes].some((n) => !Number.isSafeInteger(n) || n < 0)
