@@ -105,6 +105,37 @@ test("linear: viewer, issue with comments, search, assigned; mutations refused",
   assert.match(await s.error('sites.linear.query("mutation { issueDelete(id: \\"x\\") { success } }")'), /mutations are not run/);
 });
 
+test("linear.query runs only read queries: a mutation behind comments, commas, strings or a second operation is refused before any request", async () => {
+  const posts = () => env.state.requests.filter((r) => r.method === "POST" && r.url.startsWith("https://client-api.linear.app/")).length;
+  const DELETE = 'issueDelete(id: "x") { success }';
+  const refused = [
+    ["comment, then mutation", `# a read query\nmutation { ${DELETE} }`],
+    ["leading comma", `,mutation { ${DELETE} }`],
+    ["byte order mark, commas and tabs", `﻿,,\t\n, mutation Drop { ${DELETE} }`],
+    ["block string mentioning query inside a mutation", `mutation { issueCreate(input: { title: """query { viewer { id } }""" }) { success } }`],
+    ["two operations, operationName picks the mutation", `query Me { viewer { id } }\nmutation Drop { ${DELETE} }`, { operationName: "Drop" }],
+    ["two operations, no operationName", `query Me { viewer { id } }\nmutation Drop { ${DELETE} }`],
+    ["anonymous query beside a mutation", `{ viewer { id } }\nmutation Drop { ${DELETE} }`, { operationName: "Drop" }],
+    ["operationName that names no operation", `query Me { viewer { id } }`, { operationName: "Other" }],
+    ["subscription", `subscription { issueUpdates { id } }`],
+    ["unterminated string", `query { searchIssues(term: "x) { nodes { id } } }\nmutation { ${DELETE} }`],
+    ["unbalanced selection set", `query { viewer { id }`],
+  ];
+  const results = [];
+  for (const [name, text, options] of refused) {
+    const before = posts();
+    const error = await s.error(`sites.linear.query(${JSON.stringify(text)}, {}, ${JSON.stringify(options || {})})`);
+    results.push([name, /mutations are not run/.test(String(error)), posts() - before]);
+  }
+  assert.deepEqual(results, refused.map(([name]) => [name, true, 0]));
+
+  // Read queries still run, with comments, commas and strings that mention mutation.
+  const viewer = { viewer: { id: "u1", name: "Ada", email: "ada@example.com", organization: { name: "Acme", urlKey: "acme" } } };
+  assert.deepEqual(await s.value('sites.linear.query("# mutation { nothing }\\n, query { viewer { id name email organization { name urlKey } } }")'), viewer);
+  assert.deepEqual(await s.value('sites.linear.query("{ searchIssues(term: \\"\\"\\" } mutation { x \\"\\"\\", first: 5) { nodes { id } } }")'), { searchIssues: { nodes: [] } });
+  assert.deepEqual(await s.value('sites.linear.query("query Me { viewer { id name email organization { name urlKey } } } query Other { viewer { id } }", {}, { operationName: "Me" })'), viewer);
+});
+
 test("jira.sites lists the Jira Cloud sites of the signed-in Atlassian account", async () => {
   assert.deepEqual(await s.value("sites.jira.sites()"), [{ url: "https://acme.atlassian.net", name: "Acme", products: ["jira-software.ondemand"] }]);
 });
