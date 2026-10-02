@@ -233,3 +233,9 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workers/scripts/$name?force=true")
           echo "delete $name -> $code"
           [ "$code" = 200 ] || [ "$code" = 404 ]
+          wf="cmux-automation-run-preview-${{ github.event.pull_request.number }}"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/workflows/$wf")
+          echo "delete workflow $wf -> $code"
+          [ "$code" = 200 ] || [ "$code" = 404 ]

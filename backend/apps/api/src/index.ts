@@ -2,6 +2,8 @@ import { authenticate, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
 
+export { AutomationRunWorkflow } from "./automation-workflow.ts"
+export { SchedulerDO } from "./scheduler-do.ts"
 export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
 

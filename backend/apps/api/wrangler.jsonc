@@ -13,10 +13,12 @@
   "durable_objects": {
     "bindings": [
       { "name": "USER_DO", "class_name": "UserDO" },
-      { "name": "TEAM_DO", "class_name": "TeamDO" }
+      { "name": "TEAM_DO", "class_name": "TeamDO" },
+      { "name": "SCHEDULER_DO", "class_name": "SchedulerDO" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }],
+  "workflows": [{ "name": "cmux-automation-run-local", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
   "env": {
     "development": {
       "name": "cmux-api-development",
@@ -24,10 +26,12 @@
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
-          { "name": "TEAM_DO", "class_name": "TeamDO" }
+          { "name": "TEAM_DO", "class_name": "TeamDO" },
+          { "name": "SCHEDULER_DO", "class_name": "SchedulerDO" }
         ]
       },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }],
+      "workflows": [{ "name": "cmux-automation-run-development", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "395af91311c0494a91da6876b0df6d49" }]
     },
     "staging": {
@@ -37,10 +41,12 @@
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
-          { "name": "TEAM_DO", "class_name": "TeamDO" }
+          { "name": "TEAM_DO", "class_name": "TeamDO" },
+          { "name": "SCHEDULER_DO", "class_name": "SchedulerDO" }
         ]
       },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }],
+      "workflows": [{ "name": "cmux-automation-run-staging", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9761093781aa4d6f8a1ad00848663266" }],
       "routes": [{ "pattern": "cloud-api-staging.cmux.dev", "custom_domain": true }]
     },
@@ -51,10 +57,12 @@
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
-          { "name": "TEAM_DO", "class_name": "TeamDO" }
+          { "name": "TEAM_DO", "class_name": "TeamDO" },
+          { "name": "SCHEDULER_DO", "class_name": "SchedulerDO" }
         ]
       },
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }],
+      "workflows": [{ "name": "cmux-automation-run-production", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "ef387ca3b20b4ea7878e02746d9545ef" }],
       "routes": [{ "pattern": "cloud-api.cmux.dev", "custom_domain": true }]
     }

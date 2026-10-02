@@ -1,3 +1,4 @@
+import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
 
@@ -13,6 +14,10 @@ export interface Env {
   readonly JWT_PRIVATE_JWK: string
   readonly USER_DO: DurableObjectNamespace<UserDO>
   readonly TEAM_DO: DurableObjectNamespace<TeamDO>
+  /** One SchedulerDO per owner team: automation definitions, schedules, recent runs. */
+  readonly SCHEDULER_DO: DurableObjectNamespace<SchedulerDO>
+  /** One Workflow instance per automation run (instance id = run id). */
+  readonly AUTOMATION_RUN: Workflow<AutomationRunParams>
   /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
   readonly HYPERDRIVE?: Hyperdrive
 }
