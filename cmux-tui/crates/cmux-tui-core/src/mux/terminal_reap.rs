@@ -17,8 +17,6 @@
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
 
-use crate::terminal_host_protocol::TerminalExitOutcome;
-
 use super::*;
 
 /// Default reap grace period for a terminal with no placement.
@@ -319,24 +317,29 @@ impl Mux {
 
     /// `shutdown-daemon` with `end_terminals` and `keep_layout`
     /// (`end-terminals-keep-layout-v1`): end every live hosted terminal, but
-    /// keep the tabs of the placed ones. Their exit is latched first with
-    /// [`KEPT_LAYOUT_EXIT_REASON`], so neither the host's exit nor the next
-    /// owner's reconciliation detaches them: the next owner shows the same
-    /// screens, splits and tabs, each tab dead, and a frontend starts a new
-    /// shell there. Terminals without a tab end as in [`Self::end_all_terminals`].
+    /// keep the tabs of the placed ones. The workspace store records each
+    /// kept tab and its shell's directory (`kept_tabs`) before any terminal
+    /// ends, so neither the host's exit nor the next owner's reconciliation
+    /// detaches it: the next owner shows the same screens, splits and tabs,
+    /// each dead with `relaunch: {cwd}`, and a frontend starts a new shell
+    /// there. Terminals without a tab end as in [`Self::end_all_terminals`].
     pub fn end_all_terminals_keeping_layout(&self) -> anyhow::Result<Vec<String>> {
         self.end_terminals(true)
     }
 
     fn end_terminals(&self, keep_layout: bool) -> anyhow::Result<Vec<String>> {
         let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
+        // The workspace store records every kept tab before any terminal
+        // ends, so no exit can remove one (invariant 3 of
+        // plans/cmux-next/OWNERSHIP-PRINCIPLES.md).
+        let kept = if keep_layout { self.record_kept_tabs(&terminals)? } else { HashSet::new() };
         let mut ended = Vec::new();
         let mut failures = Vec::new();
         for terminal in terminals {
             if terminal.lifecycle == TerminalLifecycle::Tombstoned {
                 continue;
             }
-            let outcome = if keep_layout && self.terminal_is_placed(&terminal.terminal_id)? {
+            let outcome = if kept.contains(&terminal.terminal_id) {
                 self.end_terminal_keeping_tabs(&terminal)
             } else {
                 self.close_terminal_with_mutation(
@@ -384,19 +387,48 @@ impl Mux {
 }
 
 impl Mux {
-    /// Whether any tab shows `terminal_id`.
-    fn terminal_is_placed(&self, terminal_id: &str) -> anyhow::Result<bool> {
-        let Some(public_id) =
-            self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id)?
-        else {
-            return Ok(false);
-        };
-        let state = self.state.lock().unwrap();
-        Ok(!state.placements_of_content(&ContentPublicId::Terminal(public_id)).is_empty())
+    /// Writes a keep-layout record (`kept_tabs`) for every tab of every live
+    /// placed terminal, with the directory its shell is in (the session
+    /// host's fact: the foreground process's directory, else the OSC 7 or
+    /// launch directory). Returns the host ids of those terminals.
+    fn record_kept_tabs(&self, terminals: &[RegistryTerminal]) -> anyhow::Result<HashSet<String>> {
+        let mut rows = Vec::new();
+        let mut kept = HashSet::new();
+        {
+            let registry = self.workspace_registry.lock().unwrap();
+            let state = self.state.lock().unwrap();
+            for terminal in terminals {
+                if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+                    continue;
+                }
+                let Some(public_id) = registry.terminal_resource_id(&terminal.terminal_id)? else {
+                    continue;
+                };
+                let runtime = state.terminal_catalog.get(&public_id).cloned();
+                let cwd = runtime.as_ref().and_then(|surface| {
+                    surface
+                        .process_id()
+                        .and_then(crate::platform::foreground_cwd)
+                        .or_else(|| surface.local_cwd())
+                });
+                let slots = state.placements_of_content(&ContentPublicId::Terminal(public_id));
+                for slot in slots {
+                    if let Some(tab_id) = state.resource_indexes.tab_ids.get(slot) {
+                        rows.push((tab_id.to_string(), cwd.clone()));
+                        kept.insert(terminal.terminal_id.clone());
+                    }
+                }
+            }
+        }
+        let mut registry = self.workspace_registry.lock().unwrap();
+        registry.put_kept_tabs(&rows)?;
+        self.reload_presentation(&registry)?;
+        Ok(kept)
     }
 
-    /// Latch a kept-layout exit for a placed terminal (its tabs stay), then
-    /// ask its host to exit. An exited terminal only keeps its tabs.
+    /// Records the terminal's end (reason [`KEPT_LAYOUT_EXIT_REASON`], a
+    /// fact about the terminal only; its tabs stay because the store keeps
+    /// them), then asks its host to exit.
     fn end_terminal_keeping_tabs(&self, terminal: &RegistryTerminal) -> anyhow::Result<()> {
         if terminal.lifecycle != TerminalLifecycle::Exited {
             self.persist_terminal_exit(
@@ -421,24 +453,29 @@ impl Mux {
         }
         Ok(())
     }
+
+    /// Whether the workspace store keeps any tab of `public_id`
+    /// (`kept_tabs`). Callers hold the registry and state locks.
+    pub(super) fn terminal_tabs_kept_locked(
+        registry: &WorkspaceRegistry,
+        state: &State,
+        public_id: &TerminalPublicId,
+    ) -> anyhow::Result<bool> {
+        let tab_ids = state
+            .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+            .iter()
+            .filter_map(|slot| state.resource_indexes.tab_ids.get(slot).map(|id| id.to_string()))
+            .collect::<Vec<_>>();
+        if tab_ids.is_empty() {
+            return Ok(false);
+        }
+        registry.any_kept_tab(&tab_ids)
+    }
 }
 
-/// Exit reason latched by `end_all_terminals_keeping_layout`. A terminal
-/// that exited with it keeps its tabs across owner restarts.
+/// Exit reason `end_all_terminals_keeping_layout` records: a fact about the
+/// terminal. No layout decision reads it; the store's `kept_tabs` does.
 pub(crate) const KEPT_LAYOUT_EXIT_REASON: &str = "ended-keep-layout";
-
-/// Whether `outcome` is the kept-layout end.
-pub(crate) fn exit_outcome_keeps_layout(outcome: &TerminalExitOutcome) -> bool {
-    matches!(outcome, TerminalExitOutcome::Unknown { reason } if reason == KEPT_LAYOUT_EXIT_REASON)
-}
-
-/// Whether a durable exit receipt (`RegistryTerminal::exit`) is the
-/// kept-layout end.
-pub(crate) fn exit_receipt_keeps_layout(exit: Option<&Value>) -> bool {
-    exit.and_then(|exit| exit.get("outcome"))
-        .and_then(|outcome| serde_json::from_value::<TerminalExitOutcome>(outcome.clone()).ok())
-        .is_some_and(|outcome| exit_outcome_keeps_layout(&outcome))
-}
 
 /// How long `end_all_terminals` waits for hosts that outlived their close
 /// deadline to die after `SIGKILL`.

@@ -11590,11 +11590,19 @@ fn pane_json(
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
+            // `end-terminals-keep-layout-v1`: a kept tab to restart a shell in.
+            let relaunch = state
+                .resource_indexes
+                .tab_ids
+                .get(sid)
+                .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()))
+                .map(|kept| json!({"cwd": kept.cwd}));
             json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
                 "group": group_of(sid),
                 "pinned": pinned,
+                "relaunch": relaunch,
                 "cwd": directory.and_then(|directory| directory.cwd.as_deref()),
                 "git_branch": directory.and_then(|directory| directory.git_branch.as_deref()),
                 "git_detached": directory.is_some_and(|directory| directory.git_detached),
