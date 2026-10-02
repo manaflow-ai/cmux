@@ -27,7 +27,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let result = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: arguments)
             XCTAssertNotEqual(result.status, 0, "\(arguments): \(result.stderr)")
             XCTAssertTrue(result.stderr.contains("requires a value"), result.stderr)
-            XCTAssertTrue(createRequestLines(in: state).isEmpty, "\(arguments) posted a notification")
+            XCTAssertTrue(state.snapshot().isEmpty, "\(arguments) sent a socket request")
         }
 
         let literal = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: ["--title=--body", "--body", "x"])
