@@ -123,6 +123,8 @@ extension CloudWorkspaceRenameService {
             }
             guard let tabID = remoteTabID(for: projection, resource: resource) else { continue }
             guard let tab = state.lookupIndex.tab(id: tabID) else {
+                let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
+                if catalog.pendingCloudRenameName(for: key) != nil { continue }
                 // The accepted Cloud graph is authoritative. A terminal can stay
                 // open locally after its agent tab exits, closes, detaches, or is
                 // reassigned; clear only an automatic/remote projection so an
