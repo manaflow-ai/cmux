@@ -17,7 +17,8 @@ public final class MockTabSearchSource: TabSearchSource {
     }
 
     public func changes() -> AsyncStream<Void> {
-        AsyncStream { continuation in continuations.append(continuation) }
+        // A change is a signal, not data: the newest one is enough.
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in continuations.append(continuation) }
     }
 
     /// Announces a change to the entries, as an owner's event would.
