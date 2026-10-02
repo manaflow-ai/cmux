@@ -14,6 +14,8 @@ import java.util.Objects;
 public final class MoveBookmarkRequest implements WireValue {
     private final String bookmark;
     private final UInt64 index;
+    private final Field<String> mutationId;
+    private final Field<String> origin;
     private final String parent;
 
     private MoveBookmarkRequest(Builder builder) {
@@ -21,6 +23,8 @@ public final class MoveBookmarkRequest implements WireValue {
         this.bookmark = Wire.nonNull(builder.bookmark, "bookmark");
         if (!builder.indexSet) throw new IllegalArgumentException("index is required");
         this.index = Wire.nonNull(builder.index, "index");
+        this.mutationId = builder.mutationId;
+        this.origin = builder.origin;
         if (!builder.parentSet) throw new IllegalArgumentException("parent is required");
         this.parent = Wire.nonNull(builder.parent, "parent");
     }
@@ -29,6 +33,8 @@ public final class MoveBookmarkRequest implements WireValue {
 
     public String bookmark() { return bookmark; }
     public UInt64 index() { return index; }
+    public Field<String> mutationId() { return mutationId; }
+    public Field<String> origin() { return origin; }
     public String parent() { return parent; }
 
     public static MoveBookmarkRequest fromWire(Object value) {
@@ -38,6 +44,14 @@ public final class MoveBookmarkRequest implements WireValue {
         builder.bookmark(Wire.string(rawBookmark, "MoveBookmarkRequest.bookmark"));
         Object rawIndex = Wire.required(object, "index");
         builder.index(Wire.uint64(rawIndex, "MoveBookmarkRequest.index"));
+        Object rawMutationId = Wire.optional(object, "mutation_id");
+        if (!Wire.isMissing(rawMutationId)) {
+            builder.mutationId(rawMutationId == null ? null : Wire.string(rawMutationId, "MoveBookmarkRequest.mutation_id"));
+        }
+        Object rawOrigin = Wire.optional(object, "origin");
+        if (!Wire.isMissing(rawOrigin)) {
+            builder.origin(rawOrigin == null ? null : Wire.string(rawOrigin, "MoveBookmarkRequest.origin"));
+        }
         Object rawParent = Wire.required(object, "parent");
         builder.parent(Wire.string(rawParent, "MoveBookmarkRequest.parent"));
         return builder.build();
@@ -48,6 +62,8 @@ public final class MoveBookmarkRequest implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "bookmark", bookmark);
         Wire.put(object, "index", index);
+        Wire.put(object, "mutation_id", mutationId);
+        Wire.put(object, "origin", origin);
         Wire.put(object, "parent", parent);
         return Collections.unmodifiableMap(object);
     }
@@ -55,11 +71,11 @@ public final class MoveBookmarkRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof MoveBookmarkRequest that)) return false;
-        return Objects.equals(bookmark, that.bookmark) && Objects.equals(index, that.index) && Objects.equals(parent, that.parent);
+        return Objects.equals(bookmark, that.bookmark) && Objects.equals(index, that.index) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(parent, that.parent);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(bookmark, index, parent); }
+    public int hashCode() { return Objects.hash(bookmark, index, mutationId, origin, parent); }
 
     @Override
     public String toString() { return "MoveBookmarkRequest" + toWire(); }
@@ -69,6 +85,8 @@ public final class MoveBookmarkRequest implements WireValue {
         private boolean bookmarkSet;
         private UInt64 index;
         private boolean indexSet;
+        private Field<String> mutationId = Field.omitted();
+        private Field<String> origin = Field.omitted();
         private String parent;
         private boolean parentSet;
 
@@ -80,6 +98,14 @@ public final class MoveBookmarkRequest implements WireValue {
         public Builder index(UInt64 value) {
             this.index = value;
             this.indexSet = true;
+            return this;
+        }
+        public Builder mutationId(String value) {
+            this.mutationId = Field.ofNullable(value);
+            return this;
+        }
+        public Builder origin(String value) {
+            this.origin = Field.ofNullable(value);
             return this;
         }
         public Builder parent(String value) {

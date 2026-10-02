@@ -2072,6 +2072,10 @@ enum Command {
     /// Create a bookmark or folder. A caller-chosen `bookmark` id makes a
     /// retry return the stored node. (`id` is the request envelope's.)
     CreateBookmark {
+        #[serde(default)]
+        origin: Option<String>,
+        #[serde(default)]
+        mutation_id: Option<String>,
         browser_profile_id: String,
         parent: String,
         kind: String,
@@ -2092,6 +2096,10 @@ enum Command {
     /// Update a bookmark. An absent field is unchanged; JSON null clears
     /// `favicon_key` or `last_used_ms`.
     UpdateBookmark {
+        #[serde(default)]
+        origin: Option<String>,
+        #[serde(default)]
+        mutation_id: Option<String>,
         bookmark: String,
         #[serde(default)]
         title: Option<String>,
@@ -2103,17 +2111,31 @@ enum Command {
         last_used_ms: Option<Option<u64>>,
     },
     /// Move a bookmark to a final index under a parent of the same profile.
+    /// Every bookmark mutation takes an optional idempotency key
+    /// (`origin` + `mutation_id`).
     MoveBookmark {
+        #[serde(default)]
+        origin: Option<String>,
+        #[serde(default)]
+        mutation_id: Option<String>,
         bookmark: String,
         parent: String,
         index: usize,
     },
     /// Delete a bookmark and its subtree.
     DeleteBookmark {
+        #[serde(default)]
+        origin: Option<String>,
+        #[serde(default)]
+        mutation_id: Option<String>,
         bookmark: String,
     },
     /// Write an imported bookmark tree in one transaction.
     ImportBookmarks {
+        #[serde(default)]
+        origin: Option<String>,
+        #[serde(default)]
+        mutation_id: Option<String>,
         browser_profile_id: String,
         parent: String,
         #[serde(default)]
@@ -15104,6 +15126,8 @@ fn handle_command_with_cancellation(
         }
         Command::ListBookmarks { browser_profile_id } => bookmarks::list(mux, &browser_profile_id),
         Command::CreateBookmark {
+            origin,
+            mutation_id,
             browser_profile_id,
             parent,
             kind,
@@ -15114,40 +15138,70 @@ fn handle_command_with_cancellation(
             source_key,
             created_ms,
             bookmark,
-        } => bookmarks::create(
+        } => bookmarks::apply(
             mux,
-            crate::workspace_registry::BookmarkInput {
-                id: bookmark,
-                browser_profile_id,
-                parent,
-                index,
-                kind,
-                title,
-                url,
-                favicon_key,
-                source_key,
-                created_ms,
+            origin,
+            mutation_id,
+            crate::workspace_registry::BookmarkOp::Create(
+                crate::workspace_registry::BookmarkInput {
+                    id: bookmark,
+                    browser_profile_id,
+                    parent,
+                    index,
+                    kind,
+                    title,
+                    url,
+                    favicon_key,
+                    source_key,
+                    created_ms,
+                },
+            ),
+        ),
+        Command::UpdateBookmark {
+            origin,
+            mutation_id,
+            bookmark,
+            title,
+            url,
+            favicon_key,
+            last_used_ms,
+        } => bookmarks::apply(
+            mux,
+            origin,
+            mutation_id,
+            crate::workspace_registry::BookmarkOp::Update {
+                bookmark,
+                update: crate::workspace_registry::BookmarkUpdate {
+                    title,
+                    url,
+                    favicon_key,
+                    last_used_ms,
+                },
             },
         ),
-        Command::UpdateBookmark { bookmark, title, url, favicon_key, last_used_ms } => {
-            bookmarks::update(
-                mux,
-                &bookmark,
-                crate::workspace_registry::BookmarkUpdate { title, url, favicon_key, last_used_ms },
-            )
-        }
-        Command::MoveBookmark { bookmark, parent, index } => {
-            bookmarks::move_to(mux, &bookmark, &parent, index)
-        }
-        Command::DeleteBookmark { bookmark } => bookmarks::delete(mux, &bookmark),
+        Command::MoveBookmark { origin, mutation_id, bookmark, parent, index } => bookmarks::apply(
+            mux,
+            origin,
+            mutation_id,
+            crate::workspace_registry::BookmarkOp::Move { bookmark, parent, index },
+        ),
+        Command::DeleteBookmark { origin, mutation_id, bookmark } => bookmarks::apply(
+            mux,
+            origin,
+            mutation_id,
+            crate::workspace_registry::BookmarkOp::Delete { bookmark },
+        ),
         Command::ImportBookmarks {
+            origin,
+            mutation_id,
             browser_profile_id,
             parent,
             index,
             source_key,
             replace,
             nodes,
-        } => bookmarks::import(mux, browser_profile_id, parent, index, source_key, replace, nodes),
+        } => bookmarks::import_op(browser_profile_id, parent, index, source_key, replace, nodes)
+            .and_then(|op| bookmarks::apply(mux, origin, mutation_id, op)),
         Command::CreateProfile {
             name,
             profile,

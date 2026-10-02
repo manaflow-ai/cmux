@@ -10860,6 +10860,16 @@ Result<Json> Codec<CreateBookmarkRequest>::encode(const CreateBookmarkRequest& v
     auto encoded_kind = encode_value(value.kind);
     if (!encoded_kind) return std::move(encoded_kind).error();
     object.emplace("kind", std::move(encoded_kind).value());
+    if (!value.mutation_id.is_absent()) {
+        auto encoded = encode_value(value.mutation_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("mutation_id", std::move(encoded).value());
+    }
+    if (!value.origin.is_absent()) {
+        auto encoded = encode_value(value.origin);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("origin", std::move(encoded).value());
+    }
     auto encoded_parent = encode_value(value.parent);
     if (!encoded_parent) return std::move(encoded_parent).error();
     object.emplace("parent", std::move(encoded_parent).value());
@@ -10940,6 +10950,26 @@ Result<CreateBookmarkRequest> Codec<CreateBookmarkRequest>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_kind);
         if (!decoded) return std::move(decoded).error();
         result.kind = std::move(decoded).value();
+    }
+    const Json* field_mutation_id = value.find("mutation_id");
+    if (field_mutation_id) {
+        if (field_mutation_id->is_null()) {
+            result.mutation_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_mutation_id);
+            if (!decoded) return std::move(decoded).error();
+            result.mutation_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_origin = value.find("origin");
+    if (field_origin) {
+        if (field_origin->is_null()) {
+            result.origin = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_origin);
+            if (!decoded) return std::move(decoded).error();
+            result.origin = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_parent = value.find("parent");
     if (!field_parent) {
@@ -12136,6 +12166,16 @@ Result<Json> Codec<DeleteBookmarkRequest>::encode(const DeleteBookmarkRequest& v
     auto encoded_bookmark = encode_value(value.bookmark);
     if (!encoded_bookmark) return std::move(encoded_bookmark).error();
     object.emplace("bookmark", std::move(encoded_bookmark).value());
+    if (!value.mutation_id.is_absent()) {
+        auto encoded = encode_value(value.mutation_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("mutation_id", std::move(encoded).value());
+    }
+    if (!value.origin.is_absent()) {
+        auto encoded = encode_value(value.origin);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("origin", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -12151,6 +12191,26 @@ Result<DeleteBookmarkRequest> Codec<DeleteBookmarkRequest>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_bookmark);
         if (!decoded) return std::move(decoded).error();
         result.bookmark = std::move(decoded).value();
+    }
+    const Json* field_mutation_id = value.find("mutation_id");
+    if (field_mutation_id) {
+        if (field_mutation_id->is_null()) {
+            result.mutation_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_mutation_id);
+            if (!decoded) return std::move(decoded).error();
+            result.mutation_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_origin = value.find("origin");
+    if (field_origin) {
+        if (field_origin->is_null()) {
+            result.origin = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_origin);
+            if (!decoded) return std::move(decoded).error();
+            result.origin = Field<std::string>(std::move(decoded).value());
+        }
     }
     return result;
 }
@@ -12711,9 +12771,19 @@ Result<Json> Codec<ImportBookmarksRequest>::encode(const ImportBookmarksRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("index", std::move(encoded).value());
     }
+    if (!value.mutation_id.is_absent()) {
+        auto encoded = encode_value(value.mutation_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("mutation_id", std::move(encoded).value());
+    }
     auto encoded_nodes = encode_value(value.nodes);
     if (!encoded_nodes) return std::move(encoded_nodes).error();
     object.emplace("nodes", std::move(encoded_nodes).value());
+    if (!value.origin.is_absent()) {
+        auto encoded = encode_value(value.origin);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("origin", std::move(encoded).value());
+    }
     auto encoded_parent = encode_value(value.parent);
     if (!encoded_parent) return std::move(encoded_parent).error();
     object.emplace("parent", std::move(encoded_parent).value());
@@ -12753,6 +12823,16 @@ Result<ImportBookmarksRequest> Codec<ImportBookmarksRequest>::decode(const Json&
             result.index = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
+    const Json* field_mutation_id = value.find("mutation_id");
+    if (field_mutation_id) {
+        if (field_mutation_id->is_null()) {
+            result.mutation_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_mutation_id);
+            if (!decoded) return std::move(decoded).error();
+            result.mutation_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_nodes = value.find("nodes");
     if (!field_nodes) {
         return make_error(ErrorCode::decode, "missing required field 'nodes'");
@@ -12761,6 +12841,16 @@ Result<ImportBookmarksRequest> Codec<ImportBookmarksRequest>::decode(const Json&
         auto decoded = decode_value<std::vector<JsonValue>>(*field_nodes);
         if (!decoded) return std::move(decoded).error();
         result.nodes = std::move(decoded).value();
+    }
+    const Json* field_origin = value.find("origin");
+    if (field_origin) {
+        if (field_origin->is_null()) {
+            result.origin = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_origin);
+            if (!decoded) return std::move(decoded).error();
+            result.origin = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_parent = value.find("parent");
     if (!field_parent) {
@@ -13227,6 +13317,16 @@ Result<Json> Codec<MoveBookmarkRequest>::encode(const MoveBookmarkRequest& value
     auto encoded_index = encode_value(value.index);
     if (!encoded_index) return std::move(encoded_index).error();
     object.emplace("index", std::move(encoded_index).value());
+    if (!value.mutation_id.is_absent()) {
+        auto encoded = encode_value(value.mutation_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("mutation_id", std::move(encoded).value());
+    }
+    if (!value.origin.is_absent()) {
+        auto encoded = encode_value(value.origin);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("origin", std::move(encoded).value());
+    }
     auto encoded_parent = encode_value(value.parent);
     if (!encoded_parent) return std::move(encoded_parent).error();
     object.emplace("parent", std::move(encoded_parent).value());
@@ -13254,6 +13354,26 @@ Result<MoveBookmarkRequest> Codec<MoveBookmarkRequest>::decode(const Json& value
         auto decoded = decode_value<std::uint64_t>(*field_index);
         if (!decoded) return std::move(decoded).error();
         result.index = std::move(decoded).value();
+    }
+    const Json* field_mutation_id = value.find("mutation_id");
+    if (field_mutation_id) {
+        if (field_mutation_id->is_null()) {
+            result.mutation_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_mutation_id);
+            if (!decoded) return std::move(decoded).error();
+            result.mutation_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_origin = value.find("origin");
+    if (field_origin) {
+        if (field_origin->is_null()) {
+            result.origin = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_origin);
+            if (!decoded) return std::move(decoded).error();
+            result.origin = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_parent = value.find("parent");
     if (!field_parent) {
@@ -19725,6 +19845,16 @@ Result<Json> Codec<UpdateBookmarkRequest>::encode(const UpdateBookmarkRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("last_used_ms", std::move(encoded).value());
     }
+    if (!value.mutation_id.is_absent()) {
+        auto encoded = encode_value(value.mutation_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("mutation_id", std::move(encoded).value());
+    }
+    if (!value.origin.is_absent()) {
+        auto encoded = encode_value(value.origin);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("origin", std::move(encoded).value());
+    }
     if (!value.title.is_absent()) {
         auto encoded = encode_value(value.title);
         if (!encoded) return std::move(encoded).error();
@@ -19769,6 +19899,26 @@ Result<UpdateBookmarkRequest> Codec<UpdateBookmarkRequest>::decode(const Json& v
             auto decoded = decode_value<std::uint64_t>(*field_last_used_ms);
             if (!decoded) return std::move(decoded).error();
             result.last_used_ms = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_mutation_id = value.find("mutation_id");
+    if (field_mutation_id) {
+        if (field_mutation_id->is_null()) {
+            result.mutation_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_mutation_id);
+            if (!decoded) return std::move(decoded).error();
+            result.mutation_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_origin = value.find("origin");
+    if (field_origin) {
+        if (field_origin->is_null()) {
+            result.origin = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_origin);
+            if (!decoded) return std::move(decoded).error();
+            result.origin = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_title = value.find("title");

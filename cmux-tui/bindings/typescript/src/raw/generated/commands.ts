@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7266bd0937f8c4baf1dbb76c02df28c2eaf177b2c936fe17cc8deb76716432dc. */
+/* cmux-tui mux protocol 12, IR a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a. */
 
 
 import type * as T from "./types.js";
@@ -320,6 +320,8 @@ export interface CreateBookmarkRequest extends CmuxRequestBase {
   "favicon_key"?: (string) | null;
   "index"?: (bigint) | null;
   "kind": string;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
   "parent": string;
   "source_key"?: (string) | null;
   "title": string;
@@ -456,6 +458,8 @@ export type CreateWorkspaceGroupResult = T.JsonValue;
 export interface DeleteBookmarkRequest extends CmuxRequestBase {
   cmd: "delete-bookmark";
   "bookmark": string;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
 }
 export type DeleteBookmarkResult = T.JsonValue;
 
@@ -590,7 +594,9 @@ export interface ImportBookmarksRequest extends CmuxRequestBase {
   cmd: "import-bookmarks";
   "browser_profile_id": string;
   "index"?: (bigint) | null;
+  "mutation_id"?: (string) | null;
   "nodes": Array<T.JsonValue>;
+  "origin"?: (string) | null;
   "parent": string;
   "replace"?: boolean;
   "source_key"?: (string) | null;
@@ -720,6 +726,8 @@ export interface MoveBookmarkRequest extends CmuxRequestBase {
   cmd: "move-bookmark";
   "bookmark": string;
   "index": bigint;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
   "parent": string;
 }
 export type MoveBookmarkResult = T.JsonValue;
@@ -1688,6 +1696,8 @@ export interface UpdateBookmarkRequest extends CmuxRequestBase {
   "bookmark": string;
   "favicon_key"?: (string) | null;
   "last_used_ms"?: (bigint) | null;
+  "mutation_id"?: (string) | null;
+  "origin"?: (string) | null;
   "title"?: (string) | null;
   "url"?: (string) | null;
 }

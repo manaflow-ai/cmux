@@ -1722,6 +1722,8 @@ class CreateBookmarkRequest:
     created_ms: Union[int, None, MissingType] = field(default=MISSING)
     favicon_key: Union[str, None, MissingType] = field(default=MISSING)
     index: Union[int, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
     source_key: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -1846,6 +1848,8 @@ class CreateWorkspaceGroupRequest:
 class DeleteBookmarkRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/delete-bookmark/request'
     bookmark: str
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1972,6 +1976,8 @@ class ImportBookmarksRequest:
     nodes: List[JsonValue]
     parent: str
     index: Union[int, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
     replace: Union[bool, MissingType] = field(default=MISSING)
     source_key: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -2101,6 +2107,8 @@ class MoveBookmarkRequest:
     bookmark: str
     index: int
     parent: str
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2999,6 +3007,8 @@ class UpdateBookmarkRequest:
     bookmark: str
     favicon_key: Union[str, None, MissingType] = field(default=MISSING)
     last_used_ms: Union[int, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 

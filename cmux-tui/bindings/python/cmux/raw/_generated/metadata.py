@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '7266bd0937f8c4baf1dbb76c02df28c2eaf177b2c936fe17cc8deb76716432dc'
+IR_SHA256 = 'a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a'
 
 
 @dataclass(frozen=True)
@@ -464,6 +464,8 @@ COMMANDS = {
             'favicon_key': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
             'kind': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
             'parent': CommandFieldMetadata(None, None),
             'source_key': CommandFieldMetadata(None, None),
             'title': CommandFieldMetadata(None, None),
@@ -640,6 +642,8 @@ COMMANDS = {
         None,
         {
             'bookmark': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
         },
     ),
     'delete-browser-profile': CommandMetadata(
@@ -856,7 +860,9 @@ COMMANDS = {
         {
             'browser_profile_id': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
             'nodes': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
             'parent': CommandFieldMetadata(None, None),
             'replace': CommandFieldMetadata(None, None),
             'source_key': CommandFieldMetadata(None, None),
@@ -1065,6 +1071,8 @@ COMMANDS = {
         {
             'bookmark': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
             'parent': CommandFieldMetadata(None, None),
         },
     ),
@@ -2457,6 +2465,8 @@ COMMANDS = {
             'bookmark': CommandFieldMetadata(None, None),
             'favicon_key': CommandFieldMetadata(None, None),
             'last_used_ms': CommandFieldMetadata(None, None),
+            'mutation_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
             'title': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),
         },

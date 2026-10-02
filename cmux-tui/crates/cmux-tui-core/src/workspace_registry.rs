@@ -71,8 +71,8 @@ pub(crate) use journal_extensions::{
 };
 pub use kept_tab_store::KeptTabRecord;
 pub use personal_bookmarks::{
-    Bookmark, BookmarkError, BookmarkImport, BookmarkImportNode, BookmarkInput, BookmarkUpdate,
-    invalid_bookmark,
+    Bookmark, BookmarkError, BookmarkImport, BookmarkImportNode, BookmarkInput, BookmarkOp,
+    BookmarkUpdate, invalid_bookmark,
 };
 pub use personal_browser_profiles::{
     BrowserProfileInput, BrowserProfileUpdate, PersonalBrowserProfile,

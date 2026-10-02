@@ -14,7 +14,9 @@ import java.util.Objects;
 public final class ImportBookmarksRequest implements WireValue {
     private final String browserProfileId;
     private final Field<UInt64> index;
+    private final Field<String> mutationId;
     private final List<Object> nodes;
+    private final Field<String> origin;
     private final String parent;
     private final Field<Boolean> replace;
     private final Field<String> sourceKey;
@@ -23,8 +25,10 @@ public final class ImportBookmarksRequest implements WireValue {
         if (!builder.browserProfileIdSet) throw new IllegalArgumentException("browser_profile_id is required");
         this.browserProfileId = Wire.nonNull(builder.browserProfileId, "browser_profile_id");
         this.index = builder.index;
+        this.mutationId = builder.mutationId;
         if (!builder.nodesSet) throw new IllegalArgumentException("nodes is required");
         this.nodes = List.copyOf(Wire.nonNull(builder.nodes, "nodes"));
+        this.origin = builder.origin;
         if (!builder.parentSet) throw new IllegalArgumentException("parent is required");
         this.parent = Wire.nonNull(builder.parent, "parent");
         this.replace = builder.replace;
@@ -35,7 +39,9 @@ public final class ImportBookmarksRequest implements WireValue {
 
     public String browserProfileId() { return browserProfileId; }
     public Field<UInt64> index() { return index; }
+    public Field<String> mutationId() { return mutationId; }
     public List<Object> nodes() { return nodes; }
+    public Field<String> origin() { return origin; }
     public String parent() { return parent; }
     public Field<Boolean> replace() { return replace; }
     public Field<String> sourceKey() { return sourceKey; }
@@ -49,8 +55,16 @@ public final class ImportBookmarksRequest implements WireValue {
         if (!Wire.isMissing(rawIndex)) {
             builder.index(rawIndex == null ? null : Wire.uint64(rawIndex, "ImportBookmarksRequest.index"));
         }
+        Object rawMutationId = Wire.optional(object, "mutation_id");
+        if (!Wire.isMissing(rawMutationId)) {
+            builder.mutationId(rawMutationId == null ? null : Wire.string(rawMutationId, "ImportBookmarksRequest.mutation_id"));
+        }
         Object rawNodes = Wire.required(object, "nodes");
         builder.nodes(Wire.array(rawNodes, "ImportBookmarksRequest.nodes", item -> Wire.immutableJson(item)));
+        Object rawOrigin = Wire.optional(object, "origin");
+        if (!Wire.isMissing(rawOrigin)) {
+            builder.origin(rawOrigin == null ? null : Wire.string(rawOrigin, "ImportBookmarksRequest.origin"));
+        }
         Object rawParent = Wire.required(object, "parent");
         builder.parent(Wire.string(rawParent, "ImportBookmarksRequest.parent"));
         Object rawReplace = Wire.optional(object, "replace");
@@ -69,7 +83,9 @@ public final class ImportBookmarksRequest implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "browser_profile_id", browserProfileId);
         Wire.put(object, "index", index);
+        Wire.put(object, "mutation_id", mutationId);
         Wire.put(object, "nodes", nodes);
+        Wire.put(object, "origin", origin);
         Wire.put(object, "parent", parent);
         Wire.put(object, "replace", replace);
         Wire.put(object, "source_key", sourceKey);
@@ -79,11 +95,11 @@ public final class ImportBookmarksRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ImportBookmarksRequest that)) return false;
-        return Objects.equals(browserProfileId, that.browserProfileId) && Objects.equals(index, that.index) && Objects.equals(nodes, that.nodes) && Objects.equals(parent, that.parent) && Objects.equals(replace, that.replace) && Objects.equals(sourceKey, that.sourceKey);
+        return Objects.equals(browserProfileId, that.browserProfileId) && Objects.equals(index, that.index) && Objects.equals(mutationId, that.mutationId) && Objects.equals(nodes, that.nodes) && Objects.equals(origin, that.origin) && Objects.equals(parent, that.parent) && Objects.equals(replace, that.replace) && Objects.equals(sourceKey, that.sourceKey);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(browserProfileId, index, nodes, parent, replace, sourceKey); }
+    public int hashCode() { return Objects.hash(browserProfileId, index, mutationId, nodes, origin, parent, replace, sourceKey); }
 
     @Override
     public String toString() { return "ImportBookmarksRequest" + toWire(); }
@@ -92,8 +108,10 @@ public final class ImportBookmarksRequest implements WireValue {
         private String browserProfileId;
         private boolean browserProfileIdSet;
         private Field<UInt64> index = Field.omitted();
+        private Field<String> mutationId = Field.omitted();
         private List<Object> nodes;
         private boolean nodesSet;
+        private Field<String> origin = Field.omitted();
         private String parent;
         private boolean parentSet;
         private Field<Boolean> replace = Field.omitted();
@@ -108,9 +126,17 @@ public final class ImportBookmarksRequest implements WireValue {
             this.index = Field.ofNullable(value);
             return this;
         }
+        public Builder mutationId(String value) {
+            this.mutationId = Field.ofNullable(value);
+            return this;
+        }
         public Builder nodes(List<Object> value) {
             this.nodes = value;
             this.nodesSet = true;
+            return this;
+        }
+        public Builder origin(String value) {
+            this.origin = Field.ofNullable(value);
             return this;
         }
         public Builder parent(String value) {

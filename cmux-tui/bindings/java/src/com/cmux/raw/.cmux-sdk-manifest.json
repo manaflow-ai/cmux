@@ -382,8 +382,8 @@
     },
     {
       "path": "CreateBookmarkRequest.java",
-      "sha256": "2ac8acdf18c991ce2e65cbc1d0d7191002e3a98d84c4fa3afa7261941e28a40b",
-      "size": 8213
+      "sha256": "ffa8f62228a6dc0c727043b9498b1181c6498d16cd5a8b1c5ff913cf1891f286",
+      "size": 9562
     },
     {
       "path": "CreateBrowserProfileRequest.java",
@@ -467,8 +467,8 @@
     },
     {
       "path": "DeleteBookmarkRequest.java",
-      "sha256": "480134cbabf294c86f2ca0a9efbd3e91e6dc28f4fbd60cdb51f2c1f490640dbe",
-      "size": 2090
+      "sha256": "9336bcd8b3f02f48e2dbad5a0e96c084ded3608fac1288c31ede75a9b8f19051",
+      "size": 3439
     },
     {
       "path": "DeleteBrowserProfileRequest.java",
@@ -722,8 +722,8 @@
     },
     {
       "path": "ImportBookmarksRequest.java",
-      "sha256": "394e6226fe7bdf16353885d3d0d392434255181c9f3ec495f366bd20396fc195",
-      "size": 5628
+      "sha256": "6ac431353fa2d4617ce5c52c42ac11cda246ecf504cf5649eb69be0ac4123028",
+      "size": 6979
     },
     {
       "path": "ImportSessionOrganizationRequest.java",
@@ -912,8 +912,8 @@
     },
     {
       "path": "MoveBookmarkRequest.java",
-      "sha256": "2a555bf270b198e62a0e83957e1aace67d6164785adbc61e1deb12787bf0dbd1",
-      "size": 3397
+      "sha256": "06c6093d4da8ca4ad2f42bee0244e7aa8b71eeb2e6a7347211103ef6ce25169e",
+      "size": 4742
     },
     {
       "path": "MoveBrowserProfileRequest.java",
@@ -1182,7 +1182,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "72cda1a0d8aa2b2cde91ce48a2243e10eaab3cf277cb57ffde15aa8d7367355d",
+      "sha256": "fa30243e0ccd69f88f08d531d4cdcca6ba6fddf81976aafacfd40e54bcabcfda",
       "size": 4775
     },
     {
@@ -2037,8 +2037,8 @@
     },
     {
       "path": "UpdateBookmarkRequest.java",
-      "sha256": "ab1b38d472e487a61f664297791a67036c48bb3841f26078e71ac555c69d8d26",
-      "size": 4711
+      "sha256": "5f322374be5675bd3b9d96df652f03f7a6480c32e6317a0bcf6d81695e335d7f",
+      "size": 6060
     },
     {
       "path": "UpdateBrowserProfileRequest.java",
@@ -2187,7 +2187,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "7266bd0937f8c4baf1dbb76c02df28c2eaf177b2c936fe17cc8deb76716432dc",
+  "ir_sha256": "a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

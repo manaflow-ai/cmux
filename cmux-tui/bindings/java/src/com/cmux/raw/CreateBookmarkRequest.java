@@ -18,6 +18,8 @@ public final class CreateBookmarkRequest implements WireValue {
     private final Field<String> faviconKey;
     private final Field<UInt64> index;
     private final String kind;
+    private final Field<String> mutationId;
+    private final Field<String> origin;
     private final String parent;
     private final Field<String> sourceKey;
     private final String title;
@@ -32,6 +34,8 @@ public final class CreateBookmarkRequest implements WireValue {
         this.index = builder.index;
         if (!builder.kindSet) throw new IllegalArgumentException("kind is required");
         this.kind = Wire.nonNull(builder.kind, "kind");
+        this.mutationId = builder.mutationId;
+        this.origin = builder.origin;
         if (!builder.parentSet) throw new IllegalArgumentException("parent is required");
         this.parent = Wire.nonNull(builder.parent, "parent");
         this.sourceKey = builder.sourceKey;
@@ -48,6 +52,8 @@ public final class CreateBookmarkRequest implements WireValue {
     public Field<String> faviconKey() { return faviconKey; }
     public Field<UInt64> index() { return index; }
     public String kind() { return kind; }
+    public Field<String> mutationId() { return mutationId; }
+    public Field<String> origin() { return origin; }
     public String parent() { return parent; }
     public Field<String> sourceKey() { return sourceKey; }
     public String title() { return title; }
@@ -76,6 +82,14 @@ public final class CreateBookmarkRequest implements WireValue {
         }
         Object rawKind = Wire.required(object, "kind");
         builder.kind(Wire.string(rawKind, "CreateBookmarkRequest.kind"));
+        Object rawMutationId = Wire.optional(object, "mutation_id");
+        if (!Wire.isMissing(rawMutationId)) {
+            builder.mutationId(rawMutationId == null ? null : Wire.string(rawMutationId, "CreateBookmarkRequest.mutation_id"));
+        }
+        Object rawOrigin = Wire.optional(object, "origin");
+        if (!Wire.isMissing(rawOrigin)) {
+            builder.origin(rawOrigin == null ? null : Wire.string(rawOrigin, "CreateBookmarkRequest.origin"));
+        }
         Object rawParent = Wire.required(object, "parent");
         builder.parent(Wire.string(rawParent, "CreateBookmarkRequest.parent"));
         Object rawSourceKey = Wire.optional(object, "source_key");
@@ -100,6 +114,8 @@ public final class CreateBookmarkRequest implements WireValue {
         Wire.put(object, "favicon_key", faviconKey);
         Wire.put(object, "index", index);
         Wire.put(object, "kind", kind);
+        Wire.put(object, "mutation_id", mutationId);
+        Wire.put(object, "origin", origin);
         Wire.put(object, "parent", parent);
         Wire.put(object, "source_key", sourceKey);
         Wire.put(object, "title", title);
@@ -110,11 +126,11 @@ public final class CreateBookmarkRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CreateBookmarkRequest that)) return false;
-        return Objects.equals(bookmark, that.bookmark) && Objects.equals(browserProfileId, that.browserProfileId) && Objects.equals(createdMs, that.createdMs) && Objects.equals(faviconKey, that.faviconKey) && Objects.equals(index, that.index) && Objects.equals(kind, that.kind) && Objects.equals(parent, that.parent) && Objects.equals(sourceKey, that.sourceKey) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
+        return Objects.equals(bookmark, that.bookmark) && Objects.equals(browserProfileId, that.browserProfileId) && Objects.equals(createdMs, that.createdMs) && Objects.equals(faviconKey, that.faviconKey) && Objects.equals(index, that.index) && Objects.equals(kind, that.kind) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(parent, that.parent) && Objects.equals(sourceKey, that.sourceKey) && Objects.equals(title, that.title) && Objects.equals(url, that.url);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(bookmark, browserProfileId, createdMs, faviconKey, index, kind, parent, sourceKey, title, url); }
+    public int hashCode() { return Objects.hash(bookmark, browserProfileId, createdMs, faviconKey, index, kind, mutationId, origin, parent, sourceKey, title, url); }
 
     @Override
     public String toString() { return "CreateBookmarkRequest" + toWire(); }
@@ -128,6 +144,8 @@ public final class CreateBookmarkRequest implements WireValue {
         private Field<UInt64> index = Field.omitted();
         private String kind;
         private boolean kindSet;
+        private Field<String> mutationId = Field.omitted();
+        private Field<String> origin = Field.omitted();
         private String parent;
         private boolean parentSet;
         private Field<String> sourceKey = Field.omitted();
@@ -159,6 +177,14 @@ public final class CreateBookmarkRequest implements WireValue {
         public Builder kind(String value) {
             this.kind = value;
             this.kindSet = true;
+            return this;
+        }
+        public Builder mutationId(String value) {
+            this.mutationId = Field.ofNullable(value);
+            return this;
+        }
+        public Builder origin(String value) {
+            this.origin = Field.ofNullable(value);
             return this;
         }
         public Builder parent(String value) {

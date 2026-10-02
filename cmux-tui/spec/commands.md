@@ -4837,8 +4837,19 @@ a root has depth 1; no node is deeper than 64, and a profile holds at most
 exist (`list-personal.browser_profiles`).
 
 Errors carry `error_code`: `invalid_params` for a bad id, parent, kind, URL,
-size, cycle or limit, and `not_found` for an unknown bookmark or browser
-profile. A rejected command changes nothing.
+size, cycle, limit or idempotency key, and `not_found` for an unknown bookmark
+or browser profile. A rejected command changes nothing.
+
+Every mutation (`create-bookmark`, `update-bookmark`, `move-bookmark`,
+`delete-bookmark`, `import-bookmarks`) is one typed op and takes an optional
+idempotency key: `origin` and `mutation_id`, both or neither, following the
+durable mutation envelope's identifier rules. The daemon looks the key up
+before anything else and stores it with the op's result in the op's
+transaction. A retry with the same key and request returns the original
+result with `replayed:true`, writes nothing and emits nothing; the same key
+with another request is refused with `invalid_params`. The daemon keeps the
+replay records of the last 10,000 keyed ops. Every mutation result carries
+`replayed:bool`.
 
 Params: `browser_profile_id` (required).
 
@@ -4863,9 +4874,10 @@ returns the stored node unchanged with `changed:false`, so a retry is
 idempotent.
 
 Params: `browser_profile_id`, `parent`, `kind`, `title` (required); `index`,
-`url`, `favicon_key`, `source_key`, `created_ms`, `bookmark`.
+`url`, `favicon_key`, `source_key`, `created_ms`, `bookmark`, `origin`,
+`mutation_id`.
 
-Result: `object{bookmark:Bookmark, changed:bool}`
+Result: `object{bookmark:Bookmark, changed:bool, replayed:bool}`
 
 ### update-bookmark
 
@@ -4879,9 +4891,10 @@ Changes a node's title, URL (`url` nodes only), favicon key or last use. An
 absent field (or a null `title` or `url`) is unchanged; JSON null clears
 `favicon_key` or `last_used_ms`.
 
-Params: `bookmark` (required), `title`, `url`, `favicon_key`, `last_used_ms`.
+Params: `bookmark` (required), `title`, `url`, `favicon_key`, `last_used_ms`,
+`origin`, `mutation_id`.
 
-Result: `object{bookmark:Bookmark, changed:bool}`
+Result: `object{bookmark:Bookmark, changed:bool, replayed:bool}`
 
 ### move-bookmark
 
@@ -4896,9 +4909,9 @@ the node's final position among the destination's children after the move,
 clamped, in the same parent too. A folder cannot move into itself or a
 descendant, and the move must keep every node within depth 64.
 
-Params: `bookmark`, `parent`, `index` (all required).
+Params: `bookmark`, `parent`, `index` (required); `origin`, `mutation_id`.
 
-Result: `object{bookmark:Bookmark, changed:bool}`
+Result: `object{bookmark:Bookmark, changed:bool, replayed:bool}`
 
 ### delete-bookmark
 
@@ -4910,10 +4923,10 @@ Result: `object{bookmark:Bookmark, changed:bool}`
 
 Deletes a node and its whole subtree; the node's later siblings close the gap.
 
-Params: `bookmark` (required).
+Params: `bookmark` (required); `origin`, `mutation_id`.
 
-Result: `object{deleted:[string]}`, the deleted node's id first, then its
-descendants.
+Result: `object{deleted:[string], replayed:bool}`, the deleted node's id
+first, then its descendants.
 
 ### import-bookmarks
 
@@ -4939,9 +4952,9 @@ The request line is subject to the JSON nesting limit (128), which bounds one
 import to about 60 nested levels; import a deeper tree in parts.
 
 Params: `browser_profile_id`, `parent`, `nodes` (required); `index`,
-`source_key`, `replace` (default false).
+`source_key`, `replace` (default false), `origin`, `mutation_id`.
 
-Result: `object{root_ids:[string], count:usize}`: the ids of the top-level
+Result: `object{root_ids:[string], count:usize, replayed:bool}`: the ids of the top-level
 nodes written (in replace mode the kept folder first), and the number of
 nodes in `nodes`, descendants included.
 

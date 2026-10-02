@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7266bd0937f8c4baf1dbb76c02df28c2eaf177b2c936fe17cc8deb76716432dc";
+inline constexpr std::string_view kProtocolIrSha256 = "a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1175,6 +1175,8 @@ struct CreateBookmarkRequest {
     Field<std::string> favicon_key{};
     Field<std::uint64_t> index{};
     std::string kind{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
     std::string parent{};
     Field<std::string> source_key{};
     std::string title{};
@@ -1325,6 +1327,8 @@ struct DeadPane {
 
 struct DeleteBookmarkRequest {
     std::string bookmark{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
     friend bool operator==(const DeleteBookmarkRequest&, const DeleteBookmarkRequest&) = default;
 };
 
@@ -1754,7 +1758,9 @@ struct IdsResult {
 struct ImportBookmarksRequest {
     std::string browser_profile_id{};
     Field<std::uint64_t> index{};
+    Field<std::string> mutation_id{};
     std::vector<JsonValue> nodes{};
+    Field<std::string> origin{};
     std::string parent{};
     std::optional<bool> replace{};
     Field<std::string> source_key{};
@@ -2063,6 +2069,8 @@ struct MintTerminalRendererResult {
 struct MoveBookmarkRequest {
     std::string bookmark{};
     std::uint64_t index{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
     std::string parent{};
     friend bool operator==(const MoveBookmarkRequest&, const MoveBookmarkRequest&) = default;
 };
@@ -3581,6 +3589,8 @@ struct UpdateBookmarkRequest {
     std::string bookmark{};
     Field<std::string> favicon_key{};
     Field<std::uint64_t> last_used_ms{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
     Field<std::string> title{};
     Field<std::string> url{};
     friend bool operator==(const UpdateBookmarkRequest&, const UpdateBookmarkRequest&) = default;

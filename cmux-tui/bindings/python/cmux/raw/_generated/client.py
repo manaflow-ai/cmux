@@ -105,8 +105,8 @@ class GeneratedClientMixin:
     def copy(self, surface: Id, mode: Literal['screen', 'selection', 'scrollback']) -> CopyResult:
         return self._invoke_command('copy', CopyRequest(surface=surface, mode=mode))
 
-    def create_bookmark(self, browser_profile_id: str, kind: str, parent: str, title: str, *, bookmark: Union[str, None, MissingType] = MISSING, created_ms: Union[int, None, MissingType] = MISSING, favicon_key: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, source_key: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('create-bookmark', CreateBookmarkRequest(browser_profile_id=browser_profile_id, kind=kind, parent=parent, title=title, bookmark=bookmark, created_ms=created_ms, favicon_key=favicon_key, index=index, source_key=source_key, url=url))
+    def create_bookmark(self, browser_profile_id: str, kind: str, parent: str, title: str, *, bookmark: Union[str, None, MissingType] = MISSING, created_ms: Union[int, None, MissingType] = MISSING, favicon_key: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, source_key: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('create-bookmark', CreateBookmarkRequest(browser_profile_id=browser_profile_id, kind=kind, parent=parent, title=title, bookmark=bookmark, created_ms=created_ms, favicon_key=favicon_key, index=index, mutation_id=mutation_id, origin=origin, source_key=source_key, url=url))
 
     def create_browser_profile(self, name: str, *, browser_profile: Union[str, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, source: Union[JsonValue, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-browser-profile', CreateBrowserProfileRequest(name=name, browser_profile=browser_profile, color=color, icon=icon, index=index, source=source))
@@ -135,8 +135,8 @@ class GeneratedClientMixin:
     def create_workspace_group(self, name: str, *, collapsed: Union[bool, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-workspace-group', CreateWorkspaceGroupRequest(name=name, collapsed=collapsed, color=color, group=group, index=index))
 
-    def delete_bookmark(self, bookmark: str) -> JsonValue:
-        return self._invoke_command('delete-bookmark', DeleteBookmarkRequest(bookmark=bookmark))
+    def delete_bookmark(self, bookmark: str, *, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('delete-bookmark', DeleteBookmarkRequest(bookmark=bookmark, mutation_id=mutation_id, origin=origin))
 
     def delete_browser_profile(self, browser_profile: str) -> JsonValue:
         return self._invoke_command('delete-browser-profile', DeleteBrowserProfileRequest(browser_profile=browser_profile))
@@ -192,8 +192,8 @@ class GeneratedClientMixin:
     def ids(self, *, kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = MISSING) -> IdsResult:
         return self._invoke_command('ids', IdsRequest(kind=kind))
 
-    def import_bookmarks(self, browser_profile_id: str, nodes: List[JsonValue], parent: str, *, index: Union[int, None, MissingType] = MISSING, replace: Union[bool, MissingType] = MISSING, source_key: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('import-bookmarks', ImportBookmarksRequest(browser_profile_id=browser_profile_id, nodes=nodes, parent=parent, index=index, replace=replace, source_key=source_key))
+    def import_bookmarks(self, browser_profile_id: str, nodes: List[JsonValue], parent: str, *, index: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, replace: Union[bool, MissingType] = MISSING, source_key: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('import-bookmarks', ImportBookmarksRequest(browser_profile_id=browser_profile_id, nodes=nodes, parent=parent, index=index, mutation_id=mutation_id, origin=origin, replace=replace, source_key=source_key))
 
     def import_session_organization(self, session_id: str, *, groups: Union[List[JsonValue], MissingType] = MISSING, workspaces: Union[List[JsonValue], MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('import-session-organization', ImportSessionOrganizationRequest(session_id=session_id, groups=groups, workspaces=workspaces))
@@ -249,8 +249,8 @@ class GeneratedClientMixin:
     def mint_terminal_renderer_by_terminal(self, terminal: str, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
         return self._invoke_command('mint-terminal-renderer-by-terminal', MintTerminalRendererByTerminalRequest(terminal=terminal, ttl_ms=ttl_ms))
 
-    def move_bookmark(self, bookmark: str, index: int, parent: str) -> JsonValue:
-        return self._invoke_command('move-bookmark', MoveBookmarkRequest(bookmark=bookmark, index=index, parent=parent))
+    def move_bookmark(self, bookmark: str, index: int, parent: str, *, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('move-bookmark', MoveBookmarkRequest(bookmark=bookmark, index=index, parent=parent, mutation_id=mutation_id, origin=origin))
 
     def move_browser_profile(self, browser_profile: str, index: int) -> JsonValue:
         return self._invoke_command('move-browser-profile', MoveBrowserProfileRequest(browser_profile=browser_profile, index=index))
@@ -555,8 +555,8 @@ class GeneratedClientMixin:
     def unsave_tab_group(self, group: str) -> JsonValue:
         return self._invoke_command('unsave-tab-group', UnsaveTabGroupRequest(group=group))
 
-    def update_bookmark(self, bookmark: str, *, favicon_key: Union[str, None, MissingType] = MISSING, last_used_ms: Union[int, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('update-bookmark', UpdateBookmarkRequest(bookmark=bookmark, favicon_key=favicon_key, last_used_ms=last_used_ms, title=title, url=url))
+    def update_bookmark(self, bookmark: str, *, favicon_key: Union[str, None, MissingType] = MISSING, last_used_ms: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('update-bookmark', UpdateBookmarkRequest(bookmark=bookmark, favicon_key=favicon_key, last_used_ms=last_used_ms, mutation_id=mutation_id, origin=origin, title=title, url=url))
 
     def update_browser_profile(self, browser_profile: str, *, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-browser-profile', UpdateBrowserProfileRequest(browser_profile=browser_profile, color=color, icon=icon, name=name))

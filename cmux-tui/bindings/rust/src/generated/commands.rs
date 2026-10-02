@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7266bd0937f8c4baf1dbb76c02df28c2eaf177b2c936fe17cc8deb76716432dc.
+// cmux-tui mux protocol 12, IR a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -461,6 +461,10 @@ pub struct CreateBookmarkRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub index: Optional<u64>,
     pub kind: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
     pub parent: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub source_key: Optional<String>,
@@ -682,6 +686,10 @@ pub type CreateWorkspaceGroupResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteBookmarkRequest {
     pub bookmark: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -865,7 +873,11 @@ pub struct ImportBookmarksRequest {
     pub browser_profile_id: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub index: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
     pub nodes: Vec<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
     pub parent: String,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub replace: Option<bool>,
@@ -1033,6 +1045,10 @@ pub type MintTerminalRendererByTerminalResult = T::MintTerminalRendererResult;
 pub struct MoveBookmarkRequest {
     pub bookmark: String,
     pub index: u64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
     pub parent: String,
 }
 
@@ -2397,6 +2413,10 @@ pub struct UpdateBookmarkRequest {
     pub favicon_key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub last_used_ms: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub title: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

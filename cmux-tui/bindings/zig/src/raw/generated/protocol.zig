@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7266bd0937f8c4baf1dbb76c02df28c2eaf177b2c936fe17cc8deb76716432dc";
+pub const ir_sha256 = "a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2978,6 +2978,8 @@ pub const CreateBookmarkRequest = struct {
     favicon_key: wire.Field([]const u8) = .absent,
     index: wire.Field(u64) = .absent,
     kind: []const u8,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
     parent: []const u8,
     source_key: wire.Field([]const u8) = .absent,
     title: []const u8,
@@ -3259,6 +3261,8 @@ pub fn createWorkspaceGroup(client: anytype, request: CreateWorkspaceGroupReques
 
 pub const DeleteBookmarkRequest = struct {
     bookmark: []const u8,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
 };
 
 pub const DeleteBookmarkResult = JsonValue;
@@ -3647,7 +3651,9 @@ pub fn ids(client: anytype, request: IdsRequest) !wire.Decoded(IdsResult) {
 pub const ImportBookmarksRequest = struct {
     browser_profile_id: []const u8,
     index: wire.Field(u64) = .absent,
+    mutation_id: wire.Field([]const u8) = .absent,
     nodes: []const JsonValue,
+    origin: wire.Field([]const u8) = .absent,
     parent: []const u8,
     replace: ?bool = null,
     source_key: wire.Field([]const u8) = .absent,
@@ -4007,6 +4013,8 @@ pub fn mintTerminalRendererByTerminal(client: anytype, request: MintTerminalRend
 pub const MoveBookmarkRequest = struct {
     bookmark: []const u8,
     index: u64,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
     parent: []const u8,
 };
 
@@ -6346,6 +6354,8 @@ pub const UpdateBookmarkRequest = struct {
     bookmark: []const u8,
     favicon_key: wire.Field([]const u8) = .absent,
     last_used_ms: wire.Field(u64) = .absent,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
     title: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
 };
