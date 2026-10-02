@@ -18,7 +18,13 @@ public nonisolated enum FocusRingContrast: String, Hashable, Sendable, CaseItera
     /// The ring's share of the Ghostty foreground (it replaces the focus
     /// token's own alpha). Subtle is 20%, about 2.5 times a pane border, so
     /// the focused pane stays findable; standard is the previous 55%.
-    public var ringAlpha: CGFloat { 0.55 }
+    public var ringAlpha: CGFloat {
+        switch self {
+        case .subtle: 0.20
+        case .standard: 0.55
+        case .strong: 0.85
+        }
+    }
 }
 
 /// `focusRing.*` in cmux.json. Drawn in the layout's overlay plane, so it
@@ -29,7 +35,7 @@ public nonisolated struct FocusRingSettings: Hashable, Sendable {
     /// nil takes the Ghostty theme's focus color (`Palette.focusRing`).
     public var color: ThemeRGB?
     /// Strength of the theme color; ignored when `color` is set.
-    public var contrast: FocusRingContrast = .standard
+    public var contrast: FocusRingContrast = .subtle
     public var width: CGFloat = 1
     /// nil follows the pane corner radius (`layout.paneCornerRadius`).
     public var cornerRadius: CGFloat?

@@ -210,6 +210,16 @@ public nonisolated enum SettingsSchema {
                 default: .string(FocusRingSettings().style.rawValue)
             ),
             SettingDescriptor(
+                ["focusRing", "contrast"], section: .appearance, group: ring,
+                title: SettingsText.text("settings.focusRing.contrast", "Contrast"),
+                kind: .choice([
+                    SettingChoice(FocusRingContrast.subtle.rawValue, SettingsText.text("settings.choice.subtle", "Subtle")),
+                    SettingChoice(FocusRingContrast.standard.rawValue, SettingsText.text("settings.choice.standard", "Standard")),
+                    SettingChoice(FocusRingContrast.strong.rawValue, SettingsText.text("settings.choice.strong", "Strong")),
+                ]),
+                default: .string(FocusRingSettings().contrast.rawValue)
+            ),
+            SettingDescriptor(
                 ["focusRing", "color"], section: .appearance, group: ring,
                 title: SettingsText.text("settings.focusRing.color", "Color"),
                 kind: .color, default: nil, defaultLabel: theme

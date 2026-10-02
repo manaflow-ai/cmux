@@ -558,11 +558,21 @@ it never changes a pane frame, inset or the hosted view's frame
 (`FocusRingNoShiftTests` moves focus across splits and niri columns under every ring
 style, width and corner setting). cmux.json `focusRing.{enabled, style (ring | glow |
 none), color (default: the Ghostty theme's focus gray), width, cornerRadius (default: the
-pane radius), showWhenSinglePane}`; palette: Toggle Focus Ring, Use Ring / Glow Focus
+pane radius), showWhenSinglePane, contrast (subtle | standard | strong)}`; palette: Toggle Focus Ring, Use Ring / Glow Focus
 Style, Toggle Focus Ring for a Single Pane. The glow is a stroke with a shadow clipped to
 the content rect, so it falls inward only. The attention ring of an unread notification
 shares the overlay (plans/cmux-next/notifications.md). Column scrolling:
 plans/cmux-next/niri.md.
+
+Contrast (2026-10-02, user: "we need focus ring to be subtler by default somehow. color
+subtler"): `focusRing.contrast` sets the pane ring's share of the theme focus color (the
+Ghostty foreground; it replaces the token's own alpha): subtle 0.20 (the default),
+standard 0.55 (the previous look), strong 0.85. `FocusRingSettings.ringColor(in:override:)`
+is the one rule the overlay draws (`Palette.paneFocusRing`) and `FocusRingContrastTests`
+checks: subtle stays at least 1.4 times a pane border's visibility in every fixture theme,
+so the focused pane is still findable. No accent hue. The accent uses of `Palette.focusRing`
+(Settings tint, omnibar and page info rings) do not change. Settings: Appearance > Focus
+Ring > Contrast; Debug Settings: Focus > Focus ring alpha overrides it.
 
 Resize rule (2026-09-30): the ring's layers move in the same call that sets the overlay's
 frame (`PaneOverlayView.setFrameSize`), so the pass that places the panes places the ring,

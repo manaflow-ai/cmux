@@ -45,6 +45,9 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var paneBorderWidth: CGFloat?
     /// Inactive pane dim amount when `LayoutModel.dimsInactivePanes` is on.
     public var inactivePaneDimming: CGFloat = 0.14
+    /// Debug Settings `focus.ringAlpha`: the ring's foreground share in place
+    /// of `focusRing.contrast`; nil follows the setting. Read here, in the
+    /// observed style, so a slider move repaints the ring at once.
     public var focusRingAlphaOverride: CGFloat?
     /// Fraction of a pane's extent that counts as an edge drop zone.
     public var dropEdgeFraction: CGFloat = 0.28
@@ -94,6 +97,7 @@ extension LayoutStyle {
         // Debug Settings overrides only (no override keeps the base style's
         // value; the tunables' defaults equal the literals above).
         if let value = LayoutTunables.inactivePaneDimming.override { style.inactivePaneDimming = value }
+        if let value = LayoutTunables.focusRingAlpha.override { style.focusRingAlphaOverride = value }
         if let value = LayoutTunables.dropEdgeFraction.override { style.dropEdgeFraction = value }
         let edgeMinimum = LayoutTunables.dropEdgeMinimum.override, edgeMaximum = LayoutTunables.dropEdgeMaximum.override
         if edgeMinimum != nil || edgeMaximum != nil {
