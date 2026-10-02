@@ -39,4 +39,17 @@ struct OwnPaneSplitTests {
         #expect(!TabDragResolver.accepts(.strip(stripID: strip, index: 0, groupID: nil), context: context(paneTabs: 3, respawns: true)))
         #expect(TabDragResolver.accepts(.strip(stripID: strip, index: 2, groupID: nil), context: context(paneTabs: 3, respawns: true)))
     }
+
+    /// Review finding 2026-10-02: the own strip place must not fall through
+    /// to the pane behind it. The strip sits in the pane's top edge band, so
+    /// a fall-through gave the own pane's top split (accepted with respawn):
+    /// a highlight on the own place and a split on release.
+    @Test func theOwnStripPlaceDoesNotFallThroughToTheOwnPaneEdge() {
+        let proposals: [TabDropProposal?] = [
+            TabDropProposal(kind: .strip(stripID: strip, index: 0, groupID: nil), highlightFrame: .zero),
+            TabDropProposal(kind: .newSplit(paneID: "pane-a", edge: .top), highlightFrame: .zero),
+        ]
+        #expect(TabDragResolver.winner(proposals, context: context(paneTabs: 1, respawns: true)) == nil)
+        #expect(TabDragResolver.winner(proposals, context: context(paneTabs: 3, respawns: true)) == nil)
+    }
 }
