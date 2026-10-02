@@ -30,6 +30,9 @@ describe("addresses", () => {
   it("refuses other countries, toll-free and malformed numbers", () => {
     expect(normalizePhone("+44 20 7946 0958")).toBe("address.country_not_allowed")
     expect(normalizePhone("+1 800 555 0123")).toBe("address.not_mobile")
+    expect(normalizePhone("+1 876 555 0123")).toBe("address.country_not_allowed")
+    expect(normalizePhone("+1 809 555 0123")).toBe("address.country_not_allowed")
+    expect(normalizePhone("+1 604 555 0123")).toEqual({ channel: "sms", value: "+16045550123" })
     expect(normalizePhone("+1 115 555 0123")).toBe("address.invalid")
     expect(normalizePhone("555-0123")).toBe("address.invalid")
     expect(normalizePhone("call me")).toBe("address.invalid")

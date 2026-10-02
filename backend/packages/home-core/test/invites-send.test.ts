@@ -208,3 +208,22 @@ describe("webhooks", () => {
     expect(sendblueWebhookEffects({ is_outbound: true, message_handle: "sb_1", status: "DELIVERED" })).toEqual([{ kind: "delivery", provider_id: "sb_1", state: "delivered" }])
   })
 })
+
+describe("copy sanitizer (review findings)", () => {
+  const sms = (patch: Partial<CopyInput>) => renderSms({ ...base, ...patch }).body
+  it("removes links with any TLD, schemes and full-width dots from names and previews", () => {
+    for (const bad of ["Chase.ru/verify", "pay at evil.example", "visit ｗｗｗ．evil．top", "x://y", "mailto:a@example.com", "go to bank．co"]) {
+      const body = sms({ inviterName: `Eve ${bad}`, preview: `hi ${bad}` })
+      expect(body.split("\n").slice(0, -1).join("\n")).not.toMatch(/ru\/verify|evil|x:\/\/|mailto|bank．co/)
+    }
+  })
+
+  it("keeps ordinary Japanese sentences and plain words", () => {
+    expect(sms({ locale: "ja", preview: "テストです。次はこれ" })).toContain("テストです。次はこれ")
+    expect(sms({ preview: "ship it today, v1 is ready" })).toContain("ship it today, v1 is ready")
+  })
+
+  it("shows the inviter's own email intact in the email footer", () => {
+    expect(renderEmail({ ...base, inviterEmail: "al@gmail.com" }).text).toContain("(al@gmail.com)")
+  })
+})

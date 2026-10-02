@@ -36,6 +36,13 @@ export const SMS_COUNTRY_CODES: ReadonlyArray<string> = ["1"]
 
 /** NANP area codes that are not mobile subscriber numbers (premium, toll free, service). */
 const NANP_REFUSED_AREA = new Set(["800", "833", "844", "855", "866", "877", "888", "900", "976"])
+/**
+ * NANP area codes outside the US and Canada (Caribbean and Atlantic countries,
+ * common in SMS pumping fraud). D-H5 allows only the US and Canada.
+ */
+const NANP_FOREIGN_AREA = new Set([
+  "242", "246", "264", "268", "284", "345", "441", "473", "649", "658", "664", "721", "758", "767", "784", "809", "829", "849", "868", "869", "876"
+])
 
 /**
  * E.164 for a phone number typed by a user in `region` (only `US`/`CA`
@@ -62,6 +69,7 @@ export const normalizePhone = (input: string, region = "US"): Address | Normaliz
     // NANP: area and exchange never start with 0 or 1.
     if (/^[01]/.test(area) || /^[01]/.test(exchange)) return "address.invalid"
     if (NANP_REFUSED_AREA.has(area)) return "address.not_mobile"
+    if (NANP_FOREIGN_AREA.has(area)) return "address.country_not_allowed"
   }
   return { channel: "sms", value: `+${e164}` }
 }

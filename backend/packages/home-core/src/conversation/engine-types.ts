@@ -13,6 +13,8 @@ export interface Principal {
   readonly grant?: string
   readonly kind?: "session" | "install" | "agent" | "system"
   readonly email?: string | null
+  /** True only when Stack verified `email`; owners must not trust `email` without it (requested of PR 16827). */
+  readonly email_verified?: boolean
   readonly display_name?: string
   readonly grant_classes?: ReadonlyArray<string>
 }

@@ -49,9 +49,10 @@ describe("MuxDO wake queue", () => {
     expect(o.submit("mux.wake", { conversation: "conv_a", seq: 3, reason: "dm" }, system)).toMatchObject({ ok: true, changed: true })
     expect(o.submit("mux.wake", { conversation: "conv_a", seq: 3, reason: "dm" }, system)).toMatchObject({ ok: true, changed: false })
     o.submit("mux.wake", { conversation: "conv_a", seq: 5, reason: "mention" }, system)
+    o.submit("mux.wake", { conversation: "conv_a", seq: 2, reason: "mention" }, system)
     o.submit("mux.wake", { conversation: "conv_b", seq: 1, reason: "owner" }, system)
-    expect(o.state.pending).toBe(3)
-    expect(o.submit("mux.ack", { conversation: "conv_a", seq: 4 }, chief)).toMatchObject({ ok: true, value: { cursor: 4, cleared: 1 } })
+    expect(o.state.pending).toBe(4)
+    expect(o.submit("mux.ack", { conversation: "conv_a", seq: 4 }, chief)).toMatchObject({ ok: true, value: { cursor: 4, cleared: 2 } })
     expect(o.state.pending).toBe(2)
     expect(o.submit("mux.wake", { conversation: "conv_a", seq: 4, reason: "dm" }, system)).toMatchObject({ ok: true, changed: false })
     expect([...o.rows.keys()].sort()).toEqual([`${TABLE_WAKE}/conv_a:5`, `${TABLE_WAKE}/conv_b:1`])
@@ -66,6 +67,20 @@ describe("MuxDO wake queue", () => {
     expect(o.submit("mux.configure", { brain: "cloud" }, ownerSession)).toMatchObject({ ok: true })
     expect(o.state.brain).toBe("cloud")
     expect(o.submit("mux.bind", { agent: "agent_other", owner_user: "user_owner", brain: "local" }, system)).toEqual({ ok: false, code: "mux.bound" })
+  })
+
+  it("keeps the head bounded per conversation and across conversations", () => {
+    const o = bound()
+    for (let seq = 1; seq <= 250; seq++) o.submit("mux.wake", { conversation: "conv_big", seq, reason: "mention" }, system)
+    expect(o.state.queues.conv_big!.pending).toHaveLength(200)
+    expect(o.state.pending).toBe(200)
+    expect([...o.rows.keys()].filter((k) => k.startsWith(`${TABLE_WAKE}/conv_big:`))).toHaveLength(200)
+    for (let i = 0; i < 600; i++) {
+      o.submit("mux.wake", { conversation: `conv_${i}`, seq: 1, reason: "dm" }, system, 1_790_000_000_000 + i)
+      o.submit("mux.ack", { conversation: `conv_${i}`, seq: 1 }, chief, 1_790_000_000_000 + i)
+    }
+    expect(Object.keys(o.state.queues).length).toBeLessThanOrEqual(500)
+    expect(o.state.queues.conv_big).toBeDefined()
   })
 
   it("refuses wakes before bind and malformed params", () => {
@@ -83,8 +98,9 @@ describe("ContactDO deliveries", () => {
     expect(o.submit("contact.ensure", { contact: "contact_A", channel, address: channel === "sms" ? "+14155550100" : "a@example.com" }, system).ok).toBe(true)
     return o
   }
+  // The exact DeliveryIntent shape ConversationDO puts in its outbox (conversation/fanout.ts).
   const deliver = (o: ReturnType<typeof ensured>, invite: string, inviter: string, now?: number) =>
-    o.submit("contact.deliver", { invite, conversation: "conv_dm_X", inviter }, system, now)
+    o.submit("contact.deliver", { invite, conversation: "conv_dm_X", contact: "contact_A", channel: "sms", locale: "en", copy_variant: "A", invited_by: inviter }, system, now)
 
   it("sends once per invite, marks only the first text, and reports non-sends to the conversation", () => {
     const o = ensured()
@@ -92,14 +108,24 @@ describe("ContactDO deliveries", () => {
     expect(deliver(o, "inv_1", "user_a")).toMatchObject({ ok: true, changed: false, value: { send: false } })
     const repeat = deliver(o, "inv_2", "user_a")
     expect(repeat).toMatchObject({ ok: true, value: { send: false, state: "repeat" } })
-    expect(repeat.ok && repeat.outbox[0]).toMatchObject({ kind: "invite.delivery.report", entity: "delivery:inv_2:repeat", target: { class: "ConversationDO", name: "conv_dm_X" } })
+    // The conversation never learns why: a repeat reports as suppressed, with no provider id.
+    expect(repeat.ok && repeat.outbox[0]).toEqual({
+      kind: "invite.delivery.report",
+      entity: "delivery:inv_2:suppressed",
+      payload: { invite_id: "inv_2", delivery: { state: "suppressed" } },
+      target: { class: "ConversationDO", name: "conv_dm_X" }
+    })
     expect(deliver(o, "inv_3", "user_b")).toMatchObject({ value: { send: true, first_text: false } })
   })
 
   it("records provider results forward only and suppresses on bounce", () => {
     const o = ensured("email")
     deliver(o, "inv_1", "user_a")
-    expect(o.submit("contact.delivery.record", { invite: "inv_1", state: "sent", provider_id: "re_1" }, system)).toMatchObject({ ok: true, changed: true })
+    const sent = o.submit("contact.delivery.record", { invite: "inv_1", state: "sent", provider_id: "re_1" }, system)
+    expect(sent).toMatchObject({ ok: true, changed: true })
+    expect(sent.ok && sent.outbox[0]?.payload).toEqual({ invite_id: "inv_1", delivery: { state: "sent", provider_id: "re_1" } })
+    const unknown = o.submit("contact.delivery.record", { invite: "inv_1", state: "indeterminate" }, system)
+    expect(unknown.ok && unknown.outbox).toEqual([])
     expect(o.submit("contact.delivery.record", { invite: "inv_1", state: "sending" }, system)).toMatchObject({ ok: true, changed: false })
     expect(o.submit("contact.delivery.record", { invite: "inv_1", state: "bounced" }, system)).toMatchObject({ ok: true, changed: true })
     expect(o.state.suppression?.reason).toBe("bounced")
@@ -116,9 +142,14 @@ describe("ContactDO deliveries", () => {
   it("only the verified owner of an email may unsuppress; everything else is system only", () => {
     const o = ensured("email")
     o.submit("contact.suppress", { reason: "opted_out" }, system)
+    expect(o.submit("contact.deliver", { invite: "i", conversation: "c", contact: "contact_Z", invited_by: "user_a" }, system)).toEqual({ ok: false, code: "contact.mismatch" })
     expect(o.submit("contact.unsuppress", {}, { identity: "u", kind: "session", user: "user_x", email: "other@example.com" })).toEqual({ ok: false, code: "forbidden" })
-    expect(o.submit("contact.unsuppress", {}, { identity: "u", kind: "session", user: "user_x", email: "A@Example.com" })).toMatchObject({ ok: true })
+    // An unverified claim of the address is not ownership.
+    expect(o.submit("contact.unsuppress", {}, { identity: "u", kind: "session", user: "user_x", email: "A@Example.com" })).toEqual({ ok: false, code: "forbidden" })
+    expect(o.submit("contact.unsuppress", {}, { identity: "u", kind: "session", user: "user_x", email: "A@Example.com", email_verified: true })).toMatchObject({ ok: true })
     expect(o.state.suppression).toBeNull()
+    o.submit("contact.suppress", { reason: "admin" }, system)
+    expect(o.submit("contact.unsuppress", {}, { identity: "u", kind: "session", user: "user_x", email: "a@example.com", email_verified: true })).toEqual({ ok: false, code: "forbidden" })
     expect(o.submit("contact.suppress", { reason: "opted_out" }, ownerSession)).toEqual({ ok: false, code: "forbidden" })
     expect(o.submit("contact.ensure", { contact: "contact_B", channel: "email", address: "b@example.com" }, system)).toEqual({ ok: false, code: "contact.mismatch" })
   })

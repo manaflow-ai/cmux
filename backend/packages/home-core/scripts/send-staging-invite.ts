@@ -53,7 +53,9 @@ const message = address.channel === "email" ? renderEmail(copy) : renderSms(copy
 const staged =
   message.channel === "email" ? { ...message, subject: `[staging] ${message.subject}` } : { ...message, body: `[staging] ${message.body}` }
 if (mode === "render") {
-  console.log(JSON.stringify({ channel: staged.channel, entry, variant: staged.variant, ...(staged.channel === "email" ? { subject: staged.subject, text: staged.text } : { body: staged.body }) }, null, 2))
+  // The secret never goes to a terminal or a report: the fragment is masked.
+  const mask = (text: string) => text.replace(/#[0-9A-HJKMNP-TV-Z]{26}/g, "#<secret>")
+  console.log(JSON.stringify({ channel: staged.channel, entry, variant: staged.variant, ...(staged.channel === "email" ? { subject: staged.subject, text: mask(staged.text) } : { body: mask(staged.body) }) }, null, 2))
   process.exit(0)
 }
 const inviteId = `inv_staging_${newInviteSecret(randomBytes(16))}`

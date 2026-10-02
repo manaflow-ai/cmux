@@ -41,7 +41,13 @@ export interface RenderedSms {
   readonly body: string
 }
 
-const URL_LIKE = /\b(?:https?:\/\/|www\.)\S+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|dev|app|co|ly|me|xyz|info|link|click|to|gg|ai)\b(?:\/\S*)?/gi
+/**
+ * Anything that could be read as a link: a scheme (`x://`, `mailto:`), `www.`,
+ * or any word.letters pattern with ASCII or full-width dots (every TLD, so no
+ * list to fall behind; the ideographic full stop is left alone because it ends
+ * Japanese sentences). It removes whole whitespace-separated tokens.
+ */
+const URL_LIKE = /\S*(?:[a-z][a-z0-9+.-]*:\/\/|\bmailto:|\bwww[.．｡]|[\p{L}\p{N}][.．｡]+\p{L}{2,})\S*/giu
 
 /** Removes control characters, collapses whitespace, removes URLs, caps the length (adds an ellipsis). */
 export const cleanUserText = (value: string, max: number, linkRemoved: string): string => {
@@ -101,7 +107,8 @@ export const renderEmail = (input: CopyInput): RenderedEmail => {
   const subjectValues = { ...values, preview: cleanUserText(values.preview ?? "", 60, s.linkRemoved) }
   const subject = fill(dm ? v.subjectDm : v.subjectGroup, subjectValues)
   const lead = fill(dm ? v.leadDm : v.leadGroup, values)
-  const email = input.inviterEmail ? cleanUserText(input.inviterEmail, 254, "") : ""
+  // A system value (the account's address), not user text: only control characters go.
+  const email = input.inviterEmail ? input.inviterEmail.replace(/[\u0000-\u001f\u007f-\u009f\s]/g, "").slice(0, 254) : ""
   const why = email ? fill(s.whyWithEmail, { name: values.name!, email }) : fill(s.why, { name: values.name! })
   const quote = variant === "A" ? values.preview! : ""
   const text = [lead, quote ? `\n"${quote}"` : "", `\n${s.button}:\n${checkedLink(input.link)}`, `\n${s.what}`, `\n--\n${why}`, input.unsubscribeLink ? `${s.unsubscribe}: ${input.unsubscribeLink}` : "", input.reportLink ? `${s.report}: ${input.reportLink}` : ""]

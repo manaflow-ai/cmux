@@ -9,8 +9,10 @@ import type { Domain, Principal, Reject, ReduceResult, RowWrite } from "../conve
  * offline for a week does not grow one JSON value.
  */
 export const TABLE_WAKE = "wake"
-/** Rows one ack may clear; a larger backlog clears over several acks. */
-export const ACK_SCAN_LIMIT = 1000
+/** Pending wakes kept per conversation; older ones drop (the brain reads history from the cursor anyway). */
+export const MAX_PENDING_PER_CONVERSATION = 200
+/** Conversations tracked in the head; idle ones (nothing pending) are evicted oldest first. */
+export const MAX_TRACKED_CONVERSATIONS = 500
 
 export type WakeReason = "dm" | "mention" | "reply" | "owner"
 
@@ -22,8 +24,14 @@ export interface MuxHead {
   /** Wake rows not yet acked. */
   readonly pending: number
   readonly next_n: number
-  /** Highest acked seq per conversation; wakes at or below it are ignored. */
-  readonly cursors: Readonly<Record<string, number>>
+  /** Per conversation: highest acked seq (wakes at or below it are ignored) and pending seqs, ascending. */
+  readonly queues: Readonly<Record<string, ConversationQueue>>
+}
+
+export interface ConversationQueue {
+  readonly cursor: number
+  readonly pending: ReadonlyArray<number>
+  readonly touched: number
 }
 
 export interface WakeItem {
@@ -33,7 +41,7 @@ export interface WakeItem {
   readonly at: number
 }
 
-export const INITIAL_MUX_HEAD: MuxHead = { agent: null, owner_user: null, brain: "local", brain_host: null, pending: 0, next_n: 1, cursors: {} }
+export const INITIAL_MUX_HEAD: MuxHead = { agent: null, owner_user: null, brain: "local", brain_host: null, pending: 0, next_n: 1, queues: {} }
 
 type Params = Readonly<Record<string, unknown>>
 
@@ -45,6 +53,20 @@ const REASONS = new Set<WakeReason>(["dm", "mention", "reply", "owner"])
 /** The chief itself (agent token) or a system op of a DO. */
 const isChief = (head: MuxHead, p: Principal) => p.kind === "agent" && p.agent !== undefined && p.agent === head.agent
 const isOwner = (head: MuxHead, p: Principal) => (p.kind === "session" || p.kind === "install") && p.user !== undefined && p.user === head.owner_user
+
+/**
+ * Keeps the head bounded: beyond MAX_TRACKED_CONVERSATIONS, conversations with
+ * nothing pending are forgotten oldest first. A forgotten cursor only means a
+ * very late duplicate wake could queue again; the drain's idempotency key
+ * (`wake:<conversation>:<seq>`) already stops duplicates inside the ledger window.
+ */
+const bounded = (queues: Readonly<Record<string, ConversationQueue>>): Readonly<Record<string, ConversationQueue>> => {
+  const entries = Object.entries(queues)
+  if (entries.length <= MAX_TRACKED_CONVERSATIONS) return queues
+  const idle = entries.filter(([, q]) => q.pending.length === 0).sort((a, b) => a[1].touched - b[1].touched)
+  const drop = new Set(idle.slice(0, entries.length - MAX_TRACKED_CONVERSATIONS).map(([c]) => c))
+  return Object.fromEntries(entries.filter(([c]) => !drop.has(c)))
+}
 
 export const muxDomain: Domain<MuxHead, Params> = {
   initial: () => INITIAL_MUX_HEAD,
@@ -76,22 +98,30 @@ export const muxDomain: Domain<MuxHead, Params> = {
         if (head.agent === null) return refuse("mux.unbound")
         if (!str(conversation) || !seqOf(seq) || !REASONS.has(reason as WakeReason)) return refuse("invalid_params")
         const key = `${conversation}:${seq}`
-        if (seq <= (head.cursors[conversation] ?? 0) || ctx.rows.get(TABLE_WAKE, key)) return { ok: true, state: head, value: null, changed: false }
+        const queue = head.queues[conversation] ?? { cursor: 0, pending: [], touched: 0 }
+        if (seq <= queue.cursor || queue.pending.includes(seq)) return { ok: true, state: head, value: null, changed: false }
         const item: WakeItem = { conversation, seq, reason: reason as WakeReason, at: ctx.now }
-        const next = { ...head, pending: head.pending + 1, next_n: head.next_n + 1 }
-        return { ok: true, state: next, value: item, writes: [{ table: TABLE_WAKE, op: "upsert", key, n: head.next_n, row: item }] }
+        const pending = [...queue.pending, seq].sort((a, b) => a - b)
+        const dropped = pending.slice(0, Math.max(0, pending.length - MAX_PENDING_PER_CONVERSATION))
+        const writes: Array<RowWrite> = [
+          { table: TABLE_WAKE, op: "upsert", key, n: head.next_n, row: item },
+          ...dropped.map((s) => ({ table: TABLE_WAKE, op: "delete" as const, key: `${conversation}:${s}` }))
+        ]
+        const queues = bounded({ ...head.queues, [conversation]: { cursor: queue.cursor, pending: pending.slice(dropped.length), touched: ctx.now } })
+        const next = { ...head, pending: head.pending + 1 - dropped.length, next_n: head.next_n + 1, queues }
+        return { ok: true, state: next, value: item, writes }
       }
       case "mux.ack": {
         const { conversation, seq } = params
         if (!str(conversation) || !seqOf(seq)) return refuse("invalid_params")
-        const cursor = head.cursors[conversation] ?? 0
-        if (seq <= cursor) return { ok: true, state: head, value: { cursor }, changed: false }
-        const cleared: Array<RowWrite> = ctx.rows
-          .range<WakeItem>(TABLE_WAKE, { limit: ACK_SCAN_LIMIT })
-          .filter((r) => r.row.conversation === conversation && r.row.seq <= seq)
-          .map((r) => ({ table: TABLE_WAKE, op: "delete" as const, key: r.key }))
-        const next = { ...head, pending: Math.max(0, head.pending - cleared.length), cursors: { ...head.cursors, [conversation]: seq } }
-        return { ok: true, state: next, value: { cursor: seq, cleared: cleared.length }, writes: cleared }
+        const queue = head.queues[conversation] ?? { cursor: 0, pending: [], touched: 0 }
+        if (seq <= queue.cursor) return { ok: true, state: head, value: { cursor: queue.cursor }, changed: false }
+        // Exact keys from the head: no scan, every acked row goes.
+        const acked = queue.pending.filter((s) => s <= seq)
+        const cleared: Array<RowWrite> = acked.map((s) => ({ table: TABLE_WAKE, op: "delete" as const, key: `${conversation}:${s}` }))
+        const queues = bounded({ ...head.queues, [conversation]: { cursor: seq, pending: queue.pending.filter((s) => s > seq), touched: ctx.now } })
+        const next = { ...head, pending: Math.max(0, head.pending - acked.length), queues }
+        return { ok: true, state: next, value: { cursor: seq, cleared: acked.length }, writes: cleared }
       }
       case "mux.configure": {
         const { brain, brain_host } = params

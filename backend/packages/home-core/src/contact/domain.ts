@@ -1,4 +1,4 @@
-import type { Domain, Principal, Reject, ReduceResult } from "../conversation/engine-types.ts"
+import type { Domain, OutboxItem, Principal, Reject, ReduceResult } from "../conversation/engine-types.ts"
 import { takeContactQuota, type ContactWindow } from "../invites/limits.ts"
 import type { Suppression } from "../invites/policy.ts"
 
@@ -51,8 +51,13 @@ const str = (v: unknown, max = 256): v is string => typeof v === "string" && v.l
 const record = (head: ContactHead, r: DeliveryRecord): ReadonlyArray<DeliveryRecord> =>
   [...head.deliveries.filter((d) => d.invite !== r.invite), r].slice(-MAX_DELIVERIES)
 
+/** Only a Stack-verified email proves ownership; an unverified claim never does. */
 const isAddressOwner = (head: ContactHead, p: Principal) =>
-  p.kind === "session" && head.channel === "email" && typeof p.email === "string" && p.email.trim().toLowerCase() === head.address
+  p.kind === "session" &&
+  p.email_verified === true &&
+  head.channel === "email" &&
+  typeof p.email === "string" &&
+  p.email.trim().toLowerCase() === head.address
 
 export const contactDomain: Domain<ContactHead, Params> = {
   initial: () => INITIAL_CONTACT_HEAD,
@@ -73,15 +78,17 @@ export const contactDomain: Domain<ContactHead, Params> = {
         return { ok: true, state: next, value: summary(next) }
       }
       case "contact.deliver": {
-        const { invite, conversation, inviter } = params
+        // The payload is ConversationDO's DeliveryIntent (conversation/fanout.ts), read as is.
+        const { invite, conversation, invited_by: inviter, contact } = params
         if (head.contact === null) return refuse("contact.unknown")
         if (!str(invite) || !str(conversation) || !str(inviter)) return refuse("invalid_params")
+        if (contact !== undefined && contact !== head.contact) return refuse("contact.mismatch", "the delivery names another contact")
         const prior = head.deliveries.find((d) => d.invite === invite)
         if (prior) return { ok: true, state: head, value: { send: false, state: prior.state, first_text: false }, changed: false }
         const base = { invite, conversation, inviter, provider_id: null, at: ctx.now }
         if (head.suppression) {
           const r: DeliveryRecord = { ...base, state: "suppressed" }
-          return { ok: true, state: { ...head, deliveries: record(head, r) }, value: { send: false, state: r.state }, outbox: [report(r)] }
+          return { ok: true, state: { ...head, deliveries: record(head, r) }, value: { send: false, state: r.state }, outbox: report(r) }
         }
         const quota = takeContactQuota(head.window, inviter, ctx.now)
         const state: DeliveryState = !quota.ok ? "recipient_limited" : quota.send ? "sending" : "repeat"
@@ -89,7 +96,7 @@ export const contactDomain: Domain<ContactHead, Params> = {
         const window = quota.ok ? quota.window : head.window
         const first_text = head.channel === "sms" && !head.texted && state === "sending"
         const next = { ...head, window, deliveries: record(head, r), texted: head.texted || first_text }
-        return { ok: true, state: next, value: { send: state === "sending", state, first_text }, ...(state === "sending" ? {} : { outbox: [report(r)] }) }
+        return { ok: true, state: next, value: { send: state === "sending", state, first_text }, ...(state === "sending" ? {} : { outbox: report(r) }) }
       }
       case "contact.delivery.record": {
         const { invite, state, provider_id } = params
@@ -101,7 +108,7 @@ export const contactDomain: Domain<ContactHead, Params> = {
         const r: DeliveryRecord = { ...prior, state: s, provider_id: (provider_id as string | undefined) ?? prior.provider_id, at: ctx.now }
         const reason = SUPPRESSING[s]
         const suppression = head.suppression ?? (reason ? { reason, at: ctx.now } : null)
-        return { ok: true, state: { ...head, suppression, deliveries: record(head, r) }, value: r, outbox: [report(r)] }
+        return { ok: true, state: { ...head, suppression, deliveries: record(head, r) }, value: r, outbox: report(r) }
       }
       case "contact.suppress": {
         const { reason } = params
@@ -112,6 +119,8 @@ export const contactDomain: Domain<ContactHead, Params> = {
       }
       case "contact.unsuppress": {
         if (!head.suppression) return { ok: true, state: head, value: null, changed: false }
+        // An operator's block is not the address owner's to lift.
+        if (head.suppression.reason === "admin") return refuse("forbidden", "this address was blocked by cmux")
         return { ok: true, state: { ...head, suppression: null }, value: null }
       }
       case "contact.link": {
@@ -130,10 +139,34 @@ export const contactDomain: Domain<ContactHead, Params> = {
 /** What the Worker learns; it must answer the inviter the same way whether or not `suppressed`. */
 const summary = (h: ContactHead) => ({ contact: h.contact, channel: h.channel, linked_user: h.linked_user, suppressed: h.suppression !== null })
 
-/** The delivery report for the invite's conversation (forward-only there too). */
-const report = (r: DeliveryRecord) => ({
-  kind: "invite.delivery.report",
-  entity: `delivery:${r.invite}:${r.state}`,
-  payload: { invite_id: r.invite, delivery: { state: r.state, provider_id: r.provider_id, at: r.at } },
-  target: { class: "ConversationDO", name: r.conversation }
-})
+/**
+ * The conversation knows fewer states than ContactDO: in-flight states are not
+ * reported, and the reasons the inviter must not learn (repeat, recipient
+ * limits, a disabled switch) collapse into states it already has.
+ */
+const REPORTED: Readonly<Partial<Record<DeliveryState, string>>> = {
+  sent: "sent",
+  delivered: "delivered",
+  failed: "failed",
+  bounced: "bounced",
+  complained: "complained",
+  suppressed: "suppressed",
+  refused_env: "refused_env",
+  disabled: "refused_env",
+  repeat: "suppressed",
+  recipient_limited: "suppressed"
+}
+
+/** The delivery report for the invite's conversation (forward-only there too); none for in-flight states. */
+const report = (r: DeliveryRecord): ReadonlyArray<OutboxItem> => {
+  const state = REPORTED[r.state]
+  if (!state) return []
+  return [
+    {
+      kind: "invite.delivery.report",
+      entity: `delivery:${r.invite}:${state}`,
+      payload: { invite_id: r.invite, delivery: { state, ...(r.provider_id ? { provider_id: r.provider_id } : {}) } },
+      target: { class: "ConversationDO", name: r.conversation }
+    }
+  ]
+}
