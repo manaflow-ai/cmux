@@ -135,7 +135,7 @@ public struct DaemonCapabilities: Sendable {
     /// Finished shell commands (OSC 133) journaled as `shell.command.finished`
     /// once `set-terminal-command-history` turns it on (plans/cmux-next/history.md 6).
     public let terminalCommandJournal = "terminal-command-journal-v1"
-    public var awaitingPin: [String] { [remoteTerminalTabs, detachedTerminals, bookmarks, stickyColumns] }
+    public var awaitingPin: [String] { [remoteTerminalTabs, detachedTerminals, bookmarks, stickyColumns, endTerminalsKeepLayout] }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     public var advertised: [String] { required + optional + awaitingPin + [
