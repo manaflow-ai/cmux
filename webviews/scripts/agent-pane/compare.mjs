@@ -49,7 +49,9 @@ const args = process.argv.slice(2);
 const option = (name) => {
   const index = args.indexOf(`--${name}`);
   if (index < 0) return undefined;
-  const [value] = args.splice(index, 2).slice(1);
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith("--")) throw new Error(`--${name} needs a value`);
+  args.splice(index, 2);
   return value;
 };
 const atlas = path.resolve(option("atlas") ?? process.env.CMUX_AGENT_PANE_ATLAS ?? path.join(os.homedir(), "Projects/codex-atlas-clone"));
@@ -60,15 +62,18 @@ for (const name of names) if (!scenarios[name]) throw new Error(`unknown scenari
 const server = await createServer({ configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"), server: { port: 0, strictPort: false }, logLevel: "error" });
 await server.listen();
 const url = server.resolvedUrls.local[0];
-const browser = await chromium.launch();
 try {
-  for (const name of names) console.log(await run(name, scenarios[name]));
+  const browser = await chromium.launch();
+  try {
+    for (const name of names) console.log(await run(browser, name, scenarios[name]));
+  } finally {
+    await browser.close();
+  }
 } finally {
-  await browser.close();
   await server.close();
 }
 
-async function run(name, scenario) {
+async function run(browser, name, scenario) {
   const fixture = JSON.parse(fs.readFileSync(path.join(here, scenario.fixture), "utf8"));
   const referencePath = path.join(atlas, scenario.reference);
   if (!fs.existsSync(referencePath)) throw new Error(`${referencePath} not found; pass --atlas <codex-atlas-clone checkout>`);
@@ -78,7 +83,9 @@ async function run(name, scenario) {
   const context = await browser.newContext({ viewport: { width: Math.round(pane.width), height: Math.round(pane.height) }, deviceScaleFactor: scale, colorScheme: "dark" });
   try {
     const page = await context.newPage();
-    page.on("pageerror", (error) => console.error(`${name}: page error: ${error.message}`));
+    // A page that throws is not the pane being measured.
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
     await page.addInitScript(({ steps, endAtMs }) => {
       window.cmuxAcpmuxMockScript = { steps, endAtMs };
       window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
@@ -89,10 +96,13 @@ async function run(name, scenario) {
     await page.evaluate((theme) => window.cmuxAcpmuxBridge.applyTheme(theme), agentPaneTheme(ghosttyDefault));
     // The mock daemon answers the prompt once the recorded turn has finished.
     await page.evaluate((prompt) => window.cmuxAcpmuxActions["chat.send"]({ text: prompt }), fixture.prompt);
+    // The turn is drawn once its closing row is: wait for React to commit it.
+    await page.waitForFunction(() => document.querySelector('.acpmux-scroll [data-row-id^="summary-"]'));
     await page.evaluate(() => document.fonts.ready);
     if (scenario.anchor) await scrollToAnchor(page, scenario.anchor);
     await settle(page);
     const shot = PNG.sync.read(await page.screenshot({ animations: "disabled", caret: "hide" }));
+    if (errors.length) throw new Error(`${name}: the page threw: ${errors.join("; ")}`);
 
     const crop = (source, x, y) => {
       const [w, h] = [Math.round(compare.width * scale), Math.round(compare.height * scale)];
@@ -105,13 +115,16 @@ async function run(name, scenario) {
     const { width, height } = expected;
     const diff = new PNG({ width, height });
     const mismatched = pixelmatch(expected.data, actual.data, diff.data, width, height, { threshold: 0.1 });
+    // At 0.1 two near-black backgrounds count as equal; the strict score shows color casts too.
+    const strict = pixelmatch(expected.data, actual.data, null, width, height, { threshold: 0.02 });
     const side = new PNG({ width: width * 2, height });
     PNG.bitblt(expected, side, 0, 0, width, height, 0, 0);
     PNG.bitblt(actual, side, 0, 0, width, height, width, 0);
     const dir = path.join(outRoot, name);
     fs.mkdirSync(dir, { recursive: true });
     for (const [file, png] of Object.entries({ ref: expected, actual, diff, side })) fs.writeFileSync(path.join(dir, `${file}.png`), PNG.sync.write(png));
-    return `${name}: ${(100 * mismatched / (width * height)).toFixed(3)}% mismatched (${dir})`;
+    const percent = (count) => (100 * count / (width * height)).toFixed(3);
+    return `${name}: ${percent(mismatched)}% mismatched, ${percent(strict)}% at threshold 0.02 (${dir})`;
   } finally {
     await context.close();
   }
@@ -128,7 +141,7 @@ async function scrollToAnchor(page, anchor) {
   for (let attempt = 0; attempt < 40; attempt++) {
     const delta = await page.evaluate(({ text, top }) => {
       const scroller = document.querySelector(".acpmux-scroll");
-      if (!scroller) return null;
+      if (!scroller) return "no transcript scroller (.acpmux-scroll)";
       const walker = document.createTreeWalker(scroller, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
         const at = node.data.indexOf(text);
@@ -142,9 +155,9 @@ async function scrollToAnchor(page, anchor) {
       }
       const before = scroller.scrollTop;
       scroller.scrollTop += scroller.clientHeight;
-      return scroller.scrollTop === before ? null : Infinity;
+      return scroller.scrollTop === before ? `anchor text not found in one text node: ${text}` : Infinity;
     }, anchor);
-    if (delta === null) throw new Error(`anchor text not found: ${anchor.text}`);
+    if (typeof delta === "string") throw new Error(delta);
     await settle(page);
     if (delta === 0) return;
   }
