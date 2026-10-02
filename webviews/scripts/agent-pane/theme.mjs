@@ -89,6 +89,8 @@ export function agentPaneTheme(input) {
     softText: css(t.textTertiary),
     accent: css(t.textPrimary),
     accentSoft: css(t.selectionFill),
+    // Labels on the accent: the page background, opaque so a translucent backdrop doesn't thin them.
+    accentText: css(withAlpha(page, 1)),
     danger: css(t.danger),
     shadow: css(t.shadow),
   };
