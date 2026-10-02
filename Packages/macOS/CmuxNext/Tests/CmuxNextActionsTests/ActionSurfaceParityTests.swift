@@ -160,7 +160,6 @@ import Testing
             try current.write(to: url, atomically: true, encoding: .utf8)
         }
         let stored = try String(contentsOf: url, encoding: .utf8)
-        if stored != current { print("ACTION_EXPORT_BEGIN\n\(current)\nACTION_EXPORT_END") }
         #expect(stored == current, "action-surfaces.json is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
     }
 
@@ -177,7 +176,6 @@ import Testing
             try (String(text[..<start.lowerBound]) + current + String(text[end.upperBound...])).write(to: url, atomically: true, encoding: .utf8)
             return
         }
-        if String(text[start.lowerBound..<end.upperBound]) != current { print("ACTION_REPORT_BEGIN\n\(current)\nACTION_REPORT_END") }
         #expect(String(text[start.lowerBound..<end.upperBound]) == current, "actions.md is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
     }
 

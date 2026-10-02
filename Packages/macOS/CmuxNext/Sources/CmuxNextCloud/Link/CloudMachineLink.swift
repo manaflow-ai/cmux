@@ -36,14 +36,20 @@ public actor CloudMachineLink {
     }
 
     public func socketPath() async throws -> String {
+        let generation = generation
         try checkGeneration(generation)
         if let socket, child?.isRunning == true, FileManager.default.fileExists(atPath: socket) { return socket }
-        if let starting { return try await starting.value }
-        let generation = generation
+        if let starting {
+            let path = try await starting.value
+            try checkGeneration(generation)
+            return path
+        }
         let task = Task { try await self.start(generation: generation) }
         starting = task
         defer { if self.generation == generation { starting = nil } }
-        return try await task.value
+        let path = try await task.value
+        try checkGeneration(generation)
+        return path
     }
 
     /// Ends the link for good (machine removed, sign-out, quit).
