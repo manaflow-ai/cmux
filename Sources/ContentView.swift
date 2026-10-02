@@ -19,6 +19,7 @@ import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettingsUI
 import CmuxSidebar
+import CmuxSurfaceCatalogModel
 import CmuxSidebarRemoteRender
 import CmuxSwiftRender
 import CmuxSwiftRenderUI
@@ -1003,6 +1004,8 @@ struct ContentView: View {
     @State private var commandPaletteSearchCorpus: [CommandPaletteSearchCorpusEntry<String>] = []
     @State private var commandPaletteSearchCorpusByID: [String: CommandPaletteSearchCorpusEntry<String>] = [:]
     @State private var commandPaletteSearchCommandsByID: [String: CommandPaletteCommand] = [:]
+    @State private var commandPaletteCloudWorkspaceTargetsCache: [CommandPaletteCloudWorkspaceTarget] = []
+    @State private var commandPaletteCloudWorkspaceTargetsCacheKey: Int?
 
     private var isCommandPalettePresented: Bool {
         commandPaletteOverlayState.isCommandPalettePresented
@@ -5760,6 +5763,21 @@ struct ContentView: View {
         guard CloudMachinesFeature.isEnabled else { return [] }
         let catalog = SurfaceCatalog.shared
         let snapshot = catalog.snapshot
+        var keyHasher = Hasher()
+        for machine in snapshot.machines where !machine.id.isLocal {
+            keyHasher.combine(machine.id.rawValue)
+            keyHasher.combine(machine.name)
+            for workspace in machine.remoteWorkspaces ?? [] {
+                keyHasher.combine(workspace.id)
+                keyHasher.combine(workspace.name)
+                keyHasher.combine(workspace.index)
+            }
+        }
+        keyHasher.combine(String(describing: catalog.sidebarOrganization.state))
+        let cacheKey = keyHasher.finalize()
+        if commandPaletteCloudWorkspaceTargetsCacheKey == cacheKey {
+            return commandPaletteCloudWorkspaceTargetsCache
+        }
         let allNodes = CloudTreeNodeBuilder.nodes(
             machines: [],
             snapshot: snapshot,
@@ -5781,12 +5799,15 @@ struct ContentView: View {
             }
 
         var seen = Set<String>()
-        return orderedNodes.compactMap { node in
+        let targets = orderedNodes.compactMap { node in
             guard case .workspace(let machine, let workspace, _, _, _) = node.kind,
                   let group = node.dragGroup,
                   seen.insert("\(machine.rawValue):\(workspace.id)").inserted else { return nil }
             return CommandPaletteCloudWorkspaceTarget(machine: machine, workspace: workspace, group: group)
         }
+        commandPaletteCloudWorkspaceTargetsCacheKey = cacheKey
+        commandPaletteCloudWorkspaceTargetsCache = targets
+        return targets
     }
 
     private func openCommandPaletteCloudWorkspace(_ target: CommandPaletteCloudWorkspaceTarget) {
