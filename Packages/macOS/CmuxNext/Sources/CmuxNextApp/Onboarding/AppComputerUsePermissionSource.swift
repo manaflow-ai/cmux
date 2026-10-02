@@ -29,8 +29,8 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
 
     /// Whether a process accepts connections on the Unix socket at `path`.
     /// The descriptor is non-blocking, so a local connect returns at once:
-    /// accepted, refused (no daemon), or EAGAIN (a daemon with a full
-    /// backlog, which still counts).
+    /// accepted, or refused (no daemon). EAGAIN, where a system reports a
+    /// full backlog that way, still counts as listening.
     static func isListening(_ path: String) -> Bool {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)

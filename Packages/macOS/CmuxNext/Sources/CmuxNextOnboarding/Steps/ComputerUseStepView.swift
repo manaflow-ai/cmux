@@ -55,7 +55,7 @@ final class ComputerUseStepView: NSView {
         panelPane = helping
         panel?.orderOut(nil)
         panel = nil
-        guard helping != nil, let url = model.helperAppURL else { return }
+        guard helping != nil, window != nil, let url = model.helperAppURL else { return }
         let next = HelperDragPanel(appURL: url) { [weak model] in model?.dismissHelper() }
         next.show(on: window?.screen)
         panel = next

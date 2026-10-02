@@ -33,12 +33,34 @@ import Testing
         #expect(await first.value == nil)
     }
 
-    @Test func aSocketFileWithNoDaemonIsNotListening() throws {
+    @Test func onlyABoundAndListeningSocketCounts() throws {
         let path = FileManager.default.temporaryDirectory.appending(path: "cu-\(UUID().uuidString.prefix(8)).sock").path
+        defer { unlink(path) }
         #expect(!AppComputerUsePermissionSource.isListening(path))
-        // A leftover file where a socket was: still nobody to answer.
-        try Data().write(to: URL(fileURLWithPath: path))
-        defer { try? FileManager.default.removeItem(atPath: path) }
+        // A daemon listening there.
+        let listener = try #require(Self.bound(path))
+        listen(listener, 1)
+        #expect(AppComputerUsePermissionSource.isListening(path))
+        // The daemon exits and leaves its socket file behind.
+        close(listener)
+        #expect(FileManager.default.fileExists(atPath: path))
         #expect(!AppComputerUsePermissionSource.isListening(path))
+    }
+
+    /// A Unix socket bound at `path`, not yet listening.
+    static func bound(_ path: String) -> Int32? {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: path.utf8)
+            buffer[path.utf8.count] = 0
+        }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return nil }
+        let result = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        guard result == 0 else { close(fd); return nil }
+        return fd
     }
 }
