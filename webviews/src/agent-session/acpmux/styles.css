@@ -99,6 +99,9 @@
 .acpmux-on{color:var(--agent-text)}
 
 .acpmux-menu-item .acpmux-icon:first-child{color:var(--agent-muted)}
+.acpmux-menu-search{display:flex;align-items:center;gap:8px;min-height:30px;margin-bottom:4px;padding:0 8px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-text)}
+.acpmux-menu-search .acpmux-icon{color:var(--agent-muted)}
+.acpmux-menu-search-empty{color:var(--acpmux-composer-dim)}
 .acpmux-menu-hint{flex:none;min-width:18px;padding:0 5px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,transparent);color:var(--agent-muted);font:12px/18px ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center}
 /* A new chat: the hero and the composer meet at the middle, never with the composer pinned at the top. */
 .acpmux-main[data-new-chat]>.acpmux-stage{flex:1 1 0;min-height:0}
