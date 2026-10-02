@@ -1,5 +1,4 @@
-//! Tab groups (named, colored, collapsible runs of tabs) and saved (pinned)
-//! groups.
+//! Tab groups (named, colored, collapsible tab runs) and saved (pinned) groups.
 //!
 //! A tab group lives in one pane's tab strip: an id, a name (may be empty),
 //! one of nine named colors, and a shared collapsed flag. Each tab

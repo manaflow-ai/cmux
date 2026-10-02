@@ -1,6 +1,5 @@
-// Timestamp lines between turns ("Sun, Sep 13 at 7:55 PM", "Yesterday 8:16 PM"), as Codex
-// derives them. After the reference prototype's src/conversation/timestamps.ts, which mirrors the
-// desktop bundle (`timestamps-*.js`):
+// Timestamp lines between turns ("Sun, Sep 13 at 7:55 PM", "Yesterday 8:16 PM"). After the
+// reference prototype's src/conversation/timestamps.ts:
 //
 // - which turns: each turn contributes its prompt (sent at the turn's start) and, when it has
 //   one, its final answer (when that started). A turn gets a line above it when its prompt is

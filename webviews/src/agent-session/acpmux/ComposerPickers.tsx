@@ -24,7 +24,7 @@ type Props = {
   onEffort(configId: string, value: string): void;
 };
 
-/// The composer bar's controls, as Codex, Claude and T3 Code draw them: the
+/// The composer bar's controls: the
 /// permission mode (in the warning color when it skips approvals) and a
 /// Plan/Build toggle after the attach button, then the model and the effort as
 /// two dropdowns and the context used at the right. Groups are set apart by a
@@ -119,12 +119,12 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
   );
 }
 
-/// Plan modes (Claude's "plan") read and propose without editing; the toggle sits apart from the permission chip.
+/// Plan modes (an id ending in "plan") read and propose without editing; the toggle sits apart from the permission chip.
 export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
 }
 
-/// How much of the context window the session has used, as Claude draws it: a ring that fills.
+/// How much of the context window the session has used, as a ring that fills.
 export function ContextRing({ used, size }: { used: number; size: number }) {
   const fraction = Math.min(1, Math.max(0, used / size));
   const percent = Math.round(fraction * 100);
@@ -159,7 +159,7 @@ export function ContextRing({ used, size }: { used: number; size: number }) {
   );
 }
 
-/// Modes that skip approvals draw in the theme's warning color, as Codex draws "Full access".
+/// Modes that skip approvals (such as "Full access") draw in the theme's warning color.
 export function unrestricted(modeId: string): boolean {
   return /bypass|full|yolo|dangerous|auto[-_ ]?approve/i.test(modeId);
 }
@@ -188,7 +188,7 @@ export function Picker({
   warnUnrestricted?: boolean;
   /// An action menu hands focus to whatever its pick focuses, not back to the button.
   returnFocus?: boolean;
-  /// A question over the choices, as Codex's approval menu asks it.
+  /// A question over the choices, as an approval menu asks it.
   heading?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -289,7 +289,7 @@ export function Picker({
       >
         {button}
       </button>
-      {/* A native select cannot hold descriptions, sections or the Codex look. */}
+      {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className={`acpmux-menu acpmux-menu-${align}`} id={menuId} role="listbox" aria-label={heading ?? label}>
@@ -356,7 +356,7 @@ export function Picker({
   );
 }
 
-// Icons from the Codex chrome (a 16px grid drawn at 18px, stroke in currentColor).
+// Composer icons (a 16px grid drawn at 18px, stroke in currentColor).
 function Icon({ children, size = 18 }: { children: React.ReactNode; size?: number }) {
   return (
     <svg

@@ -1,4 +1,4 @@
-// Codex turn rules taken from the reference prototype port (#16759): N previous messages, one
+// Turn rules taken from the reference prototype port (#16759): N previous messages, one
 // edited-files card per turn, and the fold label without a tool-call count.
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
@@ -24,7 +24,7 @@ const tool = (id: string, kind: string, path?: string) => ({
 });
 const ids = (rows: AcpmuxRow[]) => rows.map((entry) => entry.id);
 
-describe("Codex turn rules", () => {
+describe("turn rules", () => {
   test("an earlier turn without a summary folds under N previous messages", () => {
     const rows = [
       row("u1", "user", 0, { text: "old" }),
@@ -63,7 +63,7 @@ describe("Codex turn rules", () => {
     expect(card.version).toBe(4);
   });
 
-  test("the fold reads as Codex words it, without a tool-call count", () => {
+  test("the fold reads as a duration, without a tool-call count", () => {
     expect(workedLabel(row("w", "worked", 0, { durationMs: 76_000, toolCount: 3 }))).toBe("Worked for 1m 16s");
     expect(workedLabel(row("w", "worked", 0, { durationMs: 40_000, status: "cancelled" }))).toBe(
       "You stopped after 40s",

@@ -21,7 +21,7 @@ const codeUnsafeCSS = `${diffUnsafeCSS}
 pre, code, [data-code], [data-content], [data-line] { background: transparent !important; --diffs-line-bg: transparent; }
 `;
 
-/// Header label Codex shows for a fence language.
+/// Header label shown for a fence language.
 const LANG_LABELS: Record<string, string> = {
   text: "Plain text",
   txt: "Plain text",

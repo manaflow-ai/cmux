@@ -4,8 +4,8 @@ import { t } from "./i18n";
 
 /// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
 /// title, the model under it, and a stepped slider with one stop per level the agent offers.
-/// The slider is a native range input (arrow keys, Home and End step it), drawn as Codex's
-/// track (a click on the track jumps to the nearest stop). Picking sends chat.effort through `onPick`.
+/// The slider is a native range input (arrow keys, Home and End step it), drawn as a
+/// stepped track (a click on the track jumps to the nearest stop). Picking sends chat.effort through `onPick`.
 export function EffortPicker({
   efforts,
   current,

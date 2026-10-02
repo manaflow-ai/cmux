@@ -30,7 +30,7 @@ test("active rate limit row breaks ties by longer reset window", () => {
   expect(row?.role).toBe("secondary");
 });
 
-test("rate limit formatting matches Codex compact labels", () => {
+test("rate limit formatting uses compact labels", () => {
   expect(formatRateLimitPercent(93.4)).toBe("93%");
   expect(formatRateLimitWindow(300, "Primary")).toBe("Primary");
   expect(formatRateLimitWindow(300, "Primary", compactRateLimitLabels())).toBe("5 hours");

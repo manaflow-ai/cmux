@@ -1,4 +1,4 @@
-// The transcript as Codex draws a turn: the prompt, a "Worked for 15s" disclosure that holds
+// A turn in the transcript: the prompt, a "Worked for 15s" disclosure that holds
 // the commentary and tool calls, the final answer, the turn's edited files, then a footer.
 // A pure pass over the client's rows (direct.ts keeps them in event order), so the
 // virtualized transcript still lays out one row per entry. After the reference prototype's
@@ -35,9 +35,9 @@ export function formatDuration(ms: number): string {
 
 export const toolCalls = (count = 0) => (count === 1 ? "1 tool call" : `${count} tool calls`);
 
-/// The disclosure's label, as Codex words it: "Worked for 1m 16s", "You stopped after 40s",
+/// The disclosure's label: "Worked for 1m 16s", "You stopped after 40s",
 /// or "34 previous messages" for a turn whose timing is unknown (a reloaded turn without a
-/// summary). Codex shows no tool-call count here.
+/// summary). It shows no tool-call count.
 export function workedLabel(row: AcpmuxRow): string {
   if (row.previous !== undefined)
     return row.previous === 1 ? t("turn.previous.one") : t("turn.previous.other", { n: row.previous });
@@ -102,7 +102,7 @@ function shapeTurn(
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status.
   // An earlier turn without a summary ended long ago (a later prompt follows it): it folds as
-  // Codex folds a reloaded turn without timing. The last one may only be waiting for its
+  // a reloaded turn without timing. The last one may only be waiting for its
   // summary, so it draws as it came.
   if (end < 0) return live ? liveTurn(user, turn) : last ? turn : settledWithoutSummary(user, turn, expanded);
   const summary = turn[end]!;
@@ -150,7 +150,7 @@ function shapeTurn(
 
 const VERSION_SPAN = 1_000_000;
 
-/// One edited-files card per turn, as Codex draws it: the turn's edit rows merged into the
+/// One edited-files card per turn: the turn's edit rows merged into the
 /// first one (its id, so View changes still finds the turn), every edit's items in order.
 function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
   if (edits.length <= 1) return edits;
@@ -166,7 +166,7 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 }
 
 /// A turn that ended without a summary (history paged in from before acpmux kept one, or a
-/// turn a restart cut off): its work folds under "N previous messages", as Codex shows a
+/// turn a restart cut off): its work folds under "N previous messages", like any
 /// reloaded turn without timing, and its answer and edits draw after it.
 function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {
   const rows = turn.filter((row) => row.kind !== "typing");

@@ -1,10 +1,9 @@
-// Ported from the agent-pane reference prototype (src/conversation/Markdown.tsx), checked
-// against native Codex captures.
+// Ported from the agent-pane reference prototype (src/conversation/Markdown.tsx).
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
-// DOM shape as the Codex transcript: headings, paragraphs (single newlines are line
+// DOM shape for every transcript: headings, paragraphs (single newlines are line
 // breaks), nested ordered/bullet/task lists, blockquotes, rules, aligned tables, fenced
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), and `$…$` / `$$…$$` math
-// for the simple arithmetic Codex typesets (see Math.tsx).
+// for simple arithmetic (see Math.tsx).
 import { Fragment, type ReactNode } from "react";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
@@ -175,7 +174,7 @@ export type InlineOptions = {
 };
 
 /**
- * Codex marks a link with its site: GitHub mark, the arXiv favicon (a citation), a file
+ * A link is marked with its site: GitHub mark, the arXiv favicon (a citation), a file
  * glyph for a local path (`/Users/…/README.md`, `file://…`), or a globe.
  */
 export function linkKind(href: string): "github" | "citation" | "file" | "web" {
@@ -284,7 +283,7 @@ function Block({ block, opts, depth }: { block: MdBlock; opts: InlineOptions; de
       );
     }
     case "table": {
-      // Codex gives long-text columns a 256px minimum and the rest 128px.
+      // Long-text columns get a 256px minimum and the rest 128px.
       const plain = (t: string) => t.replace(/[`*_~]|\[|\]\([^)]*\)/g, "");
       const wide = block.header.map((_, i) => block.rows.some((r) => plain(r[i] ?? "").length > 40));
       return (
