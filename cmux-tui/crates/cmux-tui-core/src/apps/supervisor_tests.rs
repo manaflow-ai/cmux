@@ -323,6 +323,8 @@ fn list_shows_available_apps_and_installs_need_a_user() {
     let record = f.set("k2", "cmux/demo", Origin::User, |o| o.installed = Some(true)).unwrap();
     assert_eq!(record["installed"], true);
     assert_eq!(record["source"], "user");
+    assert_eq!(record["revision"], f.supervisor.list()["revision"]);
+    assert!(record["bundle_dir"].as_str().is_some_and(|d| d.ends_with("bundled/demo")));
     let changed = f.wait_event("apps-changed");
     let settled = f.wait_event("request-settled");
     assert_eq!(changed["transaction"], settled["transaction"]);
