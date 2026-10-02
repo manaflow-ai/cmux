@@ -27,6 +27,7 @@
 
 mod config;
 mod device;
+mod multipath;
 mod net;
 mod stream;
 mod underlay;
@@ -36,6 +37,7 @@ pub mod testing;
 
 pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};
 pub use ip_network::IpNetwork;
+pub use multipath::{Multipath, MultipathControl, PathStats};
 pub use net::{WgError, WgListener, WgNet};
 pub use stream::WgStream;
 pub use underlay::{DatagramSocket, Origin, Received, SocketPath, UdpUnderlay, Underlay};
