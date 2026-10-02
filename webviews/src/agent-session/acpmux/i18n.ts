@@ -28,6 +28,10 @@ const en = {
   "picker.search": "Type to search models",
   "picker.noMatches": "No matching models",
   "picker.back": "Back",
+  "project.label": "Project",
+  "project.choose": "Choose project",
+  "project.search": "Search projects",
+  "project.none": "No matching projects",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -58,6 +62,10 @@ const ja: Record<StringKey, string> = {
   "picker.search": "入力してモデルを検索",
   "picker.noMatches": "一致するモデルはありません",
   "picker.back": "戻る",
+  "project.label": "プロジェクト",
+  "project.choose": "プロジェクトを選択",
+  "project.search": "プロジェクトを検索",
+  "project.none": "一致するプロジェクトはありません",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

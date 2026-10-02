@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef } from "react";
 import { ChevronIcon, PICKER_LABELS } from "./ComposerPickers";
 import type { PickerLayout } from "./modelPickerLayout";
+import { registerPicker } from "./pickerOpeners";
 
 /// The model chip and the popover above it. Focus stays on the chip while the popover is open,
 /// so typing, arrows, digits and Return reach `onKeyDown`; a press elsewhere, the window losing
@@ -43,6 +44,26 @@ export function ModelPickerShell({
       window.removeEventListener("blur", blur);
     };
   }, [open, onOpenChange]);
+  // Opens the menu (never toggles it shut) and keeps the keys on the chip, as a click does.
+  const show = () => {
+    if (!open) onOpenChange(true);
+    // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt.
+    trigger.current?.focus();
+  };
+  const showRef = useRef(show);
+  showRef.current = show;
+  // Automation opens the menu by its label through the click path, which takes focus off the
+  // prompt first: that closes the slash menu and restores the draft.
+  useEffect(
+    () =>
+      registerPicker(PICKER_LABELS.model, () => {
+        const focused = document.activeElement;
+        // Focus already on the chip stays there: blurring it would close the open menu.
+        if (focused instanceof HTMLElement && !root.current?.contains(focused)) focused.blur();
+        showRef.current();
+      }),
+    [],
+  );
   return (
     <span
       ref={root}
@@ -57,6 +78,7 @@ export function ModelPickerShell({
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="combobox"
         className="acpmux-picker-button"
+        data-menu={PICKER_LABELS.model}
         aria-label={PICKER_LABELS.model}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -68,11 +90,7 @@ export function ModelPickerShell({
             onOpenChange(true);
           }
         }}
-        onClick={() => {
-          onOpenChange(!open);
-          // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt.
-          trigger.current?.focus();
-        }}
+        onClick={() => (open ? onOpenChange(false) : show())}
       >
         <span className="acpmux-model-name">{chip}</span>
         <ChevronIcon />

@@ -2,17 +2,21 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { EffortTrack } from "./EffortTrack";
 import { t } from "./i18n";
+import { registerPicker } from "./pickerOpeners";
 
 /// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
 /// title, the model under it, and a stepped slider with one stop per level the agent offers.
 /// The slider is EffortTrack. Picking sends chat.effort through `onPick`.
 export function EffortPicker({
+  label,
   efforts,
   current,
   model,
   onPick,
   chevron,
 }: {
+  /// The stable name automation opens it by (`openPicker`), whatever the UI language.
+  label: string;
   efforts: Choice[];
   current?: string;
   model?: string;
@@ -27,6 +31,21 @@ export function EffortPicker({
     efforts.findIndex((choice) => choice.id === current),
   );
   const name = efforts[level]?.name ?? t("effort.title");
+  // Automation opens the popover by its label as a click does (see pickerOpeners.ts).
+  // Already open, it only puts the focus back on the slider.
+  useEffect(
+    () =>
+      registerPicker(label, () => {
+        const range = root.current?.querySelector<HTMLInputElement>(".acpmux-effort-range");
+        if (range) {
+          range.focus();
+          return;
+        }
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        setOpen(true);
+      }),
+    [label],
+  );
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
@@ -45,6 +64,7 @@ export function EffortPicker({
       <button
         type="button"
         className="acpmux-picker-button"
+        data-menu={label}
         aria-label={t("effort.title")}
         aria-haspopup="dialog"
         aria-expanded={open}

@@ -19,13 +19,13 @@ import Testing
         for _ in 0..<200 where !condition() { await Task.yield() }
     }
 
-    @Test func fourStepsWithAccountsThreeWithout() {
-        #expect(OnboardingModel(services: MockOnboardingServices()).steps == [.defaultBrowser, .importData, .theme])
+    @Test func fiveStepsWithAccountsFourWithout() {
+        #expect(OnboardingModel(services: MockOnboardingServices()).steps == [.role, .defaultBrowser, .importData, .theme])
         let services = MockOnboardingServices()
         services.accountsView = NSView()
         let model = OnboardingModel(services: services)
-        #expect(model.steps == [.defaultBrowser, .importData, .theme, .accounts])
-        for _ in 0..<3 { model.next() }
+        #expect(model.steps == [.role, .defaultBrowser, .importData, .theme, .accounts])
+        for _ in 0..<4 { model.next() }
         #expect(model.step == .accounts && model.isLast)
         model.back()
         #expect(model.step == .theme)
@@ -312,7 +312,7 @@ import Testing
 
     @Test func defaultBrowserClaimUsesTheRegistry() async {
         let registry = RecordingDefaultApps(appBundleURL: Self.app, schemes: ["https": URL(fileURLWithPath: "/Applications/Safari.app")])
-        let model = OnboardingModel(services: MockOnboardingServices(defaultApps: registry))
+        let model = OnboardingModel(services: MockOnboardingServices(defaultApps: registry), start: .defaultBrowser)
         model.stepDidAppear()
         #expect(model.defaults.currentBrowserName == "Safari")
         model.defaults.request(.webBrowser)
@@ -324,7 +324,7 @@ import Testing
     @Test func refusedBrowserPromptLeavesItUnclaimedWithoutAnError() async {
         let registry = RecordingDefaultApps(appBundleURL: Self.app)
         registry.refusedSchemes = ["http"]
-        let model = OnboardingModel(services: MockOnboardingServices(defaultApps: registry))
+        let model = OnboardingModel(services: MockOnboardingServices(defaultApps: registry), start: .defaultBrowser)
         model.defaults.request(.webBrowser)
         await settle { model.defaults.pending.isEmpty }
         #expect(!model.defaults.isClaimed(.webBrowser))

@@ -1311,133 +1311,133 @@
         }
       }
     },
-    "action.sidebar.section.toggleRoomScope": {
+    "action.sidebar.section.toggleSpaceScope": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Only in This Room"
+            "value": "Show Only in This Space"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このルームでのみ表示"
+            "value": "このスペースでのみ表示"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "العرض في هذه الغرفة فقط"
+            "value": "العرض في هذه المساحة فقط"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prikaži samo u ovoj sobi"
+            "value": "Prikaži samo u ovom prostoru"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis kun i dette rum"
+            "value": "Vis kun i dette område"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nur in diesem Raum anzeigen"
+            "value": "Nur in diesem Space anzeigen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostrar solo en esta sala"
+            "value": "Mostrar solo en este espacio"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afficher seulement dans cette salle"
+            "value": "Afficher seulement dans cet espace"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostra solo in questa stanza"
+            "value": "Mostra solo in questo spazio"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បង្ហាញតែក្នុងបន្ទប់នេះ"
+            "value": "បង្ហាញតែក្នុងលំហនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 룸에서만 표시"
+            "value": "이 스페이스에서만 표시"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis bare i dette rommet"
+            "value": "Vis bare i dette området"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokaż tylko w tym pokoju"
+            "value": "Pokaż tylko w tym obszarze"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostrar somente nesta sala"
+            "value": "Mostrar somente neste espaço"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показывать только в этой комнате"
+            "value": "Показывать только в этой области"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แสดงเฉพาะในห้องนี้"
+            "value": "แสดงเฉพาะในพื้นที่นี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yalnızca bu odada göster"
+            "value": "Yalnızca bu alanda göster"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показувати лише в цій кімнаті"
+            "value": "Показувати лише в цьому просторі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chỉ hiện trong phòng này"
+            "value": "Chỉ hiện trong không gian này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "仅在此房间显示"
+            "value": "仅在此空间显示"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "僅在此房間顯示"
+            "value": "僅在此空間顯示"
           }
         }
       }
@@ -2486,6 +2486,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "通知"
+          }
+        }
+      }
+    },
+    "argument.sidebar.builtin.customize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize Appearance"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "外観をカスタマイズ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تخصيص المظهر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagodi izgled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpas udseende"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erscheinungsbild anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizar apariencia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personnaliser l’apparence"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizza aspetto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូររូបរាងតាមបំណង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모양 사용자화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpass utseende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostosuj wygląd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizar aparência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настроить оформление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปรับแต่งรูปลักษณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Görünümü Özelleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштувати вигляд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tùy chỉnh giao diện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定义外观"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂外觀"
           }
         }
       }

@@ -71,9 +71,10 @@ class PageInfoWindow: NSWindow, ThemeResponsive {
         animationBehavior = .utilityWindow
     }
 
-    /// The background of the adopted theme scope, again on every change.
+    /// The background of the adopted theme scope, again on every change:
+    /// opaque, so a see-through main window never shows through.
     func themeDidChange() {
-        backgroundColor = themeScope.perform { Palette.windowBackground }
+        backgroundColor = themeScope.perform { Palette.utilityWindowBackground }
     }
 
     /// Escape closes.

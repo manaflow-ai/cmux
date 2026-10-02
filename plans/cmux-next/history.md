@@ -30,7 +30,7 @@ journal (cmux-tui/spec/session-journal.md).
 | Kind | Fact | Owner (writes) | Store | Retention | Restore action |
 | --- | --- | --- | --- | --- | --- |
 | `page` | a finished main-frame navigation: URL, title, time, browser profile, tab | the app (browsers always run locally) | per browser profile, app-local SQLite `BrowserProfiles/<profile>/History.sqlite` (one history database per profile) | 90 days, at most 100,000 visits per profile | Open (current tab, new tab) |
-| `location` | where the user was: window, room, machine, workspace, screen, pane, tab (the "where was I" trail) | the app, from each window's settled focus | home session personal projection `history.trail` (≤ 1 MiB CAS document) | 200 entries | Go Back / Go Forward, Go To |
+| `location` | where the user was: window, space, machine, workspace, screen, pane, tab (the "where was I" trail) | the app, from each window's settled focus | home session personal projection `history.trail` (≤ 1 MiB CAS document) | 200 entries | Go Back / Go Forward, Go To |
 | `closed` | a closed tab, screen or workspace with what reopens it (kind, pane, index, cwd, URL, engine, terminal id) | the app observes the daemon trees (a tab gone while its workspace lives); later the daemon (`closed-history-v1`) | memory (25 tabs, 20 screens) | session of the app; terminals reopen live within the daemon's 30 s reap grace, else a new shell in the same directory | Reopen |
 | `layout` | a structural layout change on a screen (split, column resize, swap, zoom, tab move) | the daemon (`layout-undo-v1`, 32 entries per screen, memory) | daemon | daemon lifetime | Undo Layout Change |
 | `command` | a finished shell command: command line, cwd, exit status, start, duration, terminal | the daemon (it parses OSC 133 prompt marks for every terminal, with or without the app) | the session journal, kind `terminal.command.finished` (capability `terminal-command-journal-v1`) | the journal's retention (never silently deleted) | Run Again (new tab, same machine and cwd), Copy |
@@ -138,7 +138,7 @@ context they do nothing: cmux consumes them, so neither Ghostty's
 
 Rules:
 
-1. A location is `(window, workspace, pane, tab)` plus the machine and room it
+1. A location is `(window, workspace, pane, tab)` plus the machine and space it
    belongs to. A page navigation inside one tab is not a new location (that is
    4.1). A focus change inside the same tab (address bar, find bar, DevTools)
    is not one either.
@@ -160,7 +160,7 @@ Rules:
    (its tab exists on a connected machine, in a window that is not closed),
    skipping the others without dropping them. It focuses that location through
    the same path as a palette tab switch: the window is ordered front (made
-   key only when the app is active), the room switches, the workspace, screen,
+   key only when the app is active), the space switches, the workspace, screen,
    pane and tab are selected. The focus change it causes is not recorded
    (the trail compares the settled location with the pending target and
    absorbs a match; any other settled location clears the pending target).
