@@ -37,17 +37,16 @@ pub(super) fn restore_public_projections(
                 .or_else(|| state.terminal_catalog.get(terminal_id).map(|surface| surface.id))
         });
         let level = notification_level(&notification.level)?;
-        if notification.unread {
-            let terminal_id = notification
-                .terminal_id
-                .clone()
-                .context("terminal notification omitted its terminal identity")?;
-            if surface.is_some() {
-                terminal_notifications.insert(
-                    terminal_id,
-                    SurfaceNotification { notification: numeric_id, level, unread: true },
-                );
-            }
+        // Durable notifications outlive their terminal. The registry removes
+        // tombstoned terminal references; keep their history without a badge.
+        if notification.unread
+            && surface.is_some()
+            && let Some(terminal_id) = notification.terminal_id.clone()
+        {
+            terminal_notifications.insert(
+                terminal_id,
+                SurfaceNotification { notification: numeric_id, level, unread: true },
+            );
         }
         if !notification.read_by.is_empty() {
             notification_reads.insert(
@@ -262,14 +261,14 @@ mod tests {
     }
 
     #[test]
-    fn unread_projection_without_terminal_identity_is_rejected() {
+    fn unread_projection_without_terminal_identity_restores_history() {
         let projections = RegistryPublicProjections {
             notifications: vec![RegistryNotificationProjection {
                 id: NotificationPublicId::parse("notification_00000000000000000000000000000002")
                     .unwrap(),
                 title: "orphan".into(),
-                subtitle: None,
-                body: String::new(),
+                subtitle: Some("completed agent".into()),
+                body: "historical notification".into(),
                 level: "warning".into(),
                 terminal_id: None,
                 created_at_ms: 2,
@@ -282,8 +281,16 @@ mod tests {
             frontend_projections: Vec::new(),
         };
 
-        let error = restore_public_projections(&empty_state(), projections).unwrap_err();
-        assert!(error.to_string().contains("omitted its terminal identity"));
+        let restored = restore_public_projections(&empty_state(), projections).unwrap();
+        assert_eq!(restored.notification_ledger.len(), 1);
+        let notification = &restored.notification_ledger[0];
+        assert_eq!(notification.title, "orphan");
+        assert_eq!(notification.subtitle.as_deref(), Some("completed agent"));
+        assert_eq!(notification.body, "historical notification");
+        assert_eq!(notification.terminal_id, None);
+        assert_eq!(notification.surface, None);
+        assert!(restored.terminal_notifications.is_empty());
+        assert_eq!(restored.next_notification_id, 2);
     }
 
     #[test]
