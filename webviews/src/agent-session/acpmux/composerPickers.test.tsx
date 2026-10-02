@@ -84,6 +84,7 @@ describe("acpmux composer pickers", () => {
       root.render(
         createElement(ComposerPickers, {
           snapshot: value,
+          settleMs: 0,
           onModel: (id: string) => {
             calls.push(`model ${id}`);
           },
@@ -185,23 +186,44 @@ describe("acpmux composer pickers", () => {
       },
     ];
     const long = (summary: Parameters<typeof snapshot>[0]) => ({ ...snapshot(summary), catalog });
+    const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
     // The session runs Astra on High, then Sol on Medium: both become recents.
     await render(long({ configOptions: [effort] }));
+    await settle();
     await act(async () => button("Model")!.click());
     expect(options()).toEqual(["6 Astra *", "6.1 Sol", "6 Luna", "6 Mini", "6 Nano"]);
     await act(async () => button("Model")!.click());
+    // The switch passes through Sol on the old effort before the new one lands; only the settled combo counts.
+    await render(long({ model: "sol", configOptions: [effort] }));
     await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    await settle();
     const model = button("Model")!;
     await act(async () => model.click());
     expect(doc.querySelector(".acpmux-menu-header")!.textContent).toBe("Recent");
     expect(options()).toEqual(["6.1 Sol · Medium *", "6 Astra · High", "More models"]);
-    // One click switches the model and the effort together.
-    await act(async () => {
-      doc
-        .querySelectorAll("[role=option]")[1]!
-        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-    });
+    // One click switches the model, then the effort once the agent reports that model offering it.
+    const pickRecent = (index: number) =>
+      act(async () => {
+        doc
+          .querySelectorAll("[role=option]")
+          [index]!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      });
+    await pickRecent(1);
+    expect(calls).toEqual(["model astra"]);
+    await render(long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
     expect(calls).toEqual(["model astra", "effort reasoning_effort high"]);
+    // A model that doesn't offer the stored effort keeps its own.
+    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    await act(async () => button("Model")!.click());
+    await pickRecent(1);
+    await render(
+      long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium", options: [effort.options[0]!] }] }),
+    );
+    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    await render(long({ model: "astra", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    expect(calls).toEqual(["model astra", "effort reasoning_effort high", "model astra"]);
+    await render(long({ model: "sol", configOptions: [{ ...effort, currentValue: "medium" }] }));
+    calls.length = 0;
     // More models opens the full list in place; typing filters it and Enter picks.
     await key(model, "ArrowDown");
     await key(model, "ArrowUp");
@@ -227,6 +249,20 @@ describe("acpmux composer pickers", () => {
     await key(model, "ArrowUp");
     await key(model, "Enter");
     expect(calls.at(-1)).toBe("model luna");
+    // A query that matches nothing leaves no highlight; Backspace brings the rows and the highlight back.
+    await act(async () => model.click());
+    await pickRecent(2);
+    expect(doc.querySelector("[role=listbox] .acpmux-menu-search")).toBeNull();
+    await key(model, "z");
+    await key(model, "z");
+    expect(options()).toEqual([]);
+    await key(model, "ArrowDown");
+    expect(model.getAttribute("aria-activedescendant")).toBeNull();
+    await key(model, "Backspace");
+    await key(model, "Backspace");
+    await key(model, "ArrowDown");
+    expect(doc.getElementById(model.getAttribute("aria-activedescendant")!)!.textContent).toBe("6 Astra · High");
+    await act(async () => model.click());
     // Closing folds the list again.
     await act(async () => model.click());
     expect(options()).toEqual(["6.1 Sol · Medium *", "6 Astra · High", "More models"]);

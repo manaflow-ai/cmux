@@ -18,7 +18,9 @@ export const PICKER_LABELS = {
 };
 
 /// A model and effort the viewer used, kept per viewer so the menu can offer it as one click.
-export type Combo = { harness: string; model: string; effort?: string };
+export type Combo = { harness: string; model: string; effort?: string; effortName?: string };
+/// A combo counts as used once it has held this long: model and effort land in separate updates.
+export const RECENT_SETTLE_MS = 1500;
 const RECENTS_KEY = "cmux.acpmux.recentModels";
 /// The model menu offers this many recent combos.
 export const RECENT_ROWS = 4;
@@ -34,7 +36,8 @@ export function loadRecents(): Combo[] {
           (combo): combo is Combo =>
             typeof combo?.harness === "string" &&
             typeof combo.model === "string" &&
-            (combo.effort === undefined || typeof combo.effort === "string"),
+            (combo.effort === undefined || typeof combo.effort === "string") &&
+            (combo.effortName === undefined || typeof combo.effortName === "string"),
         )
       : [];
   } catch {
@@ -65,6 +68,8 @@ type Props = {
   onModel(modelId: string): void;
   onMode(modeId: string): void;
   onEffort(configId: string, value: string): void;
+  /// How long a combo must hold before it counts as recent (tests shorten it).
+  settleMs?: number;
 };
 
 /// The composer bar's controls, as Codex, Claude and T3 Code draw them: the
@@ -72,7 +77,7 @@ type Props = {
 /// Plan/Build toggle after the attach button, then the model and the effort as
 /// two dropdowns and the context used at the right. Groups are set apart by a
 /// hairline; each control shows only when the agent offers it.
-export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) {
+export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs = RECENT_SETTLE_MS }: Props) {
   const summary = snapshot.summary;
   const models: Choice[] = (snapshot.catalog.find((harness) => harness.id === summary?.harness)?.models ?? []).map(
     (model) => ({ id: model.id, name: model.name || model.id }),
@@ -100,15 +105,43 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
   }));
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
-  // Recents follow what the session actually runs, whichever control changed it.
+  // Recents follow what the session actually runs, whichever control changed it,
+  // once it settles: a switch passes through the new model with the old effort.
   const [recents, setRecents] = useState(loadRecents);
   const harness = summary?.harness;
   const current = summary?.model;
   const currentEffort = effort?.currentValue;
+  const offersEffort = effort !== undefined;
   useEffect(() => {
-    if (harness && current)
-      setRecents((list) => rememberCombo(list, { harness, model: current, effort: currentEffort }));
-  }, [harness, current, currentEffort]);
+    if (!harness || !current || (offersEffort && !currentEffort)) return;
+    const timer = setTimeout(
+      () =>
+        setRecents((list) =>
+          rememberCombo(list, { harness, model: current, effort: currentEffort, effortName: effortName }),
+        ),
+      settleMs,
+    );
+    return () => clearTimeout(timer);
+  }, [harness, current, currentEffort, offersEffort, effortName, settleMs]);
+  // A combo for another model sends the model first, then its effort once the
+  // agent reports that model and offers the effort; anything else drops it.
+  const pending = useRef<{ sessionId?: string; from?: string; model: string; effort: string; reached?: boolean } | undefined>(undefined);
+  const effortId = effort?.id;
+  const effortValues = (effort?.options ?? []).map((option) => option.value).join("\u0000");
+  useEffect(() => {
+    const wanted = pending.current;
+    if (!wanted) return;
+    // Dropped on a session switch, or once the session moves off the picked model (or never reaches it).
+    const away = current !== wanted.model && (current !== wanted.from || wanted.reached);
+    if (wanted.sessionId !== summary?.sessionId || away) {
+      pending.current = undefined;
+      return;
+    }
+    if (current === wanted.model) wanted.reached = true;
+    if (current !== wanted.model || !effortId || !effortValues.split("\u0000").includes(wanted.effort)) return;
+    pending.current = undefined;
+    if (wanted.effort !== currentEffort) onEffort(effortId, wanted.effort);
+  }, [summary?.sessionId, current, currentEffort, effortId, effortValues, onEffort]);
   const [more, setMore] = useState(false);
   const [query, setQuery] = useState("");
   const modelSections = modelMenu({
@@ -125,8 +158,19 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
     },
     onCombo: (id) => {
       const [pickedModel, pickedEffort] = id.split("\u0000");
-      if (pickedModel && pickedModel !== current) onModel(pickedModel);
-      if (effort && pickedEffort && pickedEffort !== currentEffort) onEffort(effort.id, pickedEffort);
+      if (!pickedModel) return;
+      if (pickedModel !== current) {
+        pending.current = pickedEffort
+          ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
+          : undefined;
+        onModel(pickedModel);
+      } else if (
+        effort &&
+        pickedEffort &&
+        pickedEffort !== currentEffort &&
+        efforts.some((choice) => choice.id === pickedEffort)
+      )
+        onEffort(effort.id, pickedEffort);
     },
     onModel,
   });
@@ -237,7 +281,9 @@ export function modelMenu({
     .filter((combo) => name(combo.model))
     .slice(0, RECENT_ROWS)
     .map((combo) => {
-      const effortName = combo.effort && (efforts.find((choice) => choice.id === combo.effort)?.name ?? combo.effort);
+      const effortName =
+        combo.effort &&
+        (combo.effortName ?? efforts.find((choice) => choice.id === combo.effort)?.name ?? combo.effort);
       return {
         id: comboId(combo.model, combo.effort),
         name: effortName ? `${name(combo.model)} · ${effortName}` : name(combo.model)!,
@@ -397,19 +443,19 @@ export function Picker({
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
-      setActive((selected + step + rows.length) % rows.length);
+      if (rows.length > 0) setActive((selected + step + rows.length) % rows.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
       pick(selected);
     } else if (search && event.key === "Backspace") {
       event.preventDefault();
       search.onQuery(search.query.slice(0, -1));
+      setActive(0);
     } else if (
       search &&
       event.key.length === 1 &&
       !event.metaKey &&
       !event.ctrlKey &&
-      !event.altKey &&
       (event.key !== " " || search.query)
     ) {
       // While a query is typed, Space is part of it; Enter picks.
@@ -447,7 +493,7 @@ export function Picker({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        aria-activedescendant={open ? `${menuId}-${selected}` : undefined}
+        aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
         onKeyDown={keyDown}
         onKeyUp={keyUp}
         onClick={() => (open ? setOpen(false) : show())}
@@ -456,66 +502,69 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the Codex look. */}
       {open && (
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div className={`acpmux-menu acpmux-menu-${align}`} id={menuId} role="listbox" aria-label={label}>
+        <div className={`acpmux-menu acpmux-menu-${align}`}>
+          {/* The query sits beside the listbox, which may hold only options and groups. */}
           {search && (
             <div className={`acpmux-menu-search${search.query ? "" : " acpmux-menu-search-empty"}`} aria-live="polite">
               <SearchIcon />
               <span>{search.query || search.placeholder}</span>
             </div>
           )}
-          {sections.map((section, s) => {
-            const titled = section.title && sections.length > 1;
-            return (
-              <div
-                key={s}
-                className="acpmux-menu-section"
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                role="group"
-                aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
-                aria-label={titled ? undefined : label}
-              >
-                {titled && (
-                  <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
-                    {section.title}
-                  </div>
-                )}
-                {section.choices.map((choice) => {
-                  index += 1;
-                  const at = index;
-                  const current = choice.id === section.current;
-                  return (
-                    <div
-                      key={choice.id}
-                      id={`${menuId}-${at}`}
-                      data-value={choice.id}
-                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                      role="option"
-                      tabIndex={-1}
-                      aria-selected={at === selected}
-                      aria-checked={section.current === undefined ? undefined : current}
-                      className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
-                      onMouseMove={() => {
-                        if (at !== selected) setActive(at);
-                      }}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        pick(at);
-                      }}
-                    >
-                      {choice.icon}
-                      <span className="acpmux-menu-text">
-                        <span className="acpmux-menu-label">{choice.name}</span>
-                        {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
-                      </span>
-                      {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
-                      {current && <CheckIcon />}
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+          <div id={menuId} role="listbox" aria-label={label}>
+            {sections.map((section, s) => {
+              const titled = section.title && sections.length > 1;
+              return (
+                <div
+                  key={s}
+                  className="acpmux-menu-section"
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                  role="group"
+                  aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
+                  aria-label={titled ? undefined : label}
+                >
+                  {titled && (
+                    <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
+                      {section.title}
                     </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+                  )}
+                  {section.choices.map((choice) => {
+                    index += 1;
+                    const at = index;
+                    const current = choice.id === section.current;
+                    return (
+                      <div
+                        key={choice.id}
+                        id={`${menuId}-${at}`}
+                        data-value={choice.id}
+                        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={at === selected}
+                        aria-checked={section.current === undefined ? undefined : current}
+                        className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+                        onMouseMove={() => {
+                          if (at !== selected) setActive(at);
+                        }}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          pick(at);
+                        }}
+                      >
+                        {choice.icon}
+                        <span className="acpmux-menu-text">
+                          <span className="acpmux-menu-label">{choice.name}</span>
+                          {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
+                        </span>
+                        {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+                        {current && <CheckIcon />}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </span>
