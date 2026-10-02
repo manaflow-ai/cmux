@@ -180,6 +180,32 @@ test("the dialog names the folder and the agent, focuses Trust folder, and Escap
   expect(doc.getElementById("pane")!.hasAttribute("inert")).toBe(false);
 });
 
+test("closing hands focus back to what had it before the dialog, once the pane is no longer inert", async () => {
+  const shell = (asking: boolean) =>
+    createElement(
+      "section",
+      null,
+      createElement("main", { id: "pane" }, createElement("textarea", { id: "prompt" })),
+      asking &&
+        createElement(TrustFolderDialog, {
+          cwd: "/a",
+          agent: "Codex",
+          onTrust: async () => {},
+          onCancel: () => {},
+        }),
+    );
+  await act(async () => root.render(shell(false)));
+  const prompt = doc.getElementById("prompt")!;
+  prompt.focus();
+  await act(async () => root.render(shell(true)));
+  expect(doc.activeElement).not.toBe(prompt);
+  // The answer's own refocus ran while the pane was inert and did nothing; focus sits on the page.
+  (doc.activeElement as HTMLElement).blur();
+  await act(async () => root.render(shell(false)));
+  expect(doc.getElementById("pane")!.hasAttribute("inert")).toBe(false);
+  expect(doc.activeElement).toBe(prompt);
+});
+
 test("the mock daemon projects both agents' levels read-only, and set writes only acpmux's own record", async () => {
   const socket = new MockAcpmuxSocket();
   const answer = (

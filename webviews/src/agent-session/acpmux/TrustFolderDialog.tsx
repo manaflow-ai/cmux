@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 
 /// Dialog copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const TRUST_LABELS = {
@@ -34,7 +34,11 @@ export function TrustFolderDialog({
   const titleId = React.useId();
   const bodyId = React.useId();
 
-  useEffect(() => {
+  // A layout effect: the pane is inert before the first paint, and stops being inert in the same
+  // commit that removes the dialog, so whatever the answer refocuses can take focus.
+  useLayoutEffect(() => {
+    // Focus goes back where it was (the prompt, or Send) once the dialog is gone.
+    const before = document.activeElement as HTMLElement | null;
     // Modal: the rest of the pane takes no focus, clicks or typing until the user answers.
     const others = [...(scrim.current?.parentElement?.children ?? [])].filter(
       (node): node is HTMLElement =>
@@ -52,6 +56,9 @@ export function TrustFolderDialog({
     return () => {
       document.removeEventListener("keydown", escape, true);
       for (const node of others) node.removeAttribute("inert");
+      // A refocus that ran while the pane was still inert did nothing; the dialog's own goes now.
+      const lost = !document.activeElement || document.activeElement === document.body;
+      if (lost && before?.isConnected) before.focus();
     };
   }, []);
   const cancelRef = useRef(onCancel);

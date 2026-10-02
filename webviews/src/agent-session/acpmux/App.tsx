@@ -691,10 +691,13 @@ function AcpmuxPane() {
     );
   }, []);
   // A question about one chat's folder never answers for another: switching chats cancels it.
+  // A reattach briefly reads no folder; only another session or another folder counts.
   const sessionId = snapshot.sessionId;
   const sessionCwd = snapshot.summary?.cwd;
   useEffect(() => {
-    if (trustAsk && (trustAsk.sessionId !== sessionId || trustAsk.cwd !== sessionCwd)) trustAsk.answer(false);
+    if (!trustAsk) return;
+    const moved = trustAsk.sessionId !== sessionId || (sessionCwd !== undefined && trustAsk.cwd !== sessionCwd);
+    if (moved) trustAsk.answer(false);
   }, [trustAsk, sessionId, sessionCwd]);
   // Codex's turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
