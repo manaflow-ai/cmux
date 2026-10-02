@@ -1,3 +1,5 @@
+import { agentKey } from "../shared/agentKey";
+
 // Display names for agent harnesses. acpmux names a harness by its config id
 // ("codex", "claude-sr"), which is not what the agent is called.
 
@@ -19,7 +21,8 @@ const KNOWN: Record<string, string> = {
 /// Claude Code); an unknown id is title-cased ("my-agent" is "My Agent").
 export function agentDisplayName(id: string): string {
   const words = id.split(/[-_\s]+/).filter(Boolean);
-  const known = KNOWN[(words[0] ?? "").toLowerCase()];
+  const key = agentKey(id);
+  const known = key && Object.hasOwn(KNOWN, key) ? KNOWN[key] : undefined;
   if (known) return known;
   return words.map((word) => word[0]!.toUpperCase() + word.slice(1)).join(" ") || id;
 }
