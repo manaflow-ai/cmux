@@ -88,13 +88,19 @@ import Testing
         try AppCompatBrowser.rebuildStale(false, tabID: "tab", for: .evaluate("1"), services: services)
     }
 
-    /// WebKit has no saved-password autofill, and a blank page holds nothing.
-    @Test func onlyChromiumWebPagesRebuild() {
+    /// Every live Chromium page rebuilds, a blank one too (a page's
+    /// `window.open()` tab shares its origin and keeps `window.opener`);
+    /// WebKit has no saved-password autofill, and a placeholder no document.
+    @Test func everyLiveChromiumPageRebuilds() {
         let services = AppServices(environment: AppEnvironment.current([:]))
+        services.cache.install(page(), for: "blank")
+        #expect(AppCompatBrowser.markAgentDriven("blank", services: services))
         services.cache.install(login(.webkit), for: "webkit")
         #expect(!AppCompatBrowser.markAgentDriven("webkit", services: services))
-        services.cache.install(page(), for: "blank")
-        #expect(!AppCompatBrowser.markAgentDriven("blank", services: services))
+        let deferred = DeferredBrowserTab(id: BrowserTabID(rawValue: "asleep"), engine: .cef, url: URL(string: "https://example.com"), title: nil)
+        services.cache.install(deferred, for: "asleep")
+        #expect(!AppCompatBrowser.markAgentDriven("asleep", services: services))
+        #expect(services.cache.agentDrivenTabs.contains("asleep"), "its next page is marked")
     }
 
     /// A popup an agent-driven popup opens is marked too, at any depth.

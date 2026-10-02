@@ -10,10 +10,13 @@ import Foundation
 /// (plans/cmux-next/browser.md, "Browser import: passwords and security").
 extension AppCompatBrowser {
     /// Marks tab `tabID` and its popups agent-driven; true when its live
-    /// Chromium web page was not marked yet.
+    /// Chromium page was not marked yet, whatever it shows (an `about:blank`
+    /// tab a page opened shares its opener's origin and keeps `window.opener`).
+    /// A hibernated or deferred placeholder holds no document: the page that
+    /// replaces it is marked when it installs.
     static func markAgentDriven(_ tabID: String, services: AppServices) -> Bool {
         let page = services.cache.existingBrowser(tabID)?.tab
-        let stale = page.map { !$0.isAgentDriven && $0.engineKind == .cef && ["http", "https"].contains($0.state.url?.scheme?.lowercased() ?? "") } ?? false
+        let stale = page.map { !$0.isAgentDriven && $0.engineKind == .cef && !($0 is HibernatedBrowserTab) && !($0 is DeferredBrowserTab) } ?? false
         services.cache.markAgentDriven(tabID)
         // A popup's opener is the old page: once that is rebuilt, the tab's script reaches the popup no more.
         for popup in services.popups.pages(openedBy: tabID) { popup.markAgentDriven() }

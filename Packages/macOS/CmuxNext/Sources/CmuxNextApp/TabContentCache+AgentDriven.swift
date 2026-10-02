@@ -20,8 +20,9 @@ extension TabContentCache {
     /// reach it while the new one loads (unlike a reload, which keeps the old
     /// document until the new one commits).
     func rebuildForAgent(_ key: String) {
-        guard let url = browsers[key]?.tab.state.url else { return }
-        reroute(key, to: url)
+        guard let page = browsers[key]?.tab else { return }
+        // A page with no URL yet starts over blank.
+        reroute(key, to: page.state.url ?? URL(string: "about:blank")!)
         // `reroute` makes nothing while a page is already being made, or
         // without a record; the old page goes regardless.
         if let entry = browsers.removeValue(forKey: key) {
