@@ -55,6 +55,7 @@ final class HoverCardPanel: NSPanel {
     /// is the view the card describes; the card draws in its theme scope.
     func present(body newBody: NSView, anchor: CGRect, placement: HoverCardPlacement, parent: NSWindow,
                  themeAnchor: NSView?, sliding: Bool, applyTheme: @escaping () -> Void) {
+        let wasDismissing = isDismissing
         isDismissing = false
         if body !== newBody {
             body?.removeFromSuperview()
@@ -68,7 +69,11 @@ final class HoverCardPanel: NSPanel {
             ])
             body = newBody
         }
-        if let themeAnchor { adoptThemeScope(of: themeAnchor) } else { parent.themeScope.adopt(self) }
+        // The card draws in the theme scope of the view it describes and
+        // follows that scope's changes while it shows.
+        let scope = themeAnchor?.themeScope ?? parent.themeScope
+        scope.adopt(self)
+        scope.addResponder(self)
         self.applyTheme = applyTheme
         themeDidChange()
         if parentWindowRef !== parent {
@@ -79,7 +84,8 @@ final class HoverCardPanel: NSPanel {
         self.anchor = anchor
         self.placement = placement
         place(sliding: sliding)
-        if !isVisible || alphaValue < 1 {
+        // A fade-out in flight (hide and show in one turn) is replaced by a fade-in.
+        if !isVisible || alphaValue < 1 || wasDismissing {
             if !isVisible { alphaValue = 0 }
             orderFront(nil)
             Motion.animateTimed(.fadeIn) { animator().alphaValue = 1 }

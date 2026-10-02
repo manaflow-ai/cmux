@@ -241,20 +241,20 @@ public final class TabStripView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // A move to another window (or none) ends this strip's card only.
+        hoverCards.unregister(hoverCard)
         if window != nil {
+            hoverCards.register(hoverCard)
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()
             sync(fromModel: true)
-            hoverCards.register(hoverCard)
         } else {
             observationTask?.cancel()
             observationTask = nil
             tokenObservationTask?.cancel()
             tokenObservationTask = nil
             animationClient.deactivate()
-            // Ends this strip's card only (another window's card stays).
-            hoverCards.unregister(hoverCard)
             groupEditor.hide()
             groups.holdTask?.cancel()
             removeEscapeMonitor()

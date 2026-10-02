@@ -117,7 +117,9 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     private mutating func hit(_ target: HoverTarget?, moved: Bool) -> [HoverCardEffect] {
         let previous = lastHit
         lastHit = target
-        if moved { quiet = false }
+        // Quiet covers only the target the pointer already rested on: a
+        // pointer move, or another target arriving under it, ends it.
+        if moved || target?.id != previous?.id { quiet = false }
         if !suppressions.isEmpty {
             return phase == .idle ? [] : end()
         }
@@ -146,19 +148,22 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
                 return [.hide, .schedule(token: token, after: reshowWindow)]
             }
             if target.id == shown.id {
-                // The target moved or changed: the card follows it.
+                // The target moved or resized: the coordinator moves the card.
                 phase = .shown(target)
-                return target == shown ? [] : [.show(target, sliding: false)]
+                return []
             }
             phase = .shown(target)
             return [.show(target, sliding: true)]
         case .pinned(let shown, let token):
-            // The pointer leaving keeps a pinned card; another target takes over.
+            // The pointer leaving keeps a pinned card, and so does content
+            // moving under a still pointer; a pointer that moves onto
+            // another target takes over.
             guard let target else { return [] }
             if target.id == shown.id {
                 phase = .pinned(target, token: token)
-                return target == shown ? [] : [.show(target, sliding: false)]
+                return []
             }
+            guard moved else { return [] }
             phase = .shown(target)
             return [.cancelTimer, .show(target, sliding: true)]
         }

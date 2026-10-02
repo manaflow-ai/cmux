@@ -92,6 +92,21 @@ import Testing
         if !after.suppressions.isEmpty, after.phase != .idle { bad.append("I6 active while suppressed") }
         // I7: every timer token is used once (tokens only grow).
         if after.nextToken < before.nextToken { bad.append("I7 token reuse") }
+        // I9: content moving under a still pointer never takes a pinned card.
+        if case .hit(_, false) = event, case .pinned(let pinned, _) = before.phase, after.shownTarget?.id != pinned.id {
+            bad.append("I9 a still pointer took the pinned card of \(pinned.id)")
+        }
+        // I10: a new target arriving under a still pointer gets the normal
+        // path (pending, or at once after a card), and keeps it while it stays.
+        if case .hit(let target?, false) = event, before.suppressions.isEmpty {
+            let isPinned = if case .pinned = before.phase { true } else { false }
+            if !isPinned, target.id != before.lastHit?.id, after.activeTarget?.id != target.id {
+                bad.append("I10 new target \(target.id) under a still pointer got no card")
+            }
+            if case .pending(let pending, _) = before.phase, pending.id == target.id, after.activeTarget?.id != target.id {
+                bad.append("I10 pending \(target.id) lost on a repeated still hit")
+            }
+        }
         // I8: never idle with the pointer resting on a target unless a
         // dismissal made it quiet or a suppression lasts (no lost card).
         if after.phase == .idle, after.lastHit != nil, !after.quiet, after.suppressions.isEmpty {

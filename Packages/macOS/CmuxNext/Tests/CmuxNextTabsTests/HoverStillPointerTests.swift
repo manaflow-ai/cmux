@@ -26,7 +26,7 @@ import Testing
         strip.hoverCards.pointerLocation = { screenPoint }
         strip.hoverCards.windowNumberAt = { _ in window.windowNumber }
         strip.hoverCards.appIsActive = { true }
-        strip.updateHover(at: point)
+        strip.updateHover(at: point, moved: true)
         #expect(strip.hoveredID == TabID("t1"))
         #expect(strip.hoverCards.machine.activeTarget?.id == TabHoverCardController.targetID("t1"))
         // The strip scrolls to its last tab; the pointer does not move.

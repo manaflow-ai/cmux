@@ -109,7 +109,7 @@ final class WorkspaceHoverCardView: NSView {
         // The whole name, wrapped: the card is where a clipped row title
         // reads in full (also under Reduce Motion, which has no marquee).
         titleLabel.lineBreakMode = .byWordWrapping
-        titleLabel.maximumNumberOfLines = 3
+        titleLabel.maximumNumberOfLines = 6
         titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding
         subtitleLabel.font = Typography.caption
         subtitleLabel.lineBreakMode = .byTruncatingMiddle

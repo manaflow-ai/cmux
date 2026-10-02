@@ -61,7 +61,8 @@ CanResume(l, q, s) == l # None /\ ~q /\ s = {}
 
 (* hit(t, moved) *)
 Hit(t, moved) ==
-    LET q == IF moved THEN FALSE ELSE quiet IN
+    \* Quiet covers only the target the pointer already rested on.
+    LET q == IF moved \/ t # lastHit THEN FALSE ELSE quiet IN
     /\ lastHit' = t
     /\ supp' = supp
     /\ IF supp # {} THEN
@@ -87,7 +88,8 @@ Hit(t, moved) ==
                  ELSE /\ phase' = "shown" /\ target' = t /\ token' = 0 /\ visible' = t /\ armed' = 0
                       /\ quiet' = q /\ UNCHANGED nextToken
               [] phase = "pinned" ->
-                 IF t = None \/ t = target THEN /\ quiet' = q /\ UNCHANGED <<phase, target, token, nextToken, visible, armed>>
+                 \* Only a pointer that moves onto another target takes over.
+                 IF t = None \/ t = target \/ ~moved THEN /\ quiet' = q /\ UNCHANGED <<phase, target, token, nextToken, visible, armed>>
                  ELSE /\ phase' = "shown" /\ target' = t /\ token' = 0 /\ visible' = t /\ armed' = 0
                       /\ quiet' = q /\ UNCHANGED nextToken
 
@@ -170,6 +172,13 @@ Safety == TypeOK /\ CardIsMachines /\ TimerIsMachines /\ UnderPointer /\ Suppres
 
 \* I3 as a step property: a stale deadline changes nothing.
 StaleDoesNothing == [][\A k \in 1..MaxToken : (k # ArmedToken /\ Deadline(k)) => UNCHANGED vars]_vars
+
+\* I9: content moving under a still pointer never takes a pinned card.
+PinnedStaysUnderStillPointer ==
+    [][(phase = "pinned" /\ \E t \in Targets \cup {None} : Hit(t, FALSE)) => target' = target]_vars
+\* I10: a new target under a still pointer gets the normal path.
+NewTargetUnderStillPointer ==
+    [][\A t \in Targets : (supp = {} /\ phase # "pinned" /\ t # lastHit /\ Hit(t, FALSE)) => target' = t]_vars
 
 \* Liveness: once only "resting" steps happen (the timer fires, stale
 \* timers arrive, geometry re-hits find the same target under the still

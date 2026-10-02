@@ -13,8 +13,10 @@ extension TabStripView {
     /// The tab or chip under `point` (this view's coordinates) that may have
     /// a card now: none during any drag, an open group editor or a rename.
     func hoverCardTarget(at point: CGPoint) -> (id: TabID, width: CGFloat, anchor: CGRect)? {
-        guard bounds.contains(point), !isDraggingAnything, !groupEditor.isVisible, inlineRename.field == nil,
-              let window else { return nil }
+        // Hidden strips (inactive screens share the frame) and clipped
+        // parts never take a card.
+        guard visibleRect.contains(point), !isHiddenOrHasHiddenAncestor, !isDraggingAnything, !groupEditor.isVisible,
+              inlineRename.field == nil, let window else { return nil }
         if let group = chipGroup(at: point), let chip = groups.chips[group] {
             let anchor = window.convertToScreen(tabsClip.convert(chip.frame, to: nil))
             return (.groupChip(group), metrics.minInactiveTabWidth, anchor)
@@ -51,7 +53,7 @@ extension TabStripView {
     /// is under the pointer now, and the coordinator re-hit-tests.
     func geometryDidChange() {
         guard let window else { return }
-        let point = convert(window.convertPoint(fromScreen: hoverCards.pointerLocation()), from: nil)
+        let point = convert(window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
         if bounds.contains(point) {
             if buttonReveal.pointerInStrip || hoveredID != nil || groups.hoveredChip != nil { updateHover(at: point, moved: false) }
         } else if hoveredID != nil || groups.hoveredChip != nil {

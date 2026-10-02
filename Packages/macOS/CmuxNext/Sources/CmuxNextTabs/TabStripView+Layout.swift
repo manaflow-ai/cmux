@@ -218,12 +218,9 @@ extension TabStripView {
         if autoscrollDuringDrag(dt) { active = true }
         scroll.step(dt)
         if !scroll.isSettled { active = true }
+        // Tabs sliding under a still pointer update hover (applyFrames ->
+        // geometryDidChange), as in Chrome.
         applyFrames()
-        if drag == nil, groups.drag == nil, pressedCloseID == nil, let window {
-            // Tabs sliding under a still pointer update hover, as in Chrome.
-            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-            if bounds.contains(point) { updateHover(at: point) }
-        }
         if !active { MotionTrace.end("tabs") }
         return active
     }

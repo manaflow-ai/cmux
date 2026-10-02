@@ -42,7 +42,7 @@ extension TabStripView {
 
     /// `moved`: a pointer event (true) or content that moved under a still
     /// pointer (false, `geometryDidChange`).
-    func updateHover(at point: CGPoint, moved: Bool = true) {
+    func updateHover(at point: CGPoint, moved: Bool) {
         // No hover (or hover card) while any drag involves this strip.
         let dragging = drag != nil || detachedID != nil || dropPlaceholderIndex != nil
             || groups.drag != nil || groups.detachedGroupID != nil
@@ -60,7 +60,7 @@ extension TabStripView {
         buttonGroup.hoveredIndex = dragging ? nil : trailingButtonIndex(at: point)
 
         // The coordinator hit-tests the pointer itself (`hoverCardTarget`).
-        if moved { hoverCards.pointerMoved() }
+        if moved, let window { hoverCards.pointerMoved(to: window.convertPoint(toScreen: convert(point, to: nil))) }
     }
 
     /// Shows tab `id`'s hover card now (with its CPU and memory) until the
@@ -77,12 +77,12 @@ extension TabStripView {
 
     public override func mouseEntered(with event: NSEvent) {
         buttonReveal.pointerInStrip = true
-        updateHover(at: convert(event.locationInWindow, from: nil))
+        updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
     }
 
     public override func mouseMoved(with event: NSEvent) {
         buttonReveal.pointerInStrip = true
-        updateHover(at: convert(event.locationInWindow, from: nil))
+        updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
     }
 
     public override func mouseExited(with event: NSEvent) {
@@ -93,7 +93,7 @@ extension TabStripView {
         closeHoveredID = nil
         newTabButton.isHovered = false
         buttonGroup.hoveredIndex = nil
-        hoverCards.pointerMoved()
+        hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
         if closingModeWidth != nil, drag == nil {
             // Chrome's deferred relayout: tabs resize once the pointer leaves.
             closingModeWidth = nil
@@ -199,7 +199,8 @@ extension TabStripView {
         }
         groups.press = nil
         groups.holdTask?.cancel()
-        updateHover(at: point)
+        // A click is not a pointer move: the card stays dismissed (quiet).
+        updateHover(at: point, moved: false)
     }
 
     public override func otherMouseDown(with event: NSEvent) {

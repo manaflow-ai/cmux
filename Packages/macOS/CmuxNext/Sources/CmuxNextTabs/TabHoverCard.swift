@@ -93,9 +93,11 @@ final class TabHoverCardController: HoverCardSource {
         self.body = body
         body.configure(content)
         if case .tab = content { body.setResources(resources.report) }
-        if bodyID != id { body.setThumbnail(thumbnail.flatMap { $0.0 == tab ? $0.1 : nil }) }
+        let newCard = bodyID != id
+        if newCard { body.setThumbnail(thumbnail.flatMap { $0.0 == tab ? $0.1 : nil }) }
         bodyID = id
-        if case .tab = content { loadThumbnail(for: tab) }
+        // Once per card, not on every content refresh (resource samples).
+        if newCard, case .tab = content { loadThumbnail(for: tab) }
         return HoverCardBody(view: body, placement: .below, themeAnchor: strip) { [weak body] in body?.applyColors() }
     }
 
@@ -113,6 +115,7 @@ final class TabHoverCardController: HoverCardSource {
         thumbnailTask?.cancel()
         thumbnail = nil
         bodyID = nil
+        body?.setThumbnail(nil)
     }
 
     // MARK: Strip calls

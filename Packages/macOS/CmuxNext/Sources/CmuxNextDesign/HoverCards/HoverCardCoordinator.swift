@@ -25,8 +25,20 @@ public final class HoverCardCoordinator {
     /// Machine events delivered (debug report).
     public private(set) var eventCount = 0
 
-    /// The pointer in screen coordinates (tests inject one).
+    /// The real mouse in screen coordinates (tests inject one).
     public var pointerLocation: () -> CGPoint = { NSEvent.mouseLocation }
+    /// The last pointer event's location and the real mouse at that time.
+    private var eventPointer: (point: CGPoint, mouse: CGPoint)?
+
+    /// The pointer now: the last pointer event's location while the real
+    /// mouse has not moved since (the same point for real events; the
+    /// event's own point for synthesized ones, `debug.mouse`), else the
+    /// real mouse (it moved where no source saw it).
+    public func currentPointer() -> CGPoint {
+        let mouse = pointerLocation()
+        if let eventPointer, eventPointer.mouse == mouse { return eventPointer.point }
+        return mouse
+    }
     /// The number of the topmost window under a screen point, ignoring
     /// the card itself (tests inject one).
     public var windowNumberAt: ((CGPoint) -> Int?)?
@@ -36,6 +48,13 @@ public final class HoverCardCoordinator {
 
     public init(clock: any Clock<Duration> = ContinuousClock()) {
         timer = DemandTimer(owner: "HoverCards.delay", clock: clock)
+    }
+
+    /// App and window notifications, installed with the first source (a
+    /// coordinator that never gets one, such as a strip's default before
+    /// the App injects the shared one, costs nothing).
+    private func installObserversIfNeeded() {
+        guard observers.isEmpty else { return }
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) } }
@@ -63,6 +82,7 @@ public final class HoverCardCoordinator {
     // MARK: Sources
 
     public func register(_ source: any HoverCardSource) {
+        installObserversIfNeeded()
         sources[ObjectIdentifier(source)] = WeakSource(source)
     }
 
@@ -75,8 +95,10 @@ public final class HoverCardCoordinator {
 
     // MARK: Events
 
-    /// The pointer moved over a source's window.
-    public func pointerMoved() {
+    /// The pointer moved over a source's window, to `point` (screen
+    /// coordinates, from the event) when known.
+    public func pointerMoved(to point: CGPoint? = nil) {
+        if let point { eventPointer = (point, pointerLocation()) }
         send(.hit(hitTest()?.target, moved: true))
     }
 
@@ -86,7 +108,7 @@ public final class HoverCardCoordinator {
     /// without having moved. Cheap when idle and the pointer is elsewhere.
     public func geometryChanged(in window: NSWindow?) {
         if machine.phase == .idle, machine.lastHit == nil {
-            guard let window, window.frame.contains(pointerLocation()) else { return }
+            guard let window, window.frame.contains(currentPointer()) else { return }
         }
         let hit = hitTest()
         send(.hit(hit?.target, moved: false))
@@ -112,6 +134,8 @@ public final class HoverCardCoordinator {
 
     /// Shows `target`'s card now (Show Resource Usage), owned by `source`.
     public func pin(_ target: HoverTarget, from source: any HoverCardSource) {
+        // An inactive app shows no card (its window would stay hidden).
+        guard appIsActive() else { return }
         owners[target.id] = WeakSource(source)
         send(.pin(target))
     }
@@ -138,7 +162,11 @@ public final class HoverCardCoordinator {
         while !queue.isEmpty {
             let next = queue.removeFirst()
             eventCount += 1
-            for effect in machine.reduce(next) { run(effect) }
+            let effects = machine.reduce(next)
+            // Sources hear about activation before a body is built, so a
+            // card that slides to another target shows that target's data.
+            updateActivation()
+            for effect in effects { run(effect) }
         }
         draining = false
         updateActivation()
@@ -225,7 +253,7 @@ public final class HoverCardCoordinator {
     /// on top at that point.
     private func hitTest() -> HoverCardHit? {
         guard appIsActive() else { return nil }
-        let point = pointerLocation()
+        let point = currentPointer()
         let top = windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
         for entry in sources.values {
             guard let source = entry.source, let window = source.hoverCardWindow, window.windowNumber == top,

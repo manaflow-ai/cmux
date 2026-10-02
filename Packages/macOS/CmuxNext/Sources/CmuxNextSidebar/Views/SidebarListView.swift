@@ -89,7 +89,9 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { hoverCards.register(hoverCard) } else { hoverCards.unregister(hoverCard) }
+        // A move to another window (or none) ends this list's card only.
+        hoverCards.unregister(hoverCard)
+        if window != nil { hoverCards.register(hoverCard) }
         guard observedWindow !== window else { return }
         let center = NotificationCenter.default
         if let observedWindow { center.removeObserver(self, name: NSWindow.didChangeOcclusionStateNotification, object: observedWindow) }
@@ -175,6 +177,8 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     }
 
     func apply(_ layout: SidebarLayout, animated: Bool) {
+        // Rows moved, appeared or left under a possibly still pointer.
+        defer { updateHover() }
         let old = displayed
         displayed = layout
         updateDocumentHeight()
@@ -365,7 +369,7 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     override func mouseEntered(with event: NSEvent) { updateHover(event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {
         setHovered(nil)
-        hoverCards.pointerMoved()
+        hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }
 
     /// Hover after a pointer event (`windowPoint`), or after rows moved or
@@ -373,10 +377,14 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     /// pointer location, and the card re-hit-tests as a geometry change).
     func updateHover(_ windowPoint: NSPoint? = nil) {
         defer {
-            if windowPoint != nil { hoverCards.pointerMoved() } else { hoverCards.geometryChanged(in: window) }
+            if let windowPoint, let window {
+                hoverCards.pointerMoved(to: window.convertPoint(toScreen: windowPoint))
+            } else {
+                hoverCards.geometryChanged(in: window)
+            }
         }
         guard drag == nil, let window else { return setHovered(nil) }
-        let point = convert(windowPoint ?? window.convertPoint(fromScreen: hoverCards.pointerLocation()), from: nil)
+        let point = convert(windowPoint ?? window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
         guard visibleRect.contains(point) else { return setHovered(nil) }
         setHovered(displayed.row(at: point.y)?.key)
     }
