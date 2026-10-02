@@ -276,7 +276,9 @@ impl Supervisor {
                 outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction })));
                 outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));
             }
-            let record = entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
+            let mut record = entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
+            // Lets a client drop list replies older than this commit.
+            record["revision"] = json!(inner.mirror.revision);
             (outs, record)
         };
         self.emit(outs);
@@ -460,6 +462,9 @@ pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>
         "grants": record.grants,
         "sandboxed": record.sandboxed,
         "available": package.is_some(),
+        // Local connections only (apps commands refuse remote ones), so the
+        // client may read icons and images straight from the package.
+        "bundle_dir": package.map(|p| p.dir.to_string_lossy().into_owned()),
         "manifest": package.map(|p| p.manifest.clone()).unwrap_or(Value::Null),
     })
 }
