@@ -82,6 +82,7 @@ nxmot (MacBook Pro, 120 Hz).
 | `crossfade` | 0.10 s | hover card thumbnail swap; the Reduce Motion ceiling |
 | `lift` | 0.12 s | sidebar drag lift shadow |
 | `theme` | 0.16 s | room, workspace or terminal theme switch (a `CATransition` fade on the scope's root layer; no layout change) |
+| `highlight` | 1.20 s | Settings row highlight after a search jump or `openSettings setting:` deep link fades out; under Reduce Motion it holds this long and goes in one frame |
 
 | Loop | Period | Used by |
 | --- | --- | --- |
