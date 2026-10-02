@@ -1,5 +1,11 @@
 import { CodeView, WorkerPoolContextProvider, type CodeViewHandle, useWorkerPool } from "@pierre/diffs/react";
-import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme } from "@pierre/diffs";
+import {
+  getFiletypeFromFileName,
+  parsePatchFiles,
+  preloadHighlighter,
+  processFile,
+  registerCustomTheme,
+} from "@pierre/diffs";
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
@@ -26,15 +32,18 @@ import { CommentsSidebarSection } from "./comments/CommentsSection";
 import { commentSubmissionText } from "./comments/format";
 import { resolveCommentLabels, type DiffCommentLabels } from "./comments/labels";
 import { SavedComment } from "./comments/SavedComment";
-import type {
-  CommentDraft,
-  DiffCommentRecord,
-  DiffCommentSide,
-} from "./comments/types";
+import type { CommentDraft, DiffCommentRecord, DiffCommentSide } from "./comments/types";
 import { useCommentsBootstrap } from "./comments/useCommentsBootstrap";
 import { deferredDiffReason, type DeferredDiffReason } from "./deferred-diffs";
 import { resolveDiffFileLanguage, resolveDiffPreloadLanguages } from "./diff-language";
-import { fileName, fileStats, type DiffItem, type FileTreeSource, type StreamMetrics, streamPatch } from "./diff-stream";
+import {
+  fileName,
+  fileStats,
+  type DiffItem,
+  type FileTreeSource,
+  type StreamMetrics,
+  streamPatch,
+} from "./diff-stream";
 import { DiffHeaderMetadata } from "./diff-metadata";
 import {
   allDiffFileStatuses,
@@ -77,7 +86,13 @@ import {
   viewedStateOfItem,
 } from "./viewed-files";
 import { buildHunkAnchors, nextHunkIndex } from "./viewer-hunks";
-import { loadViewerPrefs, readLocalViewerPrefs, sanitizeViewerPrefs, saveViewerPrefs, type ViewerPrefs } from "./viewer-prefs";
+import {
+  loadViewerPrefs,
+  readLocalViewerPrefs,
+  sanitizeViewerPrefs,
+  saveViewerPrefs,
+  type ViewerPrefs,
+} from "./viewer-prefs";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
@@ -248,198 +263,209 @@ function viewedSessionOf(state: AppState): ViewedSession {
 
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-  case "apply-viewed": {
-    const session = recordViewedChange(viewedSessionOf(state), action.change);
-    return { ...state, items: action.items, viewedByPath: session.viewedByPath, viewedLocalEdits: session.localEdits };
-  }
-  case "begin-viewed-load": {
-    const session = beginViewedLoad(action.scopeKey);
-    return { ...state, viewedByPath: session.viewedByPath, viewedLocalEdits: session.localEdits, viewedScopeKey: session.scopeKey };
-  }
-  case "expand-item":
-    return {
-      ...state,
-      items: state.items.map((item) => (
-        item.id === action.itemId ? { ...item, collapsed: false, version: (item.version ?? 0) + 1 } : item
-      )),
-    };
-  case "replace-viewed": {
-    const session = applyLoadedViewed(viewedSessionOf(state), action.scopeKey, action.entries);
-    if (session == null) {
-      return state;
-    }
-    const { viewedByPath } = session;
-    // Files already streamed collapse once their stored mark turns out to
-    // still match, the same way a late-arriving batch would.
-    const items = state.items.map((item) => {
-      const viewed = viewedStateOfItem(item, viewedByPath) === "viewed";
-      return viewed && !item.collapsed ? { ...item, collapsed: true, version: (item.version ?? 0) + 1 } : item;
-    });
-    return { ...state, items, viewedByPath };
-  }
-  case "set-file-filter":
-    return { ...state, fileFilter: { ...state.fileFilter, ...action.filter } };
-  case "set-generated-paths":
-    return { ...state, generatedPaths: action.paths };
-  case "apply-persisted-options": {
-    const { layout, ...prefs } = action.prefs;
-    return {
-      ...state,
-      options: {
-        ...state.options,
-        ...prefs,
-        ...(action.allowLayout && layout != null ? { layout } : {}),
-      },
-    };
-  }
-  case "refresh":
-    return {
-      ...state,
-      activeItemId: "",
-      activeTreePath: "",
-      draft: null,
-      generatedPaths: [],
-      items: [],
-      languages: ["text"],
-      metrics: null,
-      renderGeneration: state.renderGeneration + 1,
-      status: action.status,
-      treeSource: null,
-    };
-  case "append-items": {
-    const generatedPaths = new Set(state.generatedPaths);
-    const nextItems = action.items.map((item) => {
-      resolveDiffItemLanguage(item);
-      const annotated = withCommentAnnotations(item, state.comments, state.draft);
-      return prepareAppendedItem(annotated, state, generatedPaths);
-    });
-    const languages = mergeLanguages(state.languages, nextItems.flatMap(diffItemPreloadLanguages));
-    return {
-      ...state,
-      activeItemId: state.activeItemId || nextItems[0]?.id || "",
-      items: [...state.items, ...nextItems],
-      languages,
-      status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
-    };
-  }
-  case "reset-diff":
-    return {
-      ...state,
-      activeItemId: "",
-      activeTreePath: "",
-      draft: null,
-      generatedPaths: [],
-      items: [],
-      languages: ["text"],
-      metrics: null,
-      status: action.status,
-      treeSource: null,
-    };
-  case "remove-comment": {
-    const comments = state.comments.filter((comment) => comment.id !== action.id);
-    return {
-      ...state,
-      comments,
-      items: applyCommentAnnotations(state.items, comments, state.draft),
-    };
-  }
-  case "rename-item":
-    return {
-      ...state,
-      activeItemId: state.activeItemId === action.oldId ? action.newId : state.activeItemId,
-      draft: state.draft?.itemId === action.oldId
-        ? { ...state.draft, itemId: action.newId }
-        : state.draft,
-      items: state.items.map((item) => (
-        item.id === action.oldId || item.id === action.newId
-          ? { ...item, id: action.newId, version: (item.version ?? 0) + 1 }
-          : item
-      )),
-    };
-  case "set-active-item":
-    return {
-      ...state,
-      activeItemId: action.itemId,
-      activeTreePath: action.treePath ?? state.activeTreePath,
-    };
-  case "replace-comments":
-    return {
-      ...state,
-      comments: action.comments,
-      draft: null,
-      items: applyCommentAnnotations(state.items, action.comments, null),
-    };
-  case "set-copy-feedback":
-    return { ...state, copyFeedback: action.message };
-  case "set-draft":
-    return {
-      ...state,
-      draft: action.draft,
-      items: applyCommentAnnotations(state.items, state.comments, action.draft),
-    };
-  case "set-file-search-open":
-    return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
-  case "request-file-search":
-    return { ...state, fileSearchOpen: true, fileSearchRequest: state.fileSearchRequest + 1, filesVisible: true };
-  case "set-find-open":
-    // The query is kept when closing so reopening recovers the last search.
-    return { ...state, findOpen: action.open };
-  case "set-find-query":
-    return { ...state, findQuery: action.query };
-  case "request-find":
-    return { ...state, findOpen: true, findRequest: state.findRequest + 1 };
-  case "set-files-width":
-    return { ...state, filesWidth: action.width };
-  case "set-files-visible":
-    return { ...state, filesVisible: action.visible };
-  case "set-metrics":
-    return { ...state, metrics: action.metrics };
-  case "set-option":
-    if (action.key === "collapsed") {
+    case "apply-viewed": {
+      const session = recordViewedChange(viewedSessionOf(state), action.change);
       return {
         ...state,
-        options: { ...state.options, collapsed: Boolean(action.value) },
-        items: state.items.map((item) => ({
-          ...item,
-          collapsed: Boolean(action.value),
-          version: (item.version ?? 0) + 1,
-        })),
+        items: action.items,
+        viewedByPath: session.viewedByPath,
+        viewedLocalEdits: session.localEdits,
       };
     }
-    return { ...state, options: { ...state.options, [action.key]: action.value } };
-  case "set-options-open":
-    return { ...state, optionsOpen: action.open };
-  case "set-status":
-    return { ...state, status: action.status };
-  case "set-tree-source": {
-    const source = action.source;
-    const nextPath = state.activeItemId ? source.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath : state.activeTreePath;
-    return {
-      ...state,
-      activeTreePath: nextPath,
-      treeSource: source,
-    };
-  }
-  case "upsert-comment": {
-    const exists = state.comments.some((comment) => comment.id === action.comment.id);
-    const comments = exists
-      ? state.comments.map((comment) => (comment.id === action.comment.id ? action.comment : comment))
-      : [...state.comments, action.comment];
-    return {
-      ...state,
-      comments,
-      items: applyCommentAnnotations(state.items, comments, state.draft),
-    };
-  }
+    case "begin-viewed-load": {
+      const session = beginViewedLoad(action.scopeKey);
+      return {
+        ...state,
+        viewedByPath: session.viewedByPath,
+        viewedLocalEdits: session.localEdits,
+        viewedScopeKey: session.scopeKey,
+      };
+    }
+    case "expand-item":
+      return {
+        ...state,
+        items: state.items.map((item) =>
+          item.id === action.itemId ? { ...item, collapsed: false, version: (item.version ?? 0) + 1 } : item,
+        ),
+      };
+    case "replace-viewed": {
+      const session = applyLoadedViewed(viewedSessionOf(state), action.scopeKey, action.entries);
+      if (session == null) {
+        return state;
+      }
+      const { viewedByPath } = session;
+      // Files already streamed collapse once their stored mark turns out to
+      // still match, the same way a late-arriving batch would.
+      const items = state.items.map((item) => {
+        const viewed = viewedStateOfItem(item, viewedByPath) === "viewed";
+        return viewed && !item.collapsed ? { ...item, collapsed: true, version: (item.version ?? 0) + 1 } : item;
+      });
+      return { ...state, items, viewedByPath };
+    }
+    case "set-file-filter":
+      return { ...state, fileFilter: { ...state.fileFilter, ...action.filter } };
+    case "set-generated-paths":
+      return { ...state, generatedPaths: action.paths };
+    case "apply-persisted-options": {
+      const { layout, ...prefs } = action.prefs;
+      return {
+        ...state,
+        options: {
+          ...state.options,
+          ...prefs,
+          ...(action.allowLayout && layout != null ? { layout } : {}),
+        },
+      };
+    }
+    case "refresh":
+      return {
+        ...state,
+        activeItemId: "",
+        activeTreePath: "",
+        draft: null,
+        generatedPaths: [],
+        items: [],
+        languages: ["text"],
+        metrics: null,
+        renderGeneration: state.renderGeneration + 1,
+        status: action.status,
+        treeSource: null,
+      };
+    case "append-items": {
+      const generatedPaths = new Set(state.generatedPaths);
+      const nextItems = action.items.map((item) => {
+        resolveDiffItemLanguage(item);
+        const annotated = withCommentAnnotations(item, state.comments, state.draft);
+        return prepareAppendedItem(annotated, state, generatedPaths);
+      });
+      const languages = mergeLanguages(state.languages, nextItems.flatMap(diffItemPreloadLanguages));
+      return {
+        ...state,
+        activeItemId: state.activeItemId || nextItems[0]?.id || "",
+        items: [...state.items, ...nextItems],
+        languages,
+        status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
+      };
+    }
+    case "reset-diff":
+      return {
+        ...state,
+        activeItemId: "",
+        activeTreePath: "",
+        draft: null,
+        generatedPaths: [],
+        items: [],
+        languages: ["text"],
+        metrics: null,
+        status: action.status,
+        treeSource: null,
+      };
+    case "remove-comment": {
+      const comments = state.comments.filter((comment) => comment.id !== action.id);
+      return {
+        ...state,
+        comments,
+        items: applyCommentAnnotations(state.items, comments, state.draft),
+      };
+    }
+    case "rename-item":
+      return {
+        ...state,
+        activeItemId: state.activeItemId === action.oldId ? action.newId : state.activeItemId,
+        draft: state.draft?.itemId === action.oldId ? { ...state.draft, itemId: action.newId } : state.draft,
+        items: state.items.map((item) =>
+          item.id === action.oldId || item.id === action.newId
+            ? { ...item, id: action.newId, version: (item.version ?? 0) + 1 }
+            : item,
+        ),
+      };
+    case "set-active-item":
+      return {
+        ...state,
+        activeItemId: action.itemId,
+        activeTreePath: action.treePath ?? state.activeTreePath,
+      };
+    case "replace-comments":
+      return {
+        ...state,
+        comments: action.comments,
+        draft: null,
+        items: applyCommentAnnotations(state.items, action.comments, null),
+      };
+    case "set-copy-feedback":
+      return { ...state, copyFeedback: action.message };
+    case "set-draft":
+      return {
+        ...state,
+        draft: action.draft,
+        items: applyCommentAnnotations(state.items, state.comments, action.draft),
+      };
+    case "set-file-search-open":
+      return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
+    case "request-file-search":
+      return { ...state, fileSearchOpen: true, fileSearchRequest: state.fileSearchRequest + 1, filesVisible: true };
+    case "set-find-open":
+      // The query is kept when closing so reopening recovers the last search.
+      return { ...state, findOpen: action.open };
+    case "set-find-query":
+      return { ...state, findQuery: action.query };
+    case "request-find":
+      return { ...state, findOpen: true, findRequest: state.findRequest + 1 };
+    case "set-files-width":
+      return { ...state, filesWidth: action.width };
+    case "set-files-visible":
+      return { ...state, filesVisible: action.visible };
+    case "set-metrics":
+      return { ...state, metrics: action.metrics };
+    case "set-option":
+      if (action.key === "collapsed") {
+        return {
+          ...state,
+          options: { ...state.options, collapsed: Boolean(action.value) },
+          items: state.items.map((item) => ({
+            ...item,
+            collapsed: Boolean(action.value),
+            version: (item.version ?? 0) + 1,
+          })),
+        };
+      }
+      return { ...state, options: { ...state.options, [action.key]: action.value } };
+    case "set-options-open":
+      return { ...state, optionsOpen: action.open };
+    case "set-status":
+      return { ...state, status: action.status };
+    case "set-tree-source": {
+      const source = action.source;
+      const nextPath = state.activeItemId
+        ? (source.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath)
+        : state.activeTreePath;
+      return {
+        ...state,
+        activeTreePath: nextPath,
+        treeSource: source,
+      };
+    }
+    case "upsert-comment": {
+      const exists = state.comments.some((comment) => comment.id === action.comment.id);
+      const comments = exists
+        ? state.comments.map((comment) => (comment.id === action.comment.id ? action.comment : comment))
+        : [...state.comments, action.comment];
+      return {
+        ...state,
+        comments,
+        items: applyCommentAnnotations(state.items, comments, state.draft),
+      };
+    }
   }
 }
 
 export function App({ config, initialStatus }: ConfigProps) {
   const payload = config.payload ?? {};
   const label = useMemo(
-    () => createDiffViewerLabelResolver(payload.labels, {
-      assertMissing: shouldAssertMissingLabels(),
-    }),
+    () =>
+      createDiffViewerLabelResolver(payload.labels, {
+        assertMissing: shouldAssertMissingLabels(),
+      }),
     [payload.labels],
   );
   const appearance = resolveDiffViewerAppearance(payload.appearance);
@@ -465,8 +491,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
   const commentRepoRoot = diffSourceRepoRoot(resolvedSessionSource ?? activeSessionSource) ?? payloadRepoRoot;
   useEffect(() => {
-    const configuredTitle =
-      typeof payload.title === "string" ? payload.title.trim() : "";
+    const configuredTitle = typeof payload.title === "string" ? payload.title.trim() : "";
     if (configuredTitle === "") {
       return;
     }
@@ -481,17 +506,9 @@ export function App({ config, initialStatus }: ConfigProps) {
     const repoOption = Array.isArray(payload.repoOptions)
       ? payload.repoOptions.find((option) => option?.value === repoRoot)
       : undefined;
-    const repoLabel =
-      typeof repoOption?.label === "string" ? repoOption.label.trim() : "";
-    document.title =
-      repoLabel === "" ? configuredTitle : `${configuredTitle} — ${repoLabel}`;
-  }, [
-    activeSessionSource,
-    payload.repoOptions,
-    payload.title,
-    payloadRepoRoot,
-    resolvedSessionSource,
-  ]);
+    const repoLabel = typeof repoOption?.label === "string" ? repoOption.label.trim() : "";
+    document.title = repoLabel === "" ? configuredTitle : `${configuredTitle} — ${repoLabel}`;
+  }, [activeSessionSource, payload.repoOptions, payload.title, payloadRepoRoot, resolvedSessionSource]);
   const bridgeAvailable = diffCommentsBridgeAvailable() && commentRepoRoot != null;
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
@@ -517,7 +534,8 @@ export function App({ config, initialStatus }: ConfigProps) {
       });
     }
     activeSessionRef.current = null;
-    return transport.request({
+    return transport
+      .request({
         method: "sessionClose",
         params: activeSession,
       })
@@ -551,21 +569,27 @@ export function App({ config, initialStatus }: ConfigProps) {
   );
   const progress = viewedProgress(state.items, state.viewedByPath);
   const viewedScopeRef = useSyncedRef(viewedScope);
-  const toggleViewed = useCallback((itemId: string) => {
-    const current = latestState.current;
-    const result = toggleViewedItem(current.items, current.viewedByPath, itemId);
-    if (result.change == null) {
-      return;
-    }
-    dispatch({ type: "apply-viewed", items: result.items, change: result.change });
-    persistViewedChange(viewedScopeRef.current, result.change);
-  }, [latestState, viewedScopeRef]);
-  const toggleViewedPath = useCallback((path: string) => {
-    const itemId = latestState.current.treeSource?.pathToItemId.get(path);
-    if (itemId) {
-      toggleViewed(itemId);
-    }
-  }, [latestState, toggleViewed]);
+  const toggleViewed = useCallback(
+    (itemId: string) => {
+      const current = latestState.current;
+      const result = toggleViewedItem(current.items, current.viewedByPath, itemId);
+      if (result.change == null) {
+        return;
+      }
+      dispatch({ type: "apply-viewed", items: result.items, change: result.change });
+      persistViewedChange(viewedScopeRef.current, result.change);
+    },
+    [latestState, viewedScopeRef],
+  );
+  const toggleViewedPath = useCallback(
+    (path: string) => {
+      const itemId = latestState.current.treeSource?.pathToItemId.get(path);
+      if (itemId) {
+        toggleViewed(itemId);
+      }
+    },
+    [latestState, toggleViewed],
+  );
 
   usePageDataAttributes(state);
   useViewedFilesBootstrap(viewedScope, dispatch);
@@ -638,35 +662,41 @@ export function App({ config, initialStatus }: ConfigProps) {
   // Index of the last hunk reached through n/p; -1 once a file-level jump or
   // refresh makes it stale so the next keypress re-seeds from the active file.
   const hunkNavIndex = useRef(-1);
-  const scrollToItem = useCallback((itemId: string) => {
-    const current = latestState.current;
-    const target = scrollTargetForItem(itemId, current.items);
-    if (!target) {
-      return;
-    }
-    hunkNavIndex.current = -1;
-    codeViewRef.current?.scrollTo({ type: "item", id: target, align: "start", behavior: "smooth-auto" });
-    dispatch({
-      type: "set-active-item",
-      itemId: target,
-      treePath: current.treeSource?.treePathByItemId.get(target),
-    });
-  }, [latestState]);
+  const scrollToItem = useCallback(
+    (itemId: string) => {
+      const current = latestState.current;
+      const target = scrollTargetForItem(itemId, current.items);
+      if (!target) {
+        return;
+      }
+      hunkNavIndex.current = -1;
+      codeViewRef.current?.scrollTo({ type: "item", id: target, align: "start", behavior: "smooth-auto" });
+      dispatch({
+        type: "set-active-item",
+        itemId: target,
+        treePath: current.treeSource?.treePathByItemId.get(target),
+      });
+    },
+    [latestState],
+  );
   const currentVisibleItemId = useCallback(() => {
     const current = latestState.current;
     const items = visibleItemsRef.current;
-    return visibleItemId(
-      items,
-      codeViewScrollTopRef.current,
-      (itemId) => codeViewRef.current?.getInstance()?.getTopForItem(itemId),
-    ) || (items.some((item) => item.id === current.activeItemId) ? current.activeItemId : "");
+    return (
+      visibleItemId(items, codeViewScrollTopRef.current, (itemId) =>
+        codeViewRef.current?.getInstance()?.getTopForItem(itemId),
+      ) || (items.some((item) => item.id === current.activeItemId) ? current.activeItemId : "")
+    );
   }, [latestState, visibleItemsRef]);
-  const jumpAdjacentFile = useCallback((direction: -1 | 1) => {
-    const target = adjacentItemId(currentVisibleItemId(), visibleItemsRef.current, direction);
-    if (target) {
-      scrollToItem(target);
-    }
-  }, [currentVisibleItemId, scrollToItem, visibleItemsRef]);
+  const jumpAdjacentFile = useCallback(
+    (direction: -1 | 1) => {
+      const target = adjacentItemId(currentVisibleItemId(), visibleItemsRef.current, direction);
+      if (target) {
+        scrollToItem(target);
+      }
+    },
+    [currentVisibleItemId, scrollToItem, visibleItemsRef],
+  );
   // GitHub's `v`: toggles the file under the viewport (or the active file).
   const toggleViewedCurrentFile = useCallback(() => {
     const target = currentVisibleItemId();
@@ -674,29 +704,32 @@ export function App({ config, initialStatus }: ConfigProps) {
       toggleViewed(target);
     }
   }, [currentVisibleItemId, toggleViewed]);
-  const jumpAdjacentHunk = useCallback((direction: -1 | 1) => {
-    const current = latestState.current;
-    const anchors = buildHunkAnchors(visibleItemsRef.current);
-    const index = nextHunkIndex(anchors, hunkNavIndex.current, current.activeItemId, direction);
-    if (index < 0) {
-      return;
-    }
-    const anchor = anchors[index];
-    hunkNavIndex.current = index;
-    codeViewRef.current?.scrollTo({
-      type: "line",
-      id: anchor.itemId,
-      lineNumber: anchor.lineNumber,
-      side: anchor.side,
-      align: "center",
-      behavior: "smooth-auto",
-    });
-    dispatch({
-      type: "set-active-item",
-      itemId: anchor.itemId,
-      treePath: current.treeSource?.treePathByItemId.get(anchor.itemId),
-    });
-  }, [latestState, visibleItemsRef]);
+  const jumpAdjacentHunk = useCallback(
+    (direction: -1 | 1) => {
+      const current = latestState.current;
+      const anchors = buildHunkAnchors(visibleItemsRef.current);
+      const index = nextHunkIndex(anchors, hunkNavIndex.current, current.activeItemId, direction);
+      if (index < 0) {
+        return;
+      }
+      const anchor = anchors[index];
+      hunkNavIndex.current = index;
+      codeViewRef.current?.scrollTo({
+        type: "line",
+        id: anchor.itemId,
+        lineNumber: anchor.lineNumber,
+        side: anchor.side,
+        align: "center",
+        behavior: "smooth-auto",
+      });
+      dispatch({
+        type: "set-active-item",
+        itemId: anchor.itemId,
+        treePath: current.treeSource?.treePathByItemId.get(anchor.itemId),
+      });
+    },
+    [latestState, visibleItemsRef],
+  );
   const handleCodeViewScroll = useCallback((scrollTop: number) => {
     codeViewScrollTopRef.current = scrollTop;
   }, []);
@@ -710,7 +743,14 @@ export function App({ config, initialStatus }: ConfigProps) {
   });
   const findBridgeRef = useSyncedRef({ open: state.findOpen, controller: find });
   useFindKeyboard(dispatch, findBridgeRef);
-  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile, jumpAdjacentHunk, toggleViewedCurrentFile, findBridgeRef);
+  useNativeViewerNavigation(
+    viewerContainerRef,
+    dispatch,
+    jumpAdjacentFile,
+    jumpAdjacentHunk,
+    toggleViewedCurrentFile,
+    findBridgeRef,
+  );
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
@@ -746,7 +786,11 @@ export function App({ config, initialStatus }: ConfigProps) {
   };
 
   return (
-    <div id="app" data-file-search-open={state.fileSearchOpen} data-file-filter-active={isDiffFileFilterActive(state.fileFilter)}>
+    <div
+      id="app"
+      data-file-search-open={state.fileSearchOpen}
+      data-file-filter-active={isDiffFileFilterActive(state.fileFilter)}
+    >
       <Toolbar
         config={config}
         transport={transport}
@@ -771,10 +815,10 @@ export function App({ config, initialStatus }: ConfigProps) {
         activeSessionSource={resolvedSessionSource ?? activeSessionSource}
         onSelectSessionSource={(source) => {
           const currentSource = resolvedSessionSource ?? activeSessionSource;
-          const selectedSource = source.kind === "branch"
-            && (currentSource?.kind !== "branch" || source.baseRef == null)
-            ? branchSourceByRepoRef.current.get(source.repoRoot) ?? source
-            : source;
+          const selectedSource =
+            source.kind === "branch" && (currentSource?.kind !== "branch" || source.baseRef == null)
+              ? (branchSourceByRepoRef.current.get(source.repoRoot) ?? source)
+              : source;
           if (selectedSource.kind === "branch") {
             branchSourceByRepoRef.current.set(selectedSource.repoRoot, selectedSource);
           }
@@ -794,11 +838,7 @@ export function App({ config, initialStatus }: ConfigProps) {
         visibleItems={visibleItems}
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
-        <FilesSidebarBackdrop
-          label={label}
-          onClose={() => closeFileSearch(dispatch)}
-          open={state.fileSearchOpen}
-        />
+        <FilesSidebarBackdrop label={label} onClose={() => closeFileSearch(dispatch)} open={state.fileSearchOpen} />
         <FilesSidebar
           commentEntries={commentEntries}
           commentLabels={commentLabels}
@@ -817,18 +857,10 @@ export function App({ config, initialStatus }: ConfigProps) {
         />
         <main id="viewer" aria-label={label("diffViewer")}>
           {state.findOpen ? (
-            <FindBar
-              controller={find}
-              label={label}
-              query={state.findQuery}
-              requestToken={state.findRequest}
-            />
+            <FindBar controller={find} label={label} query={state.findQuery} requestToken={state.findRequest} />
           ) : null}
           {state.items.length > 0 ? (
-            <WorkerPoolContextProvider
-              poolOptions={workerPoolOptions}
-              highlighterOptions={highlighterOptions}
-            >
+            <WorkerPoolContextProvider poolOptions={workerPoolOptions} highlighterOptions={highlighterOptions}>
               <WorkerRenderOptionsSync codeViewRef={codeViewRef} highlighterOptions={highlighterOptions} />
               <CodeView
                 ref={codeViewRef}
@@ -850,20 +882,15 @@ export function App({ config, initialStatus }: ConfigProps) {
                   </>
                 )}
                 renderAnnotation={(annotation, item) =>
-                  renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
+                  renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)
+                }
               />
             </WorkerPoolContextProvider>
           ) : null}
         </main>
         <LoadingLayer label={label} status={state.status} />
       </section>
-      <textarea
-        ref={copyFallbackRef}
-        aria-hidden="true"
-        readOnly
-        tabIndex={-1}
-        className="copy-fallback-textarea"
-      />
+      <textarea ref={copyFallbackRef} aria-hidden="true" readOnly tabIndex={-1} className="copy-fallback-textarea" />
     </div>
   );
 }
@@ -942,9 +969,10 @@ function useDiffComments({
       message,
     };
     const record = { ...input, submissionText: commentSubmissionText(input, item.fileDiff) };
-    const save = bridgeAvailable && repoRoot != null
-      ? bridgeSaveComment(repoRoot, record)
-      : Promise.resolve(localCommentRecord(record));
+    const save =
+      bridgeAvailable && repoRoot != null
+        ? bridgeSaveComment(repoRoot, record)
+        : Promise.resolve(localCommentRecord(record));
     save
       .then((saved) => {
         if (activeRepoRoot.current !== repoRoot) {
@@ -956,19 +984,13 @@ function useDiffComments({
       .catch((error) => console.warn("cmux diff comment save failed", error));
   };
 
-  const editMessage = (
-    comment: DiffCommentRecord,
-    message: string,
-    fileDiff: CommentFileDiff | null | undefined,
-  ) => {
+  const editMessage = (comment: DiffCommentRecord, message: string, fileDiff: CommentFileDiff | null | undefined) => {
     if (message.trim() === "") {
       return;
     }
     const edited = { ...comment, message, updatedAt: new Date().toISOString() };
     const updated = { ...edited, submissionText: commentSubmissionText(edited, fileDiff) };
-    const save = bridgeAvailable && repoRoot != null
-      ? bridgeSaveComment(repoRoot, updated)
-      : Promise.resolve(updated);
+    const save = bridgeAvailable && repoRoot != null ? bridgeSaveComment(repoRoot, updated) : Promise.resolve(updated);
     save
       .then((saved) => {
         if (activeRepoRoot.current === repoRoot) {
@@ -981,8 +1003,9 @@ function useDiffComments({
   const remove = (comment: DiffCommentRecord) => {
     const targetRepoRoot = repoRoot;
     if (bridgeAvailable && repoRoot != null) {
-      bridgeDeleteComment(repoRoot, comment.id)
-        .catch((error) => console.warn("cmux diff comment delete failed", error));
+      bridgeDeleteComment(repoRoot, comment.id).catch((error) =>
+        console.warn("cmux diff comment delete failed", error),
+      );
     }
     if (activeRepoRoot.current === targetRepoRoot) {
       dispatch({ type: "remove-comment", id: comment.id });
@@ -992,9 +1015,7 @@ function useDiffComments({
   return { editMessage, onGutterUtilityClick, onLoaded, remove, saveDraft };
 }
 
-function localCommentRecord(
-  input: Omit<DiffCommentRecord, "id" | "createdAt" | "updatedAt">,
-): DiffCommentRecord {
+function localCommentRecord(input: Omit<DiffCommentRecord, "id" | "createdAt" | "updatedAt">): DiffCommentRecord {
   const now = new Date().toISOString();
   return { ...input, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
 }
@@ -1112,7 +1133,9 @@ function FileReviewControls({
         </button>
       ) : null}
       {viewedState === "changed" ? (
-        <span className="file-review-badge" data-changed-since-viewed="true">{label("changedSinceViewed")}</span>
+        <span className="file-review-badge" data-changed-since-viewed="true">
+          {label("changedSinceViewed")}
+        </span>
       ) : null}
       <button
         type="button"
@@ -1124,7 +1147,9 @@ function FileReviewControls({
           onToggleViewed();
         }}
       >
-        <span className="file-review-checkbox" aria-hidden="true">{viewed ? <Icon name="check" /> : null}</span>
+        <span className="file-review-checkbox" aria-hidden="true">
+          {viewed ? <Icon name="check" /> : null}
+        </span>
         <span className="file-review-viewed-label">{label("viewed")}</span>
       </button>
     </span>
@@ -1405,9 +1430,9 @@ function SourceControls({
         id="source-select"
         options={payload.sourceOptions}
         onNavigate={onNavigate}
-        onSelectSessionSource={(source) => onSelectSessionSource(
-          sourceSelectionWithActiveRepo(source, activeSessionSource),
-        )}
+        onSelectSessionSource={(source) =>
+          onSelectSessionSource(sourceSelectionWithActiveRepo(source, activeSessionSource))
+        }
         selectedValue={diffSourceKind(activeSessionSource)}
       />
       {/* The repo select is ALWAYS rendered (a native <select> has no "..." menu
@@ -1420,9 +1445,9 @@ function SourceControls({
           id="repo-select"
           options={payload.repoOptions}
           onNavigate={onNavigate}
-          onSelectSessionSource={(source) => onSelectSessionSource(
-            repoSelectionWithActiveSource(source, activeSessionSource),
-          )}
+          onSelectSessionSource={(source) =>
+            onSelectSessionSource(repoSelectionWithActiveSource(source, activeSessionSource))
+          }
           selectedOptionTitle
           selectedValue={diffSourceRepoRoot(activeSessionSource)}
         />
@@ -1476,11 +1501,13 @@ function BaseControl({
         key={branchPickerStateKey(typedPicker)}
         label={label}
         onNavigate={onNavigate}
-        onSelectBranchBase={(baseRef) => onSelectSessionSource({
-          kind: "branch",
-          repoRoot: activeSessionSource.repoRoot,
-          baseRef,
-        })}
+        onSelectBranchBase={(baseRef) =>
+          onSelectSessionSource({
+            kind: "branch",
+            repoRoot: activeSessionSource.repoRoot,
+            baseRef,
+          })
+        }
         picker={typedPicker}
         transport={transport}
       />
@@ -1532,8 +1559,10 @@ function isValidBranchPickerPayload(value: any): value is BranchPickerPayload {
   return Boolean(
     value &&
     typeof value === "object" &&
-    typeof value.refsURL === "string" && value.refsURL !== "" &&
-    typeof value.regenerateURLTemplate === "string" && value.regenerateURLTemplate !== "" &&
+    typeof value.refsURL === "string" &&
+    value.refsURL !== "" &&
+    typeof value.regenerateURLTemplate === "string" &&
+    value.regenerateURLTemplate !== "" &&
     typeof value.currentRef === "string" &&
     typeof value.headRef === "string",
   );
@@ -1555,27 +1584,45 @@ function devBranchPickerMock(): BranchPickerPayload {
     currentReason: "fork point",
     confidence: "low",
     aheadBehind: { ahead: 12, behind: 3 },
-    refsURL: "data:application/json," + encodeURIComponent(JSON.stringify({
-      groups: [
-        { id: "suggested", label: "Suggested", rows: [
-          { ref: "main", label: "main", reason: "fork point", confidence: "low", current: true },
-          { ref: "origin/main", label: "origin/main", reason: "PR base" },
-        ] },
-        { id: "worktrees", label: "Worktrees", rows: [
-          { ref: "feat-x", label: "feat-x", worktreeDir: "../worktrees/feat-x" },
-        ] },
-        { id: "branches", label: "Branches", rows: [
-          { ref: "develop", label: "develop", secondary: "2 days ago" },
-          { ref: "release/1.0", label: "release/1.0", secondary: "1 week ago" },
-        ] },
-        // Large remotes group so the render cap (top N + "... more") is
-        // exercisable in DEV without a wired backend.
-        { id: "remotes", label: "Remotes", rows: Array.from({ length: 2304 }, (_value, index) => ({
-          ref: `origin/feature-${index}`,
-          label: `origin/feature-${index}`,
-        })) },
-      ],
-    })),
+    refsURL:
+      "data:application/json," +
+      encodeURIComponent(
+        JSON.stringify({
+          groups: [
+            {
+              id: "suggested",
+              label: "Suggested",
+              rows: [
+                { ref: "main", label: "main", reason: "fork point", confidence: "low", current: true },
+                { ref: "origin/main", label: "origin/main", reason: "PR base" },
+              ],
+            },
+            {
+              id: "worktrees",
+              label: "Worktrees",
+              rows: [{ ref: "feat-x", label: "feat-x", worktreeDir: "../worktrees/feat-x" }],
+            },
+            {
+              id: "branches",
+              label: "Branches",
+              rows: [
+                { ref: "develop", label: "develop", secondary: "2 days ago" },
+                { ref: "release/1.0", label: "release/1.0", secondary: "1 week ago" },
+              ],
+            },
+            // Large remotes group so the render cap (top N + "... more") is
+            // exercisable in DEV without a wired backend.
+            {
+              id: "remotes",
+              label: "Remotes",
+              rows: Array.from({ length: 2304 }, (_value, index) => ({
+                ref: `origin/feature-${index}`,
+                label: `origin/feature-${index}`,
+              })),
+            },
+          ],
+        }),
+      ),
     regenerateURLTemplate: "about:blank#base={ref}",
   };
 }
@@ -1602,15 +1649,14 @@ function NavigationSelect({
   if (!Array.isArray(options) || options.length < 2) {
     return null;
   }
-  const selected = options.find((option) => option.value === selectedValue)
-    ?? options.find((option) => option.selected)
-    ?? options.find((option) => !option.disabled);
+  const selected =
+    options.find((option) => option.value === selectedValue) ??
+    options.find((option) => option.selected) ??
+    options.find((option) => !option.disabled);
   const selectedTitle = selectedOptionTitle
-    ? (
-        typeof selected?.message === "string" && selected.message.trim() !== ""
-          ? selected.message
-          : (String(selected?.value ?? fallbackValue).trim() || ariaLabel)
-      )
+    ? typeof selected?.message === "string" && selected.message.trim() !== ""
+      ? selected.message
+      : String(selected?.value ?? fallbackValue).trim() || ariaLabel
     : ariaLabel;
   return (
     <select
@@ -1718,22 +1764,65 @@ function OptionsMenu({
   return (
     <div id="options-menu" aria-label={label("options")}>
       <MenuButton icon="refresh" label={label("refresh")} onClick={onReload} />
-      <MenuButton checked={state.options.wordWrap} icon="wrap" label={state.options.wordWrap ? label("disableWordWrap") : label("enableWordWrap")} onClick={() => toggle("wordWrap")} />
-      <MenuButton checked={state.options.collapsed} icon={state.options.collapsed ? "expand" : "collapse"} label={state.options.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs")} onClick={() => toggle("collapsed")} />
+      <MenuButton
+        checked={state.options.wordWrap}
+        icon="wrap"
+        label={state.options.wordWrap ? label("disableWordWrap") : label("enableWordWrap")}
+        onClick={() => toggle("wordWrap")}
+      />
+      <MenuButton
+        checked={state.options.collapsed}
+        icon={state.options.collapsed ? "expand" : "collapse"}
+        label={state.options.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs")}
+        onClick={() => toggle("collapsed")}
+      />
       <div className="menu-separator" />
       {/* Secondary actions that can overflow from the bar at narrow widths are
           always listed here so they stay reachable regardless of what the bar
           decided to drop. The bar hides its duplicate icon button when it
           overflows; the menu copy is the canonical fallback. */}
-      <MenuButton icon={state.options.layout} label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")} onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")} />
+      <MenuButton
+        icon={state.options.layout}
+        label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
+        onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")}
+      />
       {externalURL ? (
-        <MenuButton icon="external" label={label("openSourceURL")} onClick={() => window.open(externalURL, "_blank", "noreferrer")} />
+        <MenuButton
+          icon="external"
+          label={label("openSourceURL")}
+          onClick={() => window.open(externalURL, "_blank", "noreferrer")}
+        />
       ) : null}
-      <MenuButton checked={state.filesVisible} icon="files" label={state.filesVisible ? label("hideFiles") : label("showFiles")} onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })} />
-      <MenuButton checked={state.options.expandUnchanged} icon="document" label={state.options.expandUnchanged ? label("collapseUnchangedContext") : label("expandUnchangedContext")} onClick={() => toggle("expandUnchanged")} />
-      <MenuButton checked={state.options.showBackgrounds} icon="background" label={state.options.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds")} onClick={() => toggle("showBackgrounds")} />
-      <MenuButton checked={state.options.lineNumbers} icon="numbers" label={state.options.lineNumbers ? label("hideLineNumbers") : label("showLineNumbers")} onClick={() => toggle("lineNumbers")} />
-      <MenuButton checked={state.options.wordDiffs} icon="word" label={state.options.wordDiffs ? label("disableWordDiffs") : label("enableWordDiffs")} onClick={() => toggle("wordDiffs")} />
+      <MenuButton
+        checked={state.filesVisible}
+        icon="files"
+        label={state.filesVisible ? label("hideFiles") : label("showFiles")}
+        onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
+      />
+      <MenuButton
+        checked={state.options.expandUnchanged}
+        icon="document"
+        label={state.options.expandUnchanged ? label("collapseUnchangedContext") : label("expandUnchangedContext")}
+        onClick={() => toggle("expandUnchanged")}
+      />
+      <MenuButton
+        checked={state.options.showBackgrounds}
+        icon="background"
+        label={state.options.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds")}
+        onClick={() => toggle("showBackgrounds")}
+      />
+      <MenuButton
+        checked={state.options.lineNumbers}
+        icon="numbers"
+        label={state.options.lineNumbers ? label("hideLineNumbers") : label("showLineNumbers")}
+        onClick={() => toggle("lineNumbers")}
+      />
+      <MenuButton
+        checked={state.options.wordDiffs}
+        icon="word"
+        label={state.options.wordDiffs ? label("disableWordDiffs") : label("enableWordDiffs")}
+        onClick={() => toggle("wordDiffs")}
+      />
       <div className="menu-item menu-segment">
         <Icon name="bars" />
         <span className="menu-label">{label("indicatorStyle")}</span>
@@ -1775,12 +1864,7 @@ function MenuButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className="menu-item"
-      aria-pressed={checked == null ? undefined : checked}
-      onClick={onClick}
-    >
+    <button type="button" className="menu-item" aria-pressed={checked == null ? undefined : checked} onClick={onClick}>
       <Icon name={icon} />
       <span className="menu-label">{label}</span>
       <span className="menu-check">{checked ? <Icon name="check" /> : null}</span>
@@ -1823,10 +1907,14 @@ function FilesSidebar({
   const filterActive = isDiffFileFilterActive(filter);
   const statusLabel = (status: DiffFileStatus): string => {
     switch (status) {
-    case "added": return label("filterAddedFiles");
-    case "deleted": return label("filterDeletedFiles");
-    case "renamed": return label("filterRenamedFiles");
-    default: return label("filterModifiedFiles");
+      case "added":
+        return label("filterAddedFiles");
+      case "deleted":
+        return label("filterDeletedFiles");
+      case "renamed":
+        return label("filterRenamedFiles");
+      default:
+        return label("filterModifiedFiles");
     }
   };
   // Viewed marks by tree path so the tree row decorations can look them up.
@@ -1849,7 +1937,12 @@ function FilesSidebar({
     dispatch({ type: "set-files-width", width: nextWidth });
   };
   return (
-    <aside id="files-sidebar" aria-label={label("changedFiles")} aria-hidden={!state.filesVisible} inert={!state.filesVisible}>
+    <aside
+      id="files-sidebar"
+      aria-label={label("changedFiles")}
+      aria-hidden={!state.filesVisible}
+      inert={!state.filesVisible}
+    >
       <button
         id="files-resize-handle"
         aria-label={label("files")}
@@ -1890,9 +1983,9 @@ function FilesSidebar({
             aria-label={state.fileSearchOpen ? label("hideFileSearch") : label("showFileSearch")}
             aria-pressed={state.fileSearchOpen}
             disabled={!state.treeSource}
-            onClick={() => state.fileSearchOpen
-              ? closeFileSearch(dispatch)
-              : dispatch({ type: "set-file-search-open", open: true })}
+            onClick={() =>
+              state.fileSearchOpen ? closeFileSearch(dispatch) : dispatch({ type: "set-file-search-open", open: true })
+            }
           >
             <Icon name="search" />
           </button>
@@ -1936,7 +2029,9 @@ function FilesSidebar({
               title={statusLabel(status)}
               aria-label={statusLabel(status)}
               aria-pressed={filter.statuses.includes(status)}
-              onClick={() => dispatch({ type: "set-file-filter", filter: { statuses: toggleStatusFilter(filter.statuses, status) } })}
+              onClick={() =>
+                dispatch({ type: "set-file-filter", filter: { statuses: toggleStatusFilter(filter.statuses, status) } })
+              }
             >
               <Icon name={statusIconName[status]} />
             </button>
@@ -2082,10 +2177,16 @@ function LoadingFileList() {
   return (
     <div className="diff-loading-placeholder" aria-hidden="true">
       {fileSkeletonWidths.map((width, index) => (
-        <div key={`${width}-${index}`} className="grid h-6 grid-cols-[16px_minmax(0,1fr)_44px] items-center gap-2 rounded-[5px] px-[7px]">
+        <div
+          key={`${width}-${index}`}
+          className="grid h-6 grid-cols-[16px_minmax(0,1fr)_44px] items-center gap-2 rounded-[5px] px-[7px]"
+        >
           <span className="size-4 rounded-[5px] border border-[color-mix(in_lab,var(--cmux-diff-fg)_18%,transparent)]" />
           <span className="h-[11px] rounded bg-[var(--cmux-diff-muted-bg)]" style={{ width }} />
-          <span className="h-[11px] justify-self-end rounded bg-[var(--cmux-diff-muted-bg)] opacity-70" style={{ width: index % 2 === 0 ? "34px" : "24px" }} />
+          <span
+            className="h-[11px] justify-self-end rounded bg-[var(--cmux-diff-muted-bg)] opacity-70"
+            style={{ width: index % 2 === 0 ? "34px" : "24px" }}
+          />
         </div>
       ))}
     </div>
@@ -2094,7 +2195,10 @@ function LoadingFileList() {
 
 function LoadingDiffSkeleton() {
   return (
-    <div className="diff-loading-placeholder mx-3.5 mt-3.5 border-t border-[var(--cmux-diff-border)] pt-3" aria-hidden="true">
+    <div
+      className="diff-loading-placeholder mx-3.5 mt-3.5 border-t border-[var(--cmux-diff-border)] pt-3"
+      aria-hidden="true"
+    >
       <div className="mb-3 grid h-9 grid-cols-[72px_minmax(0,1fr)_96px] items-center gap-3 rounded-md bg-[color-mix(in_lab,var(--cmux-diff-fg)_5%,transparent)] px-3">
         <span className="h-3 rounded bg-[var(--cmux-diff-muted-bg)]" />
         <span className="h-3 w-2/5 rounded bg-[var(--cmux-diff-muted-bg)]" />
@@ -2147,7 +2251,8 @@ function useWorkerRenderOptionsSync(
     }
     let active = true;
     syncedOptions.current = highlighterOptions;
-    workerPool.setRenderOptions(highlighterOptions)
+    workerPool
+      .setRenderOptions(highlighterOptions)
       .then(() => {
         if (active) {
           codeViewRef.current?.getInstance()?.render(true);
@@ -2164,13 +2269,15 @@ function sameWorkerHighlighterOptions(
   previous: ReturnType<typeof workerHighlighterOptions> | null,
   next: ReturnType<typeof workerHighlighterOptions>,
 ): boolean {
-  return previous?.lineDiffType === next.lineDiffType &&
+  return (
+    previous?.lineDiffType === next.lineDiffType &&
     sameStringArray(previous?.langs, next.langs) &&
     previous?.maxLineDiffLength === next.maxLineDiffLength &&
     previous?.preferredHighlighter === next.preferredHighlighter &&
     sameThemeOption(previous?.theme, next.theme) &&
     previous?.tokenizeMaxLineLength === next.tokenizeMaxLineLength &&
-    previous?.useTokenTransformer === next.useTokenTransformer;
+    previous?.useTokenTransformer === next.useTokenTransformer
+  );
 }
 
 function sameStringArray(previous: readonly string[] | undefined, next: readonly string[] | undefined): boolean {
@@ -2193,14 +2300,13 @@ function sameThemeOption(
   if (typeof previous !== "object" || previous == null || typeof next !== "object" || next == null) {
     return false;
   }
-  return (previous as { dark?: string }).dark === (next as { dark?: string }).dark &&
-    (previous as { light?: string }).light === (next as { light?: string }).light;
+  return (
+    (previous as { dark?: string }).dark === (next as { dark?: string }).dark &&
+    (previous as { light?: string }).light === (next as { light?: string }).light
+  );
 }
 
-function usePierreFileTreeSource(
-  model: ReturnType<typeof useFileTree>["model"],
-  source: FileTreeSource,
-): void {
+function usePierreFileTreeSource(model: ReturnType<typeof useFileTree>["model"], source: FileTreeSource): void {
   const previousSource = useRef<FileTreeSource | null>(null);
   useEffect(() => {
     const previous = previousSource.current;
@@ -2334,17 +2440,26 @@ function useRenderDiff(
             dispatch({ type: "set-metrics", metrics });
             const items = streamedItems;
             if (items.length === 0) {
-              const emptyMessage = typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
-              dispatch({ type: "set-status", status: createDiffViewerStatus(emptyMessage, { error: false, loading: false, statusOnly: true }) });
+              const emptyMessage =
+                typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
+              dispatch({
+                type: "set-status",
+                status: createDiffViewerStatus(emptyMessage, { error: false, loading: false, statusOnly: true }),
+              });
               return;
             }
             const themes = Array.from(new Set([appearance.theme?.light, appearance.theme?.dark].filter(Boolean)));
-            const langs = Array.from(new Set(items.flatMap((item) => {
-              const diff = item.fileDiff ?? {};
-              return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
-            })));
-            preloadHighlighter({ themes, langs: langs.length > 0 ? langs : ["text"] })
-              .catch((error) => console.warn("cmux diff highlighter preload failed", error));
+            const langs = Array.from(
+              new Set(
+                items.flatMap((item) => {
+                  const diff = item.fileDiff ?? {};
+                  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
+                }),
+              ),
+            );
+            preloadHighlighter({ themes, langs: langs.length > 0 ? langs : ["text"] }).catch((error) =>
+              console.warn("cmux diff highlighter preload failed", error),
+            );
           },
           onMetrics: (metrics) => {
             if (!cancelled) dispatch({ type: "set-metrics", metrics });
@@ -2389,14 +2504,33 @@ function useRenderDiff(
       window.removeEventListener("pagehide", handlePageHide);
       void closeActiveSession();
     };
-  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, renderGeneration, sessionSource, transport]);
+  }, [
+    activeSessionRef,
+    closeActiveSession,
+    config,
+    dispatch,
+    label,
+    latestState,
+    onPatchURL,
+    onResolvedSessionSource,
+    renderGeneration,
+    sessionSource,
+    transport,
+  ]);
 }
 
 function closeDiffSession(transport: DiffTransport, session: ActiveDiffSession): Promise<void> {
-  return transport.request({ method: "sessionClose", params: session }).then(() => {}, () => {});
+  return transport.request({ method: "sessionClose", params: session }).then(
+    () => {},
+    () => {},
+  );
 }
 
-function diffSessionRequest(payload: any, transport: DiffTransport | null, overrideSource?: DiffSource | null): {
+function diffSessionRequest(
+  payload: any,
+  transport: DiffTransport | null,
+  overrideSource?: DiffSource | null,
+): {
   source: DiffSource;
   capabilityToken: string;
 } | null {
@@ -2421,9 +2555,11 @@ function validDiffSource(value: unknown): value is DiffSource {
   if (source.kind === "unstaged" || source.kind === "staged") {
     return typeof source.repoRoot === "string";
   }
-  return source.kind === "branch"
-    && typeof source.repoRoot === "string"
-    && (source.baseRef == null || typeof source.baseRef === "string");
+  return (
+    source.kind === "branch" &&
+    typeof source.repoRoot === "string" &&
+    (source.baseRef == null || typeof source.baseRef === "string")
+  );
 }
 
 function diffSourceKind(source: DiffSource | null): string | null {
@@ -2456,9 +2592,7 @@ function repoSelectionWithActiveSource(source: DiffSource, active: DiffSource | 
     return source;
   }
   if (active.kind === "branch") {
-    return active.repoRoot === repoRoot
-      ? { ...active, repoRoot }
-      : { kind: "branch", repoRoot };
+    return active.repoRoot === repoRoot ? { ...active, repoRoot } : { kind: "branch", repoRoot };
   }
   return { ...active, repoRoot };
 }
@@ -2533,13 +2667,16 @@ function usePendingReplacement(
             throw new Error("replacement failed");
           }
           const text = await response.text();
-          if (!text.includes("data-cmux-diff-pending=\"true\"")) {
+          if (!text.includes('data-cmux-diff-pending="true"')) {
             window.location.reload();
           }
         })
         .catch((error) => {
           document.documentElement.dataset.cmuxDiffWait = "failed";
-          dispatch({ type: "set-status", status: createDiffViewerStatus(label("renderFailed"), { error: true, loading: false, statusOnly: true }) });
+          dispatch({
+            type: "set-status",
+            status: createDiffViewerStatus(label("renderFailed"), { error: true, loading: false, statusOnly: true }),
+          });
           console.warn("cmux diff viewer deferred load failed", error);
         });
       return;

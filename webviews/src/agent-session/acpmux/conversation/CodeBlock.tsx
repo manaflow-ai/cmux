@@ -98,7 +98,10 @@ export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
     if (!el || !file) return;
     file.setOptions({ ...file.options, overflow: wrap ? "wrap" : "scroll" });
     // Shiki throws for a language the bundle does not ship; those draw as plain text.
-    file.render({ fileContainer: el, file: { name: "snippet", contents: code, lang: (isHighlighted(lang) ? lang : "text") as never } });
+    file.render({
+      fileContainer: el,
+      file: { name: "snippet", contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
+    });
   }, [code, lang, wrap]);
   return (
     <div className="cv-codeblock">
@@ -106,10 +109,23 @@ export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
         <CodeBrackets size={17} strokeWidth={1.2} />
         <span>{label ?? languageLabel(lang)}</span>
         <span className="cv-codeblock__actions">
-          <button type="button" className="cv-codeblock__action" aria-pressed={wrap} aria-label="Wrap lines" title="Wrap lines" onClick={() => setWrap((value) => !value)}>
+          <button
+            type="button"
+            className="cv-codeblock__action"
+            aria-pressed={wrap}
+            aria-label="Wrap lines"
+            title="Wrap lines"
+            onClick={() => setWrap((value) => !value)}
+          >
             <WrapLines />
           </button>
-          <button type="button" className="cv-codeblock__action" aria-label={copied ? "Copied" : "Copy code"} title={copied ? "Copied" : "Copy code"} onClick={() => void copyText(code).then(() => setCopied(true))}>
+          <button
+            type="button"
+            className="cv-codeblock__action"
+            aria-label={copied ? "Copied" : "Copy code"}
+            title={copied ? "Copied" : "Copy code"}
+            onClick={() => void copyText(code).then(() => setCopied(true))}
+          >
             <Copy />
           </button>
         </span>

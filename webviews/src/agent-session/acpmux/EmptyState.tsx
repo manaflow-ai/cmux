@@ -33,11 +33,35 @@ export function isNewChat(snapshot: AcpmuxSnapshot): boolean {
 /// the session's project.
 export function EmptyState({ project }: { project?: string }) {
   const [before, after] = EMPTY_STATE_LABELS.promptIn.split("{project}");
-  return <div className="acpmux-empty">
-    <svg className="acpmux-empty-glyph" width={36} height={36} viewBox="0 0 36 36" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-      <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
-      <path d="m11.5 14.5 3.5 3.5-3.5 3.5M18.5 22h6" />
-    </svg>
-    <h2 className="acpmux-empty-title">{project ? <>{before}<span className="acpmux-empty-project">{project}</span>{after}</> : EMPTY_STATE_LABELS.prompt}</h2>
-  </div>;
+  return (
+    <div className="acpmux-empty">
+      <svg
+        className="acpmux-empty-glyph"
+        width={36}
+        height={36}
+        viewBox="0 0 36 36"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
+        <path d="m11.5 14.5 3.5 3.5-3.5 3.5M18.5 22h6" />
+      </svg>
+      <h2 className="acpmux-empty-title">
+        {project ? (
+          <>
+            {before}
+            <span className="acpmux-empty-project">{project}</span>
+            {after}
+          </>
+        ) : (
+          EMPTY_STATE_LABELS.prompt
+        )}
+      </h2>
+    </div>
+  );
 }

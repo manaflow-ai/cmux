@@ -35,8 +35,6 @@ export function mountDiffSurface(rootElement: HTMLElement): void {
   const initialStatus = initialDiffViewerStatus(config, label);
   document.body.dataset.filesHidden = "false";
   applyDiffViewerStatusToDocument(initialStatus);
-  const router = createWebviewsRouter(() => (
-    <App config={config} initialStatus={initialStatus} />
-  ));
+  const router = createWebviewsRouter(() => <App config={config} initialStatus={initialStatus} />);
   createRoot(rootElement).render(<RouterProvider router={router} />);
 }

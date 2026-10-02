@@ -12,7 +12,11 @@ export function WorkedFor({ row, expanded, onToggle }: { row: AcpmuxRow; expande
   return (
     <button type="button" className="cv-worked has-divider is-toggle" aria-expanded={expanded} onClick={onToggle}>
       <span className="cv-worked__label">{workedLabel(row)}</span>
-      <ChevronRight size={14} strokeWidth={1.2} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+      <ChevronRight
+        size={14}
+        strokeWidth={1.2}
+        className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`}
+      />
     </button>
   );
 }
@@ -20,12 +24,21 @@ export function WorkedFor({ row, expanded, onToggle }: { row: AcpmuxRow; expande
 /// ACP tool kinds (`ToolKind`) to Codex's row glyphs.
 function toolIcon(kind?: string): ReactNode {
   switch (kind) {
-    case "read": return <OpenBook />;
-    case "edit": case "delete": case "move": case "fileChange": return <Pencil size={16} strokeWidth={1.1} />;
-    case "search": return <Magnifier />;
-    case "execute": return <TerminalSquare />;
-    case "fetch": return <Globe size={16} strokeWidth={1.1} />;
-    default: return <ToolGroup size={16} strokeWidth={1.2} />;
+    case "read":
+      return <OpenBook />;
+    case "edit":
+    case "delete":
+    case "move":
+    case "fileChange":
+      return <Pencil size={16} strokeWidth={1.1} />;
+    case "search":
+      return <Magnifier />;
+    case "execute":
+      return <TerminalSquare />;
+    case "fetch":
+      return <Globe size={16} strokeWidth={1.1} />;
+    default:
+      return <ToolGroup size={16} strokeWidth={1.2} />;
   }
 }
 
@@ -49,9 +62,18 @@ function ToolRow({ item }: { item: AcpmuxActivity }) {
   return (
     <>
       {body ? (
-        <button type="button" className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <button
+          type="button"
+          className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
           {content}
-          <ChevronRight size={14} strokeWidth={1.2} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+          <ChevronRight
+            size={14}
+            strokeWidth={1.2}
+            className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
+          />
         </button>
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
@@ -65,9 +87,15 @@ function ToolRow({ item }: { item: AcpmuxActivity }) {
 export function ToolRows({ row }: { row: AcpmuxRow }) {
   return (
     <div className="cv-tools">
-      {(row.items ?? []).map((item, index) => item.tool
-        ? <ToolRow key={item.tool.id || index} item={item} />
-        : <div className="cv-tool cv-thought" key={index}><span className="cv-tool__text">{item.text}</span></div>)}
+      {(row.items ?? []).map((item, index) =>
+        item.tool ? (
+          <ToolRow key={item.tool.id || index} item={item} />
+        ) : (
+          <div className="cv-tool cv-thought" key={index}>
+            <span className="cv-tool__text">{item.text}</span>
+          </div>
+        ),
+      )}
     </div>
   );
 }
@@ -85,12 +113,25 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     <div className="cv-turn-actions">
       {!row.folded && <span className="cv-turn-summary">{workedLabel(row)}</span>}
       {text && (
-        <button type="button" className="cv-iconbtn" aria-label={copied ? "Copied" : "Copy"} title={copied ? "Copied" : "Copy"} onClick={() => void copyText(text).then(() => setCopied(true), () => setCopied(false))}>
+        <button
+          type="button"
+          className="cv-iconbtn"
+          aria-label={copied ? "Copied" : "Copy"}
+          title={copied ? "Copied" : "Copy"}
+          onClick={() =>
+            void copyText(text).then(
+              () => setCopied(true),
+              () => setCopied(false),
+            )
+          }
+        >
           <Copy />
         </button>
       )}
       {failed && <span className="cv-turn-note">{row.error || "The turn failed"}</span>}
-      <time className="cv-turn-time" dateTime={new Date(row.at).toISOString()}>{clock.format(row.at)}</time>
+      <time className="cv-turn-time" dateTime={new Date(row.at).toISOString()}>
+        {clock.format(row.at)}
+      </time>
     </div>
   );
 }

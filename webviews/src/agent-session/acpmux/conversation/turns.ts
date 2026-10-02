@@ -21,7 +21,7 @@ export function formatDuration(ms: number): string {
   return [h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean).join(" ");
 }
 
-export const toolCalls = (count = 0) => count === 1 ? "1 tool call" : `${count} tool calls`;
+export const toolCalls = (count = 0) => (count === 1 ? "1 tool call" : `${count} tool calls`);
 
 /// "Worked for 15s · 2 tool calls". Codex counts the time to the final answer's first text,
 /// not to the turn's end; a summary without a start time has only its count.
@@ -33,7 +33,9 @@ export function workedLabel(row: AcpmuxRow): string {
   return calls ? `${lead} · ${calls}` : lead;
 }
 
-const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
+const isEdit = (row: AcpmuxRow) =>
+  row.kind === "activity" &&
+  (row.items ?? []).some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
 
 /// The rows to draw. `expanded` holds the ids of open disclosures.
 export function turnView(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {
@@ -65,7 +67,11 @@ function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<str
   const summary = turn[end]!;
   const body = turn.slice(0, end);
   let final = -1;
-  for (let at = body.length - 1; at >= 0; at -= 1) if (body[at]!.kind === "assistant") { final = at; break; }
+  for (let at = body.length - 1; at >= 0; at -= 1)
+    if (body[at]!.kind === "assistant") {
+      final = at;
+      break;
+    }
   const answer = final >= 0 ? body[final] : undefined;
   // Work before the answer folds away (all of it, when the turn ended without one); edits
   // also close the turn as their card.
@@ -79,8 +85,16 @@ function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<str
   if (work.length) {
     const id = `${WORKED}-${user.id}`;
     const open = expanded.has(id);
-    shaped.push({ id, version: version * 2 + (open ? 1 : 0), at: user.at, kind: WORKED, status: summary.status, toolCount: summary.toolCount, durationMs: answer ? Math.max(0, answer.at - user.at) : summary.durationMs ?? Math.max(0, summary.at - user.at) });
-    if (open) shaped.push(...work.map((row) => isEdit(row) ? { ...row, id: `${row.id}${FOLDED}` } : row));
+    shaped.push({
+      id,
+      version: version * 2 + (open ? 1 : 0),
+      at: user.at,
+      kind: WORKED,
+      status: summary.status,
+      toolCount: summary.toolCount,
+      durationMs: answer ? Math.max(0, answer.at - user.at) : (summary.durationMs ?? Math.max(0, summary.at - user.at)),
+    });
+    if (open) shaped.push(...work.map((row) => (isEdit(row) ? { ...row, id: `${row.id}${FOLDED}` } : row)));
   }
   if (answer) shaped.push(answer);
   shaped.push(...rest, ...edits);

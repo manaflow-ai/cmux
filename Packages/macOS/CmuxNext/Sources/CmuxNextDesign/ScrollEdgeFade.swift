@@ -145,7 +145,7 @@ public final class ScrollEdgeFadeView: NSView {
         guard let layer else { return }
         observeDocument(scrollView.documentView)
         let next = Self.hiddenEdges(of: scrollView)
-        let fade = min(Metrics.scrollEdgeFade / max(layer.bounds.height, 1), 0.4)
+        let fade = min(Metrics.scrollEdgeFade / max(layer.bounds.height, 1), CGFloat(ChromeTunables.scrollFadeMaxFraction.value))
         Motion.transaction(nil) {
             if layer.mask !== fadeMask { layer.mask = fadeMask }
             fadeMask.frame = layer.bounds
