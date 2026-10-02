@@ -86,8 +86,9 @@ impl StickyMode {
 
 /// The sticky flag of one viewport column, as stored and as sent on the wire
 /// (`{"edge":"left"|"right","mode":"docked"|"overlay"}`).
+/// Unknown members are ignored so a later build may add one without making
+/// this build unable to read the record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ColumnSticky {
     pub edge: StickyEdge,
     pub mode: StickyMode,

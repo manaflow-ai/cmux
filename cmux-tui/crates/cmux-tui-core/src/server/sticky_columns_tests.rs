@@ -238,6 +238,7 @@ fn sticky_column_emits_screen_change_and_layout_change() {
             _ => None,
         })
         .expect("a sticky change emits screen-changed");
+    assert_eq!(delta.transaction.as_deref(), Some("5"), "the delta echoes the transaction");
     assert_eq!(delta.entity["columns"][1]["sticky"], json!({"edge": "right", "mode": "docked"}));
 }
 
@@ -270,6 +271,27 @@ fn sticky_column_closing_a_sticky_column_keeps_the_others() {
     wire.set_sticky(panes[2], "right", "docked");
     wire.ok(json!({"cmd": "close-pane", "pane": panes[2]}));
     assert_eq!(wire.sticky(), vec![sticky("left", "overlay"), None]);
+}
+
+#[test]
+fn sticky_column_tab_drags_keep_flags_consistent() {
+    let (mut wire, panes) = Wire::with_columns(3);
+    let extra = wire.mux.new_tab(Some(panes[0]), None, Some((38, 22))).unwrap();
+    wire.set_sticky(panes[2], "right", "docked");
+
+    // A tab dragged into a new column: the new column scrolls.
+    wire.ok(json!({"cmd": "move-tab-to-column", "surface": extra.id, "pane": panes[0]}));
+    assert_eq!(wire.sticky(), vec![None, None, sticky("right", "docked"), None]);
+
+    // Dragging the sticky column's only tab away removes that column.
+    let sticky_tab = wire.mux.with_state(|state| state.panes[&panes[2]].tabs[0]);
+    wire.ok(json!({
+        "cmd": "move-tab-to-split",
+        "surface": sticky_tab,
+        "pane": panes[0],
+        "edge": "bottom",
+    }));
+    assert_eq!(wire.sticky(), vec![None, None, None]);
 }
 
 #[test]

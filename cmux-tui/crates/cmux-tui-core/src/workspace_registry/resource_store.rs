@@ -2369,15 +2369,6 @@ fn validate_registry_viewport(
     if &column_panes != screen_panes {
         anyhow::bail!("viewport columns do not cover the screen panes");
     }
-    let sticky = viewport.columns.iter().filter_map(|column| column.sticky).collect::<Vec<_>>();
-    if sticky.len() >= viewport.columns.len() {
-        anyhow::bail!("viewport must keep at least one scrolling column");
-    }
-    for edge in [crate::model::StickyEdge::Left, crate::model::StickyEdge::Right] {
-        if sticky.iter().filter(|flag| flag.edge == edge).count() > 1 {
-            anyhow::bail!("viewport has more than one {} sticky column", edge.as_str());
-        }
-    }
     let owners = viewport.columns.iter().skip(1).map(|column| &column.id).collect::<HashSet<_>>();
     if owners.iter().any(|owner| internal_splits.contains(*owner)) {
         anyhow::bail!("viewport boundary owner also appears inside a column");

@@ -19925,8 +19925,9 @@ fn restore_registry_viewport(
             sticky: column.sticky,
         });
     }
-    // Written records already satisfy the sticky invariants; normalizing
-    // here keeps a damaged record from producing an unscrollable screen.
+    // Every writer stores normalized flags. The registry does not reject
+    // inconsistent flags, so a damaged record still loads; it is repaired
+    // here instead of producing a screen with no scrolling column.
     crate::model::normalize_sticky_columns(&mut columns);
     let viewport_splits = columns.iter().skip(1).map(|column| (column.id, column.width)).collect();
     Ok((viewport_splits, viewport.base_width, columns))

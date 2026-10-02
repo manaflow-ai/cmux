@@ -1954,7 +1954,7 @@ Result:
 object{column:Id,sticky:object{edge:"left"|"right",mode:"docked"|"overlay"}|null,transaction?:uint64}
 ```
 
-`column` is the column's `Screen.columns[].id` and `sticky` its flag after the request. `transaction` echoes the request's value and is omitted when the request had none.
+`column` is the column's `Screen.columns[].id` and `sticky` its flag after the request. `transaction` echoes the request's value and is omitted when the request had none. The `screen-changed` delta of a change carries the same transaction as a decimal string (the delta's `transaction` field is a string).
 
 Errors:
 

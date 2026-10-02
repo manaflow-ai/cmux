@@ -257,7 +257,11 @@ impl Mux {
             })?;
         let outcome = committed.ok_or(ColumnStickyError::CommitFailed)?;
         if !commit.replayed {
-            self.emit_screen_changed(&[outcome.screen]);
+            // `TreeDelta.transaction` is a string; the numeric request
+            // transaction travels as its decimal form.
+            let transaction =
+                transaction.map(|(_, transaction)| Arc::from(transaction.to_string()));
+            self.emit_screen_changed_for_transaction(&[outcome.screen], transaction);
             self.emit(MuxEvent::LayoutChanged(outcome.screen));
         }
         Ok(outcome)
