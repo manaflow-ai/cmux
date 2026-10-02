@@ -26207,127 +26207,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Colors for cmux and its terminals. A room, workspace or terminal theme overrides it."
+            "value": "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux とそのターミナルの配色です。ルーム、ワークスペース、ターミナルのテーマが優先されます。"
+            "value": "cmux とそのターミナルの配色です。スペース、ワークスペース、ターミナルのテーマが優先されます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ألوان cmux وطرفياته. تتجاوزها سمة الغرفة أو مساحة العمل أو الطرفية."
+            "value": "ألوان cmux وطرفياته. تتجاوزها سمة المساحة أو مساحة العمل أو الطرفية."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Boje za cmux i njegove terminale. Tema sobe, radnog prostora ili terminala ima prednost."
+            "value": "Boje za cmux i njegove terminale. Tema prostora, radnog prostora ili terminala ima prednost."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Farver til cmux og dets terminaler. Et rum-, arbejdsområde- eller terminaltema tilsidesætter det."
+            "value": "Farver til cmux og dets terminaler. Et område-, arbejdsområde- eller terminaltema tilsidesætter det."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Farben für cmux und seine Terminals. Ein Raum-, Arbeitsbereich- oder Terminal-Design hat Vorrang."
+            "value": "Farben für cmux und seine Terminals. Ein Space-, Arbeitsbereich- oder Terminal-Design hat Vorrang."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Colores de cmux y sus terminales. El tema de una sala, un espacio de trabajo o una terminal lo reemplaza."
+            "value": "Colores de cmux y sus terminales. El tema de un espacio, un espacio de trabajo o una terminal lo reemplaza."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Couleurs de cmux et de ses terminaux. Le thème d’une salle, d’un espace de travail ou d’un terminal le remplace."
+            "value": "Couleurs de cmux et de ses terminaux. Le thème d’un espace, d’un espace de travail ou d’un terminal le remplace."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Colori di cmux e dei suoi terminali. Il tema di una stanza, di uno spazio di lavoro o di un terminale lo sostituisce."
+            "value": "Colori di cmux e dei suoi terminali. Il tema di uno spazio, di uno spazio di lavoro o di un terminale lo sostituisce."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ពណ៌សម្រាប់ cmux និងទែមីណាល់របស់វា។ រចនាប័ទ្មបន្ទប់ កន្លែងធ្វើការ ឬទែមីណាល់ មានអាទិភាពជាង។"
+            "value": "ពណ៌សម្រាប់ cmux និងទែមីណាល់របស់វា។ រចនាប័ទ្មលំហ កន្លែងធ្វើការ ឬទែមីណាល់ មានអាទិភាពជាង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux와 터미널의 색상입니다. 룸, 작업 공간 또는 터미널 테마가 우선합니다."
+            "value": "cmux와 터미널의 색상입니다. 스페이스, 작업 공간 또는 터미널 테마가 우선합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Farger for cmux og terminalene. Et rom-, arbeidsområde- eller terminaltema overstyrer det."
+            "value": "Farger for cmux og terminalene. Et område-, arbeidsområde- eller terminaltema overstyrer det."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kolory cmux i jego terminali. Motyw pokoju, obszaru roboczego lub terminala ma pierwszeństwo."
+            "value": "Kolory cmux i jego terminali. Motyw obszaru, obszaru roboczego lub terminala ma pierwszeństwo."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cores do cmux e dos seus terminais. O tema de uma sala, espaço de trabalho ou terminal o substitui."
+            "value": "Cores do cmux e dos seus terminais. O tema de um espaço, espaço de trabalho ou terminal o substitui."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цвета cmux и его терминалов. Тема комнаты, рабочей области или терминала имеет приоритет."
+            "value": "Цвета cmux и его терминалов. Тема области, рабочей области или терминала имеет приоритет."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สีของ cmux และเทอร์มินัล ธีมของห้อง พื้นที่ทำงาน หรือเทอร์มินัลจะใช้แทน"
+            "value": "สีของ cmux และเทอร์มินัล ธีมของพื้นที่ พื้นที่ทำงาน หรือเทอร์มินัลจะใช้แทน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ve terminallerinin renkleri. Oda, çalışma alanı veya terminal teması bunun yerine geçer."
+            "value": "cmux ve terminallerinin renkleri. Alan, çalışma alanı veya terminal teması bunun yerine geçer."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Кольори cmux і його терміналів. Тема кімнати, робочого простору чи термінала має пріоритет."
+            "value": "Кольори cmux і його терміналів. Тема простору, робочого простору чи термінала має пріоритет."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Màu của cmux và các terminal. Chủ đề của phòng, không gian làm việc hoặc terminal sẽ được ưu tiên."
+            "value": "Màu của cmux và các terminal. Chủ đề của không gian, không gian làm việc hoặc terminal sẽ được ưu tiên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 及其终端的配色。房间、工作区或终端主题会覆盖它。"
+            "value": "cmux 及其终端的配色。空间、工作区或终端主题会覆盖它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 及其終端機的配色。房間、工作區或終端機主題會優先套用。"
+            "value": "cmux 及其終端機的配色。空間、工作區或終端機主題會優先套用。"
           }
         }
       }

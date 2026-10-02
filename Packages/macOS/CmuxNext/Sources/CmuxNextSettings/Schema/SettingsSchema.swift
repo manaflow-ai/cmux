@@ -156,7 +156,7 @@ public nonisolated enum SettingsSchema {
                 AppThemeSetting.configPath, section: .appearance, group: appTheme,
                 title: SettingsText.text("settings.appearance.theme", "Theme"),
                 help: SettingsText.text("settings.appearance.theme.help",
-                                        "Colors for cmux and its terminals. A room, workspace or terminal theme overrides it."),
+                                        "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."),
                 kind: .theme, default: nil, defaultLabel: ghostty,
                 keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
             ),

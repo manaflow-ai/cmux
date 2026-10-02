@@ -134,7 +134,7 @@
       "type" : "string"
     },
     "appearance.theme" : {
-      "description" : "Colors for cmux and its terminals. A room, workspace or terminal theme overrides it.",
+      "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
       "title" : "Theme",
       "type" : "string"
     },

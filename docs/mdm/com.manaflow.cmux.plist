@@ -257,7 +257,7 @@
 		</dict>
 		<dict>
 			<key>pfm_description</key>
-			<string>Colors for cmux and its terminals. A room, workspace or terminal theme overrides it.</string>
+			<string>Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.</string>
 			<key>pfm_name</key>
 			<string>appearance.theme</string>
 			<key>pfm_title</key>
