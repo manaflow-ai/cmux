@@ -80,9 +80,15 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     edit(next.text, next.caret);
     textarea.current?.focus();
   };
+  /// The draft without what + wrote over it, while the text is still exactly that.
+  const unwrapped = () => {
+    const plus = plusDraft.current;
+    return plus && plus.written === text ? plus.original : text;
+  };
   const submit = (event: React.SyntheticEvent) => {
     event.preventDefault();
-    const prompt = text.trim();
+    const prompt = unwrapped().trim();
+    plusDraft.current = undefined;
     if (!prompt) return;
     edit("", 0);
     sentAt.current = Date.now();
@@ -91,12 +97,12 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   };
   // Until attachments land, + opens the agent's commands: the menu reads the
   // text before the caret, so "/" ahead of the draft opens it and a pick keeps
-  // the draft as arguments. A draft that already names a command keeps its "/",
+  // the draft as arguments. A draft that already starts a command keeps its "/",
   // so a pick replaces that command; anything else (a pasted path) is kept whole.
   const openCommands = () => {
     if (composing.current) return;
     const first = /^\/(\S*)/.exec(text)?.[1];
-    const named = first !== undefined && (commands ?? []).some((command) => command.name === first);
+    const named = first !== undefined && (commands ?? []).some((command) => command.name.startsWith(first));
     const next = named ? text : text ? `/ ${text}` : "/";
     plusDraft.current = { written: next, original: text };
     pendingCaret.current = 1;
@@ -136,7 +142,15 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   const track = (event: React.SyntheticEvent<HTMLTextAreaElement>) => setCaret(event.currentTarget.selectionStart);
 
   const stop = snapshot.isWorking && !text.trim();
-  return <form className="acpmux-composer" onSubmit={submit}>
+  // Focus leaving the composer closes the menu and takes back what + wrote.
+  const blur = (event: React.FocusEvent<HTMLFormElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    const original = unwrapped();
+    plusDraft.current = undefined;
+    if (original !== text) edit(original, original.length);
+    else if (open) setDismissed(text);
+  };
+  return <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
     {open && <SlashMenu matches={matches} active={selected} empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands} onHover={setActive} onPick={pick} />}
     <div className="acpmux-composer-box">
       {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}

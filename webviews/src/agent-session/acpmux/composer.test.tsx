@@ -179,6 +179,28 @@ describe("acpmux composer slash menu", () => {
     expect(textarea().value).toBe("/compact main");
   });
 
+  test("what + wrote never reaches the agent: Send and leaving the composer take the draft back", async () => {
+    const plus = async () => act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
+    const submit = async () => act(async () => { dom.window.document.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    await render(snapshot(commands));
+    await type("fix the bug");
+    await plus();
+    await settle();
+    expect(textarea().value).toBe("/ fix the bug");
+    await submit();
+    expect(sent).toEqual(["fix the bug"]);
+    await type("look again");
+    await plus();
+    await settle();
+    await act(async () => { textarea().dispatchEvent(new dom.window.FocusEvent("focusout", { bubbles: true, relatedTarget: dom.window.document.body })); });
+    expect(textarea().value).toBe("look again");
+    expect(menu()).toBeNull();
+    await type("/comp");
+    await plus();
+    await settle();
+    expect(textarea().value).toBe("/comp");
+  });
+
   test("a leading override replaces +, and null leaves the slot empty", async () => {
     await act(async () => root.render(createElement(Composer, { snapshot: snapshot(commands), chips: () => null, onSend: () => {}, onStop: () => {}, leading: null })));
     expect(dom.window.document.querySelector(".acpmux-composer-plus")).toBeNull();

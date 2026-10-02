@@ -10,8 +10,9 @@
    Codex and other themes keep their character. They mix into the opaque page color
    so a translucent window's backdrop never thins them: the bridge's accent text, which
    AgentPaneTheme.swift sets to the page color made opaque (the accent is the text color).
-   A host that sends a different accent text must change this base too. */
-.acpmux-shell{--acpmux-base:var(--agent-accent-text,var(--agent-page-bg));--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--acpmux-base));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--acpmux-base));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-warning:var(--agent-warning,var(--agent-danger))}
+   A host that sends a different accent text must change this base too; without the
+   bridge (the dev page) the base is the system Canvas, since the page color is transparent. */
+.acpmux-shell{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--acpmux-base));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--acpmux-base));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-warning:var(--agent-warning,var(--agent-danger))}
 .acpmux-composer{position:relative;padding:0 max(16px,calc((100% - 736px)/2)) 16px;font-family:system-ui;-webkit-font-smoothing:antialiased}
 .acpmux-composer-box{position:relative;display:flex;flex-direction:column;min-height:98px;box-sizing:border-box;border-radius:22px 22px 24px 24px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge)}
 .acpmux-composer-box button{font:inherit;cursor:pointer}
