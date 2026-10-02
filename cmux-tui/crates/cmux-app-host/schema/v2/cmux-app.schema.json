@@ -191,10 +191,11 @@
       "propertyNames": {
         "enum": [
           "root",
-          "host",
+          "connection",
           "credential",
           "document",
-          "diff"
+          "diff",
+          "image"
         ]
       },
       "additionalProperties": {
@@ -336,7 +337,7 @@
       "type": "object",
       "maxProperties": 64,
       "propertyNames": {
-        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external)|actions:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|power:write|mcp:expose)$"
+        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|embed)|actions:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|power:(read|write)|account:(read|usage)|mcp:expose)$"
       },
       "additionalProperties": {
         "type": "string",

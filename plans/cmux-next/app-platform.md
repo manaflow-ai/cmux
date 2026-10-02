@@ -221,3 +221,29 @@ Every mutation carries an idempotency key and ends with `request-settled` like o
 
 ### 13.3 What is deleted in the same step
 Swift: `AppEngine`, `AppGrants`, `AppRegistry`/`AppRegistryFile`, `AppOperationRouter` and the deferred sink, `AppManifestValidator*`, the JavaScriptCore watchdog; CmuxNextApps keeps the scene model and renderer, the App Store UI (over an `apps-v1` client), and the section provider. TypeScript: `tools/validate-manifest.ts`, `tools/json-schema.ts` (the Rust crate validates samples in its tests); the v1 schema and fixtures. Samples are rewritten on manifest v2 (`implements` `cmux.section/1`, `cmux.status/1`).
+
+## 14. Folded in: first-party apps round 2 and the file browser proposal (2026-10-02)
+
+Inputs: `first-party-apps.md` section 12 (open points against v2) and `finder.md` (what a third-party file browser needs). Coordinator answers: daemon requests get an actor field; the first-party apps lead moves `first-party-apps/` to manifest v2; the Rust lane's lifecycle choices are accepted; `cmux-app-host` packaging goes to the pin owner and PRs 16871 + 16872 merge together once the binary ships.
+
+### 14.1 Decided now (in the schema on this branch)
+- Connection handles are `conn_…`, not `host_…` (`host_…` is the public enrolled-host id, enumerable, not a capability; plain SSH targets have none). V6 handle kinds: `root`, `connection`, `credential`, `document`, `diff`, `image`.
+- Scope grammar accepts `<family>:answer` (for example `feed:answer`), `<family>:embed` (`ui:embed`), `account:read|usage`, `power:read|write`, `storage:local` (also as an optional scope).
+- `untrack` is declared in `cmux-app.d.ts`; `files` is a category.
+
+### 14.2 Added to the order of work
+| Item | Owner | Step |
+| --- | --- | --- |
+| **Actor field on daemon requests**: every request carries `actor` (`user`, `app:<id>`, `agent:<id>`) stamped by the connection owner, never by the caller; the owner records it in the replay record; the supervisor stamps `app:<id>` on app calls | daemon (cmux-tui) + supervisor | 3b |
+| Gesture tokens for palette and keybinding invocations of app ops: the client mints the token for the user action and `apps-run` carries it, so user-only ops (export, import, answer) work from the palette | supervisor + Mac app | 3b |
+| Scene: `ScrollView`, semantic `List` with selection, focus, keyboard commands and `onVisibleRange`, `Table` with sortable and resizable columns, `Embed` node (embeds from scenes, not only web panes), `drag` / `drop` props with typed items, `tap {count, modifiers}`, `TextField` styles (`search`, `bordered`), `Image` accepting `img_…` handles | runtime + all renderers | 4 |
+| Pane plumbing: `app.pane.open {kind, input}` with a gesture, `ctx.size` + resize events, the terminal theme in the pane init, pane-routed commands (Cmd-S goes to the focused editor pane's `requestSave`) | supervisor + Mac app | 4 |
+| Web pane CSP default allows `style-src 'self' 'unsafe-inline'` (editors need it); scripts stay `'self'` | Mac app web pane host | 4 |
+| File system ops: `fs.roots.list/pick/release/watch`, `fs.list` with cursor batches and a window, `fs.watch` with revisions, `fs.stat/read`, `fs.mkdir/rename/copy/move/trash/delete/undo`, jobs (`fs.job.*`) with conflict answers, `fs.thumbnail` returning `img_…` | file system owner (session host; `cmux link` SFTP for SSH) | 6 |
+| Connections and credentials: `host.list/connect/disconnect/forget/watch` returning `conn_…`, host key verification sheet, `credential.request/release` returning `cred_…` | transport (lane 12) + credential broker | 6 |
+| Drag and drop targets: `terminal.drop` (local path or remote-safe reference), `agent.attach` (handle into the agent context, intersected with the dragger's grant), cross-host copy through `fs.copy` | session host, ACP owner, shell drag session | 6 |
+| One hunk-decide op for every diff producer (`diff.hunk.decide {diff, hunk, decision}` routed by the diff's producer) | diff producers | 5 |
+| `open.with.list` for the Open With menu | config layer | 4 |
+
+### 14.3 Open
+- Who builds `cmux link` SFTP and the host key sheet (transport lead, lane 12): questions in `finder.md` section 11 go there through the coordinator.
