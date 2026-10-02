@@ -46,7 +46,7 @@ export function TeamBillingPanel({
       <PlanPicker
         cards={teamPlanCards({ canManageBilling: view.canManageBilling, granted: view.granted, subscription: view.subscription })}
         scope={{ kind: "team", teamId: view.team.id }}
-        periodEnd={view.subscription?.currentPeriodEnd ?? null}
+        periodEnd={view.subscription?.endsAt ?? view.subscription?.currentPeriodEnd ?? null}
         canManagePayment={view.canManageBilling && view.billingManagement === "stripe"}
         currentPrice={view.subscription ? view.subscription.price : view.granted ? null : undefined}
       />

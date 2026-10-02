@@ -105,6 +105,7 @@ mock.module("../db/client", () => ({
       from: (table: unknown) => ({
         where: () => Object.assign(Promise.resolve(rowsFor(table)), {
           limit: async () => rowsFor(table),
+          orderBy: () => ({ limit: async () => rowsFor(table) }),
         }),
       }),
     }),
@@ -373,6 +374,33 @@ describe("localized pricing page", () => {
     // link (the server routes an active Pro subscription to the portal).
     expect(html).toContain("/api/billing/portal?flow=switch_plan&amp;plan=max");
     expect(html).toMatch(/plan=max[^"]*"[^>]*><span>Get Max/);
+  });
+
+  test("a cancelled Stripe plan shows Canceled, Stripe's end date, and Resubscribe", async () => {
+    stackConfigured = true;
+    // A Billing Portal cancel: only `cancel_at` is set.
+    stripeSubscriptionRows = [{
+      id: "sub_123",
+      plan: "pro",
+      status: "active",
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
+      raw: { cancel_at_period_end: false, cancel_at: 1_793_625_720 },
+    }];
+
+    const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    stripeSubscriptionRows = [];
+
+    const card = Array.from(html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g), (match) => match[0])
+      .find((section) => section.includes('data-testid="pricing-resubscribe"')) ?? "";
+    expect(card).toContain(">Canceled<");
+    expect(card).not.toContain("Current plan");
+    expect(card).toContain("Ends on Nov 2, 2026");
+    // Resubscribe undoes the cancel through the same form as the billing screen.
+    expect(card).toContain('action="/api/billing/subscription"');
+    expect(card).toContain('name="action" value="resume"');
+    expect(card).toContain(">Resubscribe<");
+    expect(card).not.toContain("Manage billing");
   });
 
   test("an App Store subscriber who also pays Stripe keeps Stripe's Manage billing", async () => {

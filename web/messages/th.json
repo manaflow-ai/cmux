@@ -504,7 +504,11 @@
             "การสนับสนุนแบบเร่งด่วน"
           ]
         },
-        "billedAnnually": "เรียกเก็บเงินรายปี"
+        "billedAnnually": "เรียกเก็บเงินรายปี",
+        "badgeEndsOn": "{plan} · สิ้นสุด {date}",
+        "badgeCancelled": "{plan} · ยกเลิกแล้ว",
+        "badgePastDue": "{plan} · ชำระเงินไม่สำเร็จ",
+        "resubscribe": "สมัคร {plan} อีกครั้ง"
       },
       "change": {
         "title": "เปลี่ยนเป็น {plan} ไหม",
@@ -547,6 +551,13 @@
         "title": "เรียกเก็บเงินผ่าน App Store",
         "body": "แผนของคุณซื้อในแอป cmux บน iPhone และเรียกเก็บเงินโดย Apple เปลี่ยนหรือยกเลิกได้ในการสมัครสมาชิก App Store ของคุณ",
         "manage": "จัดการใน App Store"
+      },
+      "notice": {
+        "cancelledTitle": "แผน {plan} ของคุณถูกยกเลิกแล้ว",
+        "cancelledBody": "คุณใช้ {plan} ได้ถึง {date} หลังจากนั้นบัญชีจะเปลี่ยนเป็น Free และคุณจะเสีย:",
+        "cancelledBodyNoDate": "คุณใช้ {plan} ได้ถึงสิ้นรอบการเรียกเก็บเงินนี้ หลังจากนั้นบัญชีจะเปลี่ยนเป็น Free และคุณจะเสีย:",
+        "endedBody": "แผน {plan} ของคุณสิ้นสุดเมื่อ {date} ตอนนี้คุณใช้ Free สมัครอีกครั้งด้านล่างเพื่อกลับไปใช้ {plan}",
+        "endedBodyNoDate": "แผน {plan} ของคุณสิ้นสุดแล้ว ตอนนี้คุณใช้ Free สมัครอีกครั้งด้านล่างเพื่อกลับไปใช้ {plan}"
       }
     },
     "mobileDevices": {

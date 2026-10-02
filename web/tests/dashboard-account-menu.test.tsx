@@ -82,12 +82,18 @@ const { DashboardAccountMenu } = await import(
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { planQuery } = await import("../dashboard-app/queries/billing");
 
-type Plan = { planId: "free" | "go" | "pro" | "max"; isPro: boolean; billingManagement: "stripe" | "external" | "none" };
+type Plan = {
+  planId: "free" | "go" | "pro" | "max";
+  isPro: boolean;
+  billingManagement: "stripe" | "external" | "none";
+  endsAt?: string | null;
+  paymentPastDue?: boolean;
+};
 
 /** The menu with the viewer's plan in the cache (or none, as while it loads). */
 function renderMenu(user: MenuUser, plan?: Plan) {
   const queryClient = new QueryClient();
-  if (plan) queryClient.setQueryData(planQuery.queryKey, plan);
+  if (plan) queryClient.setQueryData(planQuery.queryKey, { endsAt: null, paymentPastDue: false, ...plan });
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
       <DashboardAccountMenu user={user} />
@@ -214,5 +220,32 @@ describe("dashboard account menu", () => {
     const loading = renderMenu(currentUser);
     expect(loading).not.toContain('data-testid="account-plan"');
     expect(loading).not.toContain(">upgrade<");
+  });
+
+  test("a cancelled plan reads as ending, not renewing, and a failed payment as past due", () => {
+    currentUser = sessionUser();
+    const active = renderMenu(currentUser, { planId: "pro", isPro: true, billingManagement: "stripe" });
+    expect(active).toContain('data-standing="active"');
+    expect(active).toContain(">names.pro<");
+
+    // The date is Stripe's, carried as `endsAt`.
+    const cancelling = renderMenu(currentUser, {
+      planId: "pro",
+      isPro: true,
+      billingManagement: "stripe",
+      endsAt: "2026-11-02T13:22:00.000Z",
+    });
+    expect(cancelling).toContain('data-standing="cancelling"');
+    expect(cancelling).toContain(">badgeEndsOn<");
+    expect(cancelling).not.toContain(">upgrade<");
+
+    const pastDue = renderMenu(currentUser, { planId: "pro", isPro: true, billingManagement: "stripe", paymentPastDue: true });
+    expect(pastDue).toContain('data-standing="pastDue"');
+    expect(pastDue).toContain(">badgePastDue<");
+
+    // Once the plan has ended the account is Free again.
+    const expired = renderMenu(currentUser, { planId: "free", isPro: false, billingManagement: "none" });
+    expect(expired).toContain('data-standing="free"');
+    expect(expired).toContain(">upgrade<");
   });
 });

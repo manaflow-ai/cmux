@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
 import { isVaultEnabled } from "../vault/config";
+import { storedSubscriptionCancellation } from "./cancellation";
 import { isGoPlanEnabled } from "./goPlanFlag";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
@@ -31,8 +32,18 @@ export type PersonalSubscriptionJson = {
   readonly status: string;
   /** ISO timestamp, or null when Stripe sent none. */
   readonly currentPeriodEnd: string | null;
+  /** Scheduled to stop renewing, by `cancel_at_period_end` or Stripe's `cancel_at`. */
   readonly cancelAtPeriodEnd: boolean;
+  /** ISO moment access ends for a cancelled subscription, from Stripe; null while it renews. */
+  readonly endsAt: string | null;
   readonly price: SubscriptionPrice | null;
+};
+
+/** The personal plan that most recently ended, shown to a Free account so it can resubscribe. */
+export type EndedPersonalSubscriptionJson = {
+  readonly plan: "go" | "pro" | "max";
+  /** ISO moment access ended, from Stripe's `ended_at`. */
+  readonly endedAt: string | null;
 };
 
 export type PersonalBillingJson = {
@@ -45,6 +56,8 @@ export type PersonalBillingJson = {
     readonly manageUrl: string | null;
   };
   readonly subscription: PersonalSubscriptionJson | null;
+  /** Set only when there is no active subscription. */
+  readonly endedSubscription: EndedPersonalSubscriptionJson | null;
   readonly goPlanEnabled: boolean;
   /** A paid operator grant (pro, team, founders); "free" or unknown is not. */
   readonly hasPaidManualGrant: boolean;
@@ -56,6 +69,7 @@ export type TeamBillingSubscriptionJson = {
   readonly seats: number | null;
   readonly currentPeriodEnd: string | null;
   readonly cancelAtPeriodEnd: boolean;
+  readonly endsAt: string | null;
   readonly price: SubscriptionPrice | null;
 };
 
@@ -131,6 +145,7 @@ async function loadPersonalBilling(user: DashboardBillingUser): Promise<Personal
     latestActiveStripeSubscription(user.id),
     isGoPlanEnabled(user.id),
   ]);
+  const endedSubscription = subscription ? null : await latestEndedStripeSubscription(user.id);
   return {
     planStatus: {
       isPro: status.isPro,
@@ -140,6 +155,7 @@ async function loadPersonalBilling(user: DashboardBillingUser): Promise<Personal
       manageUrl: status.manageUrl,
     },
     subscription,
+    endedSubscription,
     goPlanEnabled,
     hasPaidManualGrant: isPaidPlanId(manualVmPlanOverride(user.clientReadOnlyMetadata)),
     vaultEnabled: isVaultEnabled(),
@@ -175,13 +191,47 @@ export async function latestActiveStripeSubscription(
     .limit(1);
   const row = rows[0];
   if (!row) return null;
+  const cancellation = storedSubscriptionCancellation(row);
   return {
     plan: row.plan ?? null,
     status: row.status,
     currentPeriodEnd: isoDate(row.currentPeriodEnd),
-    cancelAtPeriodEnd: row.cancelAtPeriodEnd === true,
+    cancelAtPeriodEnd: cancellation.cancelScheduled,
+    endsAt: isoDate(cancellation.endsAt),
     price: subscriptionPriceFromRaw(row.raw),
   };
+}
+
+/** The user's most recently ended Pro/Max/Go subscription, or null. */
+export async function latestEndedStripeSubscription(
+  stackUserId: string,
+): Promise<EndedPersonalSubscriptionJson | null> {
+  const rows = await cloudDb()
+    .select({
+      plan: stripeSubscriptions.plan,
+      currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
+      raw: stripeSubscriptions.raw,
+    })
+    .from(stripeSubscriptions)
+    .where(
+      and(
+        eq(stripeSubscriptions.stackUserId, stackUserId),
+        eq(stripeSubscriptions.scope, "user"),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
+        eq(stripeSubscriptions.status, "canceled"),
+      ),
+    )
+    .orderBy(desc(stripeSubscriptions.updatedAt))
+    .limit(1);
+  const row = rows[0];
+  const plan = row?.plan;
+  if (plan !== "go" && plan !== "pro" && plan !== "max") return null;
+  return { plan, endedAt: isoDate(stripeEndedAt(row.raw) ?? row.currentPeriodEnd) };
+}
+
+function stripeEndedAt(raw: unknown): Date | null {
+  const value = raw && typeof raw === "object" ? (raw as Record<string, unknown>).ended_at : null;
+  return typeof value === "number" ? new Date(value * 1000) : null;
 }
 
 export function teamBillingViewJson(view: TeamBillingView): TeamBillingViewJson {
@@ -190,7 +240,7 @@ export function teamBillingViewJson(view: TeamBillingView): TeamBillingViewJson 
   return {
     ...view,
     subscription: subscription
-      ? { ...subscription, currentPeriodEnd: isoDate(subscription.currentPeriodEnd) }
+      ? { ...subscription, currentPeriodEnd: isoDate(subscription.currentPeriodEnd), endsAt: isoDate(subscription.endsAt) }
       : null,
   };
 }

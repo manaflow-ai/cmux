@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
+import { storedSubscriptionCancellation } from "./cancellation";
 import { ACTIVE_STRIPE_PRO_STATUSES, TEAM_PLAN_ID, type BillingManagementKind } from "./pro";
 import { subscriptionPriceFromRaw, type SubscriptionPrice } from "./subscriptionPrice";
 import {
@@ -21,7 +22,10 @@ export type TeamBillingSubscription = {
   readonly status: string;
   readonly seats: number | null;
   readonly currentPeriodEnd: Date | null;
+  /** Scheduled to stop renewing, by `cancel_at_period_end` or `cancel_at`. */
   readonly cancelAtPeriodEnd: boolean;
+  /** When access ends for a cancelled subscription, from Stripe; null while it renews. */
+  readonly endsAt: Date | null;
   readonly price: SubscriptionPrice | null;
 };
 
@@ -117,11 +121,13 @@ export async function latestActiveTeamSubscription(
     .limit(1);
   const row = rows[0];
   if (!row) return null;
+  const cancellation = storedSubscriptionCancellation({ ...row, currentPeriodEnd: row.currentPeriodEnd ?? null });
   return {
     status: row.status,
     seats: row.seats ?? null,
     currentPeriodEnd: row.currentPeriodEnd ?? null,
-    cancelAtPeriodEnd: row.cancelAtPeriodEnd === true,
+    cancelAtPeriodEnd: cancellation.cancelScheduled,
+    endsAt: cancellation.endsAt,
     price: subscriptionPriceFromRaw(row.raw),
   };
 }

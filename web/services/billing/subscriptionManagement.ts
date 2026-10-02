@@ -11,6 +11,7 @@ import {
   PERSONAL_PLAN_IDS,
   TEAM_PLAN_ID,
 } from "./pro";
+import { stripeCancelScheduled, stripeResumeParams } from "./cancellation";
 import { stripe } from "./stripe";
 
 export type SubscriptionAction = "cancel" | "resume";
@@ -19,11 +20,13 @@ export type SubscriptionScope = "user" | "team";
 export type SubscriptionUpdater = (
   subscriptionId: string,
   action: SubscriptionAction,
-) => Promise<{ cancel_at_period_end?: boolean }>;
+  /** Our stored Stripe payload, so resume clears the field that scheduled the cancel. */
+  current?: unknown,
+) => Promise<{ cancel_at_period_end?: boolean; cancel_at?: number | null }>;
 
 export async function activeStripeSubscriptionForStackUser(stackUserId: string) {
   const rows = await cloudDb()
-    .select({ id: stripeSubscriptions.id })
+    .select({ id: stripeSubscriptions.id, raw: stripeSubscriptions.raw })
     .from(stripeSubscriptions)
     .where(
       and(
@@ -41,7 +44,7 @@ export async function activeStripeSubscriptionForStackUser(stackUserId: string) 
 
 export async function activeStripeSubscriptionForStackTeam(stackTeamId: string) {
   const rows = await cloudDb()
-    .select({ id: stripeSubscriptions.id })
+    .select({ id: stripeSubscriptions.id, raw: stripeSubscriptions.raw })
     .from(stripeSubscriptions)
     .where(
       and(
@@ -58,22 +61,23 @@ export async function activeStripeSubscriptionForStackTeam(stackTeamId: string) 
 
 export async function updateSubscriptionSnapshot(
   subscriptionId: string,
-  subscription: { cancel_at_period_end?: boolean },
+  subscription: { cancel_at_period_end?: boolean; cancel_at?: number | null },
 ) {
   await cloudDb()
     .update(stripeSubscriptions)
     .set({
-      cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
+      cancelAtPeriodEnd: stripeCancelScheduled(subscription),
       raw: JSON.parse(JSON.stringify(subscription)) as Record<string, unknown>,
       updatedAt: sql`now()`,
     })
     .where(eq(stripeSubscriptions.id, subscriptionId));
 }
 
-export const stripeSubscriptionUpdater: SubscriptionUpdater = async (subscriptionId, action) =>
-  await stripe().subscriptions.update(subscriptionId, {
-    cancel_at_period_end: action === "cancel",
-  });
+export const stripeSubscriptionUpdater: SubscriptionUpdater = async (subscriptionId, action, current) =>
+  await stripe().subscriptions.update(
+    subscriptionId,
+    action === "cancel" ? { cancel_at_period_end: true } : stripeResumeParams(current),
+  );
 
 /**
  * Applies cancel/resume to the active subscription for the owner and stores the
@@ -89,7 +93,7 @@ export async function applySubscriptionAction(input: {
     ? await activeStripeSubscriptionForStackTeam(input.ownerId)
     : await activeStripeSubscriptionForStackUser(input.ownerId);
   if (!subscription) return false;
-  const updated = await (input.update ?? stripeSubscriptionUpdater)(subscription.id, input.action);
+  const updated = await (input.update ?? stripeSubscriptionUpdater)(subscription.id, input.action, subscription.raw);
   await updateSubscriptionSnapshot(subscription.id, updated);
   return true;
 }

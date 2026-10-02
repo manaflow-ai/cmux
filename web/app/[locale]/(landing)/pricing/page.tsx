@@ -58,6 +58,7 @@ import {
   PricingCheckoutButton,
   PricingView,
 } from "../../../components/pricing-checkout";
+import { PricingResubscribe } from "../../../components/pricing-resubscribe";
 import { PricingAudienceSelector } from "../../../components/pricing-audience-selector";
 import {
   MAX_PRICING_USD,
@@ -67,6 +68,7 @@ import {
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
 import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { latestActiveStripeSubscription } from "../../../../services/billing/dashboardBilling";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -230,6 +232,20 @@ function PricingContent({
   const isGo = snapshot.planId === GO_PLAN_ID;
   const showGo = isGo || (goPlanEnabled && !snapshot.isPro);
   const isProCurrent = snapshot.isPro && !isMax && !isGo;
+  // A cancelled Stripe plan is still current until it ends: its card says
+  // so and offers Resubscribe instead of reading as a renewing plan.
+  const cancelled = snapshot.cancelled === true && snapshot.billingSource !== "apple";
+  const currentBadge = (
+    <CurrentPlanBadge>{cancelled ? t("cancelled.badge") : t("currentPlan")}</CurrentPlanBadge>
+  );
+  const resubscribe = cancelled ? (
+    <PricingResubscribe
+      endsAt={snapshot.endsAt ?? null}
+      endsOnLabel={t.raw("cancelled.endsOn") as string}
+      endsSoonLabel={t("cancelled.endsSoon")}
+      resubscribeLabel={t("cancelled.resubscribe")}
+    />
+  ) : null;
   // A link into /pricing may name its own origin (the CLI trial notice, a
   // campaign with utm_* tags); that beats the page default so the checkout
   // is attributed to the surface that sent the visitor here.
@@ -315,13 +331,9 @@ function PricingContent({
             name={t("go.name")}
             price={`$${GO_PRICING_USD.month.billedAmount}`}
             period={t("perMonth")}
-            badge={
-              isGo ? (
-                <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
-              ) : null
-            }
+            badge={isGo ? currentBadge : null}
           >
-            {appStoreAction ? appStoreAction() : isGo ? (
+            {appStoreAction ? appStoreAction() : isGo && resubscribe ? resubscribe : isGo ? (
               <div className="space-y-2">
                 {canManageBilling ? (
                   <SecondaryLink href="/api/billing/portal">
@@ -352,13 +364,9 @@ function PricingContent({
         name={t("pro.name")}
         price={`$${PRO_PRICING_USD.month.billedAmount}`}
         period={t("perMonth")}
-        badge={
-          isProCurrent ? (
-            <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
-          ) : null
-        }
+        badge={isProCurrent ? currentBadge : null}
       >
-        {appStoreAction ? appStoreAction() : isProCurrent ? (
+        {appStoreAction ? appStoreAction() : isProCurrent && resubscribe ? resubscribe : isProCurrent ? (
           <div className="space-y-2">
             <SecondaryLink href="/api/billing/portal">
               {t("manageBilling")}
@@ -387,11 +395,9 @@ function PricingContent({
         name={t("max.name")}
         price={`$${MAX_PRICING_USD.month.billedAmount}`}
         period={t("perMonth")}
-        badge={
-          isMax ? <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge> : null
-        }
+        badge={isMax ? currentBadge : null}
       >
-        {appStoreAction ? appStoreAction() : isMax ? (
+        {appStoreAction ? appStoreAction() : isMax && resubscribe ? resubscribe : isMax ? (
           <div className="space-y-2">
             <SecondaryLink href="/api/billing/portal">
               {t("manageBilling")}
@@ -633,6 +639,9 @@ type PlanSnapshot = {
   billingManagement: BillingManagementKind;
   /** An App Store subscriber manages personal plans in the App Store. */
   billingSource?: PersonalBillingSource;
+  /** The Stripe subscription is cancelled and ends at `endsAt` (Stripe's date). */
+  cancelled?: boolean;
+  endsAt?: string | null;
 };
 
 /**
@@ -672,7 +681,10 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     };
   }
 
-  const status = await resolveProPlanStatus(user);
+  const [status, subscription] = await Promise.all([
+    resolveProPlanStatus(user),
+    latestActiveStripeSubscription(user.id),
+  ]);
   return {
     userId: user.id,
     authenticated: !user.isAnonymous,
@@ -680,5 +692,7 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     isPro: status.isPro,
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
+    cancelled: subscription?.cancelAtPeriodEnd === true,
+    endsAt: subscription?.endsAt ?? null,
   };
 }

@@ -504,7 +504,11 @@
             "Suporte prioritário"
           ]
         },
-        "billedAnnually": "cobrado anualmente"
+        "billedAnnually": "cobrado anualmente",
+        "badgeEndsOn": "{plan} · termina em {date}",
+        "badgeCancelled": "{plan} · cancelado",
+        "badgePastDue": "{plan} · pagamento falhou",
+        "resubscribe": "Assinar {plan} novamente"
       },
       "change": {
         "title": "Mudar para {plan}?",
@@ -547,6 +551,13 @@
         "title": "Cobrado pela App Store",
         "body": "Seu plano foi comprado no app cmux para iPhone e é cobrado pela Apple. Altere ou cancele nas suas assinaturas da App Store.",
         "manage": "Gerenciar na App Store"
+      },
+      "notice": {
+        "cancelledTitle": "Seu plano {plan} foi cancelado",
+        "cancelledBody": "Você mantém o {plan} até {date}. Depois disso, sua conta passa para o Free e você perde:",
+        "cancelledBodyNoDate": "Você mantém o {plan} até o fim deste período de cobrança. Depois disso, sua conta passa para o Free e você perde:",
+        "endedBody": "Seu plano {plan} terminou em {date}. Agora você está no Free. Assine novamente abaixo para recuperar o {plan}.",
+        "endedBodyNoDate": "Seu plano {plan} terminou. Agora você está no Free. Assine novamente abaixo para recuperar o {plan}."
       }
     },
     "mobileDevices": {
