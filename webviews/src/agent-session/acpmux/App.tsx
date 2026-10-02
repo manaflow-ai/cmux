@@ -22,6 +22,7 @@ import { ScrollPacing } from "./pacing";
 import { Composer } from "./Composer";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
+import { HomeLists } from "./HomeLists";
 import { SessionSidebar } from "./SessionSidebar";
 import { turnFiles, turnRows } from "./diff";
 import { DiffPanel } from "./DiffPanel";
@@ -904,6 +905,11 @@ function AcpmuxPane() {
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
         />
+        {newChat && (
+          <div className="acpmux-home-area">
+            <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
+          </div>
+        )}
       </div>
     </section>
   );

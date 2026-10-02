@@ -89,6 +89,19 @@
 .acpmux-menu-item .acpmux-icon:first-child{color:var(--agent-muted)}
 .acpmux-menu-hint{flex:none;min-width:18px;padding:0 5px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,transparent);color:var(--agent-muted);font:12px/18px ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center}
 /* A new chat: the hero and the composer meet at the middle (Codex's home), never with the composer pinned at the top. */
-.acpmux-main[data-new-chat]>.acpmux-stage,.acpmux-main[data-new-chat]>.acpmux-composer{flex:1 1 0;min-height:0}
+.acpmux-main[data-new-chat]>.acpmux-stage,.acpmux-main[data-new-chat]>.acpmux-home-area{flex:1 1 0;min-height:0}
+/* Home lists (HomeLists.tsx): Claude's welcome lists under a new chat's composer, in the composer's column. */
+.acpmux-home-area{overflow:auto;padding:0 max(16px,calc((100% - 760px)/2)) 16px;font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+.acpmux-home{display:flex;flex-direction:column;gap:16px;padding:8px 6px 0}
+.acpmux-home-list ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
+.acpmux-home-label{margin:0 0 4px;padding:0 10px;font-size:13px;line-height:20px;font-weight:500;color:var(--agent-muted)}
+.acpmux-home-row{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;border:0;border-radius:10px;background:none;color:var(--agent-text);font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.acpmux-home-row:hover,.acpmux-home-row:focus-visible{background:var(--acpmux-menu-hover);outline:none}
+.acpmux-home-row>.acpmux-icon{flex:none;color:var(--agent-muted)}
+.acpmux-home-dot{flex:none;width:8px;height:8px;margin:0 4px;border-radius:50%;background:var(--acpmux-warning)}
+.acpmux-home-title{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-home-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
+.acpmux-home-meta{flex:none;color:var(--agent-muted);font-size:13px}
+.acpmux-home-title+.acpmux-home-meta{margin-left:auto}
 .acpmux-main[data-new-chat] .acpmux-empty{justify-content:flex-end;padding-bottom:28px}
 
