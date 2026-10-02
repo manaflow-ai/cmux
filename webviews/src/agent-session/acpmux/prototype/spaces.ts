@@ -109,7 +109,10 @@ export function stepSpace(spaces: Spaces, step: 1 | -1): Spaces {
 
 /** Replaces the active space's stack. */
 export function withStack(spaces: Spaces, stack: Stack): Spaces {
-  return { ...spaces, spaces: spaces.spaces.map((space) => (space.id === spaces.activeId ? { ...space, stack } : space)) };
+  return {
+    ...spaces,
+    spaces: spaces.spaces.map((space) => (space.id === spaces.activeId ? { ...space, stack } : space)),
+  };
 }
 
 /** Opening a history row: a session open in any space jumps there, switching spaces; else it is restored in the current space. */

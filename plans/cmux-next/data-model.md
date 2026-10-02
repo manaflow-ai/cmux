@@ -148,7 +148,7 @@ its meaning.
 
 ### 3.1 Two kinds of profile
 
-| | Browser profile | Space (working name, 3.4) |
+| | Browser profile | Space (3.4) |
 | --- | --- | --- |
 | Holds | browser data only: cookies, logins, history, extensions, site permissions | a switchable set of workspaces and groups with its own theme, a default browser profile, a default session for new workspaces |
 | Switched | per tab, by where it was opened (section 5) | per window: sidebar dots, swipe, shortcuts |

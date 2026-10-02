@@ -73,13 +73,17 @@ const params = new URLSearchParams(location.search);
  * terminal; agents and browsers stay available but nothing pushes them. Translucency is untouched. */
 const terminalStyle = params.get("style") === "terminal";
 const spaceFromURL = switchSpace(seedSpaces, params.get("space") ?? seedSpaces.activeId);
-const initialSpaces = terminalStyle ? withStack(spaceFromURL, terminalFirst(activeSpace(spaceFromURL).stack)) : spaceFromURL;
+const initialSpaces = terminalStyle
+  ? withStack(spaceFromURL, terminalFirst(activeSpace(spaceFromURL).stack))
+  : spaceFromURL;
 
 export function WorkspaceShell() {
   const [spaces, setSpaces] = useState<Spaces>(initialSpaces);
   const [historyOpen, setHistoryOpen] = useState(() => params.has("history"));
   const [mini, setMini] = useState<MiniWindow | undefined>(() =>
-    params.has("mini") ? openMini(initialSpaces, TERMINAL_LINK, { kind: "terminal", label: "upload-retry" }) : undefined,
+    params.has("mini")
+      ? openMini(initialSpaces, TERMINAL_LINK, { kind: "terminal", label: "upload-retry" })
+      : undefined,
   );
   const [flash, setFlash] = useState<string>();
   const space = activeSpace(spaces);
