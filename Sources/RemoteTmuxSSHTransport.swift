@@ -6,8 +6,7 @@ import Foundation
 /// acquiring session ownership.
 protocol RemoteTmuxBrowserProxyTransport: AnyObject {
     func ensureMasterReady() async throws -> Bool
-    func openDynamicForward(localPort: Int) async throws -> RemoteTmuxCommandResult
-    func cancelDynamicForward(localPort: Int) async
+    func makeBrowserProxyStreamOpener() async throws -> any RemoteProxyStreamOpening
 }
 
 /// Runs commands against a remote host's tmux server over a shared SSH
@@ -34,7 +33,6 @@ actor RemoteTmuxSSHTransport: RemoteTmuxBrowserProxyTransport {
 
     private let sshExecutablePath: String
     private let controlPersistSeconds: Int
-    private let dynamicForwardCommand: RemoteTmuxDynamicForwardCommand
 
     /// In-flight shared-master warmup, if any. ``ensureMasterReady()`` funnels every
     /// concurrent caller through this single task so the master is opened at most
@@ -45,19 +43,14 @@ actor RemoteTmuxSSHTransport: RemoteTmuxBrowserProxyTransport {
     ///   - host: the remote destination.
     ///   - sshExecutablePath: the local `ssh` binary (overridable for tests).
     ///   - controlPersistSeconds: idle lifetime of the shared master.
-    ///   - dynamicForwardCommand: argv construction and stderr classification
-    ///     for `-O forward`/`-O cancel`, injected so tests can substitute
-    ///     their own.
     init(
         host: RemoteTmuxHost,
         sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath(),
-        controlPersistSeconds: Int = 180,
-        dynamicForwardCommand: RemoteTmuxDynamicForwardCommand = RemoteTmuxDynamicForwardCommand()
+        controlPersistSeconds: Int = 180
     ) {
         self.host = host
         self.sshExecutablePath = sshExecutablePath
         self.controlPersistSeconds = controlPersistSeconds
-        self.dynamicForwardCommand = dynamicForwardCommand
     }
 
     // MARK: - High-level tmux operations
@@ -169,40 +162,15 @@ actor RemoteTmuxSSHTransport: RemoteTmuxBrowserProxyTransport {
         try await run(["tmux"] + args)
     }
 
-    /// Adds a SOCKS5 dynamic forward to this host's already-running
-    /// ControlMaster (`ssh -O forward -D 127.0.0.1:<localPort>`), for the
-    /// ssh-tmux browser proxy. Rides the existing master: no new TCP
-    /// connection, no new authentication. Callers should have already
-    /// confirmed the master with ``ensureMasterReady()``.
-    @discardableResult
-    func openDynamicForward(localPort: Int) async throws -> RemoteTmuxCommandResult {
+    /// Creates pipe-backed browser stream openers that reuse this transport's
+    /// authenticated ControlMaster. Unlike `ssh -D`, this does not bind a
+    /// second loopback TCP listener reachable by other local accounts.
+    func makeBrowserProxyStreamOpener() throws -> any RemoteProxyStreamOpening {
         try host.ensureControlSocketDirectory()
-        let result = try await Self.runProcess(
-            executable: sshExecutablePath,
-            arguments: dynamicForwardCommand.openArguments(
-                controlSocketPath: host.controlSocketPath,
-                destination: host.destination,
-                localPort: localPort
-            )
-        )
-        guard result.succeeded else {
-            let failure = dynamicForwardCommand.classify(exitCode: result.exitCode, stderr: result.stderr)
-                ?? .unknown(result.stderr)
-            throw RemoteTmuxDynamicForwardError(failure: failure, exitCode: result.exitCode, stderr: result.stderr)
-        }
-        return result
-    }
-
-    /// The inverse of ``openDynamicForward(localPort:)``. Best-effort: a
-    /// forward whose master is already gone has nothing left to cancel.
-    func cancelDynamicForward(localPort: Int) async {
-        _ = try? await Self.runProcess(
-            executable: sshExecutablePath,
-            arguments: dynamicForwardCommand.cancelArguments(
-                controlSocketPath: host.controlSocketPath,
-                destination: host.destination,
-                localPort: localPort
-            )
+        return RemoteTmuxSSHStreamClient(
+            host: host,
+            sshExecutablePath: sshExecutablePath,
+            controlPersistSeconds: controlPersistSeconds
         )
     }
 

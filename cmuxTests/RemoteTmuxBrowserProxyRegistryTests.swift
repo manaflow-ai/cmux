@@ -1,3 +1,4 @@
+import CmuxRemoteDaemon
 import Foundation
 import Testing
 
@@ -8,40 +9,41 @@ import Testing
 #endif
 
 private actor RecordingBrowserProxyTransport: RemoteTmuxBrowserProxyTransport {
-    private var openedPorts: [Int] = []
-    private var cancelledPorts: [Int] = []
-    private var blocksOpen = false
-    private var openWaiters: [CheckedContinuation<Void, Never>] = []
+    private var openerCount = 0
+    private var blocksOpenerCreation = false
+    private var openerWaiters: [CheckedContinuation<Void, Never>] = []
 
     func ensureMasterReady() async throws -> Bool { true }
 
-    func openDynamicForward(localPort: Int) async throws -> RemoteTmuxCommandResult {
-        openedPorts.append(localPort)
-        if blocksOpen {
+    func makeBrowserProxyStreamOpener() async throws -> any RemoteProxyStreamOpening {
+        openerCount += 1
+        if blocksOpenerCreation {
             await withCheckedContinuation { continuation in
-                openWaiters.append(continuation)
+                openerWaiters.append(continuation)
             }
         }
         try Task.checkCancellation()
-        return RemoteTmuxCommandResult(exitCode: 0, stdout: "", stderr: "")
+        return UnavailableRemoteProxyStreamOpener()
     }
 
-    func cancelDynamicForward(localPort: Int) async {
-        cancelledPorts.append(localPort)
+    func setBlocksOpenerCreation(_ value: Bool) {
+        blocksOpenerCreation = value
     }
 
-    func setBlocksOpen(_ value: Bool) {
-        blocksOpen = value
-    }
-
-    func resumeAllOpenCalls() {
-        let waiters = openWaiters
-        openWaiters.removeAll()
+    func resumeAllOpenerCalls() {
+        let waiters = openerWaiters
+        openerWaiters.removeAll()
         waiters.forEach { $0.resume() }
     }
 
-    func openCount() -> Int { openedPorts.count }
-    func cancelCount() -> Int { cancelledPorts.count }
+    func openerCreationCount() -> Int { openerCount }
+}
+
+private final class UnavailableRemoteProxyStreamOpener: RemoteProxyStreamOpening, @unchecked Sendable {
+    func openStream(host: String, port: Int, timeoutMs: Int) throws -> String { throw RemoteTmuxError.unreachable("test opener") }
+    func writeStream(streamID: String, data: Data) throws { throw RemoteTmuxError.unreachable("test opener") }
+    func attachStream(streamID: String, queue: DispatchQueue, onEvent: @escaping (RemoteDaemonStreamEvent) -> Void) throws { throw RemoteTmuxError.unreachable("test opener") }
+    func closeStream(streamID: String) {}
 }
 
 @MainActor
@@ -52,22 +54,21 @@ struct RemoteTmuxBrowserProxyRegistryTests {
     ) -> RemoteTmuxBrowserProxyRegistry {
         let registry = RemoteTmuxBrowserProxyRegistry()
         registry.transportProvider = { _ in transport }
-        registry.existingTransport = { _ in transport }
         return registry
     }
 
-    private func waitForOpenCount(
+    private func waitForOpenerCreationCount(
         _ expected: Int,
         transport: RecordingBrowserProxyTransport
     ) async {
         for _ in 0..<100 {
-            if await transport.openCount() >= expected { return }
+            if await transport.openerCreationCount() >= expected { return }
             await Task.yield()
         }
-        Issue.record("Timed out waiting for \(expected) dynamic-forward opens")
+        Issue.record("Timed out waiting for \(expected) browser stream openers")
     }
 
-    @Test func sharedHostRetentionKeepsTheForwardUntilTheFinalWorkspaceReleases() async throws {
+    @Test func sharedHostRetentionKeepsOneBrowserProxyUntilTheFinalWorkspaceReleases() async throws {
         let transport = RecordingBrowserProxyTransport()
         let registry = registry(using: transport)
         let host = RemoteTmuxHost(destination: "registry-retention-\(UUID().uuidString)@host")
@@ -78,26 +79,17 @@ struct RemoteTmuxBrowserProxyRegistryTests {
         let second = registry.acquire(host: host, workspaceID: secondWorkspace)
         _ = try await first.value
         _ = try await second.value
-        let openedOnce = await transport.openCount()
-        #expect(openedOnce == 1)
+        let createdOnce = await transport.openerCreationCount()
+        #expect(createdOnce == 1)
 
         registry.release(workspaceID: firstWorkspace)
-        await Task.yield()
-        let cancelledAfterFirstRelease = await transport.cancelCount()
-        #expect(cancelledAfterFirstRelease == 0)
-
         registry.release(workspaceID: secondWorkspace)
-        for _ in 0..<20 {
-            if await transport.cancelCount() > 0 { break }
-            await Task.yield()
-        }
-        let cancelledAfterFinalRelease = await transport.cancelCount()
-        #expect(cancelledAfterFinalRelease == 1)
+        #expect(await transport.openerCreationCount() == 1)
     }
 
     @Test func rebuildCancelsTheStaleStartupBeforeItCanPublishAnEndpoint() async throws {
         let transport = RecordingBrowserProxyTransport()
-        await transport.setBlocksOpen(true)
+        await transport.setBlocksOpenerCreation(true)
         let registry = registry(using: transport)
         let host = RemoteTmuxHost(destination: "registry-rebuild-\(UUID().uuidString)@host")
         var readyEndpointCount = 0
@@ -108,10 +100,10 @@ struct RemoteTmuxBrowserProxyRegistryTests {
         }
 
         let stale = registry.acquire(host: host, workspaceID: UUID())
-        await waitForOpenCount(1, transport: transport)
+        await waitForOpenerCreationCount(1, transport: transport)
         registry.invalidateAndRebuild(connectionHash: host.connectionHash)
-        await waitForOpenCount(2, transport: transport)
-        await transport.resumeAllOpenCalls()
+        await waitForOpenerCreationCount(2, transport: transport)
+        await transport.resumeAllOpenerCalls()
 
         do {
             _ = try await stale.value
@@ -126,28 +118,20 @@ struct RemoteTmuxBrowserProxyRegistryTests {
             await Task.yield()
         }
         #expect(readyEndpointCount == 1)
-        let openedTwice = await transport.openCount()
-        #expect(openedTwice == 2)
+        let createdTwice = await transport.openerCreationCount()
+        #expect(createdTwice == 2)
     }
 
-    @Test func previewLifecycleUsesOnlyMasterAndDynamicForwardOperations() async throws {
+    @Test func previewLifecycleUsesOnlyMasterAndOwnerOnlyStreamOperations() async throws {
         let transport = RecordingBrowserProxyTransport()
         let registry = registry(using: transport)
         let host = RemoteTmuxHost(destination: "registry-nondestructive-\(UUID().uuidString)@host")
 
         _ = try await registry.acquire(host: host, workspaceID: UUID()).value
         registry.releaseHost(connectionHash: host.connectionHash)
-        for _ in 0..<20 {
-            if await transport.cancelCount() > 0 { break }
-            await Task.yield()
-        }
-
         // The injected protocol intentionally exposes only ControlMaster readiness
-        // plus `-O forward`/`-O cancel`; proxy setup cannot issue tmux create,
-        // attach, kill-session, or kill-window commands through this lifecycle.
-        let opened = await transport.openCount()
-        let cancelled = await transport.cancelCount()
-        #expect(opened == 1)
-        #expect(cancelled == 1)
+        // plus creation of pipe-backed stream openers; proxy setup cannot issue
+        // tmux mutations or add a dynamic listener through this lifecycle.
+        #expect(await transport.openerCreationCount() == 1)
     }
 }
