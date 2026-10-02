@@ -39,9 +39,19 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
     static let workstreamEventReceived = Notification.Name("cmux.workstreamEventReceived")
 }
+
+struct CodeRouterHandoffSessionBinding: Sendable, Equatable {
+    let authSessionGeneration: UInt64
+    let resolvedTeamID: String?
+}
+
 private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let passwordAuthorization: SocketPasswordAuthorization
+    /// AuthCoordinator session and selected-team state captured before a
+    /// CodeRouter handoff worker starts. A lease response is written only
+    /// while both values are still current on the main actor.
+    let codeRouterHandoffSessionBinding: CodeRouterHandoffSessionBinding?
 }
 // Agent notification gating types (AgentTurnCompleteMode / AgentNotificationMeta /
 // agentNotificationShouldDeliver) live in AgentNotificationGate.swift;
@@ -117,6 +127,8 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+    /// Bounded socket-worker deadline around the hosted CodeRouter mint.
+    nonisolated static let codeRouterHandoffWorkerTimeoutSeconds: TimeInterval = 22
     private enum ReloadConfigurationWaitResult: Sendable {
         case committed
         case failed
@@ -146,6 +158,10 @@ class TerminalController {
     /// listener starts. Socket auth commands read these on the main actor.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var accountFlow: HostAccountFlow?
+    /// Hosted CodeRouter handoff service. The service is created at the same
+    /// composition boundary as AuthCoordinator and is read from a worker lane
+    /// through `v2MainSync`; it never exposes Stack credentials to the socket.
+    @MainActor private(set) var codeRouterHandoffService: (any CodeRouterHandoffMinting)?
     @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     /// App-lifetime automation engine, attached by the composition root after
@@ -162,6 +178,9 @@ class TerminalController {
     private nonisolated let socketPasswordFileWatcher: FileWatcher?
     nonisolated let socketClientCapabilityAuthority: SocketClientCapabilityAuthority
     private nonisolated let socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter
+    /// Ten-second, single-use `exec` transition grants for signed CodeRouter.
+    nonisolated let codeRouterHandoffArmGrantStore =
+        CodeRouterHandoffArmGrantStore()
     /// Bounds worker threads and completion contexts parked for synchronous
     /// `reload_config` acknowledgements. Excess callers receive backpressure.
     private nonisolated let reloadConfigurationWaiterAdmission =
@@ -682,6 +701,8 @@ class TerminalController {
                 await controller.spawnClientHandler(
                     socket: connection.socket,
                     peerPid: connection.peerProcessID,
+                    peerAuditToken: connection.peerAuditToken,
+                    peerProcessStartTime: connection.peerProcessStartTime,
                     authorizationGeneration: connection.authorizationGeneration,
                     authorizationRevocationSignal: connection.authorizationRevocationSignal
                 )
@@ -1091,9 +1112,15 @@ class TerminalController {
     /// Inject the auth graph. Call once at the composition root, before the
     /// socket listener accepts auth commands.
     @MainActor
-    func attachAuth(coordinator: AuthCoordinator, accountFlow: HostAccountFlow) {
+    func attachAuth(
+        coordinator: AuthCoordinator,
+        accountFlow: HostAccountFlow,
+        codeRouterHandoffService: (any CodeRouterHandoffMinting)? = nil
+    ) {
         self.authCoordinator = coordinator
         self.accountFlow = accountFlow
+        self.codeRouterHandoffService = codeRouterHandoffService
+            ?? CodeRouterHandoffClient(auth: coordinator)
     }
 
     /// Injects the app-lifetime browser import coordinator before socket RPCs start.
@@ -1220,6 +1247,70 @@ class TerminalController {
         return transport.writeAll(Data(payload.utf8), to: socket)
     }
 
+    /// Writes one CodeRouter handoff response only while both authorization
+    /// domains are current. The main-actor section is intentionally
+    /// synchronous: AuthCoordinator.signOut advances its generation on the
+    /// same actor, so it cannot interleave between the generation check and
+    /// the bounded socket write.
+    private nonisolated func writeCodeRouterHandoffResponse(
+        _ responseData: Data,
+        socket: Int32,
+        authorizationGeneration: UInt64,
+        expectedSessionBinding: CodeRouterHandoffSessionBinding?,
+        trustedPeerAuditToken: SocketPeerAuditToken?,
+        trustedPeerProcessStartTime: SocketPeerProcessStartTime?,
+        codeRouterPeerVerifier: CodeRouterSocketPeerVerifier = .production
+    ) -> Bool? {
+        v2MainSync(commandKey: "coderouter.handoff.complete") {
+            guard let trustedPeerAuditToken,
+                  let trustedPeerProcessStartTime,
+                  let coordinator = self.authCoordinator,
+                  Self.codeRouterHandoffSessionBindingIsCurrent(
+                      expectedGeneration: expectedSessionBinding?.authSessionGeneration,
+                      expectedTeamID: expectedSessionBinding?.resolvedTeamID,
+                      currentGeneration: coordinator.authSessionGeneration,
+                      currentTeamID: coordinator.resolvedTeamID,
+                      isAuthenticated: coordinator.isAuthenticated
+                  ) else {
+                return nil
+            }
+            let socketTransport = self.transport
+            return self.socketServer.withTrustedPeerConnectionAuthorization(
+                authorizationGeneration
+            ) {
+                // Keep this exact-token dynamic validation in the same short
+                // generation-locked body as the secret write. An intervening
+                // exec or PID reuse changes the token and fails closed.
+                guard socketTransport.peerAuditToken(of: socket)
+                        == trustedPeerAuditToken,
+                      socketTransport.processStartTime(
+                          of: trustedPeerAuditToken.processID
+                      ) == trustedPeerProcessStartTime,
+                      codeRouterPeerVerifier.isTrusted(
+                          trustedPeerAuditToken
+                      ) else {
+                    return false
+                }
+                return socketTransport.writeAll(responseData, to: socket)
+            }
+        }
+    }
+
+    nonisolated static func codeRouterHandoffSessionBindingIsCurrent(
+        expectedGeneration: UInt64?,
+        expectedTeamID: String?,
+        currentGeneration: UInt64,
+        currentTeamID: String?,
+        isAuthenticated: Bool
+    ) -> Bool {
+        guard isAuthenticated,
+              let expectedGeneration else {
+            return false
+        }
+        return expectedGeneration == currentGeneration
+            && expectedTeamID == currentTeamID
+    }
+
     /// Interim bridged view of a decoded `ControlRequest` with Foundation
     /// (`Any`) field shapes, so the existing command bodies keep their
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
@@ -1285,7 +1376,10 @@ class TerminalController {
         "workspace.set_auto_title",
     ]
 
-    nonisolated func socketWorkerV2Response(handling parsedRequest: ControlRequest) -> String? {
+    nonisolated func socketWorkerV2Response(
+        handling parsedRequest: ControlRequest,
+        codeRouterTeamID: String? = nil
+    ) -> String? {
         let request = V2SocketRequest(bridging: parsedRequest)
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
@@ -1393,10 +1487,16 @@ class TerminalController {
                         message: "feed.push without an id requires wait_timeout_seconds 0"
                     )
                 }
-                _ = socketWorkerV2Response(request)
+                _ = socketWorkerV2Response(
+                    request,
+                    codeRouterTeamID: codeRouterTeamID
+                )
                 return nil
             }
-            return socketWorkerV2Response(request)
+            return socketWorkerV2Response(
+                request,
+                codeRouterTeamID: codeRouterTeamID
+            )
         }
     }
 
@@ -1586,12 +1686,100 @@ class TerminalController {
         }
         return seconds
     }
-    private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
+
+    private nonisolated func socketWorkerV2Response(
+        _ request: V2SocketRequest,
+        codeRouterTeamID: String? = nil
+    ) -> String {
         switch request.method {
         case "session.agent_recovery.list":
             return v2Result(id: request.id, v2AgentRecoveryList(params: request.params))
         case "session.agent_recovery.restore":
             return v2Result(id: request.id, v2AgentRecoveryRestore(params: request.params))
+        case "coderouter.handoff.complete":
+            guard request.params.count == 2,
+                  let protocolVersion = request.params["protocolVersion"]
+                    as? NSNumber,
+                  CFGetTypeID(protocolVersion) != CFBooleanGetTypeID(),
+                  protocolVersion.intValue == 2,
+                  protocolVersion.doubleValue == 2,
+                  let challenge = request.params["challenge"] as? String,
+                  SocketClientCapabilityProof().decodeBase64URL32(challenge)
+                    != nil else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "coderouter.handoff.complete requires protocolVersion 2 and a challenge"
+                )
+            }
+            guard let codeRouterTeamID, !codeRouterTeamID.isEmpty else {
+                return v2Error(
+                    id: request.id,
+                    code: "team_required",
+                    message: "CodeRouter handoff requires an armed team"
+                )
+            }
+
+            let service = v2MainSync(commandKey: request.method) {
+                self.codeRouterHandoffService
+            }
+            guard let service else {
+                return v2Error(
+                    id: request.id,
+                    code: "not_authenticated",
+                    message: Self.codeRouterHandoffLocalizedMessage(.notSignedIn)
+                )
+            }
+            return v2AsyncResultCall(
+                id: request.id,
+                timeoutSeconds: Self.codeRouterHandoffWorkerTimeoutSeconds
+            ) {
+                do {
+                    let lease = try await service.mint(
+                        teamID: codeRouterTeamID
+                    )
+                    guard lease.teamID.utf8.count <= 200,
+                          !lease.teamID.isEmpty,
+                          lease.teamID == codeRouterTeamID,
+                          lease.teamID.unicodeScalars.allSatisfy({
+                              let category = $0.properties.generalCategory
+                              return !$0.properties.isWhitespace
+                                  && category != .control
+                                  && category != .format
+                          }),
+                          CodeRouterHandoffClient.isValidLeaseSyntax(lease.lease),
+                          lease.expiresAt.utf8.count <= 128,
+                          let expiry = CmuxRFC3339DateParser().date(from: lease.expiresAt),
+                          expiry > Date() else {
+                        return .err(
+                            code: "coderouter_handoff_invalid_response",
+                            message: Self.codeRouterHandoffLocalizedMessage(.invalidResponse),
+                            data: nil
+                        )
+                    }
+                    // This is the one intended secret-bearing response. The
+                    // socket authorization gate has already run before this
+                    // worker lane, and no event mapping is registered for the
+                    // handoff method.
+                    return .ok([
+                        "teamId": lease.teamID,
+                        "lease": lease.lease,
+                        "expiresAt": lease.expiresAt,
+                    ])
+                } catch let error as CodeRouterHandoffClientError {
+                    return .err(
+                        code: error.code,
+                        message: Self.codeRouterHandoffLocalizedMessage(error),
+                        data: nil
+                    )
+                } catch {
+                    return .err(
+                        code: "coderouter_handoff_failed",
+                        message: Self.codeRouterHandoffLocalizedMessage(nil),
+                        data: nil
+                    )
+                }
+            }
         case "auth.status":
             let semaphore = DispatchSemaphore(value: 0)
             Task { @MainActor [weak self] in
@@ -2128,6 +2316,8 @@ class TerminalController {
     private nonisolated func spawnClientHandler(
         socket clientSocket: Int32,
         peerPid: pid_t?,
+        peerAuditToken: SocketPeerAuditToken?,
+        peerProcessStartTime: SocketPeerProcessStartTime?,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal
     ) async {
@@ -2154,6 +2344,8 @@ class TerminalController {
             await self.handleClientAsync(
                 clientSocket,
                 peerPid: peerPid,
+                peerAuditToken: peerAuditToken,
+                peerProcessStartTime: peerProcessStartTime,
                 authorizationGeneration: authorizationGeneration,
                 authorizationRevocationSignal: authorizationRevocationSignal,
                 initialReadLimits: initialReadLimits,
@@ -2178,6 +2370,8 @@ class TerminalController {
     private nonisolated func handleClientAsync(
         _ socket: Int32,
         peerPid: pid_t? = nil,
+        peerAuditToken: SocketPeerAuditToken? = nil,
+        peerProcessStartTime: SocketPeerProcessStartTime? = nil,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
         initialReadLimits: ControlClientLineReadLimits? = nil,
@@ -2188,7 +2382,8 @@ class TerminalController {
         let lineReader = ControlClientAsyncLineReader(
             socket: socket,
             initialLimits: initialReadLimits,
-            authorizationRevocationSignal: authorizationRevocationSignal
+            authorizationRevocationSignal: authorizationRevocationSignal,
+            codeRouterHandshakeMaximumBytes: 4_096
         )
         let writer = ControlClientAsyncWriter(socket: socket)
 
@@ -2236,12 +2431,25 @@ class TerminalController {
             }
         }
         var passwordAuthorization = SocketPasswordAuthorization()
+        var pendingCodeRouterHandoffChallenge:
+            PendingCodeRouterHandoffChallenge?
         let rateLimiter = ControlClientRateLimiter()
         while let line = await lineReader.nextLine(shouldContinueReading: {
             self.socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
         }) {
             let receivedCommand = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !receivedCommand.isEmpty else { continue }
+            // Arm, begin, and complete use an exact JSON frame. Do not let
+            // Foundation trimming turn a surrounding-whitespace frame into a
+            // valid proof-bearing request.
+            let isCodeRouterHandshakeRoute =
+                Self.isCodeRouterHandoffCommand(receivedCommand)
+                    || Self.isCodeRouterHandoffBeginCommand(receivedCommand)
+                    || Self.isCodeRouterHandoffArmCommand(receivedCommand)
+            guard !isCodeRouterHandshakeRoute || line == receivedCommand else {
+                _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8))
+                return
+            }
             guard socketAuthorizationIsCurrent(
                 authorizationGeneration,
                 passwordAuthorization: &passwordAuthorization
@@ -2249,10 +2457,36 @@ class TerminalController {
                 _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8))
                 return
             }
-            guard let authorizedCommand = authorizedSocketCommand(
+            let isCodeRouterPeerCommand =
+                Self.isCodeRouterHandoffCommand(receivedCommand)
+                    || Self.isCodeRouterHandoffBeginCommand(receivedCommand)
+                    || Self.isCodeRouterHandoffArmCommand(receivedCommand)
+            let currentPeerAuditToken = isCodeRouterPeerCommand
+                ? transport.peerAuditToken(of: socket)
+                : peerAuditToken
+            let currentPeerStartTime = if isCodeRouterPeerCommand,
+                                          let pid {
+                transport.processStartTime(of: pid)
+            } else {
+                peerProcessStartTime
+            }
+            guard !isCodeRouterPeerCommand
+                    || (peerAuditToken?.processID == pid
+                        && peerAuditToken != nil
+                        && currentPeerAuditToken == peerAuditToken
+                        && peerProcessStartTime != nil
+                        && currentPeerStartTime == peerProcessStartTime),
+                  pendingCodeRouterHandoffChallenge == nil
+                    || Self.isCodeRouterHandoffCommand(receivedCommand),
+                  let commandAuthorization = authorizedSocketCommand(
                 receivedCommand,
                 peerProcessID: pid,
-                peerHasSameUID: peerHasSameUID
+                peerHasSameUID: peerHasSameUID,
+                peerAuditToken: peerAuditToken,
+                peerProcessStartTime: peerProcessStartTime,
+                authorizationGeneration: authorizationGeneration,
+                pendingCodeRouterHandoffChallenge:
+                    pendingCodeRouterHandoffChallenge
             ) else {
                 let response = pid == nil
                     ? Self.socketClientVerificationFailedResponse
@@ -2267,11 +2501,11 @@ class TerminalController {
             // Only a process in cmux's own descendant tree may attach the
             // internal automation envelope. Same-UID clients are authorized
             // for ordinary automation RPCs, but cannot forge a rule chain.
-            let parsedCommandEnvelope = Self.automationCommandEnvelope(from: authorizedCommand)
+            let parsedCommandEnvelope = Self.automationCommandEnvelope(from: commandAuthorization.command)
             let commandEnvelope = (pid.map(isDescendant) == true)
                 ? parsedCommandEnvelope
                 : nil
-            let trimmed = (parsedCommandEnvelope?.command ?? authorizedCommand)
+            let trimmed = (parsedCommandEnvelope?.command ?? commandAuthorization.command)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let commandOrigin = commandEnvelope?.origin
             lineReader.clearLimits()
@@ -2280,6 +2514,62 @@ class TerminalController {
                 await preauthorizationLimiter.release()
             }
 
+            if Self.isCodeRouterHandoffBeginCommand(trimmed) {
+                guard let authorization = commandAuthorization.codeRouterHandoffBeginAuthorization,
+                      let challenge = Self.makeCodeRouterHandoffChallenge() else {
+                    _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8))
+                    return
+                }
+                let response = v2Ok(
+                    id: "coderouter-handoff-begin",
+                    result: ["protocolVersion": 2, "challenge": challenge]
+                )
+                guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
+                pendingCodeRouterHandoffChallenge = PendingCodeRouterHandoffChallenge(
+                    authorization: authorization,
+                    challenge: challenge
+                )
+                lineReader.allowCodeRouterHandoffCompletion(timeoutMilliseconds: 2_000)
+                continue
+            }
+            if Self.isCodeRouterHandoffArmCommand(trimmed) {
+                let response = processCodeRouterHandoffArmCommand(
+                    trimmed,
+                    socket: socket,
+                    peerAuditToken: peerAuditToken,
+                    authorizationGeneration: authorizationGeneration,
+                    verifiedProof: commandAuthorization.codeRouterHandoffArmProof
+                )
+                _ = await writer.writeAll(Data((response + "\n").utf8))
+                return
+            }
+            if Self.isCodeRouterHandoffCommand(trimmed) {
+                // Keep the signed mint and final atomic authorization/write
+                // together; ordinary traffic uses the asynchronous dispatcher.
+                let result = processSocketLine(
+                    trimmed,
+                    passwordAuthorization: passwordAuthorization,
+                    trustedCodeRouterPeerAuditToken: commandAuthorization.trustedCodeRouterPeerAuditToken,
+                    expectedCodeRouterHandoffSessionBinding: commandAuthorization.codeRouterHandoffSessionBinding
+                )
+                pendingCodeRouterHandoffChallenge = nil
+                if let response = result.response {
+                    guard writeCodeRouterHandoffResponse(
+                        Data((response + "\n").utf8),
+                        socket: socket,
+                        authorizationGeneration: authorizationGeneration,
+                        expectedSessionBinding: result.codeRouterHandoffSessionBinding,
+                        trustedPeerAuditToken: commandAuthorization.trustedCodeRouterPeerAuditToken,
+                        trustedPeerProcessStartTime: peerProcessStartTime
+                    ) != nil else {
+                        _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8))
+                        return
+                    }
+                }
+                // A lease is never published to the event bus and completion
+                // always closes the connection, including a failed write.
+                return
+            }
             if isEventsStreamRequest(trimmed) {
                 if let response = authResponseIfNeeded(
                     for: trimmed,
@@ -2288,9 +2578,6 @@ class TerminalController {
                     guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
                     continue
                 }
-                // The event-bus subscription has its own bounded slow-consumer
-                // policy. Keep its legacy stream loop isolated to this admitted
-                // connection task; ordinary command traffic remains async.
                 handleEventsStreamRequest(
                     trimmed,
                     socket: socket,
@@ -2300,7 +2587,6 @@ class TerminalController {
                 )
                 return
             }
-
             let result = await CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
                 await processSocketLineAsync(
                     trimmed,
@@ -2316,6 +2602,7 @@ class TerminalController {
                 }
             }
         }
+
         if !socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) {
             _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8))
         }
@@ -2323,8 +2610,22 @@ class TerminalController {
 
     private nonisolated func processSocketLine(
         _ command: String,
-        passwordAuthorization: SocketPasswordAuthorization
+        passwordAuthorization: SocketPasswordAuthorization,
+        trustedCodeRouterPeerAuditToken: SocketPeerAuditToken? = nil,
+        expectedCodeRouterHandoffSessionBinding:
+            CodeRouterHandoffSessionBinding? = nil
     ) -> SocketLineProcessingResult {
+        let codeRouterHandoffSessionBinding: CodeRouterHandoffSessionBinding?
+        if Self.isCodeRouterHandoffCommand(command) {
+            // Capture the auth generation and selected team before the
+            // asynchronous mint begins. The final writer rechecks both on the
+            // main actor, so sign-out or a team switch cannot race a lease into
+            // an already-revoked socket response.
+            codeRouterHandoffSessionBinding =
+                expectedCodeRouterHandoffSessionBinding
+        } else {
+            codeRouterHandoffSessionBinding = nil
+        }
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
         let debugStart = DispatchTime.now().uptimeNanoseconds
@@ -2337,7 +2638,8 @@ class TerminalController {
         }
 #endif
         var nextPasswordAuthorization = passwordAuthorization
-        if let response = authResponseIfNeeded(
+        if trustedCodeRouterPeerAuditToken == nil,
+           let response = authResponseIfNeeded(
             for: command,
             passwordAuthorization: &nextPasswordAuthorization
         ) {
@@ -2351,11 +2653,16 @@ class TerminalController {
 #endif
             return SocketLineProcessingResult(
                 response: response,
-                passwordAuthorization: nextPasswordAuthorization
+                passwordAuthorization: nextPasswordAuthorization,
+                codeRouterHandoffSessionBinding:
+                    codeRouterHandoffSessionBinding
             )
         }
 
-        let response = processCommandUsingSocketExecutionPolicy(command)
+        let response = processCommandUsingSocketExecutionPolicy(
+            command,
+            codeRouterTeamID: codeRouterHandoffSessionBinding?.resolvedTeamID
+        )
 #if DEBUG
         if let response {
             Self.debugLogSocketCommandEndIfNeeded(
@@ -2368,7 +2675,9 @@ class TerminalController {
 #endif
         return SocketLineProcessingResult(
             response: response,
-            passwordAuthorization: nextPasswordAuthorization
+            passwordAuthorization: nextPasswordAuthorization,
+            codeRouterHandoffSessionBinding:
+                codeRouterHandoffSessionBinding
         )
     }
 
@@ -2617,7 +2926,10 @@ class TerminalController {
     }
 #endif
 
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String? {
+    private nonisolated func processCommandUsingSocketExecutionPolicy(
+        _ command: String,
+        codeRouterTeamID: String? = nil
+    ) -> String? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.hasPrefix("{") {
@@ -2676,7 +2988,7 @@ class TerminalController {
             }
             if policy.runsOnSocketWorker {
                 return CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
-                    socketWorkerV2Response(handling: request)
+                    socketWorkerV2Response(handling: request, codeRouterTeamID: codeRouterTeamID)
                 }
             }
             return CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
@@ -3304,6 +3616,419 @@ class TerminalController {
             }
     }
 
+    private nonisolated static func codeRouterHandoffLocalizedMessage(
+        _ error: CodeRouterHandoffClientError?
+    ) -> String {
+        guard let error else {
+            return String(
+                localized: "cli.coderouter.handoff.notAuthenticated",
+                defaultValue: "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry.",
+                bundle: .main
+            )
+        }
+        switch error {
+        case .notSignedIn:
+            return String(
+                localized: "cli.coderouter.handoff.notAuthenticated",
+                defaultValue: "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry.",
+                bundle: .main
+            )
+        case .sessionChanged:
+            return String(
+                localized: "cli.coderouter.handoff.sessionChanged",
+                defaultValue: "The cmux account or team changed during the handoff. Try again.",
+                bundle: .main
+            )
+        case .expiredLease:
+            return String(
+                localized: "cli.coderouter.handoff.expired",
+                defaultValue: "The cmux handoff lease expired. Try again.",
+                bundle: .main
+            )
+        case .sessionUnavailable, .backendUnreachable:
+            return String(
+                localized: "cli.coderouter.handoff.unavailable",
+                defaultValue: "The cmux service is not available. Check your connection and try again.",
+                bundle: .main
+            )
+        case .invalidTeam, .invalidResponse, .redirectedResponse, .httpStatus:
+            return String(
+                localized: "cli.coderouter.handoff.failed",
+                defaultValue: "The cmux service rejected the CodeRouter handoff. Try again.",
+                bundle: .main
+            )
+        }
+    }
+
+    private nonisolated func v2Capabilities() -> [String: Any] {
+        var methods: [String] = [
+            "system.ping",
+            "system.capabilities",
+            "coderouter.handoff.begin",
+            "coderouter.handoff.complete",
+            "coderouter.handoff.arm",
+            "system.identify",
+            "system.tree",
+            "sidebar.custom.open",
+            "system.top",
+            "system.memory",
+            "automation.list",
+            "automation.show",
+            "automation.test",
+            "automation.enable",
+            "automation.disable",
+            "automation.logs",
+            "automation.reload",
+            "vault.sessions",
+            "vault.search",
+            "vault.checkpoints",
+            "vault.checkpoint",
+            "vault.fork",
+            "caffeine.status",
+            "caffeine.set",
+            "comments.list",
+            "mobile.host.status",
+            "mobile.attach_ticket.create",
+            "mobile.terminal.set_font",
+            "mobile.compatible_tags.get",
+            "mobile.compatible_tags.set",
+            "mobile.task.attachment.upload",
+            "mobile.task.models.list",
+            "mobile.workspace.list",
+            "mobile.terminal.create",
+            "mobile.terminal.input",
+            "mobile.terminal.paste",
+            "mobile.terminal.replay",
+            "mobile.browser.list",
+            "mobile.browser.create",
+            "mobile.browser.stream.start",
+            "mobile.browser.stream.stop",
+            "mobile.browser.viewport",
+            "mobile.browser.frame.ack",
+            "mobile.browser.dialog.respond",
+            "mobile.browser.input.pointer",
+            "mobile.browser.input.scroll",
+            "mobile.browser.input.key",
+            "mobile.browser.input.text",
+            "mobile.browser.navigate",
+            "mobile.browser.back",
+            "mobile.browser.forward",
+            "mobile.browser.reload",
+            "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
+            "terminal.create",
+            "terminal.input",
+            "terminal.paste",
+            "terminal.replay",
+            "terminal.viewport",
+            "auth.login",
+            "auth.status",
+            "auth.sign_in_url",
+            "auth.begin_sign_in",
+            "auth.sign_out",
+            "vm.billing_checkout",
+            "vm.list",
+            "vm.diagnostics", "vm.file_transfer_failure",
+            "vm.publication_list",
+            "vm.publication_create",
+            "vm.publication_verify",
+            "vm.publication_update",
+            "vm.publication_delete",
+            "vm.publication_grants",
+            "vm.publication_grant",
+            "vm.publication_ungrant",
+            "vm.domain_list",
+            "vm.domain_verify",
+            "vm.create",
+            "vm.base_open",
+            "vm.base_reset",
+            "vm.status",
+            "vm.stats",
+            "vm.resize",
+            "vm.rename",
+            "vm.snapshot",
+            "vm.fork",
+            "vm.restore",
+            "vm.destroy",
+            "vm.exec",
+            "vm.open_port",
+            "vm.attach_info",
+            "vm.cmux_remote_info",
+            "vm.ssh_info",
+            "vm.scp_info",
+            "vm.sessions",
+            "vm.session_attach_info",
+            "vm.tree",
+            "vm.terminal_open",
+            "vm.terminal_new",
+            "vm.terminal_rename",
+            "vm.tab_rename",
+            "vm.workspace_new",
+            "vm.workspace_open",
+            "vm.workspace_close",
+            "vm.workspace_delete",
+            "vm.workspace_rename",
+            "vm.terminal_close",
+            "vm.terminal_write",
+            "vm.terminal_read",
+            "vm.terminal_wait",
+            "vm.desktop_open",
+            "vm.port_open",
+            "vm.link_socket",
+            "vm.cloud_agent_open",
+            "vm.cloud_prompt",
+            "vm.tunnel_config",
+            "vm.tunnel_status",
+            "vm.tunnel_revoke",
+            "vm.tunnel_up",
+            "vm.tunnel_down",
+            "vm.tunnel_wait",
+            "surface.catalog",
+            "surface.project",
+            "surface.new_terminal",
+            "aiAccounts.list",
+            "aiAccounts.upload",
+            "aiAccounts.remove",
+            "coderouter.claude_upstream.get",
+            "coderouter.claude_upstream.set",
+            "coderouter.claude_upstream.add",
+            "coderouter.claude_upstream.update",
+            "coderouter.claude_upstream.remove",
+            "coderouter.claude_upstream.clear",
+            "coderouter.machines",
+            "window.list",
+            "window.current",
+            "window.focus",
+            "window.create",
+            "window.close",
+            "window.displays",
+            "window.display",
+            "workspace.list",
+            "workspace.create",
+            "workspace.cloud_vm_open",
+            "workspace.cloud_vm_terminal_ready",
+            "workspace.cloud_vm_bind",
+            "workspace.env",
+            "workspace.select",
+            "workspace.current",
+            "workspace.close",
+            "workspace.move_to_window",
+            "workspace.reorder",
+            "workspace.reorder_many",
+            "workspace.prompt_submit",
+            "workspace.rename",
+            "workspace.set_auto_title",
+            "surface.sync_codex_native_title",
+            "workspace.group.list",
+            "workspace.group.create",
+            "workspace.group.ungroup",
+            "workspace.group.delete",
+            "workspace.group.rename",
+            "workspace.group.collapse",
+            "workspace.group.expand",
+            "workspace.group.pin",
+            "workspace.group.unpin",
+            "workspace.group.add",
+            "workspace.group.remove",
+            "workspace.group.set_anchor",
+            "workspace.group.new_workspace",
+            "workspace.group.set_color",
+            "workspace.group.set_icon",
+            "workspace.group.move",
+            "workspace.group.focus",
+            "workspace.action",
+            "extension.sidebar.snapshot",
+            "workspace.next",
+            "workspace.previous",
+            "workspace.last",
+            "workspace.equalize_splits",
+            "workspace.remote.configure",
+            "workspace.remote.foreground_auth_ready",
+            "workspace.remote.reconnect",
+            "workspace.remote.disconnect",
+            "workspace.remote.status",
+            "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
+            "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
+            "workspace.remote.terminal_session_launching",
+            "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
+            "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+            "session.restore_previous",
+            "settings.open",
+            "feedback.open",
+            "feedback.submit",
+            "feed.push",
+            "feed.permission.reply",
+            "feed.question.reply",
+            "feed.exit_plan.reply",
+            "feed.jump",
+            "feed.list",
+            "surface.list",
+            "surface.current",
+            "surface.focus",
+            "surface.split",
+            "surface.respawn",
+            "surface.create",
+            "surface.close",
+            "surface.drag_to_split",
+            "surface.split_off",
+            "surface.move",
+            "surface.reorder",
+            "surface.action",
+            "tab.action",
+            "surface.refresh",
+            "surface.health",
+            "surface.resume.set",
+            "surface.resume.get",
+            "surface.resume.clear",
+            "agent.restore.admit",
+            "agent.restore.release",
+            "debug.terminals",
+            "surface.send_text",
+            "surface.send_key",
+            "surface.report_tty",
+            "surface.report_pwd",
+            "surface.report_git_branch",
+            "surface.clear_git_branch",
+            "surface.report_shell_state",
+            "surface.ports_kick",
+            "surface.read_text",
+            "surface.read_selection",
+            "surface.clear_history",
+            "surface.trigger_flash",
+            "pane.list",
+            "pane.focus",
+            "pane.surfaces",
+            "pane.create",
+            "pane.resize",
+            "pane.swap",
+            "pane.break",
+            "pane.join",
+            "pane.last",
+            "notification.create",
+            "notification.create_for_caller", "agent.resolve_delivery_target", "agent.hibernation.session_end",
+            "notification.create_for_surface",
+            "notification.create_for_target",
+            "notification.list",
+            "notification.clear",
+            "notification.dismiss",
+            "notification.mark_read",
+            "notification.open",
+            "notification.jump_to_unread",
+            "app.focus_override.set",
+            "app.simulate_active",
+            "file.open",
+            "markdown.open",
+            "browser.open_split",
+            "browser.navigate",
+            "browser.back",
+            "browser.forward",
+            "browser.reload",
+            "browser.react_grab.toggle",
+            "browser.devtools.toggle",
+            "browser.console.show",
+            "browser.focus_mode.set",
+            "browser.zoom.set",
+            "browser.history.clear",
+            "browser.url.get",
+            "browser.snapshot",
+            "browser.eval",
+            "browser.wait",
+            "browser.click",
+            "browser.dblclick",
+            "browser.hover",
+            "browser.focus",
+            "browser.type",
+            "browser.fill",
+            "browser.press",
+            "browser.keydown",
+            "browser.keyup",
+            "browser.check",
+            "browser.uncheck",
+            "browser.select",
+            "browser.scroll",
+            "browser.scroll_into_view",
+            "browser.screenshot",
+            "browser.get.text",
+            "browser.get.html",
+            "browser.get.value",
+            "browser.get.attr",
+            "browser.get.title",
+            "browser.get.count",
+            "browser.get.box",
+            "browser.get.styles",
+            "browser.is.visible",
+            "browser.is.enabled",
+            "browser.is.checked",
+            "browser.focus_webview",
+            "browser.is_webview_focused",
+            "browser.find.role",
+            "browser.find.text",
+            "browser.find.label",
+            "browser.find.placeholder",
+            "browser.find.alt",
+            "browser.find.title",
+            "browser.find.testid",
+            "browser.find.first",
+            "browser.find.last",
+            "browser.find.nth",
+            "browser.frame.select",
+            "browser.frame.main",
+            "browser.dialog.accept",
+            "browser.dialog.dismiss",
+            "browser.download.list", "browser.download.wait",
+            "browser.cookies.get",
+            "browser.cookies.set",
+            "browser.cookies.clear",
+            "browser.storage.get",
+            "browser.storage.set",
+            "browser.storage.clear",
+            "browser.tab.new",
+            "browser.tab.list",
+            "browser.tab.switch",
+            "browser.tab.close",
+            "browser.console.list",
+            "browser.console.clear",
+            "browser.errors.list",
+            "browser.highlight",
+            "browser.state.save",
+            "browser.state.load",
+            "browser.addinitscript",
+            "browser.addscript",
+            "browser.addstyle",
+            "browser.viewport.set",
+            "browser.geolocation.set",
+            "browser.offline.set",
+            "browser.trace.start",
+            "browser.trace.stop",
+            "browser.network.route",
+            "browser.network.unroute",
+            "browser.network.requests",
+            "browser.screencast.start",
+            "browser.screencast.stop",
+            "browser.input_mouse",
+            "browser.input_keyboard",
+            "browser.input_touch",
+        ]
+        if !Self.mobileTaskComposerFeatureEnabled {
+            let taskComposerMethods: Set<String> = [
+                "mobile.task.attachment.upload",
+                "mobile.task.models.list",
+            ]
+            methods.removeAll { taskComposerMethods.contains($0) }
+        }
+        methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
+#if DEBUG
+        methods.append(contentsOf: Self.v2DebugMethodNames)
+#endif
+
+        return [
+            "protocol": "cmux-socket",
+            "version": 2,
+            "socket_path": socketServer.currentSocketPath,
+            "access_mode": socketServer.accessMode.rawValue,
+            "capabilities": MobileHostService.mobileHostCapabilities,
+            "methods": methods.sorted()
+        ]
+    }
 
     func v2Identify(params: [String: Any]) -> [String: Any] {
         guard let tabManager = v2ResolveTabManager(params: params) else {
