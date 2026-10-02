@@ -582,14 +582,32 @@ Goal: a person texts the cmux line and talks to their Chief; Chief replies in th
   our own lines, refuse `date_sent` older than 10 minutes, dedupe by `message_handle` in the
   AddressDO ledger (`inbound:<handle>`, 7 days), 2xx at once and process from the AddressDO
   outbox. Inbound media URLs expire after 30 days at the provider; copy to R2 only when kept.
-- Phone binding (we have none today): recommended flow is reverse verification. The app shows
-  "Text LINK 482913 to <cmux number>"; the inbound webhook matches the one-time code (6 digits,
-  10 minutes, 5 tries) and binds the number. This proves possession, records consent to texts,
-  and needs no outbound send. Alternative: an outbound one-time code (costs a send, no consent
-  signal). Owners: AddressDO owns `linked_user` for its number (single writer); UserDO keeps a
-  projection of the user's phones. Unbind: the user, STOP, or an admin. Number recycling: a
-  binding expires after 180 days without inbound use, and the first inbound after 90 silent
-  days needs a fresh code before any op beyond read and reply.
+- Phone linking (decision T1, built in `address/text-link.ts`): the user asks in the app; the
+  Worker generates a 128-bit code and commits `address.text_link.request {user, code_hash}`;
+  AddressDO texts a sign-in link on the fixed origin (`https://console.cmux.dev/link#<code>`, no
+  shortener, the link alone on the last line, "expires in 10 minutes; ignore it if you did not
+  ask"). Opening it signs in with Stack (or uses the signed-in session) and sends
+  `address.text_link.confirm {proof}` (`proof = sha256(code)`; AddressDO stores
+  `sha256(proof)`). It binds only when the signed-in account is the one that asked, within 10
+  minutes, once; another account burns the link (forwarded links), five wrong proofs burn it, 3
+  requests per number per hour. A number bound to one account cannot be requested by another
+  until it is unlinked. STOP ends the binding. A binding lasts 180 days and needs a new link
+  after 90 days without inbound texts.
+- Residual risks (it is not foolproof; texts are a weak channel):
+  - SIM swap, port-out or a recycled number BEFORE linking: an attacker who receives the
+    user's texts can still only bind the number to the account that asked, so they cannot take
+    the user's account, but they can bind a victim's number to their own account and receive
+    texts the victim sends to cmux. Mitigation: the 180-day expiry, a notice to the previous
+    account when a number is relinked, and refusing numbers bound elsewhere.
+  - SIM swap, a stolen unlocked phone or a recycled number AFTER linking: whoever controls the
+    number texts with the user's Chief authority (strongest objection to the full default,
+    below). Carrier-change signals are not exposed by the provider (UNVERIFIED); the idle rule
+    and the expiry limit the window only partly.
+  - Forged sender numbers: some gateways can forge an SMS sender; iMessage senders are tied to
+    an Apple account. Texts that arrive as plain SMS get read and reply only.
+  - Phishing look-alikes: the link uses one fixed cmux domain and never a shortener, but users
+    can still be fooled by a look-alike domain in a fake text.
+  - The account itself: a stolen Stack session can link any number the attacker controls.
 - Routing: an inbound text from a bound number becomes a `message.send` in the user's chief
   conversation, authored by the user with `origin: remote` and part metadata `via: sms`; MuxDO
   wakes the Chief; the Chief's reply in that conversation goes back out through AddressDO.
@@ -604,20 +622,19 @@ Goal: a person texts the cmux line and talks to their Chief; Chief replies in th
   returns a fixed text; START resumes. Keywords are answered before any routing.
 - Privacy: texts are Home messages with the chief thread's retention; nothing else is stored
   beyond the dedupe key and delivery state.
-- What the Chief may do from a text: the user's grant narrowed to `read` and `mutate-own` plus
-  `execute` with confirmation. `send-external`, `money` and `destructive` need an explicit reply
-  with a one-time code bound to that action ("Reply YES 4821 to delete the VM"), or the app.
-  Never from a text: grant changes, install or account changes, billing. Never in a text:
-  secrets, tokens, passwords, invite secrets of others; approvals that touch secrets open the
-  app instead.
+- What the Chief may do from a text (decision T3): everything the Chief can do in the cloud, by
+  default; a per-user setting `text_channel_scope: full | read_reply | off` restricts it
+  (`textAuthority`). Never in a text: secrets, tokens, passwords, codes, other people's invite
+  secrets; anything that would show one opens the app. Strongest objection: with the full
+  default, a SIM swap, a stolen phone or a recycled number gives full Chief power by text.
+  DECISION (not built): require an in-app confirmation for destructive or irreversible actions
+  requested by text. RECOMMEND yes, because it closes the worst case of the full default at
+  the cost of one tap.
 
-Questions (recommendations):
-- T1. Verification direction: reverse (user texts a code to us), because it proves possession
-  and consent without an outbound send. RECOMMEND reverse.
-- T2. Which conversation receives texts: the user's main chief conversation, or a separate
-  "Texts" conversation with the Chief? RECOMMEND the main chief conversation, marked `via: sms`.
-- T3. Confirmation for risky ops: one-time code reply, or always deep-link to the app?
-  RECOMMEND a code reply for `execute`, the app for `money` and `destructive`.
+Decisions (Lawrence, 2026-10-02): T1 a texted Stack sign-in link (above), not reverse
+verification; T2 texts land in the main chief conversation marked `via: sms`; T3 full Chief
+authority by default with a per-user restriction setting. Invite card: the minimal design is the
+default (`?v=` keeps the others), `?s=square` renders 1200x1200.
 
 ## 20. One op vocabulary: reconciling home-core with `cmux-conversation`
 

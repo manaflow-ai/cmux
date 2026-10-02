@@ -1,6 +1,7 @@
 import type { Domain, OutboxItem, Principal, Reject, ReduceResult } from "../conversation/engine-types.ts"
 import { takeAddressQuota, type AddressWindow } from "../invites/limits.ts"
 import type { Suppression } from "../invites/policy.ts"
+import { confirmLink, EMPTY_LINK_STATE, noteInbound, requestLink, unlink, type LinkState } from "./text-link.ts"
 
 /**
  * AddressDO, one per address (home-messaging.md sections 3, 4.3 and 9): the
@@ -32,6 +33,8 @@ export interface AddressHead {
   readonly deliveries: ReadonlyArray<DeliveryRecord>
   /** True once a text went to this number (the STOP line goes only in the first). */
   readonly texted: boolean
+  /** Texting Chief: the pending sign-in link and the binding (text-link.ts). Absent in old heads. */
+  readonly link?: LinkState
 }
 
 export const MAX_DELIVERIES = 50
@@ -62,6 +65,9 @@ const isAddressOwner = (head: AddressHead, p: Principal) =>
 export const addressDomain: Domain<AddressHead, Params> = {
   initial: () => INITIAL_ADDRESS_HEAD,
   authorize: (head, op, _params, p): Reject | undefined => {
+    // The link is opened by a signed-in person; the domain checks it is the account that asked.
+    if (op === "address.text_link.confirm") return p.kind === "session" && p.user ? undefined : { code: "forbidden", message: "sign in to link this phone" }
+    if (op === "address.text_link.unlink" && (p.kind === "session" || p.kind === "install")) return undefined
     if (op === "address.unsuppress") return isAddressOwner(head, p) ? undefined : { code: "forbidden", message: "only the owner of this address may unsuppress it" }
     return p.kind === "system" ? undefined : { code: "forbidden", message: `${op} is a system op` }
   },
@@ -115,7 +121,9 @@ export const addressDomain: Domain<AddressHead, Params> = {
         if (!REASONS.has(reason as Suppression)) return refuse("invalid_params")
         if (head.suppression) return { ok: true, state: head, value: head.suppression, changed: false }
         const suppression = { reason: reason as Suppression, at: ctx.now }
-        return { ok: true, state: { ...head, suppression }, value: suppression }
+        // An opt-out also ends texting Chief from this number; linking again needs a new link.
+        const link = head.link ? { ...head.link, binding: null, pending: null } : head.link
+        return { ok: true, state: { ...head, suppression, ...(link ? { link } : {}) }, value: suppression }
       }
       case "address.unsuppress": {
         if (!head.suppression) return { ok: true, state: head, value: null, changed: false }
@@ -129,6 +137,38 @@ export const addressDomain: Domain<AddressHead, Params> = {
         if (head.linked_user === user) return { ok: true, state: head, value: summary(head), changed: false }
         const next = { ...head, linked_user: user }
         return { ok: true, state: next, value: summary(next) }
+      }
+      case "address.text_link.request": {
+        // Built by the Worker from the requesting session; the user is the requester.
+        const { user, code_hash } = params
+        if (head.channel !== "sms") return refuse("invalid_params", "only phone numbers can be linked")
+        if (!str(user, 128) || !user.startsWith("user_") || !str(code_hash, 64)) return refuse("invalid_params")
+        if (head.suppression) return refuse("address.suppressed")
+        const r = requestLink(head.link ?? EMPTY_LINK_STATE, user, code_hash, ctx.now)
+        if (!r.ok) return refuse(r.code)
+        return { ok: true, state: { ...head, link: r.state }, value: r.value }
+      }
+      case "address.text_link.confirm": {
+        const { proof } = params
+        if (!str(proof, 128)) return refuse("invalid_params")
+        const user = ctx.principal.user!.startsWith("user_") ? ctx.principal.user! : `user_${ctx.principal.user}`
+        const r = confirmLink(head.link ?? EMPTY_LINK_STATE, user, proof, ctx.now)
+        // A failed confirm still commits (attempt count, burned link): the reject alone would lose it.
+        if (!r.ok) return r.state ? { ok: true, state: { ...head, link: r.state }, value: { linked: false, code: r.code } } : refuse(r.code)
+        return { ok: true, state: { ...head, link: r.state, linked_user: head.linked_user ?? user }, value: { linked: true, expires_at: r.value.expires_at } }
+      }
+      case "address.text_link.unlink": {
+        const p = ctx.principal
+        const user = p.kind === "system" ? null : p.user ? (p.user.startsWith("user_") ? p.user : `user_${p.user}`) : "?"
+        const r = unlink(head.link ?? EMPTY_LINK_STATE, user)
+        if (!r.ok) return refuse(r.code)
+        if (r.state === (head.link ?? EMPTY_LINK_STATE)) return { ok: true, state: head, value: null, changed: false }
+        return { ok: true, state: { ...head, link: r.state }, value: null }
+      }
+      case "address.inbound.note": {
+        const link = head.link ?? EMPTY_LINK_STATE
+        if (!link.binding) return { ok: true, state: head, value: null, changed: false }
+        return { ok: true, state: { ...head, link: noteInbound(link, ctx.now) }, value: null }
       }
       default:
         return refuse("invalid_params", `unknown op ${op}`)
