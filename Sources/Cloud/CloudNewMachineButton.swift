@@ -1,7 +1,6 @@
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
-import CmuxSettingsUI
 import SwiftUI
 
 /// The Cloud panel's full-width New Cloud Machine button, between the team
