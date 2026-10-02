@@ -85,6 +85,19 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         // names; an explicit route targets that session's current workspace.
         let caller_route = global.socket.is_none() && global.session.is_none();
         if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route) {
+            // A browser tab's page zoom: the app hosts the page and owns it.
+            #[cfg(unix)]
+            if let super::resolve::Failure::AppAction { action, target } = &failure {
+                let args = ["--target".to_owned(), target.clone()];
+                return match super::app::run_action(action, &args, super::app::ActionName::Any) {
+                    Ok(command) => super::app::run(&global, command),
+                    Err(error) => print_local_error(
+                        &json!({"code":"usage.invalid","message":error.to_string(),"details":{},"retryable":false}),
+                        global.output,
+                        2,
+                    ),
+                };
+            }
             return failure.report(global.output);
         }
         request["params"] = plan.params.clone();

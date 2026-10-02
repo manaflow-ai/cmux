@@ -12,7 +12,7 @@ use cmux_tui_core::resource::ResourceOperation as Op;
 use serde_json::{Map, Number, Value};
 
 use super::{
-    CommandPlan, Flags, Resolve, Selectors, UsageError, group_collapse, group_number,
+    CommandPlan, Flags, Resolve, Selectors, UsageError, ZoomStep, group_collapse, group_number,
     insert_optional_clearable_string, insert_optional_string, insert_u32, parse_bool,
     parse_tab_group_private, request, usage, validate_one_of, validate_prefixed_id,
 };
@@ -378,7 +378,13 @@ pub(super) fn parse_workspace_group(
 
 // tab
 
-/// `tab <selector> pin|unpin|zoom <n>|update`.
+/// `tab <selector> pin|unpin|zoom <n>|reset|in|out|update`.
+///
+/// Zoom is a terminal's font zoom, which the daemon owns (`tab.update`). A
+/// browser tab's page zoom belongs to the app that hosts the page, so the CLI
+/// never writes a browser tab's record: a read before the request finds the
+/// tab's kind and sends a browser tab's zoom to the app's page-zoom action
+/// (`Resolve::TabZoom`).
 pub(super) fn tab_change(
     action: &str,
     rest: &[&str],
@@ -389,29 +395,40 @@ pub(super) fn tab_change(
     let operation = match (action, rest) {
         ("pin", []) => Op::TabPin,
         ("unpin", []) => Op::TabUnpin,
+        ("zoom", [step @ ("in" | "out")]) => {
+            params.resolve.push(Resolve::TabZoom {
+                step: if *step == "in" { ZoomStep::In } else { ZoomStep::Out },
+            });
+            Op::TabUpdate
+        }
         ("zoom", ["reset"]) => {
             params.insert("zoom", Value::Null);
+            params.resolve.push(Resolve::TabZoom { step: ZoomStep::Reset });
             Op::TabUpdate
         }
         ("zoom", [value]) => {
             params.insert("zoom", float("zoom", value, 0.25, 5.0)?);
+            params.resolve.push(Resolve::TabZoom { step: ZoomStep::Value });
             Op::TabUpdate
         }
         ("update", []) => {
-            match (flags.take("zoom"), flags.boolean("clear-zoom")) {
+            let step = match (flags.take("zoom"), flags.boolean("clear-zoom")) {
                 (Some(_), true) => {
                     return Err(UsageError::new("--zoom and --clear-zoom are mutually exclusive"));
                 }
-                (Some(value), false) => params.insert("zoom", float("--zoom", &value, 0.25, 5.0)?),
-                (None, true) => params.insert("zoom", Value::Null),
-                (None, false) => {}
-            }
-            for name in ["back", "forward"] {
-                if let Some(urls) = flags.take(name) {
-                    params.insert(name, string_list(&urls));
+                (Some(value), false) => {
+                    params.insert("zoom", float("--zoom", &value, 0.25, 5.0)?);
+                    ZoomStep::Value
                 }
-            }
-            require_change(&params, "tab update")?;
+                (None, true) => {
+                    params.insert("zoom", Value::Null);
+                    ZoomStep::Reset
+                }
+                (None, false) => {
+                    return Err(UsageError::new("tab update needs --zoom or --clear-zoom"));
+                }
+            };
+            params.resolve.push(Resolve::TabZoom { step });
             Op::TabUpdate
         }
         _ => return usage("tab action"),

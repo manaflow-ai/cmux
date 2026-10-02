@@ -50,6 +50,19 @@ pub(super) enum Resolve {
     /// `field` names a state record (room or group) by id or exact name; a
     /// unique name becomes that record's id.
     StateName { field: &'static str, list: ResourceOperation },
+    /// The request is a terminal's font zoom (`tab.update`). A browser tab's
+    /// page zoom goes to the app instead (cli/resolve.rs).
+    TabZoom { step: ZoomStep },
+}
+
+/// What `tab … zoom` asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ZoomStep {
+    In,
+    Out,
+    Reset,
+    /// An exact value (`zoom 1.5`, `update --zoom 1.5`).
+    Value,
 }
 
 #[derive(Clone, Debug)]
@@ -3536,10 +3549,7 @@ mod tests {
             (vec!["workspace", "group", "g", "move", "--index", "1"], "workspace_group.move"),
             (vec!["tab", tab, "pin"], "tab.pin"),
             (vec!["tab", tab, "unpin"], "tab.unpin"),
-            (
-                vec!["tab", tab, "update", "--zoom", "1.5", "--back", "a", "--forward", "b"],
-                "tab.update",
-            ),
+            (vec!["tab", tab, "update", "--zoom", "1.5"], "tab.update"),
             (vec!["tab", "group", "list", "--pane", pane], "tab_group.list"),
             (vec!["tab", "group", "g", "show"], "tab_group.get"),
             (
@@ -5518,11 +5528,15 @@ mod tests {
             .map(String::as_str)
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(seen, expected, "safe CLI operation coverage drifted from the catalog");
+        // Fields only the app that hosts a browser page writes (its record's
+        // history list); the CLI never sets them.
+        let app_owned = [("tab.update", "back"), ("tab.update", "forward")];
         for operation in &expected {
             let catalog_fields = catalog["operations"][operation]["params"]["fields"]
                 .as_object()
                 .unwrap()
                 .keys()
+                .filter(|field| !app_owned.contains(&(*operation, field.as_str())))
                 .cloned()
                 .collect::<std::collections::BTreeSet<_>>();
             assert_eq!(

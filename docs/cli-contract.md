@@ -229,8 +229,8 @@ cmux tab create terminal [--cwd <path>] [--name <value>] [--workspace <sel>] [--
 cmux tab create browser --url <value> [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>]
 cmux tab <selector> terminal|browser ...
 cmux tab <selector> pin|unpin
-cmux tab <selector> zoom <0.25..5>|reset
-cmux tab <selector> update [--zoom <0.25..5>|--clear-zoom] [--back <url,...>] [--forward <url,...>]
+cmux tab <selector> zoom <0.25..5>|reset|in|out
+cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
 cmux tab group list [--pane <pane_id>]
 cmux tab group create --tabs <tab_id,...> [--name <value>] [--color <color>]
 cmux tab group <group> show|ungroup|close
@@ -245,7 +245,11 @@ cmux tab group saved <saved> delete
 cmux tab group <group> split|column|new-workspace|unsave [OPTIONS]
 ```
 
-Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
+On a terminal tab, zoom is its font scale, which the daemon stores
+(`tab.update`). On a browser tab it is the page zoom, which the app that hosts
+the page owns: the CLI runs the app's Zoom In, Zoom Out or Actual Size action
+on the tab's pane (the tab must be the one its pane shows) and never writes the
+browser tab record; an exact value is refused there. Pinned tabs sort first
 and leave their group. Tab group verbs are `tab_group.*` and
 `saved_tab_group.*` operations; `split`, `column`, `new-workspace` and `unsave`
 have no `cmux.protocol/2` operation yet and still use private daemon commands.

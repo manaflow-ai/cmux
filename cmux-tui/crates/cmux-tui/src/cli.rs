@@ -885,8 +885,8 @@ USAGE
   cmux tab list
   cmux tab <selector> show|rename|move|focus|close
   cmux tab <selector> pin|unpin
-  cmux tab <selector> zoom <0.25..5>|reset
-  cmux tab <selector> update [--zoom <0.25..5>|--clear-zoom] [--back <url,...>] [--forward <url,...>]
+  cmux tab <selector> zoom <0.25..5>|reset|in|out
+  cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
   cmux tab create terminal [--correlation-key <value>] [OPTIONS]
   cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
   cmux tab <selector> terminal|browser ...
