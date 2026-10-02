@@ -76,6 +76,9 @@ NOT_IN_CMUX_JSON = frozenset({
     "customSidebars.beta.enabled",
     "extensions.beta.enabled",
     "remoteTmux.beta.enabled",
+    # Origin presentation remains a Settings-only beta preference.
+    "remoteTmux.beta.originColors.enabled",
+    "remoteTmux.beta.originHostTitles.enabled",
     "rightSidebar.beta.feed.enabled",
     # Device discovery and pairing state.
     "devices.discovery.enabled",
