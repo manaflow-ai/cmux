@@ -792,9 +792,13 @@ extension TerminalController {
             var closedIDs: [SurfaceResourceID] = []
             var failedIDs: [String] = []
             for resource in detached {
+                try Task.checkCancellation()
                 do {
                     try await provider.closeTerminal(resource)
+                    try Task.checkCancellation()
                     closedIDs.append(resource)
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
                     if Task.isCancelled { throw CancellationError() }
                     failedIDs.append(resource.key)

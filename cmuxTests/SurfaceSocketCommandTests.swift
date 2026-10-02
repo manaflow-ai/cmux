@@ -97,6 +97,7 @@ struct SurfaceSocketCommandTests {
         var createdTerminals: [(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?)] = []
         var mutations: [String] = []
         var closeFailures: Set<String> = []
+        var cancelAfterSuccessfulClose: String?
         var refreshes = 0
 
         init(machine: SurfaceMachineID, catalog: SurfaceCatalog, workspaces: [SurfaceRemoteWorkspace]) {
@@ -135,6 +136,9 @@ struct SurfaceSocketCommandTests {
             mutations.append("terminal close \(id.key)")
             if closeFailures.contains(id.key) { throw FakeProviderError.closeFailed(id.key) }
             catalog.remove(id)
+            if cancelAfterSuccessfulClose == id.key {
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
         }
 
         func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
@@ -690,6 +694,18 @@ struct SurfaceSocketCommandTests {
             let remaining = Self.resourceIDs(try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID])))
             #expect(remaining.contains(fixture.termPool.rawValue))
             #expect(!remaining.contains(fixture.termPool2.rawValue))
+        }
+    }
+
+    @Test func terminalPruneStopsAfterCancellationFollowingSuccessfulClose() async throws {
+        try await Self.withFixture { fixture in
+            fixture.provider.cancelAfterSuccessfulClose = fixture.termPool.key
+            let response = try await Self.call("vm.terminal_prune", ["id": fixture.machineID])
+            _ = try Self.error(response)
+            #expect(fixture.provider.mutations == ["terminal close \(fixture.termPool.key)"])
+            let remaining = Self.resourceIDs(try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID])))
+            #expect(!remaining.contains(fixture.termPool.rawValue))
+            #expect(remaining.contains(fixture.termPool2.rawValue))
         }
     }
 }
