@@ -17,13 +17,26 @@ let package = Package(
     products: [
         .library(name: "CmuxConversationCore", targets: ["CmuxConversationCore"]),
         .library(name: "CmuxConversationUI", targets: ["CmuxConversationUI"]),
+        .library(name: "CmuxConversationMacUI", targets: ["CmuxConversationMacUI"]),
     ],
     targets: [
         .target(name: "CmuxConversationCore", swiftSettings: swiftSettings),
+        .target(name: "CmuxConversationGeometry", swiftSettings: swiftSettings),
         .target(
             name: "CmuxConversationUI",
-            dependencies: ["CmuxConversationCore"],
+            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry"],
             resources: [.process("Resources")],
+            swiftSettings: swiftSettings
+        ),
+        .target(
+            name: "CmuxConversationMacUI",
+            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry"],
+            resources: [.process("Resources")],
+            swiftSettings: swiftSettings
+        ),
+        .executableTarget(
+            name: "CmuxConversationLabMac",
+            dependencies: ["CmuxConversationMacUI"],
             swiftSettings: swiftSettings
         ),
         .testTarget(
