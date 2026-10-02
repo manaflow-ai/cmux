@@ -74,7 +74,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 id: "tab.focus",
                 title: String(localized: "action.tab.focus", defaultValue: "Show Tab", bundle: .module),
                 keywords: ["tab", "focus", "select", "switch"], category: .tab, symbol: "scope",
-                surfaces: [.palette], targets: [.tab], cliName: "tab focus"
+                surfaces: [.palette], targets: [.tab], cliName: "app show-tab"
             ),
             ActionDescriptor(
                 id: "palette.clearTabName",
