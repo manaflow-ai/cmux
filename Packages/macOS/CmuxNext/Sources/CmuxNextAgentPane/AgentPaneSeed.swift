@@ -2,16 +2,20 @@ public import Foundation
 
 /// What a new agent tab inherits from the tab it was opened from (#16620):
 /// the directory its session starts in, and text the composer starts with.
-/// The draft is only shown; the user sends it.
+/// The draft is only shown; the user sends it. A `prompt` is sent by itself
+/// once the chat connects (onboarding's first task).
 public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// The new session's working directory (a terminal's cwd or worktree).
     public var cwd: String?
     /// The composer's first text (a selection, a page's title and URL).
     public var draft: String?
+    /// The first prompt, sent without the user pressing Send.
+    public var prompt: String?
 
-    public init(cwd: String? = nil, draft: String? = nil) {
+    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil) {
         self.cwd = cwd
         self.draft = draft
+        self.prompt = prompt
     }
 }
 
@@ -34,8 +38,8 @@ public final class AgentPaneSeedSource {
         limit = .zero
     }
 
-    /// The seed, read once. The draft is handed out only once, so a page
-    /// that reloads before the first prompt does not get it twice.
+    /// The seed, read once. The draft and prompt are handed out only once,
+    /// so a page that reloads before the first prompt does not get them twice.
     func take() async -> AgentPaneSeed? {
         if let read {
             self.read = nil
@@ -43,6 +47,7 @@ public final class AgentPaneSeedSource {
         }
         let seed = value
         value?.draft = nil
+        value?.prompt = nil
         return seed
     }
 }
