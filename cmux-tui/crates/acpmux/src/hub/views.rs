@@ -2,26 +2,39 @@
 
 use super::*;
 
-/// What limits a session's agent as far as acpmux can tell: the harness's
-/// own mode, else acpmux's permission policy. Host isolation is never
+/// What limits a session's agent as far as acpmux can tell. `policy` is
+/// always the acpmux permission policy (the session's own, else
+/// `default_policy`), so sessions on different harnesses compare; the
+/// harness's mode is only named in `detail`. Host isolation is never
 /// claimed, and no sandbox is inferred from a mode name.
-pub(super) fn enforcement(m: &SessionMeta) -> Value {
+pub(super) fn enforcement(m: &SessionMeta, default_policy: Option<PermissionPolicy>) -> Value {
+    let policy = m
+        .permission_policy
+        .clone()
+        .or_else(|| default_policy.map(|p| p.to_string()))
+        .unwrap_or_else(|| "unknown".into());
     let mode = m.modes.as_ref().and_then(|x| x.get("currentModeId")).and_then(Value::as_str);
-    let policy = m.permission_policy.as_deref();
+    let harness = m.family.as_deref().unwrap_or(&m.harness);
     json!({
-        "policy": mode.or(policy).unwrap_or("default"),
+        "policy": policy,
         "label": "native_policy",
         "isolation": "unverified",
         "detail": format!(
-            "harness mode {}; acpmux permission policy {}; host isolation unverified",
+            "{harness} mode {}; acpmux policy {policy}{}; host isolation unverified",
             mode.unwrap_or("unknown"),
-            policy.unwrap_or("the daemon default")
+            if m.permission_policy.is_none() { " (the daemon default)" } else { "" }
         ),
     })
 }
 
 impl Hub {
     // ------------------------------------------------------------- views
+
+    /// `enforcement` with the daemon's default policy (unknown only while
+    /// the configuration is being written).
+    pub(super) fn session_enforcement(&self, m: &SessionMeta) -> Value {
+        enforcement(m, self.config.try_read().ok().map(|c| c.permission_policy))
+    }
 
     pub fn session_summary(&self, session: &Session) -> Value {
         let m = session.meta();
@@ -50,7 +63,7 @@ impl Hub {
             "currentModeId": m.modes.as_ref().and_then(|x| x.get("currentModeId")).cloned(),
             "model": current_model(&m),
             "policy": m.permission_policy,
-            "enforcement": enforcement(&m),
+            "enforcement": self.session_enforcement(&m),
             "rules": m.permission_rules.is_some(),
             "tags": live_tags(&m),
             "stateSeq": session.state_seq.load(Ordering::SeqCst),

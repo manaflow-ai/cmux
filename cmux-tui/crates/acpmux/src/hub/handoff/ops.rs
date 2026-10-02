@@ -1,16 +1,17 @@
-//! The `_acpmux/handoff_*` methods. Every mutation holds `Handoffs::ops`;
-//! clients keep `handoffKey`, `draftKey` and `promptId` across uncertain
+//! The `_acpmux/handoff_*` methods. Every mutation holds its handoff's
+//! key lock (`Handoffs::lock`); clients keep `handoffKey`, `draftKey` and `promptId` across uncertain
 //! replies and the daemon answers repeats from the record.
 
 use super::{
     CONFLICT, Checkpoint, DROP_START_REPLY_ENV, INVALID, MAX_CAPSULE_BYTES, Record, Side, State,
-    not_found, refuse, too_large,
+    TARGET_TAG, not_found, refuse, too_large,
 };
 use crate::config::PermissionPolicy;
 use crate::hub::{Hub, NewRequest, PromptOptions, Session};
 use crate::rpc::RpcError;
-use crate::store::{EventRecord, now_ms};
+use crate::store::{EventRecord, SessionStatus, now_ms};
 use serde_json::{Value, json};
+use std::path::Path;
 use std::sync::Arc;
 
 fn text_param<'a>(p: &'a Value, key: &str) -> Option<&'a str> {
@@ -165,17 +166,29 @@ impl Hub {
                 )));
             }
         };
-        let _op = self.handoffs.ops.lock().await;
+        let _key = self.handoffs.lock(format!("key:{key}")).await;
         let source = self.resolve(source_key);
         if let Some(existing) = self.handoffs.by_key(key) {
             let same_source = match &source {
                 Ok(s) => s.id == existing.source.session_id,
                 Err(_) => source_key == existing.source.session_id,
             };
-            if !same_source {
-                return Err(RpcError::invalid_params(format!(
-                    "handoffKey {key:?} already names a handoff from another session"
-                )));
+            let same_target = self
+                .config
+                .read()
+                .await
+                .resolve_harness(harness)
+                .is_ok_and(|h| h == existing.target.harness);
+            if !same_source || !same_target {
+                return Err(refuse(
+                    INVALID,
+                    "key_conflict",
+                    format!(
+                        "handoffKey {key:?} already names the handoff from {} to {}",
+                        existing.source.session_id, existing.target.harness
+                    ),
+                    Some(self.handoff_view(&existing)),
+                ));
             }
             return Ok(self.handoff_view(&existing));
         }
@@ -228,24 +241,49 @@ impl Hub {
             source_policy
         };
         let to_seq = sm.last_seq;
-        let built = self.build_capsule(&sm, to_seq)?;
-        let target = self
-            .new_session(NewRequest {
-                harness: Some(profile),
-                cwd: sm.cwd.clone(),
-                policy: Some(policy),
-                ..Default::default()
-            })
-            .await?;
+        // The capsule reads the whole source log: off the async workers.
+        let built = {
+            let (hub, meta) = (self.clone(), sm.clone());
+            tokio::task::spawn_blocking(move || hub.build_capsule(&meta, to_seq))
+                .await
+                .map_err(|e| RpcError::internal(format!("build the capsule: {e}")))??
+        };
+        // A target tagged with this key whose record was never saved (the
+        // daemon stopped in between) is adopted, not created twice.
+        let target = match self.handoff_orphan(key, &profile, &sm.cwd) {
+            Some(t) => {
+                if self.policy_for(&t, default_policy) != policy {
+                    self.set_policy(&t, policy).await;
+                }
+                t
+            }
+            None => {
+                let t = self
+                    .new_session(NewRequest {
+                        harness: Some(profile),
+                        cwd: sm.cwd.clone(),
+                        policy: Some(policy),
+                        ..Default::default()
+                    })
+                    .await?;
+                let mut tag = serde_json::Map::new();
+                tag.insert(TARGET_TAG.into(), Value::String(key.to_owned()));
+                self.set_tags(&t, Some(&tag), &[], None);
+                t
+            }
+        };
         let at = now();
         let record = Record {
             handoff_id: uuid::Uuid::now_v7().to_string(),
             handoff_key: key.to_owned(),
             state: State::Draft,
             revision: 1,
-            source: Side::of(&sm),
+            source: Side::of(&sm, self.session_enforcement(&sm)),
             source_seq: to_seq,
-            target: Side::of(&target.meta()),
+            target: {
+                let tm = target.meta();
+                Side::of(&tm, self.session_enforcement(&tm))
+            },
             text: built.text,
             context: built.context,
             checkpoint: checkpoint.map(stamp),
@@ -255,7 +293,7 @@ impl Hub {
             turn_id: None,
             created_at: at.clone(),
             updated_at: at,
-            draft_keys: Vec::new(),
+            drafts: Vec::new(),
         };
         if let Err(e) = self.handoffs.put(&record) {
             let _ = self.kill(&target, true).await;
@@ -281,7 +319,7 @@ impl Hub {
     }
 
     /// `_acpmux/handoff_draft`: write the reviewed capsule. A repeated
-    /// `draftKey` answers with the record; a stale `revision` succeeds only
+    /// `draftKey` answers with what that write produced; a stale `revision` succeeds only
     /// when its content equals the current draft.
     pub async fn handoff_draft(&self, p: &Value) -> Result<Value, RpcError> {
         let id = required(p, "handoffId")?;
@@ -291,10 +329,10 @@ impl Hub {
         if edit.text.is_none() {
             return Err(RpcError::invalid_params("capsule.text is required"));
         }
-        let _op = self.handoffs.ops.lock().await;
+        let _id = self.handoffs.lock(format!("id:{id}")).await;
         let mut r = self.handoffs.get(id).ok_or_else(|| not_found(id))?;
-        if r.draft_keys.iter().any(|k| k == draft_key) {
-            return Ok(self.handoff_view(&r));
+        if let Some(replay) = r.draft_replay(draft_key) {
+            return Ok(self.handoff_view(&replay));
         }
         self.handoff_expect_draft(&r)?;
         let changed = edit.differs(&r);
@@ -306,7 +344,7 @@ impl Hub {
             r.revision += 1;
             r.updated_at = now();
         }
-        r.remember_draft_key(draft_key);
+        r.remember_draft(draft_key);
         self.handoffs.put(&r)?;
         Ok(self.handoff_view(&r))
     }
@@ -317,11 +355,13 @@ impl Hub {
     /// from the record or the target's log and never sends twice.
     pub async fn handoff_start(self: &Arc<Self>, p: &Value) -> Result<Value, RpcError> {
         let id = required(p, "handoffId")?;
-        let revision = revision(p)?;
-        let edit = Edit::parse(p)?;
-        let _op = self.handoffs.ops.lock().await;
+        let _id = self.handoffs.lock(format!("id:{id}")).await;
         let mut r = self.handoffs.get(id).ok_or_else(|| not_found(id))?;
-        let prompt_id = text_param(p, "promptId").unwrap_or(&r.handoff_id).to_owned();
+        // A start refused before delivery kept its promptId for the retry.
+        let prompt_id = text_param(p, "promptId")
+            .or(r.prompt_id.as_deref())
+            .unwrap_or(&r.handoff_id)
+            .to_owned();
         match r.state {
             State::Discarded => {
                 return Err(refuse(
@@ -347,6 +387,9 @@ impl Hub {
             }
             State::Draft => {}
         }
+        // Checked after the state, so a retry is answered from the record.
+        let revision = revision(p)?;
+        let edit = Edit::parse(p)?;
         let changed = edit.differs(&r);
         if changed && revision != r.revision {
             return Err(self.handoff_stale(&r, revision));
@@ -376,7 +419,7 @@ impl Hub {
     /// source is untouched; discarding twice is fine.
     pub async fn handoff_discard(&self, p: &Value) -> Result<Value, RpcError> {
         let id = required(p, "handoffId")?;
-        let _op = self.handoffs.ops.lock().await;
+        let _id = self.handoffs.lock(format!("id:{id}")).await;
         let mut r = self.handoffs.get(id).ok_or_else(|| not_found(id))?;
         match r.state {
             State::Discarded => {}
@@ -436,15 +479,25 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let prompt_id = r.prompt_id.clone().unwrap_or_else(|| r.handoff_id.clone());
         let target = self.resolve(&r.target.session_id)?;
-        let found = if retry {
-            r.turn_id.clone().or_else(|| self.handoff_turn_for(&target, &prompt_id))
-        } else {
-            None
+        let found = match (retry, r.turn_id.clone()) {
+            (false, _) => None,
+            (true, Some(t)) => Some(t),
+            (true, None) => self.handoff_turn_lookup(&target, &prompt_id).await,
         };
         let (turn_id, outcome) = match found {
             Some(t) => (Some(t), "already_started"),
             None if retry && r.state == State::Started => (None, "already_started"),
-            None => (self.handoff_send(&target, &r, &prompt_id).await?, "started"),
+            None => match self.handoff_send(&target, &r, &prompt_id).await {
+                Ok(t) => (t, "started"),
+                Err(e) => {
+                    // The target never recorded the prompt: back to draft,
+                    // keeping the promptId, so a retry or a discard works.
+                    r.state = State::Draft;
+                    r.updated_at = now();
+                    self.handoffs.put(&r)?;
+                    return Err(e);
+                }
+            },
         };
         if !retry && std::env::var(DROP_START_REPLY_ENV).is_ok_and(|v| v == "1") {
             return Err(refuse(
@@ -497,11 +550,10 @@ impl Hub {
                 async move { hub.prompt_with(&session, blocks, "handoff", false, opts).await },
             );
         match rx.await {
-            Ok(accepted) => Ok(accepted
-                .get("turnId")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .or_else(|| self.handoff_turn_for(target, prompt_id))),
+            Ok(accepted) => match accepted.get("turnId").and_then(Value::as_str) {
+                Some(t) => Ok(Some(t.to_owned())),
+                None => Ok(self.handoff_turn_lookup(target, prompt_id).await),
+            },
             // Refused before it was recorded: the prompt's own error.
             Err(_) => match run.await {
                 Ok(Ok(v)) => {
@@ -511,6 +563,32 @@ impl Hub {
                 Err(e) => Err(RpcError::internal(format!("handoff delivery stopped: {e}"))),
             },
         }
+    }
+
+    /// `handoff_turn_for` off the async workers.
+    async fn handoff_turn_lookup(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+    ) -> Option<String> {
+        let (hub, session, prompt_id) = (self.clone(), session.clone(), prompt_id.to_owned());
+        tokio::task::spawn_blocking(move || hub.handoff_turn_for(&session, &prompt_id))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// A live, never-prompted session in `cwd` on `profile` that a prepare
+    /// for `key` created and tagged.
+    fn handoff_orphan(&self, key: &str, profile: &str, cwd: &Path) -> Option<Arc<Session>> {
+        self.sessions().into_iter().find(|s| {
+            let m = s.meta();
+            m.tags.get(TARGET_TAG).is_some_and(|t| t.value == key)
+                && m.harness == profile
+                && m.cwd.as_path() == cwd
+                && m.turn_count == 0
+                && m.status != SessionStatus::Closed
+        })
     }
 
     /// The turn a prompt id started or queued in `session`: live state

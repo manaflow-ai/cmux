@@ -14,6 +14,9 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// How long `--start` waits for the daemon's answer.
+const START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 #[derive(Args)]
 pub struct ContinueArgs {
     /// The source session (name, id or unique prefix).
@@ -93,7 +96,17 @@ pub(crate) async fn run(client: Arc<Client>, a: ContinueArgs, json_out: bool) ->
     if let Some(c) = checkpoint {
         p["checkpoint"] = c;
     }
-    match client.request(method::MUX_HANDOFF_START, p).await {
+    // Start answers once the target records the prompt; no answer by then
+    // is uncertain, and the same promptId retries safely.
+    let reply = tokio::time::timeout(START_TIMEOUT, client.request(method::MUX_HANDOFF_START, p))
+        .await
+        .unwrap_or_else(|_| {
+            Err(anyhow::anyhow!(
+                "uncertain_delivery: no answer to the start within {} s",
+                START_TIMEOUT.as_secs()
+            ))
+        });
+    match reply {
         Ok(v) => {
             if json_out {
                 print_json(&v);
@@ -210,6 +223,9 @@ fn print_handoff(h: &Value) {
         );
     }
     println!("--- first message ---\n{}\n---", h["capsule"]["text"].as_str().unwrap_or(""));
+    if h["state"] == "discarded" {
+        println!("this handoff was discarded; prepare again with a new --key");
+    }
     if h["state"] == "draft" {
         println!(
             "next: continue --handoff {id} --start{}",

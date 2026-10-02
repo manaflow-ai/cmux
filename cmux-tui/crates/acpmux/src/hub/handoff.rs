@@ -37,6 +37,10 @@ const INVALID: i64 = -32602;
 const CONFLICT: i64 = -32000;
 const NOT_FOUND: i64 = -32002;
 
+/// The session tag a prepare puts on the target it creates, so a repeat
+/// prepare whose record was never saved adopts that target.
+const TARGET_TAG: &str = "handoffKey";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum State {
@@ -92,15 +96,28 @@ struct Side {
 }
 
 impl Side {
-    fn of(m: &SessionMeta) -> Self {
+    fn of(m: &SessionMeta, enforcement: Value) -> Self {
         Self {
             session_id: m.id.clone(),
             name: m.name.clone(),
             harness: m.harness.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
-            enforcement: super::views::enforcement(m),
+            enforcement,
         }
     }
+}
+
+/// The result of one accepted draft write, answered again when its
+/// `draftKey` repeats so a lost acknowledgement never reads back a newer
+/// write.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DraftWrite {
+    draft_key: String,
+    revision: u64,
+    text: String,
+    memory_refs: Vec<String>,
+    checkpoint: Option<Checkpoint>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,14 +141,13 @@ struct Record {
     turn_id: Option<String>,
     created_at: String,
     updated_at: String,
-    /// `draftKey`s already applied, newest last: a repeat is answered
-    /// with the record instead of being written again.
+    /// The last `DRAFT_HISTORY` draft writes, newest last.
     #[serde(default)]
-    draft_keys: Vec<String>,
+    drafts: Vec<DraftWrite>,
 }
 
-/// Draft keys remembered per handoff.
-const DRAFT_KEYS: usize = 64;
+/// Draft writes remembered per handoff for `draftKey` replays.
+const DRAFT_HISTORY: usize = 8;
 
 impl Record {
     fn coverage(&self) -> Vec<Coverage> {
@@ -156,10 +172,52 @@ impl Record {
         all
     }
 
-    fn remember_draft_key(&mut self, key: &str) {
-        self.draft_keys.push(key.to_owned());
-        if self.draft_keys.len() > DRAFT_KEYS {
-            self.draft_keys.remove(0);
+    /// Remember the record's current draft as the result of `key`.
+    fn remember_draft(&mut self, key: &str) {
+        self.drafts.push(DraftWrite {
+            draft_key: key.to_owned(),
+            revision: self.revision,
+            text: self.text.clone(),
+            memory_refs: self.memory_refs.clone(),
+            checkpoint: self.checkpoint.clone(),
+        });
+        if self.drafts.len() > DRAFT_HISTORY {
+            self.drafts.remove(0);
+        }
+    }
+
+    /// The record as the write under `key` left it; state and timestamps
+    /// stay current.
+    fn draft_replay(&self, key: &str) -> Option<Record> {
+        let w = self.drafts.iter().find(|w| w.draft_key == key)?;
+        let mut r = self.clone();
+        r.revision = w.revision;
+        r.text = w.text.clone();
+        r.memory_refs = w.memory_refs.clone();
+        r.checkpoint = w.checkpoint.clone();
+        Some(r)
+    }
+}
+
+type KeyLocks = StdMutex<HashMap<String, Arc<Mutex<()>>>>;
+
+/// One handoff key held for a mutation. Dropping it releases the key and
+/// removes its entry when nobody else waits for it.
+struct KeyGuard<'a> {
+    locks: &'a KeyLocks,
+    key: String,
+    lock: Arc<Mutex<()>>,
+    guard: Option<tokio::sync::OwnedMutexGuard<()>>,
+}
+
+impl Drop for KeyGuard<'_> {
+    fn drop(&mut self) {
+        let mut locks = self.locks.lock().unwrap();
+        self.guard.take();
+        // Only the map and this guard hold it, and new holders clone it
+        // under the map lock: nobody waits.
+        if Arc::strong_count(&self.lock) == 2 {
+            locks.remove(&self.key);
         }
     }
 }
@@ -168,9 +226,10 @@ impl Record {
 pub(crate) struct Handoffs {
     dir: Option<PathBuf>,
     records: StdMutex<HashMap<String, Record>>,
-    /// Held by every mutation, so concurrent retries of one handoff never
-    /// create two targets or send twice.
-    ops: Mutex<()>,
+    /// Async locks per `key:<handoffKey>` (prepare) and `id:<handoffId>`
+    /// (draft, start, discard), so retries of one handoff never create two
+    /// targets or send twice while a slow harness holds up no other handoff.
+    locks: KeyLocks,
 }
 
 impl Handoffs {
@@ -194,7 +253,19 @@ impl Handoffs {
                 }
             }
         }
-        Self { dir, records: StdMutex::new(records), ops: Mutex::new(()) }
+        Self { dir, records: StdMutex::new(records), locks: StdMutex::new(HashMap::new()) }
+    }
+
+    async fn lock(&self, key: String) -> KeyGuard<'_> {
+        let lock = self
+            .locks
+            .lock()
+            .unwrap()
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+        let guard = lock.clone().lock_owned().await;
+        KeyGuard { locks: &self.locks, key, lock, guard: Some(guard) }
     }
 
     fn get(&self, id: &str) -> Option<Record> {
@@ -223,7 +294,8 @@ impl Handoffs {
     fn put(&self, record: &Record) -> Result<(), RpcError> {
         if let Some(dir) = &self.dir {
             let write = || -> Result<()> {
-                std::fs::create_dir_all(dir)?;
+                use std::os::unix::fs::DirBuilderExt;
+                std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
                 let bytes = serde_json::to_vec_pretty(record)?;
                 crate::config::write_atomic(
                     &dir.join(format!("{}.json", record.handoff_id)),
@@ -273,7 +345,7 @@ impl Hub {
         let side = |s: &Side| {
             let live = self.sessions.lock().unwrap().get(&s.session_id).cloned();
             let enforcement = live
-                .map(|l| super::views::enforcement(&l.meta()))
+                .map(|l| self.session_enforcement(&l.meta()))
                 .unwrap_or_else(|| s.enforcement.clone());
             json!({"sessionId": s.session_id, "harness": s.harness, "cwd": s.cwd, "coverage": coverage, "enforcement": enforcement})
         };
