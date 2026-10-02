@@ -65,15 +65,17 @@ import Testing
         #expect(!decision.skipsBrowserPages)
     }
 
-    @Test func markerRoundTripsAndACleanExitRemovesIt() throws {
+    @Test func markerRoundTripsAndACleanExitRemovesIt() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-run-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
         let first = AppRunMarker(directory: folder)
         #expect(first.recovery == .clean)
+        #expect(await first.flush())
         // No clean exit: the next launch is a restart.
         let second = AppRunMarker(directory: folder)
         #expect(second.recovery.isRestart)
         #expect(second.recovery.previous?.pid == getpid())
+        #expect(await second.flush())
         // The restart itself ends quickly: safe restart.
         let third = AppRunMarker(directory: folder)
         #expect(third.recovery.skipsBrowserPages)
@@ -83,13 +85,15 @@ import Testing
 
     /// No clean exit after `markQuitting` (a SIGKILL during the quit): the
     /// next launch is clean, and the one after that too.
-    @Test func aRunKilledWhileQuittingLeavesACleanLaunch() {
+    @Test func aRunKilledWhileQuittingLeavesACleanLaunch() async {
         let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-run-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
         let first = AppRunMarker(directory: folder)
-        first.markQuitting()
+        // Returns only once `quitting` is on disk: a SIGKILL now finds it.
+        #expect(await first.markQuitting(timeout: .seconds(5)))
         let second = AppRunMarker(directory: folder)
         #expect(second.recovery == .clean)
+        #expect(await second.flush())
         // The next run did not quit: a crash again.
         #expect(AppRunMarker(directory: folder).recovery.isRestart)
     }
@@ -106,10 +110,10 @@ import Testing
         #expect(LaunchRecovery.decide(previous: previous).isRestart)
     }
 
-    @Test func aWrittenSignalIsRead() throws {
+    @Test func aWrittenSignalIsRead() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-run-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
-        _ = AppRunMarker(directory: folder)
+        #expect(await AppRunMarker(directory: folder).flush())
         try Data("11\n".utf8).write(to: folder.appending(path: "run.signal"))
         let next = AppRunMarker(directory: folder)
         #expect(next.recovery.previous?.signal == SIGSEGV)
