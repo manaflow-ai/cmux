@@ -8,6 +8,9 @@ struct ShortcutListSearchQuery: Equatable {
     var text = ""
     /// Keys pressed into the detector: one stroke, or both strokes of a chord.
     var keys: StoredShortcut?
+    /// Bumped on every detection so pressing the same keys again re-runs the
+    /// match after bindings changed.
+    var detection = 0
 
     var isEmpty: Bool {
         keys == nil && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

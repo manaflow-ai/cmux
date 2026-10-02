@@ -193,6 +193,9 @@ public final class RecorderHostButton: NSButton {
     public var onFirstStroke: ((ShortcutStroke) -> Void)?
     /// Title shown while armed, or `nil` for the localized "Press shortcut…".
     public var recordingPrompt: String?
+    /// Whether gaining keyboard focus arms the recorder. The detector turns
+    /// this off so tabbing onto it does not swallow the next Tab.
+    public var startsRecordingOnFocus = true
 
     // Read access is `internal` so the test target can observe recording
     // state via `@testable import`; writes stay `private` to this view.
@@ -261,7 +264,7 @@ public final class RecorderHostButton: NSButton {
 
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        if became {
+        if became, startsRecordingOnFocus {
             startRecording()
         }
         return became
@@ -286,6 +289,9 @@ public final class RecorderHostButton: NSButton {
             startRecording()
         } else {
             window?.makeFirstResponder(self)
+            if !startsRecordingOnFocus, window?.firstResponder === self {
+                startRecording()
+            }
         }
     }
 

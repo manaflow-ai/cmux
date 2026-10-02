@@ -11,6 +11,8 @@ struct ShortcutListSearchBar: View {
     /// Whether a binding is a chord starting with the stroke, so the detector
     /// waits for the second stroke.
     let hasChord: (ShortcutStroke) -> Bool
+    /// Bumped by Clear so an armed detector disarms.
+    @State private var clearCount = 0
 
     var body: some View {
         HStack(spacing: 12) {
@@ -25,7 +27,11 @@ struct ShortcutListSearchBar: View {
                 placeholder: query.keys.map { shortcutDisplayString($0, numbered: false) }
                     ?? String(localized: "settings.shortcuts.detector.idle", defaultValue: "Record Keys"),
                 awaitsSecondStroke: hasChord,
-                onKeys: { query.keys = $0 }
+                clearCount: clearCount,
+                onKeys: { keys in
+                    query.keys = keys
+                    query.detection += 1
+                }
             )
             .frame(width: 160)
             .help(String(
@@ -40,6 +46,7 @@ struct ShortcutListSearchBar: View {
 
             Button {
                 query = ShortcutListSearchQuery()
+                clearCount += 1
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .imageScale(.medium)
@@ -61,7 +68,21 @@ struct ShortcutListSearchBar: View {
 private struct ShortcutDetectorView: NSViewRepresentable {
     let placeholder: String
     let awaitsSecondStroke: (ShortcutStroke) -> Bool
+    /// Changes when the search is cleared; an armed detector then disarms.
+    let clearCount: Int
     let onKeys: (StoredShortcut) -> Void
+
+    final class Coordinator {
+        var clearCount: Int
+
+        init(clearCount: Int) {
+            self.clearCount = clearCount
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(clearCount: clearCount)
+    }
 
     func makeNSView(context: Context) -> RecorderHostButton {
         let button = RecorderHostButton()
@@ -70,10 +91,14 @@ private struct ShortcutDetectorView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: RecorderHostButton, context: Context) {
+        if context.coordinator.clearCount != clearCount {
+            context.coordinator.clearCount = clearCount
+            nsView.cancelRecordingIfActive()
+        }
         configure(nsView)
     }
 
-    static func dismantleNSView(_ nsView: RecorderHostButton, coordinator: Void) {
+    static func dismantleNSView(_ nsView: RecorderHostButton, coordinator: Coordinator) {
         nsView.cancelRecordingIfActive()
     }
 
@@ -82,6 +107,7 @@ private struct ShortcutDetectorView: NSViewRepresentable {
         button.placeholder = placeholder
         button.recordingPrompt = String(localized: "settings.shortcuts.detector.prompt", defaultValue: "Press keys…")
         button.firstStrokeRequiresModifier = false
+        button.startsRecordingOnFocus = false
         button.awaitsSecondStroke = awaitsSecondStroke
         button.onFirstStroke = { onKeys(StoredShortcut(first: $0)) }
         button.onStroke = { onKeys(StoredShortcut(first: $0)) }

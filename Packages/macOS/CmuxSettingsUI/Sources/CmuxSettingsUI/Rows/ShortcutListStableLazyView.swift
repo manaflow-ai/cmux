@@ -5,6 +5,9 @@ import SwiftUI
 /// query. It keeps the current active
 /// list height as a minimum while inactive so app activation changes cannot
 /// shrink the Settings document while off-screen rows are de-realized.
+///
+/// Matches are taken when the query changes, not on every binding change, so a
+/// row edited under a filter (unbound, rebound) stays put with its Restore button.
 @MainActor
 struct ShortcutListStableLazyView: View {
     @Environment(\.controlActiveState) private var controlActiveState
@@ -12,9 +15,12 @@ struct ShortcutListStableLazyView: View {
     let model: ShortcutListModel
     let query: ShortcutListSearchQuery
     @State private var measuredHeight: CGFloat = 0
+    @State private var lastReportedHeight: CGFloat = 0
+    /// Actions matching `query` when it last changed, or `nil` when unfiltered.
+    @State private var matchedActions: [ShortcutAction]?
 
     var body: some View {
-        let actions = model.actions(matching: query)
+        let actions = matchedActions ?? ShortcutAction.settingsVisibleActions
         LazyVStack(spacing: 0) {
             if actions.isEmpty {
                 Text(String(localized: "settings.shortcuts.search.noResults", defaultValue: "No shortcuts match"))
@@ -58,10 +64,21 @@ struct ShortcutListStableLazyView: View {
             }
         }
         .frame(minHeight: measuredHeight, alignment: .top)
+        .onChange(of: query, initial: true) { _, query in
+            matchedActions = query.isEmpty ? nil : model.actions(matching: query)
+        }
+        .onChange(of: controlActiveState) { _, state in
+            // A filter can shrink the list while inactive; drop the held
+            // height once the window is active again.
+            if state != .inactive {
+                updateMeasuredHeight(to: lastReportedHeight)
+            }
+        }
     }
 
     private func updateMeasuredHeight(to height: CGFloat) {
         guard height > 0 else { return }
+        lastReportedHeight = height
         let nextHeight = controlActiveState == .inactive
             ? max(measuredHeight, height)
             : height
