@@ -24,8 +24,9 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
     public var chromeBackground: ThemeRGB
     /// Floating cards (palette, hover card, editors) under or instead of glass.
     public var elevatedBackground: ThemeRGB
-    /// The tab strips along the top: a shade darker than the window in
-    /// light themes too, so the top reads as one quiet band.
+    /// Every pane's tab strip: a shade darker than the window in light
+    /// themes too, so the strips read as quiet bands (a pure black window
+    /// has no darker shade; there the strip matches it).
     public var stripBackground: ThemeRGB
 
     // Text

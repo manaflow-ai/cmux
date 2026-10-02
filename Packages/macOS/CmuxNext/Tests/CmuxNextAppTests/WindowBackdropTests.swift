@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Testing
 @testable import CmuxNextApp
 @testable import CmuxNextTerminal

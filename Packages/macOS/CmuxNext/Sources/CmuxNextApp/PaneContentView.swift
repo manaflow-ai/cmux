@@ -169,7 +169,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// root paints the one sheet (`WindowBackdrop`).
     func themeDidChange() {
         let tokens = themeTokens
-        let paints = WindowBackdrop(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur).panesPaintBackground
+        let paints = WindowBackdrop(tokens).panesPaintBackground
         performWithTheme {
             contentHost.layer?.backgroundColor = paints ? Palette.contentBackground.cgColor : nil
         }

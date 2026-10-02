@@ -6,8 +6,10 @@ public import AppKit
 ///
 /// The material stays active whether or not the window is key, so the
 /// chrome never changes color on its own, and it takes its light or dark
-/// appearance from the view's theme scope. With Reduce Transparency AppKit
-/// draws the material solid; the tint still carries the theme color.
+/// appearance from the view's theme scope. The blur shows only where the
+/// window is see-through (`WindowBackdrop(tokens)`, from the resolved
+/// opacity) and Reduce Transparency is off; otherwise the chrome is the
+/// solid theme color, as before vibrancy.
 public final class ChromeBackdropView: NSView {
     /// How much the theme color covers the blur. Modest: the desktop shows
     /// through only faintly; the terminal's background-opacity is the
@@ -34,6 +36,17 @@ public final class ChromeBackdropView: NSView {
             addSubview(view)
         }
         setAccessibilityElement(false)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
+                                                          name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        applyTheme()
+    }
+
+    /// True while the blur shows (tests read it).
+    var showsBlur: Bool { !effect.isHidden }
+    /// The color laid over the blur (tests read it).
+    var tintColor: CGColor? { tintView.layer?.backgroundColor }
+
+    @objc private func displayOptionsChanged() {
         applyTheme()
     }
 
@@ -55,8 +68,11 @@ public final class ChromeBackdropView: NSView {
 
     private func applyTheme() {
         performWithTheme {
+            let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+            let solid = WindowBackdrop(tokens).isOpaque || NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            effect.isHidden = solid
             let color = tint()
-            tintView.layer?.backgroundColor = color.withAlphaComponent(color.alphaComponent * tintOpacity).cgColor
+            tintView.layer?.backgroundColor = color.withAlphaComponent(solid ? color.alphaComponent : color.alphaComponent * tintOpacity).cgColor
         }
     }
 }

@@ -22,6 +22,9 @@ import Testing
         let t = ThemeTokens.derive(from: theme(name))
         #expect(t.stripBackground.relativeLuminance < t.windowBackground.relativeLuminance, "\(name)")
         #expect(t.textPrimary.contrast(with: t.stripBackground.withAlpha(1)) >= 4.5, "\(name)")
+        // Inactive tab titles use the muted text styles.
+        #expect(t.textSecondary.contrast(with: t.stripBackground.withAlpha(1)) >= 4.5, "\(name) secondary")
+        #expect(t.textTertiary.contrast(with: t.stripBackground.withAlpha(1)) >= 3.0, "\(name) tertiary")
     }
 
     @Test func lightnessFollowsTheBackground() {
