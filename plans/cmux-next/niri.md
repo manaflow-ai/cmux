@@ -107,7 +107,8 @@ W3. Proportions include the gaps, as in niri (`resolve_column_width`, scrolling.
 `(view - gap) * p - gap`; cmux `ColumnStripGeometry.pixelWidth`). Two columns with
 `p + q = 1` fill the view exactly.
 
-W4. A lone full-width column changes to `1 - new width` (1/2 with the default) when a
+W4. (Since 2026-10-02 only with `layout.newColumnWidth` = fixed; the default matchCurrent never
+resizes a column, plans/cmux-next/column-sizing.md.) A lone full-width column changes to `1 - new width` (1/2 with the default) when a
 second column opens next to it, so both columns are fully visible and the view does not
 move. This is a cmux rule; niri keeps every width (`add_column`, scrolling.rs 999, only
 inserts and then reveals the new column with `compute_new_view_offset`, 5588). Reason:

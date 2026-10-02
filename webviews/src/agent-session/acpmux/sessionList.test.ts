@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  filterSessions,
+  shortAge,
+  groupMark,
   GROUP_ROWS,
   groupByProject,
   projectLabel,
@@ -227,5 +230,61 @@ describe("sections", () => {
     expect(
       groups.map((group) => [group.label, group.host, group.sessions.map((session) => session.sessionId)]),
     ).toEqual([["web", undefined, ["e", "b"]]]);
+  });
+  test("a search matches every word in title, folder, branch or cloud machine, and never splits a project", () => {
+    const list: AcpmuxSessionEntry[] = [
+      { sessionId: "l", displayTitle: "Lint", cwd: "/src/web", hostKind: "local", updatedAt: 3 },
+      { sessionId: "e", displayTitle: "Flaky CI", cwd: "/src/web", host: "elk", hostKind: "cloud", updatedAt: 2 },
+      {
+        sessionId: "b",
+        displayTitle: "CI cache",
+        cwd: "/src/web",
+        host: "butte",
+        hostKind: "cloud",
+        branch: "ci-keys",
+        updatedAt: 1,
+      },
+      { sessionId: "m", displayTitle: "Notes", cwd: "/src/docs", host: "This Mac", hostKind: "local", updatedAt: 0 },
+    ];
+    const ids = (query: string) => filterSessions(list, query).map((session) => session.sessionId);
+    expect(ids("ci")).toEqual(["e", "b"]);
+    expect(ids("CI  KEYS")).toEqual(["b"]);
+    expect(ids("elk")).toEqual(["e"]);
+    expect(ids("this mac")).toEqual([]);
+    expect(ids("src")).toEqual([]);
+    expect(ids("docs")).toEqual(["m"]);
+    expect(ids("  ")).toEqual(["l", "e", "b", "m"]);
+    // The local session that anchors /src/web is filtered out, but the cloud matches stay in its project.
+    expect(sidebarSections(list, "ci").groups.map((group) => [group.label, group.host])).toEqual([["web", undefined]]);
+    // A header keeps the machine it shows unsearched: matching only elk's session doesn't name elk.
+    expect(sidebarSections(list, "flaky").groups.map((group) => [group.label, group.host])).toEqual([
+      ["web", undefined],
+    ]);
+  });
+});
+
+describe("rail helpers", () => {
+  test("a project's mark is its most urgent session: needs input over a lost agent", () => {
+    const [group] = groupByProject([
+      { sessionId: "lost", cwd: "/p", status: "disconnected", updatedAt: 2 },
+      { sessionId: "ask", cwd: "/p", status: "waiting", updatedAt: 1 },
+    ]);
+    expect(groupMark(group)).toBe("input");
+    expect(groupMark({ ...group, sessions: group.sessions.slice(0, 1) })).toBe("error");
+    expect(groupMark({ ...group, sessions: [{ sessionId: "x", status: "running" }] })).toBeUndefined();
+  });
+
+  test("history ages are compact", () => {
+    const now = 100 * 86_400_000;
+    const ages = [
+      now,
+      now - 30_000,
+      now - 5 * 60_000,
+      now - 3 * 3_600_000,
+      now - 2 * 86_400_000,
+      now - 42 * 86_400_000,
+    ];
+    expect(ages.map((at) => shortAge(at, now))).toEqual(["now", "now", "5m", "3h", "2d", "6w"]);
+    expect(shortAge(undefined, now)).toBe("");
   });
 });
