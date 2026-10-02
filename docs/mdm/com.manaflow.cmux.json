@@ -271,6 +271,16 @@
       "title" : "Fixed Column Width",
       "type" : "number"
     },
+    "layout.frameOrientation" : {
+      "default" : "columnMajor",
+      "description" : "layout.frameOrientation",
+      "enum" : [
+        "columnMajor",
+        "rowMajor"
+      ],
+      "title" : "Dock Corners",
+      "type" : "string"
+    },
     "layout.minimumPaneHeight" : {
       "default" : 64,
       "description" : "layout.minimumPaneHeight",
