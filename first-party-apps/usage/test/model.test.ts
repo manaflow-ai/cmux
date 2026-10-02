@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { cleanThresholds, planAlerts, type Fired } from "../src/alerts.ts"
-import { durationText, nextTextChange, paceText, resetText, windowLabel } from "../src/format.ts"
+import { planAlerts } from "../src/alerts.ts"
+import { durationText, nextTextChange, summaryText, windowText } from "../src/format.ts"
 import { setLocale } from "../src/l10n.ts"
-import { normalizePools, normalizeUsage, percentOf, severityOf, tightest, type UsageAccount } from "../src/model.ts"
-import { paceOf } from "../src/pace.ts"
+import { normalizeHistory, normalizeUsage, snapshotOf, summarize, type Account, type Provider, type Snapshot } from "../src/model.ts"
+import { actualPerHour, idealPerHour, pickBaseline, providerPace, verdictOf, weeklyPace, windowPace, WEEK_MS } from "../src/pace.ts"
 import { statusJSON } from "../src/status.ts"
-import { poolsValue, usageValue } from "../preview/fixtures.ts"
+import { DEFAULT_RATIOS, historyValue, usageValue } from "../preview/fixtures.ts"
 
 const NOW = Date.UTC(2026, 9, 2, 12, 0, 0)
 const MIN = 60_000
@@ -13,175 +13,223 @@ const HOUR = 60 * MIN
 
 beforeEach(() => setLocale("en-US"))
 
-const window = (over: Partial<UsageAccount["windows"][number]> = {}) => ({
-  id: "session",
-  kind: "session" as const,
-  label: null,
-  scope: null,
-  usedPercent: 50,
-  used: null,
-  limit: null,
-  unit: null,
-  windowSeconds: 5 * 3600,
-  resetsAt: NOW + 2 * HOUR,
+const account = (over: Partial<Account> = {}): Account => ({
+  id: "a1",
+  label: "alpha",
+  provider: "claude",
+  plan: null,
+  state: "ready",
+  session: null,
+  weekly: { leftPct: 50, resetAt: NOW + 50 * HOUR },
+  extraUsd: null,
+  source: null,
   ...over
 })
 
-const account = (windows = [window()], over: Partial<UsageAccount> = {}): UsageAccount => ({
-  id: "a1",
-  provider: "claude-code",
-  providerTitle: "Claude Code",
-  kind: "plan",
-  upstream: null,
-  label: "Personal",
-  plan: "Pro",
-  windows,
-  source: "oauth",
-  fetchedAt: NOW - MIN,
-  stale: false,
-  error: null,
-  ...over
+const provider = (accounts: Account[], id = "claude"): Provider => ({ id, accounts, summary: summarize(accounts) })
+
+const snap = (at: number, rows: Array<[string, number | null, number | null, Account["state"]?]>): Snapshot => ({
+  at,
+  accounts: new Map(rows.map(([id, left, reset, state]) => [`claude/${id}`, { provider: "claude", state: state ?? "ready", weeklyLeftPct: left, weeklyResetAt: reset }]))
 })
 
 describe("normalization", () => {
-  test("reads the usage.get shape, string milliseconds included, and orders windows", () => {
-    const accounts = normalizeUsage(usageValue(NOW))
-    expect(accounts.map((a) => a.provider)).toEqual(["claude-code", "codex", "anthropic-api"])
-    const claude = accounts[0]!
-    expect(claude.windows.map((w) => w.id)).toEqual(["session", "weekly", "weekly:opus"])
-    expect(claude.windows[0]!.resetsAt).toBe(NOW + 2 * HOUR + 10 * MIN)
-    expect(claude.fetchedAt).toBe(NOW - 2 * MIN)
-    expect(percentOf(accounts[2]!.windows[0]!)).toBeCloseTo(42.5)
+  test("reads the router schema: providers, accounts, ISO resets, summary, envelope", () => {
+    const u = normalizeUsage(usageValue(NOW, { fetchedAgo: 0 }))
+    expect(u.providers.map((p) => p.id)).toEqual(["claude", "codex", "kimi"])
+    const claude = u.providers[0]!
+    expect(claude.summary).toEqual({ usable: 4, total: 7, weeklyLeftSumPct: 58 + 72 + 34 + 9 })
+    const alder = claude.accounts.find((a) => a.label === "alder")!
+    expect(alder).toMatchObject({ state: "active", session: { leftPct: 41 }, weekly: { leftPct: 58 }, source: "subrouter" })
+    expect(alder.session!.resetAt).toBe(NOW + 2 * HOUR + 10 * MIN)
+    expect(claude.accounts.find((a) => a.label === "ginkgo")).toMatchObject({ state: "error", session: null, weekly: null })
+    expect(u.fetchedAt).toBe(NOW)
+    expect(u.sources.map((s) => s.ok)).toEqual([true, true])
   })
 
-  test("drops malformed accounts and tolerates junk", () => {
-    expect(normalizeUsage({ accounts: [{ id: "x" }, null, 7, { id: "y", provider: "codex", windows: [{ kind: "bogus", used_percent: "12" }] }] })).toMatchObject([
-      { id: "y", windows: [{ kind: "other", usedPercent: 12, id: "other-0" }] }
-    ])
-    expect(normalizeUsage(null)).toEqual([])
+  test("orders accounts in use first, broken last, and earliest weekly reset first within a state", () => {
+    const u = normalizeUsage(usageValue(NOW))
+    expect(u.providers[0]!.accounts.map((a) => a.state)).toEqual(["active", "rec", "ready", "protected", "temp", "cooked", "error"])
+    expect(u.providers[1]!.accounts.filter((a) => a.state === "ready").map((a) => a.label)).toEqual(["keel", "jetty"])
   })
 
-  test("pool accounts get pool-scoped ids and titles", () => {
-    const pools = normalizePools(poolsValue(NOW), "pool")
-    expect(pools[0]!.label).toBe("team · Seat A")
-    expect(pools.map((a) => [a.id, a.kind, a.provider, a.upstream, a.providerTitle])).toEqual([
-      ["pool_team/seat_a", "pool", "coderouter", "claude-code", "CodeRouter"],
-      ["pool_team/seat_b", "pool", "coderouter", "codex", "CodeRouter"]
-    ])
+  test("tolerates junk, clamps percents, recomputes a missing summary, maps unknown states", () => {
+    const u = normalizeUsage({
+      generated_at: "2026-10-02T12:00:00Z",
+      providers: {
+        codex: { accounts: [null, { label: "no id" }, { id: "x", state: "weird", weekly_left_pct: "140", weekly_reset_at: "nope" }] },
+        claude: "garbage"
+      }
+    })
+    expect(u.fetchedAt).toBe(NOW)
+    expect(u.providers.map((p) => p.id)).toEqual(["claude", "codex"])
+    const x = u.providers[1]!.accounts[0]!
+    expect(x).toMatchObject({ id: "x", label: "x", state: "unknown", weekly: { leftPct: 100, resetAt: null } })
+    expect(u.providers[1]!.summary).toEqual({ usable: 1, total: 1, weeklyLeftSumPct: 100 })
+    expect(normalizeUsage(null).providers).toEqual([])
   })
 
-  test("tightest skips failed accounts and breaks ties by the earlier reset", () => {
-    const a = account([window({ id: "late", usedPercent: 70, resetsAt: NOW + 5 * HOUR }), window({ id: "soon", usedPercent: 70, resetsAt: NOW + HOUR })])
-    const failed = account([window({ usedPercent: 99 })], { id: "a2", error: { code: "auth.expired", message: "", retryable: false } })
-    expect(tightest([failed, a])!.window.id).toBe("soon")
-    expect(tightest([])).toBeNull()
-  })
-
-  test("severity uses the lowest and highest thresholds", () => {
-    expect(severityOf(79.9, [80, 95])).toBe("normal")
-    expect(severityOf(80, [80, 95])).toBe("warning")
-    expect(severityOf(95, [95, 80])).toBe("danger")
-    expect(severityOf(null, [80])).toBe("normal")
-  })
-})
-
-describe("pace", () => {
-  test("projects a run-out before the reset from the average rate", () => {
-    // 5-hour window, 2h10m left: 170 minutes elapsed at 62% -> 38% more takes ~104 minutes.
-    const p = paceOf(window({ usedPercent: 62, resetsAt: NOW + 130 * MIN }), NOW)!
-    expect(p.expectedPercent).toBeCloseTo((170 / 300) * 100)
-    expect(p.stage).toBe("over")
-    expect(p.lastsToReset).toBe(false)
-    expect((p.runsOutAt! - NOW) / MIN).toBeCloseTo(104.19, 1)
-    expect(paceText(p, NOW)).toBe("runs out in 1h 44m")
-  })
-
-  test("lasts to the reset when usage is slow, and stays silent early in a window", () => {
-    expect(paceOf(window({ usedPercent: 10, resetsAt: NOW + 2 * HOUR }), NOW)).toMatchObject({ stage: "under", lastsToReset: true, runsOutAt: null })
-    // 5 minutes into a 5-hour window (< 5%): no prediction even at 30%.
-    expect(paceOf(window({ usedPercent: 30, resetsAt: NOW + 295 * MIN }), NOW)!.runsOutAt).toBeNull()
-    expect(paceOf(window({ resetsAt: null }), NOW)).toBeNull()
-    expect(paceOf(window({ resetsAt: NOW - 1 }), NOW)).toBeNull()
-    expect(paceOf(window({ usedPercent: 100 }), NOW)!.runsOutAt).toBe(NOW)
+  test("history snapshots key accounts by provider and id and sort by time", () => {
+    const h = normalizeHistory({
+      snapshots: [
+        { taken_at_ms: String(NOW), accounts: [{ provider: "claude", id: "a", state: "ready", weekly_left_pct: 40 }] },
+        { taken_at_ms: NOW - HOUR, accounts: [{ provider: "claude", id: "a", weekly_left_pct: 44, weekly_reset_at: "2026-10-04T00:00:00Z" }, { id: "no provider" }] },
+        { accounts: [] }
+      ]
+    })
+    expect(h.map((s) => s.at)).toEqual([NOW - HOUR, NOW])
+    expect(h[0]!.accounts.get("claude/a")).toEqual({ provider: "claude", state: "unknown", weeklyLeftPct: 44, weeklyResetAt: Date.UTC(2026, 9, 4) })
+    expect(h[0]!.accounts.size).toBe(1)
   })
 })
 
-describe("format", () => {
-  test("durations and labels in English and Japanese", () => {
-    expect([durationText(30_000), durationText(45 * MIN), durationText(2 * HOUR + 10 * MIN), durationText(3 * 24 * HOUR + 4 * HOUR + 59 * MIN)]).toEqual(["<1m", "45m", "2h 10m", "3d 4h"])
-    expect(windowLabel(window())).toBe("5-hour")
-    expect(windowLabel(window({ kind: "weekly", scope: "Opus" }))).toBe("Opus weekly")
-    expect(resetText(window(), NOW)).toBe("resets in 2h 0m")
+describe("provider pace", () => {
+  test("ideal burn sums left / hours to each reset and skips error accounts and passed resets", () => {
+    const accounts = [
+      account({ id: "a", weekly: { leftPct: 50, resetAt: NOW + 50 * HOUR } }),
+      account({ id: "b", weekly: { leftPct: 20, resetAt: NOW + 10 * HOUR } }),
+      account({ id: "c", state: "error", weekly: { leftPct: 90, resetAt: NOW + HOUR } }),
+      account({ id: "d", weekly: { leftPct: 30, resetAt: NOW - HOUR } }),
+      account({ id: "e", weekly: null })
+    ]
+    expect(idealPerHour(accounts, NOW)).toBeCloseTo(1 + 2)
+  })
+
+  test("baseline is the newest snapshot at least 30 minutes old", () => {
+    const h = [snap(NOW - 2 * HOUR, []), snap(NOW - 40 * MIN, []), snap(NOW - 10 * MIN, [])]
+    expect(pickBaseline(h, NOW)!.at).toBe(NOW - 40 * MIN)
+    expect(pickBaseline([snap(NOW - 29 * MIN, [])], NOW)).toBeNull()
+  })
+
+  test("actual burn matches accounts by id and leaves out resets, new accounts and errors", () => {
+    const reset = NOW + 50 * HOUR
+    const before = snap(NOW - HOUR, [
+      ["a", 60, reset],
+      ["b", 30, reset],
+      ["r", 2, NOW - 10 * MIN], // its window reset between the readings
+      ["m", 5, NOW + 10 * HOUR] // its reset moved by a week: reset
+    ])
+    const after = snap(NOW, [
+      ["a", 56, reset],
+      ["b", 29, reset],
+      ["r", 100, NOW + 7 * 24 * HOUR],
+      ["m", 100, NOW + 178 * HOUR],
+      ["new", 10, reset],
+      ["broken", 0, reset, "error"]
+    ])
+    expect(actualPerHour("claude", before, after)).toBeCloseTo(5)
+    expect(actualPerHour("codex", before, after)).toBeNull()
+    expect(actualPerHour("claude", after, after)).toBeNull()
+  })
+
+  test("verdict bands: under below 0.8, over above 1.2, on pace between (inclusive)", () => {
+    expect(verdictOf(0.79)).toBe("under")
+    expect(verdictOf(0.8)).toBe("onPace")
+    expect(verdictOf(1.2)).toBe("onPace")
+    expect(verdictOf(1.21)).toBe("over")
+  })
+
+  test("providerPace: counts usable accounts, verdict pending without a baseline, none without headroom", () => {
+    const accounts = [
+      account({ id: "a", state: "active" }),
+      account({ id: "b", state: "cooked", weekly: { leftPct: 0, resetAt: NOW + 10 * HOUR } }),
+      account({ id: "c", state: "temp" }),
+      account({ id: "d", state: "error" })
+    ]
+    const p = provider(accounts)
+    const current = snap(NOW, [
+      ["a", 50, NOW + 50 * HOUR],
+      ["c", 50, NOW + 50 * HOUR]
+    ])
+    const pending = providerPace(p, current, null)
+    expect(pending).toMatchObject({ counted: 3, usable: 1, leftSumPct: 100, verdict: "pending", ratio: null, metered: true })
+    expect(pending.idealPerHour).toBeCloseTo(2)
+    const base = snap(NOW - HOUR, [
+      ["a", 52, NOW + 50 * HOUR],
+      ["c", 50, NOW + 50 * HOUR]
+    ])
+    expect(providerPace(p, current, base)).toMatchObject({ verdict: "onPace", ratio: 1, baselineAt: NOW - HOUR })
+    const none = providerPace(provider([account({ weekly: { leftPct: 0, resetAt: NOW + HOUR } })]), current, base)
+    expect(none.verdict).toBe("none")
+    const keyed = providerPace(provider([account({ weekly: null, plan: "API key" })], "kimi"), current, null)
+    expect(keyed).toMatchObject({ metered: false, verdict: "none" })
+  })
+
+  test("fixtures: Claude on pace, Codex over pace, at the reading time", () => {
+    const now = Date.now()
+    const u = normalizeUsage(usageValue(now))
+    const at = u.fetchedAt!
+    const base = pickBaseline(normalizeHistory(historyValue(now, DEFAULT_RATIOS)), at)
+    const [claude, codex] = u.providers.map((p) => providerPace(p, snapshotOf(u, at), base))
+    expect(claude!.ratio).toBeCloseTo(1, 1)
+    expect(claude!.verdict).toBe("onPace")
+    expect(codex!.ratio).toBeCloseTo(1.4, 1)
+    expect(codex!.verdict).toBe("over")
+    expect(summaryText(codex!)).toMatch(/^over pace ×1\.4\d · lower load · [\d.]+%\/h of [\d.]+%\/h · 5 of 6 usable$/)
+  })
+})
+
+describe("account pace", () => {
+  test("used share over elapsed share of the window", () => {
+    // 3.5 days of 7 passed, 75% used: 1.5x
+    const p = windowPace({ leftPct: 25, resetAt: NOW + 3.5 * 24 * HOUR }, WEEK_MS, NOW)!
+    expect(p.ratio).toBeCloseTo(1.5)
+    expect(p.verdict).toBe("over")
+    expect(p.expectedLeftPct).toBeCloseTo(50)
+    expect(weeklyPace(account({ weekly: { leftPct: 70, resetAt: NOW + 3.5 * 24 * HOUR } }), NOW)!.verdict).toBe("under")
+  })
+
+  test("no pace early in a window, without a reset, or with a reset outside the window", () => {
+    expect(windowPace({ leftPct: 90, resetAt: NOW + WEEK_MS - HOUR }, WEEK_MS, NOW)).toBeNull()
+    expect(windowPace({ leftPct: 90, resetAt: null }, WEEK_MS, NOW)).toBeNull()
+    expect(windowPace({ leftPct: 90, resetAt: NOW - 1 }, WEEK_MS, NOW)).toBeNull()
+    expect(windowPace({ leftPct: 90, resetAt: NOW + WEEK_MS + HOUR }, WEEK_MS, NOW)).toBeNull()
+    expect(windowPace(null, WEEK_MS, NOW)).toBeNull()
+  })
+})
+
+describe("text and clock", () => {
+  test("durations and windows", () => {
+    expect(durationText(30_000)).toBe("<1m")
+    expect(durationText(2 * HOUR + 10 * MIN + 59_000)).toBe("2h 10m")
+    expect(durationText(52 * HOUR)).toBe("2d 4h")
+    expect(windowText({ leftPct: 58.4, resetAt: NOW + 2 * HOUR }, NOW)).toBe("58% · 2h 0m")
+    expect(windowText(null, NOW)).toBeNull()
     setLocale("ja-JP")
-    expect(durationText(2 * HOUR + 10 * MIN)).toBe("2時間10分")
-    expect(windowLabel(window())).toBe("5時間")
-    expect(resetText(window(), NOW)).toBe("2時間0分後にリセット")
+    expect(windowText({ leftPct: 58, resetAt: NOW + 2 * HOUR }, NOW)).toBe("58% · 2時間0分")
   })
 
-  test("the clock fires exactly when a displayed text changes, and not at all without relative text", () => {
-    // 2h 10m 30s left -> "2h 10m" until 30 s from now.
-    expect(nextTextChange(NOW, { countdownsTo: [NOW + 130 * MIN + 30_000], agesFrom: [], staleAt: [] })).toBe(NOW + 30_000)
-    // Over a day left: hour granularity.
-    expect(nextTextChange(NOW, { countdownsTo: [NOW + 3 * 24 * HOUR + 20 * MIN], agesFrom: [], staleAt: [] })).toBe(NOW + 20 * MIN)
-    // An age of 12m 40s gains a minute in 20 s; a staleness boundary sooner wins.
-    expect(nextTextChange(NOW, { countdownsTo: [], agesFrom: [NOW - 12 * MIN - 40_000], staleAt: [NOW + 5_000] })).toBe(NOW + 5_000)
-    expect(nextTextChange(NOW, { countdownsTo: [NOW - 1], agesFrom: [], staleAt: [NOW - 1] })).toBeNull()
+  test("the next text change is the nearest minute boundary of a countdown", () => {
+    expect(nextTextChange(NOW, { countdownsTo: [NOW + 2 * HOUR + 30_000], agesFrom: [], staleAt: [] })).toBe(NOW + 30_000)
+    expect(nextTextChange(NOW, { countdownsTo: [], agesFrom: [], staleAt: [] })).toBeNull()
   })
 })
 
-describe("alerts", () => {
-  const run = (accounts: UsageAccount[], fired: Fired, now = NOW) => planAlerts(accounts, [80, 95], fired, now, 30 * MIN)
-
-  test("warns once per threshold per window, escalates, and re-arms after the reset", () => {
-    let fired: Fired = {}
-    const at = (p: number, resetsAt = NOW + HOUR, fetchedAt = NOW - MIN) => [account([window({ usedPercent: p, resetsAt })], { fetchedAt })]
-    let r = run(at(70), fired)
-    expect(r.alerts).toEqual([])
-    r = run(at(81), (fired = r.fired))
-    expect(r.alerts.map((a) => [a.level, a.top])).toEqual([[80, false]])
-    r = run(at(84), (fired = r.fired))
-    expect(r.alerts).toEqual([])
-    // The provider moved the reset by a few seconds: still the same window, no repeat.
-    r = run(at(85, NOW + HOUR + 3_000), (fired = r.fired))
-    expect(r.alerts).toEqual([])
-    r = run(at(97), (fired = r.fired))
-    expect(r.alerts.map((a) => [a.level, a.top])).toEqual([[95, true]])
-    // After the reset time passes, a new window warns again.
-    r = run(at(82, NOW + 6 * HOUR, NOW + 2 * HOUR - MIN), (fired = r.fired), NOW + 2 * HOUR)
-    expect(r.alerts.map((a) => a.level)).toEqual([80])
+describe("alerts and status", () => {
+  test("warns once when a provider has no usable account, re-arms when one is usable", () => {
+    const out = provider([account({ state: "cooked" }), account({ id: "b", state: "error" })])
+    const first = planAlerts([out], {})
+    expect(first.alerts).toEqual([{ provider: "claude", total: 2 }])
+    expect(planAlerts([out], first.fired).alerts).toEqual([])
+    expect(planAlerts([], first.fired).fired).toEqual({ claude: true })
+    const back = planAlerts([provider([account()])], first.fired)
+    expect(back.fired).toEqual({})
+    expect(planAlerts([out], back.fired).alerts.length).toBe(1)
   })
 
-  test("jumping past both thresholds sends one warning; falling below re-arms", () => {
-    let r = run([account([window({ usedPercent: 96 })])], {})
-    expect(r.alerts.map((a) => a.level)).toEqual([95])
-    r = run([account([window({ usedPercent: 20 })])], r.fired)
-    expect(r.fired).toEqual({})
-    r = run([account([window({ usedPercent: 85 })])], r.fired)
-    expect(r.alerts.map((a) => a.level)).toEqual([80])
-  })
-
-  test("stale and failed accounts never warn and keep their history", () => {
-    const fired: Fired = { "a1|session": { level: 80, resetsAt: NOW + HOUR } }
-    const stale = run([account([window({ usedPercent: 99 })], { fetchedAt: NOW - 2 * HOUR })], fired)
-    expect(stale.alerts).toEqual([])
-    expect(stale.fired).toEqual(fired)
-    expect(run([account([window({ usedPercent: 99 })], { stale: true })], {}).alerts).toEqual([])
-  })
-
-  test("thresholds are cleaned", () => {
-    expect(cleanThresholds([95, "80", 80, 0, 101, 2.5])).toEqual([80, 95])
-    expect(cleanThresholds(undefined)).toEqual([80, 95])
-  })
-})
-
-describe("status JSON", () => {
-  test("snake_case, filtered by provider, with pace and no secrets", () => {
-    const accounts = normalizeUsage(usageValue(NOW))
-    const json = statusJSON(accounts, { now: NOW, staleMs: 30 * MIN, thresholds: [80, 95], state: "ready", problem: null, provider: "claude-code" })
-    expect(json.accounts.map((a) => a.provider)).toEqual(["claude-code"])
-    expect(json.tightest).toMatchObject({ provider: "claude-code", window: "weekly:opus", used_percent: 83 })
-    const session = json.accounts[0]!.windows[0]!
-    expect(session).toMatchObject({ id: "session", used_percent: 62, resets_in_seconds: 130 * 60, severity: "normal", pace: { lasts_to_reset: false } })
-    expect(JSON.stringify(json)).not.toMatch(/token|cookie|@/i)
+  test("status JSON: provider summaries and pace by default, account rows only on request", () => {
+    const now = Date.now()
+    const u = normalizeUsage(usageValue(now))
+    const base = pickBaseline(normalizeHistory(historyValue(now, DEFAULT_RATIOS)), u.fetchedAt!)
+    const paces = u.providers.map((p) => providerPace(p, snapshotOf(u, u.fetchedAt!), base))
+    const s = statusJSON(u, paces, { now, staleMs: 30 * MIN, state: "ready", problem: null })
+    expect(s.providers.map((p) => p.id)).toEqual(["claude", "codex", "kimi"])
+    expect(s.providers[1]!.pace).toMatchObject({ verdict: "over", usable: 5, counted: 6 })
+    expect("accounts" in s.providers[0]!).toBe(false)
+    const one = statusJSON(u, paces, { now, staleMs: 30 * MIN, state: "ready", problem: null, provider: "codex", accounts: true })
+    expect(one.providers.length).toBe(1)
+    const keel = (one.providers[0] as { accounts: Array<{ label: string; weekly_left_pct: number; weekly_pace: number | null }> }).accounts.find((a) => a.label === "keel")!
+    expect(keel.weekly_left_pct).toBe(27)
+    expect(keel.weekly_pace).toBeGreaterThan(0)
   })
 })

@@ -1,183 +1,210 @@
 // The usage data model and its normalization from the proposed wire shapes
-// (`usage.get`, `coderouter.usage.get`; README "Proposed operations"). Pure:
-// no `cmux` calls here, so tests run it directly.
+// (`account.list`, `account.usage`; README "Data shape"). `account.list` is the
+// local router's status schema (`providers.<id>.accounts[]` plus a summary per
+// provider) with a small envelope the usage server adds. Pure: no `cmux`
+// calls here, so tests run it directly.
 
-export type WindowKind = "session" | "weekly" | "monthly" | "daily" | "budget" | "credits" | "other"
-export type AccountKind = "plan" | "api" | "pool"
-export type Unit = "usd" | "tokens" | "requests" | "credits"
+/** Router account states, most limiting first (the router's own order). */
+export const STATES = ["error", "cooked", "temp", "active", "rec", "protected", "ready"] as const
+export type AccountState = (typeof STATES)[number] | "unknown"
 
-export interface UsageWindow {
-  /** Stable within the account: "session", "weekly", "weekly:opus", "budget". */
-  id: string
-  kind: WindowKind
-  /** The owner's English label, used only for kind "other". */
-  label: string | null
-  /** Model or feature the limit applies to ("Opus"); null for the main limit. */
-  scope: string | null
-  /** 0 to 100 (may exceed 100 when the provider reports overage). */
-  usedPercent: number | null
-  used: number | null
-  limit: number | null
-  unit: Unit | null
-  windowSeconds: number | null
-  resetsAt: number | null
+export interface Window {
+  /** 0 to 100: what is left of the window. */
+  leftPct: number
+  /** Epoch ms of the reset, or null when the router does not know it. */
+  resetAt: number | null
 }
 
-export interface UsageError {
-  code: string
-  message: string
-  retryable: boolean
-}
-
-export interface UsageAccount {
-  /** Opaque and stable (`usage_account_…`); never an email. */
+export interface Account {
+  /** The router's id: opaque and stable. */
   id: string
-  /** "claude-code", "codex", "anthropic-api", "openai-api", "coderouter". */
+  /** The router's label, shown as the router shows it. */
+  label: string
   provider: string
-  providerTitle: string
-  kind: AccountKind
-  /** For pool accounts: the plan's own provider ("codex"); else null. */
-  upstream: string | null
-  /** "Personal", "Work": an email only when the user opted in at the service. */
-  label: string | null
   plan: string | null
-  windows: UsageWindow[]
+  state: AccountState
+  /** The 5-hour window; null for providers without one. */
+  session: Window | null
+  /** The weekly window; null for keyed providers. */
+  weekly: Window | null
+  /** Extra usage money still available, in USD. */
+  extraUsd: number | null
+  /** "subrouter" or "coderouter": which router reported it. */
   source: string | null
-  fetchedAt: number | null
-  stale: boolean
-  error: UsageError | null
 }
 
-const KINDS: readonly WindowKind[] = ["session", "weekly", "monthly", "daily", "budget", "credits", "other"]
-const UNITS: readonly Unit[] = ["usd", "tokens", "requests", "credits"]
+export interface ProviderSummary {
+  usable: number
+  total: number
+  weeklyLeftSumPct: number
+}
+
+export interface Provider {
+  id: string
+  accounts: Account[]
+  summary: ProviderSummary
+}
+
+export interface SourceStatus {
+  id: string
+  ok: boolean
+  error: { code: string; message: string } | null
+}
+
+export interface Usage {
+  /** The server's reading time (epoch ms): when the router last answered. */
+  fetchedAt: number | null
+  /** The server missed its own refreshes. */
+  stale: boolean
+  /** The last refresh failed; the providers are the last good reading. */
+  error: { code: string; message: string } | null
+  sources: SourceStatus[]
+  providers: Provider[]
+}
+
+/** One history snapshot: the weekly window of every account at one time. */
+export interface Snapshot {
+  at: number
+  accounts: Map<string, { provider: string; state: AccountState; weeklyLeftPct: number | null; weeklyResetAt: number | null }>
+}
 
 type Json = Record<string, unknown>
 const obj = (v: unknown): Json => (v && typeof v === "object" && !Array.isArray(v) ? (v as Json) : {})
 const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null)
 /** Numbers arrive as JSON numbers or, for 64-bit millisecond values, decimal strings (catalog convention). */
-const num = (v: unknown): number | null => {
+export const num = (v: unknown): number | null => {
   const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v
   return typeof n === "number" && Number.isFinite(n) ? n : null
 }
-
-/** The percent a window is used: the owner's percent, else used / limit. */
-export function percentOf(w: UsageWindow): number | null {
-  if (w.usedPercent !== null) return Math.max(0, w.usedPercent)
-  if (w.used !== null && w.limit !== null && w.limit > 0) return Math.max(0, (w.used / w.limit) * 100)
-  return null
-}
-
-export function normalizeWindow(raw: unknown, index: number): UsageWindow {
-  const r = obj(raw)
-  const kind = KINDS.includes(r.kind as WindowKind) ? (r.kind as WindowKind) : "other"
-  const unit = UNITS.includes(r.unit as Unit) ? (r.unit as Unit) : null
-  return {
-    id: str(r.id) ?? `${kind}-${index}`,
-    kind,
-    label: str(r.label),
-    scope: str(r.scope),
-    usedPercent: num(r.used_percent),
-    used: num(r.used),
-    limit: num(r.limit),
-    unit,
-    windowSeconds: num(r.window_seconds),
-    resetsAt: num(r.resets_at_ms)
+/** ISO 8601 text or epoch milliseconds to epoch milliseconds. */
+export function time(v: unknown): number | null {
+  if (typeof v === "string" && /^\d{4}-\d\d-\d\dT/.test(v)) {
+    const ms = Date.parse(v)
+    return Number.isFinite(ms) ? ms : null
   }
+  return num(v)
+}
+const pct = (v: unknown): number | null => {
+  const n = num(v)
+  return n === null ? null : Math.min(100, Math.max(0, n))
 }
 
-function normalizeError(raw: unknown): UsageError | null {
-  if (!raw) return null
-  const r = obj(raw)
-  return { code: str(r.code) ?? "usage.failed", message: str(r.message) ?? "", retryable: r.retryable === true }
+export const stateOf = (v: unknown): AccountState => ((STATES as readonly unknown[]).includes(v) ? (v as AccountState) : "unknown")
+
+/** Usable: the router may route to it (not cooked, temp or error). */
+export const isUsable = (s: AccountState) => s !== "cooked" && s !== "temp" && s !== "error"
+
+function window(left: unknown, reset: unknown): Window | null {
+  const leftPct = pct(left)
+  return leftPct === null ? null : { leftPct, resetAt: time(reset) }
 }
 
-const KIND_ORDER: Record<WindowKind, number> = { session: 0, daily: 1, weekly: 2, monthly: 3, budget: 4, credits: 5, other: 6 }
-
-/** Main limits first (session, weekly), model-scoped ones after their main window. */
-export function sortWindows(windows: UsageWindow[]): UsageWindow[] {
-  return [...windows].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || Number(a.scope !== null) - Number(b.scope !== null))
-}
-
-export function normalizeAccount(raw: unknown, fallbackKind: AccountKind = "plan"): UsageAccount | null {
+export function normalizeAccount(raw: unknown, provider: string): Account | null {
   const r = obj(raw)
   const id = str(r.id)
-  const provider = str(r.provider)
-  if (!id || !provider) return null
-  const kind = r.kind === "plan" || r.kind === "api" || r.kind === "pool" ? r.kind : fallbackKind
-  const windows = Array.isArray(r.windows) ? r.windows.map(normalizeWindow) : []
+  if (!id) return null
   return {
     id,
-    provider,
-    providerTitle: str(r.provider_title) ?? provider,
-    kind,
-    upstream: str(r.upstream),
-    label: str(r.label),
+    label: str(r.label) ?? id,
+    provider: str(r.provider) ?? provider,
     plan: str(r.plan),
-    windows: sortWindows(windows),
-    source: str(r.source),
-    fetchedAt: num(r.fetched_at_ms),
+    state: stateOf(r.state),
+    session: window(r.session_left_pct, r.session_reset_at),
+    weekly: window(r.weekly_left_pct, r.weekly_reset_at),
+    extraUsd: num(r.extra_usage_usd),
+    source: str(r.source)
+  }
+}
+
+/** In use first, then usable, then held out, then broken; within a state the earliest weekly reset first (use it or lose it). */
+const DISPLAY_RANK: Record<AccountState, number> = { active: 0, rec: 1, ready: 2, protected: 3, temp: 4, cooked: 5, error: 6, unknown: 7 }
+
+export function sortAccounts(accounts: Account[]): Account[] {
+  return [...accounts].sort(
+    (a, b) => DISPLAY_RANK[a.state] - DISPLAY_RANK[b.state] || (a.weekly?.resetAt ?? Infinity) - (b.weekly?.resetAt ?? Infinity) || a.label.localeCompare(b.label)
+  )
+}
+
+/** The router's summary, recomputed when it is missing (same rule: usable = not cooked, temp or error). */
+export function summarize(accounts: readonly Account[]): ProviderSummary {
+  const usable = accounts.filter((a) => isUsable(a.state))
+  return { usable: usable.length, total: accounts.length, weeklyLeftSumPct: usable.reduce((sum, a) => sum + (a.weekly?.leftPct ?? 0), 0) }
+}
+
+/** Claude and Codex first, the rest by id. */
+const PROVIDER_ORDER = ["claude", "codex"]
+const providerRank = (id: string) => {
+  const i = PROVIDER_ORDER.indexOf(id)
+  return i < 0 ? PROVIDER_ORDER.length : i
+}
+
+export function normalizeProviders(raw: unknown): Provider[] {
+  const out: Provider[] = []
+  for (const [id, value] of Object.entries(obj(raw))) {
+    const p = obj(value)
+    const accounts = (Array.isArray(p.accounts) ? p.accounts : []).map((a) => normalizeAccount(a, id)).filter((a): a is Account => a !== null)
+    const s = obj(p.summary)
+    const usable = num(s.usable)
+    const total = num(s.total)
+    const left = num(s.weekly_left_sum_pct)
+    const summary = usable !== null && total !== null && left !== null ? { usable, total, weeklyLeftSumPct: left } : summarize(accounts)
+    out.push({ id, accounts: sortAccounts(accounts), summary })
+  }
+  return out.sort((a, b) => providerRank(a.id) - providerRank(b.id) || a.id.localeCompare(b.id))
+}
+
+function normalizeError(raw: unknown): { code: string; message: string } | null {
+  if (!raw) return null
+  const r = obj(raw)
+  return { code: str(r.code) ?? "usage.failed", message: str(r.message) ?? "" }
+}
+
+/** `account.list` result. */
+export function normalizeUsage(value: unknown): Usage {
+  const r = obj(value)
+  const sources = (Array.isArray(r.sources) ? r.sources : []).map((s) => {
+    const o = obj(s)
+    const error = normalizeError(o.error)
+    return { id: str(o.id) ?? "router", ok: o.ok !== false && error === null, error }
+  })
+  return {
+    fetchedAt: time(r.fetched_at_ms) ?? time(r.generated_at),
     stale: r.stale === true,
-    error: normalizeError(r.error)
+    error: normalizeError(r.error),
+    sources,
+    providers: normalizeProviders(r.providers)
   }
 }
 
-/** `usage.get` result: `{accounts: [...]}`. */
-export function normalizeUsage(value: unknown): UsageAccount[] {
-  const list = obj(value).accounts
-  return Array.isArray(list) ? list.map((a) => normalizeAccount(a)).filter((a): a is UsageAccount => a !== null) : []
+/** `account.usage` result: `{snapshots: [{taken_at_ms, accounts: [{provider, id, state, weekly_left_pct, weekly_reset_at}]}]}`. */
+export function normalizeHistory(value: unknown): Snapshot[] {
+  const list = obj(value).snapshots
+  if (!Array.isArray(list)) return []
+  const out: Snapshot[] = []
+  for (const raw of list) {
+    const r = obj(raw)
+    const at = time(r.taken_at_ms)
+    if (at === null) continue
+    const accounts: Snapshot["accounts"] = new Map()
+    for (const a of Array.isArray(r.accounts) ? r.accounts : []) {
+      const o = obj(a)
+      const id = str(o.id)
+      const provider = str(o.provider)
+      if (!id || !provider) continue
+      accounts.set(`${provider}/${id}`, { provider, state: stateOf(o.state), weeklyLeftPct: pct(o.weekly_left_pct), weeklyResetAt: time(o.weekly_reset_at) })
+    }
+    out.push({ at, accounts })
+  }
+  return out.sort((a, b) => a.at - b.at)
 }
 
-/** `coderouter.usage.get` result: `{pools: [{id, name, accounts: [...]}]}`; each pool account becomes a "pool" account. */
-export function normalizePools(value: unknown, poolWord: string): UsageAccount[] {
-  const pools = obj(value).pools
-  if (!Array.isArray(pools)) return []
-  const out: UsageAccount[] = []
-  for (const p of pools) {
-    const pool = obj(p)
-    const name = str(pool.name) ?? str(pool.id) ?? poolWord
-    for (const raw of Array.isArray(pool.accounts) ? pool.accounts : []) {
-      const r = obj(raw)
-      const a = normalizeAccount({ ...r, provider: "coderouter", upstream: str(r.provider), kind: "pool" }, "pool")
-      if (a) out.push({ ...a, id: `${str(pool.id) ?? name}/${a.id}`, providerTitle: "CodeRouter", label: [name, a.label].filter(Boolean).join(" · ") })
+/** The current reading as a snapshot (the pace compares it with an older one). */
+export function snapshotOf(usage: Usage, at: number): Snapshot {
+  const accounts: Snapshot["accounts"] = new Map()
+  for (const p of usage.providers) {
+    for (const a of p.accounts) {
+      accounts.set(`${p.id}/${a.id}`, { provider: p.id, state: a.state, weeklyLeftPct: a.weekly?.leftPct ?? null, weeklyResetAt: a.weekly?.resetAt ?? null })
     }
   }
-  return out
-}
-
-export type Severity = "normal" | "warning" | "danger"
-
-/** danger at or above the highest threshold, warning at or above the lowest. */
-export function severityOf(percent: number | null, thresholds: readonly number[]): Severity {
-  if (percent === null || thresholds.length === 0) return "normal"
-  const sorted = [...thresholds].sort((a, b) => a - b)
-  if (percent >= sorted[sorted.length - 1]!) return "danger"
-  if (percent >= sorted[0]!) return "warning"
-  return "normal"
-}
-
-export interface Tightest {
-  account: UsageAccount
-  window: UsageWindow
-  percent: number
-}
-
-/** The most used window across accounts without an account error; ties go to the earlier reset. */
-export function tightest(accounts: readonly UsageAccount[]): Tightest | null {
-  let best: Tightest | null = null
-  for (const account of accounts) {
-    if (account.error) continue
-    for (const window of account.windows) {
-      const percent = percentOf(window)
-      if (percent === null) continue
-      const earlier = best && percent === best.percent && (window.resetsAt ?? Infinity) < (best.window.resetsAt ?? Infinity)
-      if (!best || percent > best.percent || earlier) best = { account, window, percent }
-    }
-  }
-  return best
-}
-
-/** Session and weekly (main, unscoped) windows of one account: the pair the compact meters show. */
-export function sessionAndWeek(account: UsageAccount): { session: UsageWindow | null; week: UsageWindow | null } {
-  const main = account.windows.filter((w) => w.scope === null)
-  return { session: main.find((w) => w.kind === "session") ?? null, week: main.find((w) => w.kind === "weekly") ?? null }
+  return { at, accounts }
 }
