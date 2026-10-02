@@ -33,7 +33,9 @@ try {
         { path: "draft.txt", bytes: 32, eligible: true },
         { path: "large.bin", bytes: 10000000, eligible: false, reason: "over_limit" },
       ];
-      const state = (window.checkpointTour = { calls: [], creates: 0, caps: 0, unsupported: false, record: null });
+      const state = (window.checkpointTour = {
+        calls: [], creates: 0, captures: 0, caps: 0, unsupported: false, record: null, intent: null,
+      });
       window.webkit = {
         messageHandlers: {
           agentSession: {
@@ -66,6 +68,13 @@ try {
               }
               if (method === "git.checkpoint.create") {
                 state.creates++;
+                if (state.record) {
+                  if (JSON.stringify(params) !== JSON.stringify(state.intent))
+                    throw new Error("Recovery changed the original checkpoint capture intent");
+                  return success({ result: state.record, revision: "42", replayed: true });
+                }
+                state.captures++;
+                state.intent = structuredClone(params);
                 state.record = {
                   checkpoint_id: "checkpoint-1",
                   repository_id: "sample-repo",
@@ -98,7 +107,11 @@ try {
                   },
                 };
               }
-              if (method === "git.checkpoint.get") return success(state.record);
+              if (method === "git.checkpoint.get") {
+                if (params.idempotency_key !== state.key)
+                  throw new Error("Recovery read did not use the original capture key");
+                return success(state.record);
+              }
               if (method === "git.checkpoint.pin") {
                 state.record = {
                   ...state.record,
@@ -136,7 +149,8 @@ try {
       window.checkpointTour.calls.find((call) => call.method === "git.checkpoint.create"),
     );
     assert.deepEqual(intent.params.include_untracked, ["USER_NOTES.md"]);
-    assert.equal(await page.evaluate(() => window.checkpointTour.creates), 1);
+    assert.equal(await page.evaluate(() => window.checkpointTour.creates), 2);
+    assert.equal(await page.evaluate(() => window.checkpointTour.captures), 1);
     await review.getByRole("button", { name: "Keep checkpoint", exact: true }).click();
     await review.getByRole("button", { name: "Release pin", exact: true }).waitFor();
     await page.screenshot({ path: path.join(out, `${variant}-receipt.png`) });
@@ -150,7 +164,8 @@ try {
     const changes = page.getByRole("region", { name: "Changes", exact: true });
     await changes.getByRole("button", { name: "Create checkpoint", exact: true }).click();
     await review.getByRole("button", { name: "Create", exact: true }).waitFor();
-    assert.equal(await page.evaluate(() => window.checkpointTour.creates), 1);
+    assert.equal(await page.evaluate(() => window.checkpointTour.creates), 2);
+    assert.equal(await page.evaluate(() => window.checkpointTour.captures), 1);
     await review.getByRole("button", { name: "Cancel", exact: true }).click();
     await changes.getByRole("button", { name: "Back to transcript", exact: true }).click();
     // The native palette enters exactly the same show path, not another capture path.
@@ -167,7 +182,7 @@ try {
     assert.equal(await review.count(), 0);
     assert.deepEqual(errors, []);
     observations.push(
-      `${variant}: opening only reads, exact untracked approval, timeout recovery without a second create, partial receipt, keep/release, Changes and palette shared path, one capability read, unsupported hides actions.`,
+      `${variant}: opening only reads, exact untracked approval, timeout recovery replays the same create without a second capture, partial receipt, keep/release, Changes and palette shared path, one capability read, unsupported hides actions.`,
     );
     await context.close();
   }
