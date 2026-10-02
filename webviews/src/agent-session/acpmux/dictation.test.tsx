@@ -83,7 +83,7 @@ describe("composer dictation", () => {
       await pane.send({ state: "listening", level: 0.6 });
       expect(pane.mic().dataset.state).toBe("listening");
       expect(pane.mic().getAttribute("aria-label")).toBe("Stop dictation");
-      expect(pane.mic().querySelectorAll(".acpmux-mic-meter span").length).toBe(4);
+      expect(pane.mic().querySelectorAll(".acpmux-mic-meter span").length).toBe(5);
       await pane.send({ state: "listening", text: "fix the", level: 0.4 });
       await pane.send({ state: "listening", text: "fix the bug", level: 0.4 });
       expect(pane.prompt.value).toBe("Please fix the bug now");
@@ -216,8 +216,9 @@ describe("composer dictation", () => {
       await pane.send({ state: "listening", text: "fix the bug now", level: 0.5 });
       expect(pane.prompt.selectionStart).toBe(4);
       expect(pane.prompt.value).toBe("fix the bug now");
-      const bar = pane.mic().querySelector<HTMLElement>(".acpmux-mic-meter span")!;
-      expect(bar.style.transform).toBe(`scaleY(${0.5 * 0.55 * 1.4})`);
+      // A rolling waveform: the newest level on the right, earlier ones to its left.
+      const bars = [...pane.mic().querySelectorAll<HTMLElement>(".acpmux-mic-meter span")].map((bar) => bar.style.transform);
+      expect(bars).toEqual(["scaleY(0.18)", "scaleY(0.18)", `scaleY(${0.2 * 1.4})`, `scaleY(${0.7 * 1.4})`, `scaleY(${0.5 * 1.4})`]);
     } finally {
       await pane.unmount();
     }

@@ -23,19 +23,22 @@ export function configureDictation(layout: Record<string, unknown> | undefined):
   autoSend = dictation?.autoSend === true;
 }
 
-/// The input level, read only by the mic button: the meter moves about 12 times a second
-/// without re-rendering the pane.
-const level = { value: 0, listeners: new Set<() => void>() };
-function setLevel(value: number): void {
-  if (level.value === value) return;
-  level.value = value;
+/// The last few input levels, oldest first, read only by the mic button's waveform: it moves
+/// about 12 times a second without re-rendering the pane.
+const WAVE_BARS = 5;
+const silence: readonly number[] = Array(WAVE_BARS).fill(0);
+const level = { samples: silence, listeners: new Set<() => void>() };
+/// Adds the latest level while a session runs; anything else clears the waveform.
+function setLevel(value: number, active: boolean): void {
+  if (!active && level.samples === silence) return;
+  level.samples = active ? [...level.samples.slice(1), value] : silence;
   for (const listener of level.listeners) listener();
 }
 const subscribeLevel = (listener: () => void) => {
   level.listeners.add(listener);
   return () => { level.listeners.delete(listener); };
 };
-const readLevel = () => level.value;
+const readLevel = () => level.samples;
 
 const isActive = (state: DictationState) => state === "starting" || state === "listening" || state === "finalizing";
 
@@ -102,7 +105,7 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
     const receive = (update: DictationUpdate) => {
       requested.current = false;
       setState(update.state);
-      setLevel(isActive(update.state) ? update.level : 0);
+      setLevel(update.level, isActive(update.state));
       if (update.state === "failed" || update.state === "denied") setNotice(update);
       else if (update.state === "starting") setNotice(null);
       if (!composing) apply(update);
@@ -168,9 +171,7 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
   };
 }
 
-const METER_BARS = [0.55, 0.85, 1, 0.7];
-
-/// The mic next to Send: a microphone while idle, a live level meter while listening.
+/// The mic next to Send: a microphone while idle, a live waveform while listening.
 export function DictationButton({ dictation }: { dictation: Dictation }) {
   const { state } = dictation;
   const listening = state === "listening" || state === "finalizing";
@@ -188,13 +189,14 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
   >
     {listening
       ? <LevelMeter />
-      : <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>}
+      : <svg aria-hidden="true" viewBox="0 0 16 16" width="18" height="18"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>}
   </button>;
 }
 
+/// The recent input levels as bars, newest on the right.
 function LevelMeter() {
-  const value = useSyncExternalStore(subscribeLevel, readLevel);
-  return <span className="acpmux-mic-meter" aria-hidden="true">{METER_BARS.map((weight, index) => <span key={index} style={{ transform: `scaleY(${Math.max(0.18, Math.min(1, value * weight * 1.4))})` }} />)}</span>;
+  const samples = useSyncExternalStore(subscribeLevel, readLevel);
+  return <span className="acpmux-mic-meter" aria-hidden="true">{samples.map((sample, index) => <span key={index} style={{ transform: `scaleY(${Math.max(0.18, Math.min(1, sample * 1.4))})` }} />)}</span>;
 }
 
 /// Why dictation did not run, with a way to fix it.

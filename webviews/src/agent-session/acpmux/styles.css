@@ -64,13 +64,13 @@
 .acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:20px}
 /* Dictation (Dictation.tsx): the mic before Send, as quiet as the bar's other controls; while listening it
    takes the theme's red (--agent-danger, ANSI 1) and shows the input level in the same circle. */
-.acpmux-composer .acpmux-mic{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--acpmux-composer-dim);transition:color .15s,background-color .15s}
+.acpmux-composer .acpmux-mic{flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted);transition:color .15s,background-color .15s}
 .acpmux-composer .acpmux-mic:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-composer .acpmux-mic:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-composer .acpmux-mic[data-state=starting]{color:var(--agent-text);animation:acpmux-mic-wait 1.2s ease-in-out infinite}
 .acpmux-composer .acpmux-mic[data-state=listening],.acpmux-composer .acpmux-mic[data-state=finalizing]{color:var(--agent-danger);background:color-mix(in srgb,var(--agent-danger) 16%,transparent)}
-.acpmux-mic-meter{display:flex;align-items:center;gap:2px;height:14px}
-.acpmux-mic-meter span{width:2px;height:14px;border-radius:1px;background:currentColor;transform-origin:center;transition:transform 90ms linear}
+.acpmux-mic-meter{display:flex;align-items:center;gap:2px;height:18px}
+.acpmux-mic-meter span{width:2px;height:18px;border-radius:1px;background:currentColor;transform-origin:center;transition:transform 90ms linear}
 .acpmux-mic[data-state=finalizing] .acpmux-mic-meter{opacity:.55}
 @keyframes acpmux-mic-wait{50%{opacity:.45}}
 @media (prefers-reduced-motion:reduce){.acpmux-composer .acpmux-mic{animation:none}.acpmux-mic-meter span{transition:none}}
