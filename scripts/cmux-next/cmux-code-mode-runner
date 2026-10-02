@@ -1,0 +1,33 @@
+#!/bin/sh
+set -eu
+
+script=${1:?cmux run needs a TypeScript script path}
+shift
+socket=${CMUX_TUI_SOCKET:?CMUX_TUI_SOCKET is required}
+root=${CMUX_CODE_MODE_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)}
+bun=${BUN_BIN:-$(command -v bun || true)}
+[ -n "$bun" ] || { echo 'cmux run: bun is required' >&2; exit 2; }
+[ -f "$script" ] || { echo "cmux run: script not found: $script" >&2; exit 2; }
+
+script=$(CDPATH= cd -- "$(dirname -- "$script")" && pwd)/$(basename -- "$script")
+
+# Linux prototype sandbox: no host network, no host home, read-only runtime and
+# source, a tmpfs for transient writes, and one explicitly bound cmux socket.
+# The runner fails closed when this sandbox is unavailable.
+if command -v bwrap >/dev/null 2>&1; then
+  exec bwrap \
+    --die-with-parent --new-session --unshare-all --clearenv \
+    --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
+    --ro-bind /lib64 /lib64 --ro-bind /etc /etc \
+    --ro-bind "$bun" /run/cmux-bun \
+    --ro-bind "$root" /run/cmux-source \
+    --ro-bind "$script" /run/cmux-script.ts \
+    --ro-bind "$socket" /run/cmux.sock \
+    --proc /proc --dev /dev --tmpfs /tmp --chdir /run \
+    --setenv HOME /tmp --setenv CMUX_TUI_SOCKET /run/cmux.sock \
+    /run/cmux-bun /run/cmux-source/cmux-tui/bindings/typescript/code-mode/run.ts \
+    /run/cmux-script.ts "$@"
+fi
+
+echo 'cmux run: no supported locked-down sandbox (Linux bwrap) is available' >&2
+exit 2

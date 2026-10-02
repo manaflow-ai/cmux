@@ -4,6 +4,7 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
+mod code_mode;
 mod command;
 mod docs;
 mod lifecycle;
@@ -166,6 +167,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             0
         }
         Ok(ParsedCommand::Docs(plan)) => docs::run(plan),
+        Ok(ParsedCommand::CodeMode(plan)) => code_mode::run(plan),
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
@@ -240,6 +242,12 @@ fn parse_command(
     }
     if let Some(command) = docs::command(&command_args, global.clone())? {
         return Ok(command);
+    }
+    if command_args[0] == "run" {
+        if command_args[1..].iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
+            return Ok(ParsedCommand::Help(Some("run".to_owned())));
+        }
+        return Ok(ParsedCommand::CodeMode(code_mode::parse(&command_args[1..], global)?));
     }
     if has_help_option(&command_args) {
         let words = command_args
@@ -458,6 +466,7 @@ fn scope_help_for(
     let text = match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
         "docs" => Cow::Borrowed(docs::help()),
+        "run" => Cow::Borrowed(code_mode::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
