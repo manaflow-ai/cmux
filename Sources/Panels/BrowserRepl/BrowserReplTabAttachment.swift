@@ -684,11 +684,16 @@ final class BrowserReplTabAttachment {
               let pane = workspace.paneId(forPanelId: panel.id) else {
             return false
         }
+        // The new tab stays in the opener's profile and data store, as a
+        // user's Cmd-click does (`BrowserPanel` new-tab requests): a session
+        // tab on a private `session.configure({ proxy })` store keeps it.
         guard let created = workspace.newBrowserSurface(
             inPane: pane,
             url: url,
             focus: false,
-            creationPolicy: .automationPreload
+            preferredProfileID: panel.profileID,
+            creationPolicy: .automationPreload,
+            websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
         ) else {
             return false
         }
