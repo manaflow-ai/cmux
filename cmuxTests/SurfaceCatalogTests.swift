@@ -1467,6 +1467,44 @@ struct SurfaceCatalogTests {
 // MARK: - Optimistic layout open (https://github.com/manaflow-ai/cmux/issues/12537)
 
 extension SurfaceCatalogTests {
+    /// A sidebar drop can reserve Cloud terminal panes before the remote attach
+    /// completes, so the destination shows the dropped agent immediately.
+    @Test @MainActor
+    func `Cloud terminal group drops reserve panes before materialization`() async throws {
+        let catalog = SurfaceCatalog(live: live)
+        let machine = SurfaceMachineID.cloud("vm-drop")
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let ids = ["claude", "codex"].map { SurfaceResourceID(machine: machine, kind: .terminal, key: $0) }
+        catalog.replaceResources(ids.map { terminal(machine, $0.key) }, on: machine)
+        let workspaceID = live.id()
+        var reservations = 0
+        var attached: [SurfaceResourceID] = []
+        let host = SurfaceCatalog.OptimisticPaneHost(
+            reserve: { reservedMachine, destination, _ in
+                #expect(reservedMachine == machine)
+                #expect(destination.workspaceID == workspaceID)
+                reservations += 1
+                return CloudTerminalPaneReservation(workspaceID: workspaceID, panelID: UUID(), machine: machine)
+            },
+            attach: { _, resource, _ in attached.append(resource.id) }
+        )
+
+        let projected = try await catalog.projectGroup(
+            SurfaceResourceGroup(title: "agents", resources: ids),
+            into: .workspace(id: workspaceID, placement: .tab),
+            focus: true,
+            paneLookup: { _, _ in "pane-drop" },
+            optimistic: host
+        )
+
+        #expect(reservations == ids.count)
+        #expect(attached == ids)
+        #expect(provider.materialized.isEmpty)
+        #expect(projected.map(\.resource) == ids)
+        #expect(catalog.projections(of: ids[0]).count == 1)
+    }
+
     /// Reserves the whole Cloud layout before attaching any terminal.
     @Test @MainActor
     func `Opening a workspace optimistically reserves the whole layout first and attaches every pane`() async throws {
