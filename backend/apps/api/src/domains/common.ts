@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudOpByName, connectionInternalOps, feedInternalOps, schedulerInternalOps, type CloudOpDef } from "@cmux/protocol"
+import { cloudOpByName, connectionInternalOps, DisplayName, feedInternalOps, InstallId, Platform, schedulerInternalOps, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -207,6 +207,30 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
         } as CloudOpDef
       ] as const
   ),
+  [
+    "server.enrolled",
+    {
+      name: "server.enrolled",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({
+        install: InstallId,
+        name: DisplayName,
+        platform: Platform,
+        wg_public_key: WgPublicKey,
+        owner_user: UserId,
+        approved_by: UserId
+      }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: an approved pairing adds the server to the directory (plans/cmux-next/server.md 6.2).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
   ...schedulerInternalOps.map((d) => [d.name, d] as const),
   ...connectionInternalOps.map((d) => [d.name, d] as const),
   ...feedInternalOps.map((d) => [d.name, d] as const)

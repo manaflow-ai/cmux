@@ -7,6 +7,7 @@ import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduc
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, reduceReleaseDone, reduceReleaseLock, type IntegrationSyncState } from "./team-integration-sync.ts"
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
+import { reduceServerEnrolled, reduceServerRevoke } from "./team-servers.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, DomainState, SsoState {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
@@ -90,6 +91,14 @@ export const teamDomain: Domain<TeamState> = {
           value: { host: host.id },
           outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }]
         }
+      }
+      case "server.enrolled": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return reduceServerEnrolled(state, params, ctx)
+      }
+      case "server.revoke": {
+        if (!state.team) return reject("validation.invalid", "team not initialized")
+        return reduceServerRevoke(state, params, ctx)
       }
       case "team.policy.integration_seed": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")

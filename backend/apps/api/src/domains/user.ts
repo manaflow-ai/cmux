@@ -78,10 +78,13 @@ export const userDomain: Domain<UserState> = {
         const install = ctx.newId("inst")
         const grant = ctx.newId("grant")
         const device = v.device ?? ctx.newId("dev")
+        // A caller may narrow the default grant (a paired server asks for read and mutate-own), never widen it.
+        const requested = v.op_classes ?? INSTALL_CLASSES
+        if (requested.some((c) => !(INSTALL_CLASSES as ReadonlyArray<string>).includes(c))) return reject("validation.invalid", "op_classes may only narrow the default install grant")
         const g: typeof Grant.Type = {
           id: grant,
           grantee: install,
-          op_classes: [...INSTALL_CLASSES],
+          op_classes: [...new Set(requested)],
           approval: "none",
           expires_at: null,
           revoked_at: null,

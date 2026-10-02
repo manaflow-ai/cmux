@@ -10,6 +10,7 @@ import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } fr
 import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
+import { mayEnrollServer } from "./domains/team-servers.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
@@ -246,6 +247,27 @@ export class TeamDO extends OwnerDO<TeamState> {
   async ssoDiscover(entity: string, domain: string): Promise<{ sso: boolean }> {
     const engine = this.boundEngine ?? this.bind(entity)
     return { sso: Boolean(connectionForDomain(engine.currentState, domain)) }
+  }
+
+  /**
+   * RPC from the Worker's `server.pair.approve` route (plans/cmux-next/server.md 6.2):
+   * the approver must be a signed-in owner or admin of this team, never an install
+   * or an agent; then the internal `server.enrolled` commits the host. Keyed by the
+   * pairing code, so a retried approval returns the same host.
+   */
+  async enrollServer(
+    entity: string,
+    principal: Principal,
+    params: { install: string; name: string; platform: string; wg_public_key: string },
+    idempotencyKey: string
+  ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string }> {
+    const engine = this.bind(entity)
+    if (principal.kind !== "session" || principal.agent || !principal.user) return { ok: false, code: "auth.forbidden", message: "only a signed-in user may approve a server" }
+    if (!mayEnrollServer(engine.currentState, principal.user)) return { ok: false, code: "auth.forbidden", message: "only team owners and admins may add a server" }
+    const res = this.submitSystem("server.enrolled", { ...params, owner_user: principal.user, approved_by: principal.user }, idempotencyKey)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
+    return { ok: true, host: (reply.value as { id: string }).id }
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
