@@ -10,7 +10,8 @@ final class PromptBarView: NSView {
     private let buttons = NSStackView()
     private let stack = NSStackView()
     private let density = DensityBinding()
-    private var glass: NSGlassEffectView?
+    /// The bar's material: glass, or opaque under Reduce Transparency.
+    private(set) var glass: OverlaySurfaceView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -33,7 +34,7 @@ final class PromptBarView: NSView {
 
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
         addSubview(glass)
         self.glass = glass
         NSLayoutConstraint.activate([
@@ -73,7 +74,7 @@ final class PromptBarView: NSView {
         performWithTheme {
             inputField.layer?.backgroundColor = Palette.chromeBackground.cgColor
             messageLabel.textColor = Palette.textPrimary
-            glass?.tintColor = Palette.glassTint
+            glass?.applyTheme()
         }
     }
 
