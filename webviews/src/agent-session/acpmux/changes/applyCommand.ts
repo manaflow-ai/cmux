@@ -24,7 +24,13 @@ function filePatch(file: ChangedFile): string {
 }
 
 /// git writes a path with a control character, a quote or a backslash in C quotes.
-const QUOTED = /["\\\u0000-\u001f\u007f]/;
+function quoted(path: string): boolean {
+  for (let index = 0; index < path.length; index += 1) {
+    const code = path.charCodeAt(index);
+    if (code < 0x20 || code === 0x7f || code === 0x22 || code === 0x5c) return true;
+  }
+  return false;
+}
 
 /// The command, or undefined when it would not reproduce every change shown: no files, a binary
 /// file, a changed file without its whole patch (an untracked file, or a patch cut short), or a
@@ -35,7 +41,7 @@ export function applyCommand(changeSet: ChangeSet): string | undefined {
   // A rename with no content change is the one change git sends without a patch.
   const renameOnly = (file: ChangedFile) => !!file.previousPath && file.additions + file.deletions === 0;
   if (files.some((file) => file.binary || file.patchTruncated || (!file.patch && !renameOnly(file)))) return undefined;
-  if (files.some((file) => QUOTED.test(file.path) || QUOTED.test(file.previousPath ?? ""))) return undefined;
+  if (files.some((file) => quoted(file.path) || quoted(file.previousPath ?? ""))) return undefined;
   const patch = files.map(filePatch).join("");
   // A patch line equal to the marker would end the here-document early.
   if (patch.split("\n").includes(MARKER)) return undefined;

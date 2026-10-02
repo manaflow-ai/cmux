@@ -27,6 +27,17 @@ export const Check = (p: P) => (
     <path d="M3.5 8.5l3 3 6-7" />
   </svg>
 );
+export const ArrowRight = (p: P) => (
+  <svg {...line(12)} {...p}>
+    <path d="M3 8h10M9 4l4 4-4 4" />
+  </svg>
+);
+export const AlertCircle = (p: P) => (
+  <svg {...line(17)} {...p}>
+    <circle cx="8" cy="8" r="6.25" />
+    <path d="M8 4.75v3.75M8 11.1v.15" />
+  </svg>
+);
 export const ChevronLeft = (p: P) => (
   <svg {...line(16)} {...p}>
     <path d="M10 3.5L5.5 8l4.5 4.5" />

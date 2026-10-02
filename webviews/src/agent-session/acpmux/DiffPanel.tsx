@@ -13,10 +13,12 @@ import { EditBlock, type DiffLayout } from "./changes/EditBlock";
 import type { FileActions } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
 import { applyCommand } from "./changes/applyCommand";
+import { BranchPill } from "./changes/BranchPill";
 import { copyText } from "./conversation/clipboard";
 import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
 import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
 import { ScopeMenu } from "./changes/ScopeMenu";
+import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
 import { useScopeChanges } from "./changes/useScopeChanges";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
@@ -56,7 +58,7 @@ export function DiffPanel({
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
-  const { load, retry } = useScopeChanges(source, scope);
+  const { load, retry, branch } = useScopeChanges(source, scope);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   const files = scope === "lastTurn" ? turnFiles : scopeFiles;
   /// A git scope's body before its files: loading, failed or empty.
@@ -197,6 +199,12 @@ export function DiffPanel({
     () => (scope !== "lastTurn" && load.state === "loaded" ? applyCommand(load.changeSet) : undefined),
     [scope, load],
   );
+  const skipped = scope !== "lastTurn" && load.state === "loaded" ? (load.changeSet.untrackedSkipped ?? 0) : 0;
+  // A refresh drops what it replaces, so focus moves to the scope pill first.
+  const refresh = () => {
+    panel.current?.querySelector<HTMLElement>(".acpmux-diff-scope")?.focus();
+    retry();
+  };
   const options: OptionsRow[] = [
     { label: "Refresh", disabled: scope === "lastTurn", run: retry },
     { label: wrap ? "Disable word wrap" : "Word wrap", run: () => press("wrap") },
@@ -247,17 +255,16 @@ export function DiffPanel({
           ))}
         </div>
       </header>
+      {(branch || skipped > 0) && (
+        <div className="acpmux-diff-notes">
+          {branch && <BranchPill branch={branch.branch} base={branch.base} />}
+          {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}
+        </div>
+      )}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
           {scopeState ? (
-            <LoadState
-              state={scopeState}
-              onRetry={() => {
-                // Retry leaves as the load starts, so focus moves to the scope pill.
-                panel.current?.querySelector<HTMLElement>(".acpmux-diff-scope")?.focus();
-                retry();
-              }}
-            />
+            <LoadState state={scopeState} onRetry={refresh} />
           ) : files.length === 0 ? (
             <div className="acpmux-muted">No file changes in this turn.</div>
           ) : (
