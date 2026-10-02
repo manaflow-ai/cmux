@@ -1,11 +1,22 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 import { renderToStaticMarkup } from "react-dom/server";
 import { acceptOrigin, forwardUrl, isInviteCode } from "../app/i/invite-link";
 
 const CODE = "d01JB8Q3Z5X7Y9K2M4N6P8R0T2V";
 const SECRET = "0123456789ABCDEFGHJKMNPQRS";
 
+const notFound = mock(() => {
+  throw Object.assign(new Error("not found"), { notFound: true });
+});
+const redirect = mock((href: unknown) => {
+  throw Object.assign(new Error("redirect"), { href });
+});
+// bun's mock.module is process-wide: keep the shared export set complete.
+mock.module("next/navigation", () => ({ ...createNextNavigationMock(redirect), notFound }));
+
 const { default: InvitePage, generateMetadata } = await import("../app/i/[code]/page");
+const { inviteHeaders, securityHeaderRules } = await import("../security-headers");
 const { config } = await import("../proxy");
 
 describe("cmux.com/i invite links", () => {
@@ -43,8 +54,14 @@ describe("cmux.com/i invite links", () => {
     const html = renderToStaticMarkup(await InvitePage({ params: Promise.resolve({ code: CODE }) }));
     expect(html).toContain("invited to a conversation on cmux");
     expect(html).toContain(`href="https://console.cmux.dev/i/${CODE}"`);
-    const incomplete = renderToStaticMarkup(await InvitePage({ params: Promise.resolve({ code: "x" }) }));
-    expect(incomplete).toContain("incomplete");
+    await expect(InvitePage({ params: Promise.resolve({ code: "x" }) })).rejects.toMatchObject({ notFound: true });
+  });
+
+  test("invite pages are private: no shared cache, no index, no referrer", () => {
+    const rule = securityHeaderRules.find((r) => r.source === "/i/:code");
+    expect(rule?.headers).toEqual(inviteHeaders);
+    expect(securityHeaderRules.indexOf(rule!)).toBeGreaterThan(securityHeaderRules.findIndex((r) => r.source === "/:path*"));
+    expect(inviteHeaders).toContainEqual({ key: "Cache-Control", value: "private, no-store, max-age=0" });
   });
 
   test("the proxy matcher leaves /i/ outside the localized site", () => {

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 import {
   acceptOrigin,
   forwardUrl,
@@ -40,31 +41,23 @@ export default async function InvitePage({ params }: InvitePageProps) {
   const { code } = await params;
   const origin = acceptOrigin();
   const target = forwardUrl(origin, code, "");
+  // A malformed code is a 404 with the site's not-found page. A well-formed code
+  // is never looked up here, so the response says nothing about whether it exists.
+  if (!target) notFound();
   return (
     <main className="flex min-h-screen items-center justify-center bg-black px-6 text-white">
       <section className="w-full max-w-sm text-center">
-        {target ? (
-          <>
-            <h1 className="text-2xl font-medium tracking-tight">{INVITE_TITLE}</h1>
-            <p className="mt-3 text-sm leading-6 text-neutral-400">
-              cmux is where people and their AI agents work together.
-            </p>
-            <InviteForward origin={origin} code={code} />
-            <a
-              className="mt-8 block rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black"
-              href={target}
-            >
-              Open the invite
-            </a>
-          </>
-        ) : (
-          <>
-            <h1 className="text-2xl font-medium tracking-tight">This invite link is incomplete</h1>
-            <p className="mt-3 text-sm leading-6 text-neutral-400">
-              Open the full link from the message you received, or ask the sender for a new one.
-            </p>
-          </>
-        )}
+        <h1 className="text-2xl font-medium tracking-tight">{INVITE_TITLE}</h1>
+        <p className="mt-3 text-sm leading-6 text-neutral-400">
+          cmux is where people and their AI agents work together.
+        </p>
+        <InviteForward origin={origin} code={code} />
+        <a
+          className="mt-8 block rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black"
+          href={target}
+        >
+          Open the invite
+        </a>
       </section>
     </main>
   );
