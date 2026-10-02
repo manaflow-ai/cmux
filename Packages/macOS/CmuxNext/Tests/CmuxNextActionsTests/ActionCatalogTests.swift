@@ -79,7 +79,7 @@ import Testing
         .sidebar: 56, // + 26 sidebar section actions (sidebar-sections.md 6)
         .notifications: 18,
         .agents: 22, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats, Continue In, Create Checkpoint
-        .cloud: 33, // + accounts.show, refresh, reauthenticate, connect, remove; + lifecycle, snapshot, and machine I/O actions
+        .cloud: 40, // + cloud file list/read/write/mkdir/remove/stat/SCP actions
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
         .settings: 55, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps, Hide App, Unhide App, + Customize Appearance
     ]
