@@ -94,7 +94,7 @@ fn scripted_app_host() {
                 send(FromHost::Done { cb, ok: true, body: json!({ "value": export }) });
             }
             ToHost::Event { sub, .. } => {
-                send(FromHost::Log { level: "info".into(), message: format!("event {sub}") })
+                send(FromHost::Log { level: "info".into(), message: format!("event {sub}") });
             }
             ToHost::Unmount { .. } | ToHost::Settings { .. } => {}
             ToHost::Shutdown => break,
