@@ -25,13 +25,13 @@ final class SettingsWindowService: SettingsWindowHost {
     var window: NSWindow? { controller?.window }
 
     /// Shows Settings on `section`, or scrolled to `setting` (a cmux.json
-    /// key path, card or button `SettingsSearchIndex` knows) with its
+    /// key path, card or button `SettingsAnchor(key:)` knows) with its
     /// highlight. An unknown setting is refused and opens nothing.
     func show(section: SettingsSection?, setting: String? = nil) throws {
         guard let settings = services.settings else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         var anchor: SettingsAnchor?
         if let setting {
-            guard let found = SettingsSearchIndex.anchor(for: setting) else {
+            guard let found = SettingsAnchor(key: setting) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting))
             }
             anchor = found

@@ -43,6 +43,9 @@ export type AgentSessionTheme = {
   /// pane's own edges and rings (the composer, menus, code and tool cards). `border` and
   /// `borderStrong` are already transparent then. Absent means default.
   borders?: "default" | "none";
+  /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce
+  /// Motion; 0 means apply at once), as `--agent-motion-*`. Absent keeps the stylesheet defaults.
+  motion?: { hover: number; focus: number; fadeIn: number; fadeOut: number };
 };
 
 export type AppContext = {
