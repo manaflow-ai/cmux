@@ -571,7 +571,7 @@ fn draw_browser_content(
         .map(|tab| tab.title.clone());
     let message = if let Some(title) = remote_terminal {
         // A terminal on another machine that only the cmux app renders.
-        Some(localization::catalog().browser.remote_terminal(&title))
+        Some(localization::catalog().browser.remote_terminal.replace("{title}", &title))
     } else if let Some(status @ BrowserStatus::Failed(_)) = browser_status.as_ref() {
         status.failure().map(|failure| localization::catalog().browser.failure_message(failure))
     } else if matches!(browser_status, Some(BrowserStatus::Starting)) {

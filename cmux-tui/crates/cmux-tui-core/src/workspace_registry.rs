@@ -30,7 +30,9 @@ use crate::resource::{
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
+mod detached_terminals;
 mod effect_store;
+mod frontend_tab_store;
 mod idle_policy_store;
 mod journal_extensions;
 mod kept_tab_store;
@@ -49,6 +51,9 @@ mod terminal_exit_store;
 mod terminal_keep_store;
 mod topology_close_store;
 
+pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
+use detached_terminals::require_live_workspace;
+
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
@@ -58,6 +63,7 @@ use effect_store::{
     create_resource_effect_schema, delete_legacy_sensitive_effect_receipts,
     initialize_resource_input_receipt_retention, recover_resource_effects,
 };
+pub use frontend_tab_store::{RemoteTerminalChange, RemoteTerminalRecord, RemoteTerminalUpdate};
 use journal_extensions::create_journal_extensions_schema;
 pub use journal_extensions::{
     JournalAppendCommit, JournalCheckpoint, JournalContentRef, JournalEventSchema,
@@ -74,11 +80,11 @@ pub use personal_browser_profiles::{BrowserProfileInput, BrowserProfileUpdate};
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
 pub use personal_store::PersonalSnapshot;
 pub use presentation_store::{
-    FrontendBrowserRecord, PresentationSnapshot, RemoteTerminalChange, RemoteTerminalRecord,
-    RemoteTerminalUpdate, SavedTabGroupRecord, SavedTabMember, TabGroupRecord, TabGroupState,
-    WorkspaceGroupRecord, WorkspacePresentationUpdate, new_saved_tab_group_id, new_tab_group_id,
-    new_workspace_group_id, validate_presentation_color, validate_presentation_icon,
-    validate_tab_group_color, validate_tab_group_name, validate_workspace_group_id,
+    FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
+    TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
+    new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_presentation_color,
+    validate_presentation_icon, validate_tab_group_color, validate_tab_group_name,
+    validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
@@ -3036,7 +3042,6 @@ impl WorkspaceRegistry {
         }
         validate_terminal_transition(existing.as_ref(), terminal)?;
         if terminal.lifecycle != TerminalLifecycle::Tombstoned
-            && terminal.workspace_key != DETACHED_TERMINAL_WORKSPACE_KEY
             && existing.as_ref().is_none_or(|stored| stored.workspace_key != terminal.workspace_key)
         {
             require_live_workspace(&tx, &terminal.workspace_key)?;
@@ -3097,15 +3102,7 @@ impl WorkspaceRegistry {
                 result_json,
             ],
         )?;
-        if existing.is_none() && terminal.workspace_key == DETACHED_TERMINAL_WORKSPACE_KEY {
-            // A detached terminal is kept from the commit that reserves it,
-            // so no later failure can leave it reapable or replay a receipt
-            // for a terminal that never started.
-            tx.execute(
-                "INSERT OR IGNORE INTO terminal_keep(terminal_id) VALUES(?1)",
-                [&terminal.terminal_id],
-            )?;
-        }
+        detached_terminals::keep_reserved_detached(&tx, existing.as_ref(), terminal)?;
         tx.commit()?;
         Ok(TerminalRegistryCommit { revision, result: result.clone(), replayed: false })
     }
@@ -4988,32 +4985,6 @@ fn validate_terminal_transition(
     }
     if existing.on_exit != desired.on_exit {
         anyhow::bail!("terminal on-exit policy is fixed at reservation");
-    }
-    Ok(())
-}
-
-/// The durable `workspace_key` of a detached terminal (`detached-terminals-v1`):
-/// a kept terminal created with no workspace, pane, screen or tab.
-/// `terminal_hosts.workspace_key` is `NOT NULL` and every terminal write
-/// (including the resource projection's terminal upsert, in older binaries
-/// too) rejects an empty key, so a detached row carries this sentinel. It can
-/// never name a workspace, because workspace keys are canonical lowercase
-/// UUIDs, so it needs no live workspace. The live-workspace check runs only
-/// when a row's key changes, so an older binary that updates the row keeps
-/// accepting it; adoption binds a terminal by its durable resource row, never
-/// by this key.
-pub(crate) const DETACHED_TERMINAL_WORKSPACE_KEY: &str = "detached";
-
-fn require_live_workspace(connection: &Connection, workspace_key: &str) -> anyhow::Result<()> {
-    let live = connection
-        .query_row(
-            "SELECT 1 FROM workspaces WHERE workspace_key = ?1 AND tombstoned = 0",
-            [workspace_key],
-            |_| Ok(()),
-        )
-        .optional()?;
-    if live.is_none() {
-        anyhow::bail!("terminal workspace is missing or closed: {workspace_key}");
     }
     Ok(())
 }

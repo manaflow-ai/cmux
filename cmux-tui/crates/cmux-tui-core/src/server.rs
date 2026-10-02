@@ -96,6 +96,8 @@ pub use loopback_forward::{
 };
 mod bookmarks;
 mod browser_profiles;
+mod detached_terminals;
+mod frontend_tabs;
 mod launch_snapshot;
 mod personal;
 mod screen_json;
@@ -263,16 +265,8 @@ pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
 /// `list-notifications`; the daemon posts OSC 9, OSC 777 and OSC 99 from
 /// every terminal's output as `terminal`.
 pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
-/// Remote-terminal tabs: a tab in this session's layout that references a
-/// terminal on another session (`new-remote-terminal-tab`,
-/// `update-remote-terminal-tab`, `remote-terminal-snapshot`, and the
-/// `kind:"remote-terminal"` tab with its `remote` object;
-/// plans/cmux-next/data-model.md sections 1.2 and 2).
-pub const REMOTE_TERMINAL_TABS_CAPABILITY: &str = "remote-terminal-tabs-v1";
-/// Detached terminals: `create-terminal {detached:true}` creates a kept
-/// terminal with no workspace, pane, screen, or tab (cmux-next "Open Terminal
-/// on Machine Here" shows it as a remote-terminal tab in another session).
-pub const DETACHED_TERMINALS_CAPABILITY: &str = "detached-terminals-v1";
+pub use detached_terminals::DETACHED_TERMINALS_CAPABILITY;
+pub use frontend_tabs::REMOTE_TERMINAL_TABS_CAPABILITY;
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -1399,62 +1393,15 @@ enum Command {
         shell_args: Option<Vec<String>>,
     },
     /// New browser tab whose page the frontend renders (WebKit or CEF).
-    /// The daemon persists its location and never attaches a CDP target.
-    NewFrontendBrowserTab {
-        url: String,
-        engine: String,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        title: Option<String>,
-        #[serde(default)]
-        favicon_url: Option<String>,
-        #[serde(default)]
-        profile_id: Option<String>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-    },
+    NewFrontendBrowserTab(frontend_tabs::NewFrontendBrowserTab),
     /// Record a frontend-rendered browser's URL, title, or favicon.
-    UpdateFrontendBrowserTab {
-        surface: SurfaceId,
-        #[serde(default)]
-        url: Option<String>,
-        #[serde(default)]
-        title: Option<String>,
-        #[serde(default, deserialize_with = "present_nullable")]
-        favicon_url: Option<Option<String>>,
-    },
-    /// New tab that references a terminal on another session. The daemon
-    /// stores the reference and never attaches, spawns, or bootstraps it.
-    NewRemoteTerminalTab {
-        session_id: String,
-        terminal_id: String,
-        session_name: String,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        title: Option<String>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-    },
+    UpdateFrontendBrowserTab(frontend_tabs::UpdateFrontendBrowserTab),
+    /// New tab that references a terminal on another session.
+    NewRemoteTerminalTab(frontend_tabs::NewRemoteTerminalTab),
     /// Record a remote-terminal tab's title, session name, or text snapshot.
-    UpdateRemoteTerminalTab {
-        surface: SurfaceId,
-        #[serde(default, deserialize_with = "present_nullable")]
-        title: Option<Option<String>>,
-        #[serde(default)]
-        session_name: Option<String>,
-        #[serde(default, deserialize_with = "present_nullable")]
-        snapshot: Option<Option<String>>,
-    },
+    UpdateRemoteTerminalTab(frontend_tabs::UpdateRemoteTerminalTab),
     /// Read a remote-terminal tab's stored text snapshot.
-    RemoteTerminalSnapshot {
-        surface: SurfaceId,
-    },
+    RemoteTerminalSnapshot(frontend_tabs::RemoteTerminalSnapshot),
     NewBrowserTab {
         url: String,
         #[serde(default)]
@@ -1616,8 +1563,7 @@ enum Command {
         /// Mark the new terminal `keep` so it survives with no tab.
         #[serde(default)]
         keep: bool,
-        /// Create the terminal with no workspace, pane, screen or tab; it is
-        /// always kept (`detached-terminals-v1`).
+        /// `detached-terminals-v1`: a kept terminal with no tab.
         #[serde(default)]
         detached: bool,
         #[serde(flatten)]
@@ -8728,7 +8674,9 @@ fn resize_resource_view(
         .map_err(|_| invalid_resource_view_lease(operation))?
     {
         ViewLeaseStatus::Superseded => return Ok((false, "superseded")),
-        ViewLeaseStatus::Current { .. } if !surface_accepts_view_sizing(mux, surface) => {
+        ViewLeaseStatus::Current { .. }
+            if !detached_terminals::accepts_view_sizing(mux, surface) =>
+        {
             return Ok((false, "superseded"));
         }
         ViewLeaseStatus::Current { .. } => {}
@@ -8756,7 +8704,7 @@ fn resize_resource_view(
                         lease,
                         previous_view_size,
                     );
-                    if !surface_accepts_view_sizing(mux, surface) {
+                    if !detached_terminals::accepts_view_sizing(mux, surface) {
                         return Ok((false, "superseded"));
                     }
                     return Err(ResourceError::operation_failed(
@@ -8788,7 +8736,9 @@ fn release_resource_view(
         .map_err(|_| invalid_resource_view_lease(operation))?
     {
         ViewLeaseStatus::Superseded => return Ok("superseded"),
-        ViewLeaseStatus::Current { .. } if !surface_accepts_view_sizing(mux, surface) => {
+        ViewLeaseStatus::Current { .. }
+            if !detached_terminals::accepts_view_sizing(mux, surface) =>
+        {
             return Ok("superseded");
         }
         ViewLeaseStatus::Current { .. } => {}
@@ -11636,14 +11586,7 @@ fn pane_json(
                     }
                     ContentPublicId::Terminal(_) => None,
                 });
-            let remote_terminal = surface
-                .and_then(|surface| surface.resource_identity())
-                .and_then(|identity| match &identity.content_id {
-                    ContentPublicId::Browser(id) => {
-                        notifications.presentation.remote_terminals.get(id.as_str())
-                    }
-                    ContentPublicId::Terminal(_) => None,
-                });
+            let remote_terminal = frontend_tabs::remote_terminal_of(surface, notifications);
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
@@ -11706,50 +11649,10 @@ fn pane_json(
                 }),
                 "dead": surface.map(|s| s.is_dead()).unwrap_or(true),
             });
-            if let Some(remote) = remote_terminal {
-                remote_terminal_tab_json(&mut tab, remote);
-            }
+            frontend_tabs::apply_remote_terminal(&mut tab, remote_terminal);
             tab
         }).collect::<Vec<_>>(),
     })
-}
-
-/// A remote-terminal tab on the wire: `kind:"remote-terminal"` with its
-/// `remote` reference and title, and none of the placeholder browser's or a
-/// local terminal's fields.
-fn remote_terminal_tab_json(
-    tab: &mut Value,
-    remote: &crate::workspace_registry::RemoteTerminalRecord,
-) {
-    let Some(object) = tab.as_object_mut() else { return };
-    for field in ["terminal_id", "terminal_resource_id", "terminal_incarnation"] {
-        object.remove(field);
-    }
-    for field in [
-        "browser_source",
-        "browser_status",
-        "browser_error",
-        "browser_renderer",
-        "browser_engine",
-        "favicon_url",
-        "browser_profile_id",
-        "browser_frames_stalled",
-        "url",
-        "cwd",
-        "git_branch",
-    ] {
-        object.insert(field.to_string(), Value::Null);
-    }
-    object.insert("kind".into(), json!("remote-terminal"));
-    object.insert(
-        "remote".into(),
-        json!({
-            "session_id": remote.session_id,
-            "terminal_id": remote.terminal_id,
-            "session_name": remote.session_name,
-        }),
-    );
-    object.insert("title".into(), json!(remote.display_title()));
 }
 
 pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) -> Value {
@@ -11989,33 +11892,6 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
 
 fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
     mux.with_state(|state| state.pane_of(id).is_some())
-}
-
-/// Whether a view's sizing still has a live target: a tab placement, or a
-/// kept terminal with no tab (`set-terminal-keep`). A kept terminal may have
-/// its only view in another session's layout (a remote-terminal tab), so an
-/// attached geometry owner keeps sizing it; any other unplaced surface is a
-/// view whose tab closed.
-fn surface_accepts_view_sizing(mux: &Mux, id: SurfaceId) -> bool {
-    if surface_has_view_placement(mux, id) {
-        return true;
-    }
-    let Some(surface) = mux.surface(id).filter(|surface| !surface.is_dead()) else {
-        return false;
-    };
-    // A kept terminal with no tab here (its view may be a remote-terminal tab
-    // in another session) takes its viewer's geometry. A terminal that still
-    // has a tab here does not, so a lease on a closed tab of it stays
-    // superseded by the placements that remain.
-    let unplaced = surface.terminal_public_id().is_none_or(|terminal_id| {
-        mux.with_state(|state| {
-            state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).is_empty()
-        })
-    });
-    unplaced
-        && mux
-            .resource_terminal_host_identity(&surface)
-            .is_some_and(|identity| mux.terminal_keep(&identity.terminal_id).unwrap_or(false))
 }
 
 fn resolve_workspace(
@@ -14129,12 +14005,7 @@ fn handle_command_with_cancellation(
                 _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
             };
             mux.set_terminal_keep(&terminal_id, keep)?;
-            let terminal_resource_id = mux.terminal_public_id_for_host(&terminal_id)?;
-            Ok(json!({
-                "terminal_id": terminal_id,
-                "terminal_resource_id": terminal_resource_id,
-                "keep": keep,
-            }))
+            detached_terminals::keep_result(mux, &terminal_id, keep)
         }
         Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
             let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
@@ -14142,90 +14013,13 @@ fn handle_command_with_cancellation(
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewFrontendBrowserTab {
-            url,
-            engine,
-            pane,
-            title,
-            favicon_url,
-            profile_id,
-            cols,
-            rows,
-        } => {
-            let record = crate::workspace_registry::FrontendBrowserRecord {
-                engine,
-                url,
-                title,
-                favicon_url,
-                profile_id,
-            };
-            let surface = mux.new_frontend_browser_tab(
-                pane,
-                record,
-                paired_surface_size("new-frontend-browser-tab", cols, rows)?,
-            )?;
-            let identity = surface.resource_identity();
-            Ok(json!({
-                "surface": surface.id,
-                "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
-                "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
-            }))
+        Command::NewFrontendBrowserTab(request) => frontend_tabs::new_browser_tab(mux, request),
+        Command::UpdateFrontendBrowserTab(request) => {
+            frontend_tabs::update_browser_tab(mux, request)
         }
-        Command::UpdateFrontendBrowserTab { surface, url, title, favicon_url } => {
-            let (record, changed) =
-                mux.update_frontend_browser_tab(surface, url, title, favicon_url)?;
-            Ok(json!({
-                "surface": surface,
-                "url": record.url,
-                "title": record.title,
-                "favicon_url": record.favicon_url,
-                "changed": changed,
-            }))
-        }
-        Command::NewRemoteTerminalTab {
-            session_id,
-            terminal_id,
-            session_name,
-            pane,
-            title,
-            cols,
-            rows,
-        } => {
-            let record = crate::workspace_registry::RemoteTerminalRecord {
-                session_id,
-                terminal_id,
-                session_name,
-                title,
-            };
-            let surface = mux.new_remote_terminal_tab(
-                pane,
-                record,
-                paired_surface_size("new-remote-terminal-tab", cols, rows)?,
-            )?;
-            let identity = surface.resource_identity();
-            let (workspace, pane) = surface_placement(mux, surface.id);
-            Ok(json!({
-                "surface": surface.id,
-                "pane": pane,
-                "workspace": workspace,
-                "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
-                "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
-            }))
-        }
-        Command::UpdateRemoteTerminalTab { surface, title, session_name, snapshot } => {
-            let change = mux.update_remote_terminal_tab(
-                surface,
-                crate::workspace_registry::RemoteTerminalUpdate { title, session_name, snapshot },
-            )?;
-            Ok(json!({
-                "surface": surface,
-                "changed": change.presentation || change.snapshot,
-            }))
-        }
-        Command::RemoteTerminalSnapshot { surface } => {
-            let snapshot = mux.remote_terminal_snapshot(surface)?;
-            Ok(json!({ "surface": surface, "snapshot": snapshot }))
-        }
+        Command::NewRemoteTerminalTab(request) => frontend_tabs::new_remote_tab(mux, request),
+        Command::UpdateRemoteTerminalTab(request) => frontend_tabs::update_remote_tab(mux, request),
+        Command::RemoteTerminalSnapshot(request) => frontend_tabs::remote_snapshot(mux, request),
         Command::NewBrowserTab { url, pane, cols, rows } => {
             let surface = mux.new_browser_tab(url, pane, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
@@ -14469,9 +14263,6 @@ fn handle_command_with_cancellation(
             if shell_args.is_some() && (argv.is_some() || command.is_some()) {
                 anyhow::bail!("shell_args cannot be combined with argv or command");
             }
-            if detached && (workspace.is_some() || key.is_some()) {
-                anyhow::bail!("a detached terminal takes no workspace or key");
-            }
             let argv = match (argv, command) {
                 (Some(argv), None) if !argv.is_empty() => Some(argv),
                 (None, Some(command)) if !command.is_empty() => {
@@ -14482,8 +14273,9 @@ fn handle_command_with_cancellation(
             };
             let size = paired_surface_size("create-terminal", cols, rows)?;
             if detached {
-                return create_detached_terminal(
+                return detached_terminals::create(
                     mux,
+                    workspace.is_some() || key.is_some(),
                     argv,
                     cwd,
                     name,
@@ -15572,7 +15364,7 @@ fn handle_command_with_cancellation(
         Command::ResizeSurface { surface, cols, rows } => {
             let (cols, rows) = clamp_terminal_size(cols, rows);
             if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
-                || (!surface_accepts_view_sizing(mux, surface)
+                || (!detached_terminals::accepts_view_sizing(mux, surface)
                     && mux
                         .control_clients
                         .surface_attachment_is_current_or_retired(client, surface))
@@ -15596,7 +15388,7 @@ fn handle_command_with_cancellation(
                     if mux
                         .control_clients
                         .surface_attachment_is_retired_without_current(client, surface)
-                        || (!surface_accepts_view_sizing(mux, surface)
+                        || (!detached_terminals::accepts_view_sizing(mux, surface)
                             && mux
                                 .control_clients
                                 .surface_attachment_is_current_or_retired(client, surface)) =>
@@ -15651,7 +15443,9 @@ fn handle_command_with_cancellation(
                         "outcome": "superseded",
                     }));
                 }
-                ViewLeaseStatus::Current { .. } if !surface_accepts_view_sizing(mux, surface) => {
+                ViewLeaseStatus::Current { .. }
+                    if !detached_terminals::accepts_view_sizing(mux, surface) =>
+                {
                     return Ok(json!({
                         "accepted": false,
                         "reservation_id": null,
@@ -15688,7 +15482,7 @@ fn handle_command_with_cancellation(
                                 &lease,
                                 previous_view_size,
                             );
-                            if !surface_accepts_view_sizing(mux, surface) {
+                            if !detached_terminals::accepts_view_sizing(mux, surface) {
                                 return Ok(json!({
                                     "accepted": false,
                                     "reservation_id": null,
@@ -15712,7 +15506,7 @@ fn handle_command_with_cancellation(
         Command::ReleaseSurfaceSize { surface } => {
             let _lifecycle = mux.lock_client_sizing_lifecycle();
             if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
-                || (!surface_accepts_view_sizing(mux, surface)
+                || (!detached_terminals::accepts_view_sizing(mux, surface)
                     && mux
                         .control_clients
                         .surface_attachment_is_current_or_retired(client, surface))
@@ -15752,7 +15546,9 @@ fn handle_command_with_cancellation(
                 ViewLeaseStatus::Superseded => {
                     return Ok(json!({"outcome": "superseded"}));
                 }
-                ViewLeaseStatus::Current { .. } if !surface_accepts_view_sizing(mux, surface) => {
+                ViewLeaseStatus::Current { .. }
+                    if !detached_terminals::accepts_view_sizing(mux, surface) =>
+                {
                     return Ok(json!({"outcome": "superseded"}));
                 }
                 ViewLeaseStatus::Current { .. } => {}
@@ -16487,82 +16283,6 @@ fn placed_terminal_result(
     }))
 }
 
-/// `create-terminal {detached:true}` (`detached-terminals-v1`): a kept
-/// terminal with no workspace, pane, screen or tab. The host spawns first;
-/// the resource projection then commits in the same receipted mutation and
-/// gives the terminal its durable public id before the host is activated. If
-/// that commit fails the terminal is ended, because nothing else would end a
-/// kept terminal with no tab. A daemon that dies between the two leaves a
-/// host that adoption restores as a kept, tabless terminal.
-#[allow(clippy::too_many_arguments)]
-fn create_detached_terminal(
-    mux: &Arc<Mux>,
-    argv: Option<Vec<String>>,
-    cwd: Option<String>,
-    name: Option<String>,
-    size: Option<(u16, u16)>,
-    terminal_id: Option<&str>,
-    env: Vec<(String, String)>,
-    mutation: &MutationRequest,
-) -> anyhow::Result<Value> {
-    let (registry_id, generation) = mux.registry_identity();
-    let workspace_mutation = workspace_mutation(mutation)?;
-    let result = mux.create_detached_terminal_with_mutation(
-        argv,
-        cwd,
-        name,
-        size,
-        terminal_id,
-        mutation.expected_generation.as_deref(),
-        mutation.expected_revision,
-        &workspace_mutation,
-        env,
-    )?;
-    let projection = json!({"terminal_id":result.terminal_id, "detached":true});
-    if let Err(error) = mux.commit_full_resource_projection_with_mutation(
-        &workspace_mutation,
-        "raw.terminal.create_detached",
-        &projection,
-        projection.clone(),
-    ) {
-        if let Err(close_error) = mux.end_unpublished_detached_terminal(
-            &result.terminal_id,
-            result.terminal_incarnation.as_deref(),
-        ) {
-            eprintln!(
-                "cmux-tui: could not end detached terminal {} after its creation failed: \
-                 {close_error:#}",
-                result.terminal_id
-            );
-        }
-        return Err(error);
-    }
-    mux.activate_created_terminal_surface(result.created_surface)?;
-    mux.reap_created_terminal_surface(result.created_surface);
-    let terminal = mux
-        .resolve_terminal(&result.terminal_id)?
-        .context("created terminal has no durable terminal row")?;
-    let terminal_resource_id = mux.terminal_public_id_for_host(&result.terminal_id)?;
-    let already_exited = terminal.terminal.lifecycle == TerminalLifecycle::Exited;
-    Ok(json!({
-        "surface": Value::Null,
-        "terminal_id": terminal.terminal.terminal_id,
-        "terminal_incarnation": terminal.terminal.incarnation,
-        "terminal_resource_id": terminal_resource_id,
-        "pane": Value::Null,
-        "screen": Value::Null,
-        "workspace": Value::Null,
-        "key": crate::mux::DETACHED_TERMINAL_WORKSPACE_KEY,
-        "lifecycle": terminal.terminal.lifecycle,
-        "exit": terminal.terminal.exit,
-        "already_exited": already_exited,
-        "terminal_revision": terminal.terminal_revision,
-        "replayed": result.replayed,
-        "registry_id": registry_id,
-        "generation": generation,
-    }))
-}
-
 /// Apply `keep: true` from a creating command. A terminal without a durable
 /// host (an in-process test surface) has nothing to reap.
 fn keep_created_terminal(mux: &Mux, terminal_id: Option<&str>) -> anyhow::Result<()> {
@@ -16796,10 +16516,6 @@ mod personal_terminal_tests;
 #[cfg(test)]
 #[path = "server/browser_profile_tests.rs"]
 mod browser_profile_tests;
-
-#[cfg(test)]
-#[path = "server/remote_terminal_tabs_tests.rs"]
-mod remote_terminal_tabs_tests;
 
 #[cfg(test)]
 mod tests {

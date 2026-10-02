@@ -6340,37 +6340,3 @@ fn terminal_keep_persists_and_rejects_unknown_and_closed_terminals() {
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
-
-/// `detached-terminals-v1`: a detached terminal is kept from the commit that
-/// reserves it, so no crash or error between the reservation and a separate
-/// keep write can leave a reserved detached terminal reapable, and no
-/// failed keep write can leave a receipt that replays a terminal that never
-/// started.
-#[test]
-fn cmux_next_detached_terminal_reservation_commits_keep_atomically() {
-    let mut registry = WorkspaceRegistry::in_memory("detached-keep").unwrap();
-    let terminal = RegistryTerminal {
-        terminal_id: TERMINAL_TWO.into(),
-        workspace_key: DETACHED_TERMINAL_WORKSPACE_KEY.into(),
-        incarnation: None,
-        lifecycle: TerminalLifecycle::Launching,
-        launch_spec: json!({"argv":["/bin/sh"]}),
-        exit: None,
-        on_exit: TerminalOnExit::Close,
-    };
-    let mutation = WorkspaceMutation::new("detached-reserve", "test").unwrap();
-    let fingerprint = json!({"operation":"create-terminal","detached":true});
-    let commit = registry
-        .commit_terminal(
-            &mutation,
-            &fingerprint,
-            None,
-            None,
-            "terminal-reserved",
-            &terminal,
-            &json!({"terminal_id":TERMINAL_TWO}),
-        )
-        .unwrap();
-    assert!(!commit.replayed);
-    assert!(registry.terminal_keep(TERMINAL_TWO).unwrap(), "the reservation keeps it");
-}
