@@ -166,7 +166,7 @@ public final class CloudTuiManualIOConnection: @unchecked Sendable {
     @concurrent public func sendChecked(line: Data) async throws {
         try Task.checkCancellation()
         let token = UUID()
-        admissionTokens.withLock { $0.insert(token) }
+        _ = admissionTokens.withLock { $0.insert(token) }
         try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 queue.async { [self, line] in
