@@ -1,3 +1,4 @@
+import type { PermissionClientState } from "./permissions/protocol";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
@@ -55,6 +56,8 @@ export type AcpmuxFileDiff = { path: string; oldText?: string; newText: string; 
 
 export type AcpmuxPermission = {
   permissionId: string;
+  groupId?: string;
+  turnId?: string;
   title?: string;
   kind?: string;
   pending: boolean;
@@ -99,6 +102,7 @@ export type AcpmuxSnapshot = {
   canFork?: boolean;
   canHandoff?: boolean;
   handoff?: HandoffClientState;
+  permissionGroups?: PermissionClientState;
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
   catalog: { id: string; name: string; models: { id: string; name?: string }[] }[];

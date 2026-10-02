@@ -4,6 +4,8 @@ import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./session
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { HandoffClient } from "./handoff/client";
+import { PermissionGroupClient } from "./permissions/client";
+import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -38,7 +40,7 @@ export type EventRecord = {
   msg: Record<string, any>;
 };
 type Session = Record<string, any> & { sessionId: string };
-type Reply = { id: number; result?: any; error?: { message?: string; data?: unknown } };
+type Reply = { id: number; result?: any; error?: { code?: number; message?: string; data?: unknown } };
 type Notification = { method: string; params?: any };
 type Listener = (snapshot: AcpmuxSnapshot) => void;
 
@@ -55,6 +57,8 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
   return {
     permissionId: String(permissionId),
+    groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
+    turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
     title: raw.toolCall?.title,
     kind: raw.toolCall?.kind,
     pending: true,
@@ -233,6 +237,7 @@ export class AcpmuxDirectClient {
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
+  private groupedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
   private usage: { used: number; size: number } | undefined;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
@@ -248,6 +253,16 @@ export class AcpmuxDirectClient {
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
+  );
+  readonly permissions = new PermissionGroupClient(
+    (method, params) => this.request(method, params, 15000),
+    () => {
+      for (const group of this.permissions.state.groups)
+        for (const item of group.items) if (item.state !== "pending") this.groupedPermissions.delete(item.permissionId);
+      if (!this.permissions.state.supported && !this.pendingPermission)
+        this.pendingPermission = [...this.groupedPermissions.values()].at(-1);
+      this.emit();
+    },
   );
   private forking = false;
   private streamingAssistant?: string;
@@ -321,6 +336,8 @@ export class AcpmuxDirectClient {
           return;
         }
         this.handoff.disconnect();
+        this.groupedPermissions.clear();
+        this.permissions.disconnected();
         this.rejectPending();
         this.emit("disconnected");
         if (!this.hasConnected || this.closed) return;
@@ -340,6 +357,9 @@ export class AcpmuxDirectClient {
       });
       this.canFork = servesOperation(initialized, FORK_OP);
       this.handoffSupported = supportsHandoff(initialized);
+      const groupedPermissionsSupported = supportsPermissionGroups(initialized);
+      if (!groupedPermissionsSupported) this.groupedPermissions.clear();
+      this.permissions.configure(groupedPermissionsSupported);
       const watched = await this.request("_acpmux/watch", { enabled: true });
       this.sessions = this.reread(watched?.sessions);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
@@ -390,9 +410,11 @@ export class AcpmuxDirectClient {
     this.messageRows.clear();
     this.toolRows.clear();
     this.pendingPermission = undefined;
+    this.groupedPermissions.clear();
     this.commands = [];
     this.commandsApplied = false;
     this.handoff.select(this.selectedSessionId);
+    this.permissions.select(this.selectedSessionId);
   }
 
   private scheduleReconnect(): void {
@@ -448,6 +470,7 @@ export class AcpmuxDirectClient {
     if (!sessionId || this.attachedGeneration !== this.selectionGeneration) return;
     if (Array.isArray(params?.sessionIds) && !params.sessionIds.map(String).includes(sessionId)) return;
     this.emit("resyncing");
+    void this.permissions.refresh().catch(() => {});
     const generation = this.selectionGeneration;
     void this.fetchMissedEvents(sessionId, generation, this.lastSeq).catch(() => {
       if (!this.closed && generation === this.selectionGeneration)
@@ -540,13 +563,21 @@ export class AcpmuxDirectClient {
   }
 
   private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {
-    if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("acpmux WebSocket is not open"));
+    if (this.socket?.readyState !== WebSocket.OPEN)
+      return Promise.reject(
+        Object.assign(new Error("acpmux WebSocket is not open"), { code: "native.not_connected", origin: "native" }),
+      );
     const id = this.nextRequest++;
     return new Promise((resolve, reject) => {
       const timer = deadline
         ? setTimeout(() => {
             this.pending.delete(id);
-            reject(new Error("Continuation request timed out. Read its saved state before retrying."));
+            reject(
+              Object.assign(new Error("The agent request timed out. Read its saved state before retrying."), {
+                code: "native.timed_out",
+                origin: "native",
+              }),
+            );
           }, deadline)
         : undefined;
       this.pending.set(id, { resolve, reject, timer });
@@ -581,6 +612,22 @@ export class AcpmuxDirectClient {
     this.events = mergeEventRecords(page, this.events);
     this.rebuild();
     this.attachedGeneration = generation;
+    this.permissions.select(sessionId);
+    await this.permissions.refresh().catch(() => {});
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+    if (Array.isArray(detail.pending)) {
+      const groupedIds = new Set(
+        this.permissions.state.supported
+          ? this.permissions.state.groups.flatMap((group) => group.items.map((item) => item.permissionId))
+          : [],
+      );
+      this.pendingPermission = detail.pending
+        .map((item: any) => permissionFromMessage({ ...item, sessionId }, sessionId))
+        .find(
+          (item: AcpmuxPermission | undefined) =>
+            item && (!this.permissions.state.supported || (!item.groupId && !groupedIds.has(item.permissionId))),
+        );
+    }
     if (this.handoffSupported) {
       this.handoff.select(sessionId);
       try {
@@ -642,6 +689,10 @@ export class AcpmuxDirectClient {
   private applyPermission(message: any): void {
     const permission = permissionFromMessage(message, this.selectedSessionId ?? "");
     if (!permission) return;
+    if (permission.groupId && this.permissions.state.supported) {
+      this.groupedPermissions.set(permission.permissionId, permission);
+      return;
+    }
     this.pendingPermission = permission;
     this.emit("permission");
   }
@@ -703,7 +754,15 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
     else if (event.kind === "permission_request") this.applyPermission({ ...msg, sessionId: event.sessionId });
-    else if (event.kind === "permission_decision") this.pendingPermission = undefined;
+    else if (event.kind === "permission_decision") {
+      if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
+      else this.groupedPermissions.clear();
+      if (!msg.permissionId || this.pendingPermission?.permissionId === msg.permissionId)
+        this.pendingPermission = this.permissions.state.supported
+          ? undefined
+          : [...this.groupedPermissions.values()].at(-1);
+    } else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
+      void this.permissions.refresh().catch(() => {});
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
   }
 
@@ -749,6 +808,8 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
+        this.pendingPermission = undefined;
+        this.groupedPermissions.clear();
         if (this.streamingAssistant) {
           const row = this.rows.get(this.streamingAssistant);
           if (row) {
@@ -920,6 +981,7 @@ export class AcpmuxDirectClient {
       canFork: this.canFork,
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
+      permissionGroups: this.permissions.state,
       queue: this.queue,
       permission: this.pendingPermission,
       catalog: [],
@@ -1013,6 +1075,9 @@ export class AcpmuxDirectClient {
     if (this.selectedSessionId)
       await this.request("_acpmux/permission_respond", { sessionId: this.selectedSessionId, permissionId, optionId });
   }
+  async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
+    await this.permissions.respond(groupId, revision, decision);
+  }
   async select(sessionId: string): Promise<string | undefined> {
     const previousSessionId = this.selectedSessionId;
     const generation = ++this.selectionGeneration;
@@ -1099,6 +1164,7 @@ export class AcpmuxDirectClient {
     this.closed = true;
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
+    this.permissions.disconnected();
     this.socket?.close();
     this.socket = undefined;
     this.rejectPending();
@@ -1106,7 +1172,12 @@ export class AcpmuxDirectClient {
   private rejectPending(): void {
     for (const request of this.pending.values()) {
       if (request.timer) clearTimeout(request.timer);
-      request.reject(new Error("acpmux WebSocket closed"));
+      request.reject(
+        Object.assign(new Error("The agent connection was interrupted. Read its saved state before retrying."), {
+          code: "native.timed_out",
+          origin: "native",
+        }),
+      );
     }
     this.pending.clear();
   }

@@ -17,6 +17,8 @@ describe("direct acpmux event helpers", () => {
       {
         sessionId: "selected",
         permissionId: "permission-1",
+        groupId: "group-1",
+        turnId: "turn-1",
         request: {
           sessionId: "agent-request-id",
           toolCall: { title: "Run command", kind: "execute" },
@@ -26,6 +28,8 @@ describe("direct acpmux event helpers", () => {
       "selected",
     );
     expect(permission?.permissionId).toBe("permission-1");
+    expect(permission?.groupId).toBe("group-1");
+    expect(permission?.turnId).toBe("turn-1");
     expect(permission?.options[0]?.id).toBe("yes");
   });
 
@@ -125,11 +129,11 @@ class ScriptedSocket {
     this.reply(request!, result);
   }
   /// Answers a held request with a JSON-RPC error.
-  fail(method: string) {
+  fail(method: string, error: { code?: number; message?: string; data?: unknown } = { message: `${method} failed` }) {
     const index = this.waiting.findIndex((request) => request.method === method);
     if (index < 0) throw new Error(`no ${method} request is waiting`);
     const [request] = this.waiting.splice(index, 1);
-    this.onmessage?.({ data: JSON.stringify({ id: request!.id, error: { message: `${method} failed` } }) });
+    this.onmessage?.({ data: JSON.stringify({ id: request!.id, error }) });
   }
   notify(method: string, params: unknown) {
     this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
@@ -198,6 +202,156 @@ describe("direct client session state", () => {
   });
 
   const connect = () => AcpmuxDirectClient.connect(host, (snapshot) => snapshots.push(snapshot));
+
+  test("grouped permissions reconcile on attach, suppress duplicate requests and keep interactive asks", async () => {
+    const operations = [
+      "_acpmux/permission_groups",
+      "_acpmux/permission_group_respond",
+      "_acpmux/permission_chat_revoke",
+    ];
+    const group = {
+      groupId: "g",
+      sessionId: "a",
+      turnId: "t",
+      revision: 3,
+      state: "pending",
+      decision: null,
+      decisions: ["allow_once", "allow_chat", "deny"],
+      items: [
+        {
+          permissionId: "grouped",
+          state: "pending",
+          request: {
+            toolCall: { kind: "edit", title: "Write app" },
+            options: [
+              { optionId: "yes", kind: "allow_once" },
+              { optionId: "no", kind: "reject_once" },
+            ],
+          },
+        },
+      ],
+    };
+    let reads = 0;
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "initialize") return { _meta: { acpmux: { operations } } };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach")
+        return {
+          ...attachReply(params.sessionId),
+          session: {
+            sessionId: params.sessionId,
+            pending: [
+              { permissionId: "grouped", request: { toolCall: { title: "Write app" }, options: [] } },
+              { permissionId: "question", request: { toolCall: { title: "Choose a target" }, options: [] } },
+            ],
+          },
+        };
+      if (method === "_acpmux/permission_groups") {
+        reads++;
+        return {
+          groups: params.sessionId === "a" ? [group] : [],
+          chatAllowance: { active: false, expires: "session_stop_or_daemon_restart" },
+          coverage: { label: "acp_requests_only", isolation: "unverified", detail: "ACP only" },
+          batching: { windowMs: 100, maxItems: 32, maxPendingGroups: 64, maxReceipts: 64 },
+        };
+      }
+      return {};
+    };
+    const client = await connect();
+    expect(latest().permissionGroups?.groups[0]?.groupId).toBe("g");
+    expect(latest().permission?.permissionId).toBe("question");
+    ScriptedSocket.current.notify("_acpmux/permission_pending", {
+      sessionId: "a",
+      permissionId: "grouped",
+      groupId: "g",
+      turnId: "t",
+      request: { options: [] },
+    });
+    expect(latest().permission?.permissionId).toBe("question");
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 9,
+      at: 9,
+      dir: "mux",
+      kind: "permission_group",
+      msg: { group },
+    });
+    await settle();
+    expect(reads).toBeGreaterThan(1);
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 10,
+      at: 10,
+      dir: "mux",
+      kind: "permission_decision",
+      msg: { permissionId: "question" },
+    });
+    ScriptedSocket.held.add("_acpmux/permission_groups");
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 11,
+      at: 11,
+      dir: "mux",
+      kind: "permission_group",
+      msg: { group },
+    });
+    await settle();
+    ScriptedSocket.current.fail("_acpmux/permission_groups", {
+      code: -32601,
+      message: "Unsupported",
+      data: { reason: "operation.unsupported" },
+    });
+    await settle();
+    expect(latest().permissionGroups?.supported).toBe(false);
+    expect(latest().permission?.permissionId).toBe("grouped");
+    ScriptedSocket.held.delete("_acpmux/permission_groups");
+    await client.select("b");
+    expect(latest().permissionGroups?.groups).toEqual([]);
+    client.close();
+  });
+
+  test("an unavailable group read retains an individual interactive ask from the attach snapshot", async () => {
+    ScriptedSocket.held.add("_acpmux/permission_groups");
+    ScriptedSocket.respond = ({ method }) => {
+      if (method === "initialize")
+        return {
+          _meta: {
+            acpmux: {
+              operations: [
+                "_acpmux/permission_groups",
+                "_acpmux/permission_group_respond",
+                "_acpmux/permission_chat_revoke",
+              ],
+            },
+          },
+        };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }] };
+      if (method === "_acpmux/attach")
+        return {
+          events: [],
+          session: {
+            sessionId: "a",
+            pending: [
+              { permissionId: "grouped", groupId: "g", turnId: "t", request: { options: [] } },
+              {
+                permissionId: "question",
+                groupId: null,
+                turnId: null,
+                request: { toolCall: { title: "Choose a target" }, options: [] },
+              },
+            ],
+          },
+        };
+      return {};
+    };
+    const connecting = connect();
+    await settle();
+    ScriptedSocket.current.fail("_acpmux/permission_groups", { code: -32000, message: "The owner is unavailable." });
+    const client = await connecting;
+    expect(latest().permission?.permissionId).toBe("question");
+    expect(latest().permissionGroups?.ready).toBe(false);
+    client.close();
+  });
 
   test("a fresh session whose first kept record is its command list is a new chat with its folder", async () => {
     const commands: EventRecord = {
