@@ -804,5 +804,40 @@ return { hasLast: tree.includes("Pick 4999"), picked: await $P.locator("#picked"
     },
     expect: { hasLast: true, picked: "picked 4321", count: 5000 },
   },
+  {
+    id: "edge.ime-only-editor",
+    edge: "ime-only-editor",
+    appOnly: true,
+    path: "/diff/editor.html",
+    // A Google Sheets style cell editor in WebKit: text that arrives without
+    // a keydown or a composition stays in the DOM but never reaches the model.
+    code: `await $P.locator("#grid").click();
+await $P.keyboard.insertText("alpha");
+await $P.keyboard.press("Enter");
+await $P.locator("#strict").fill("gamma");
+return { committed: await $P.locator("#value").innerText(), strict: await $P.locator("#strict").innerText(), trusted: $LOG.filter((r) => r[1] === "grid" && r[0] === "input").every((r) => r[2]) };`,
+    scope: { aside: "reproduces WebKit's editing path; Chrome's editor accepts an IME commit without a composition", chatgpt: "reproduces WebKit's editing path; Chrome's editor accepts an IME commit without a composition" },
+    expect: { committed: "alpha", strict: "gamma", trusted: true },
+  },
+  {
+    id: "edge.trusted-paste",
+    edge: "trusted-paste",
+    appOnly: true,
+    path: "/diff/editor.html",
+    // Meta+V fires a trusted paste event whose clipboardData holds the tab's
+    // clipboard (every type), the way Google Sheets reads a paste.
+    code: `await page.clipboard.write([{ type: "text/plain", data: "beta" }, { type: "text/html", data: "<b>beta</b>" }]);
+await $P.locator("#grid").click();
+await $P.keyboard.press("ControlOrMeta+v");
+const paste = await $P.locator("#paste").innerText();
+await page.clipboard.writeText("-");
+await $P.locator("#strict").click();
+await $P.keyboard.type("ab");
+await $P.keyboard.press("ControlOrMeta+a");
+await $P.keyboard.press("ControlOrMeta+c");
+const copied = await page.clipboard.readText();
+return { paste: paste === "untrusted" ? paste : JSON.parse(paste || "null"), committed: await $P.locator("#value").innerText(), copied };`,
+    scope: { aside: "Aside's paste reads the system clipboard, which these tests do not touch", chatgpt: "ChatGPT's real paste reads the system clipboard, which these tests do not touch" },
+    expect: { paste: { text: "beta", html: "<b>beta</b>", types: ["text/html", "text/plain"] }, committed: "beta", copied: "ab" },
+  },
 ];
-
