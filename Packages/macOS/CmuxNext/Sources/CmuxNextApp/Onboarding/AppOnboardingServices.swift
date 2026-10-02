@@ -32,11 +32,14 @@ final class AppOnboardingServices: OnboardingServices {
     func applyAppearance(themeName: String?, density: Density) {
         guard let settings = services.settings else { return }
         let current = selectedThemeName
+        // Before the first load the snapshot is empty: "no theme" there is
+        // unknown, not the user's choice, so it never deletes a saved theme.
+        let loaded = settings.loadCount > 0
         Task {
             if themeName != current {
                 if let themeName {
                     try? await settings.set(.string(themeName), at: TerminalThemeSetting.path)
-                } else {
+                } else if loaded {
                     try? await settings.file.remove(TerminalThemeSetting.path)
                 }
             }

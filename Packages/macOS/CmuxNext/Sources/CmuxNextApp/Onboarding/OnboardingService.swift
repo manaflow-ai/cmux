@@ -91,6 +91,9 @@ final class OnboardingService {
         // task-owner: one-shot launch check; ends after one file read
         Task { [weak self] in
             let needed = await Task.detached { state.needsOnboarding() }.value
+            // The theme step records the theme it may put back on Skip; read
+            // it from the loaded settings, never the empty snapshot before them.
+            await self?.services.settings?.waitForLoad(atLeast: 1)
             guard needed, let self, !self.isShowing else { return }
             show()
         }
