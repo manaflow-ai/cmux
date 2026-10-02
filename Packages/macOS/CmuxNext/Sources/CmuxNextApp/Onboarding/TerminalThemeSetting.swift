@@ -38,7 +38,7 @@ final class TerminalThemeSetting {
     /// (dark) or Apple System Colors Light, in memory only (nil: back to the
     /// configured theme). Never writes cmux.json.
     func preview(dark: Bool?) {
-        GhosttyRuntime.themeOverride = dark.map { $0 ? "Apple System Colors" : "Apple System Colors Light" } ?? applied?.theme
+        GhosttyRuntime.themeOverride = dark.map { $0 ? GhosttyRuntime.defaultDarkThemeName : GhosttyRuntime.defaultLightThemeName } ?? applied?.theme
         GhosttyRuntime.shared.reloadConfig()
     }
 

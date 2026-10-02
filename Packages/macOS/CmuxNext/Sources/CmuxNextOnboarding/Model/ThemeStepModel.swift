@@ -18,7 +18,10 @@ public final class ThemeStepModel {
 
     init(services: any OnboardingServices) {
         self.services = services
-        choices = [ThemeChoice(name: nil, input: services.ghosttyTheme)]
+        // No theme of the user's own: the first choice is cmux's default,
+        // Apple System Colors following the macOS appearance.
+        choices = [ThemeChoice(name: nil, input: services.ghosttyTheme,
+                               label: services.ghosttyHasOwnTheme ? nil : OnboardingStrings.appleSystemTheme)]
         selected = services.selectedThemeName
         originalTheme = services.selectedThemeName
         density = services.density

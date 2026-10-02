@@ -96,7 +96,8 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
       anchor.current = splice.anchor;
       writePrompt(node, splice.value);
       node.setSelectionRange(splice.selectionStart, splice.selectionEnd);
-      if (update.state === "idle" && !update.cancelled && autoSend && splice.placed) node.form?.requestSubmit();
+      // Submit on the next task, once the composer's state holds the dictated text.
+      if (update.state === "idle" && !update.cancelled && autoSend && splice.placed) setTimeout(() => node.form?.requestSubmit(), 0);
     };
     const receive = (update: DictationUpdate) => {
       requested.current = false;

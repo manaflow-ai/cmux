@@ -96,7 +96,7 @@ extension TabStripView {
         if let window { phantomPoint = convert(window.convertPoint(fromScreen: screenPoint), from: nil) }
         setHovered(nil)
         setHoveredChip(nil)
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         if target.index != dropPlaceholderIndex || target.groupID != dropPlaceholderGroup || groupWidth != groups.phantomWidth {
             dropPlaceholderIndex = target.index
             dropPlaceholderGroup = target.groupID

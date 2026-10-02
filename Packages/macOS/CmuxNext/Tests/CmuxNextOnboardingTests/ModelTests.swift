@@ -48,6 +48,17 @@ import Testing
         #expect(services.selectedThemeName == "Nord")
     }
 
+    @Test func withoutAThemeOfTheirOwnTheDefaultIsAppleSystem() {
+        let services = MockOnboardingServices()
+        services.ghosttyHasOwnTheme = false
+        services.selectedThemeName = "Nord"
+        let model = OnboardingModel(services: services, start: .theme)
+        #expect(OnboardingStrings.themeName(model.theme.choices[0]) == "Apple System (follows appearance)")
+        model.theme.select(nil)
+        #expect(services.selectedThemeName == nil, "choosing the default writes no theme")
+        #expect(OnboardingStrings.themeName(OnboardingModel(services: MockOnboardingServices(), start: .theme).theme.choices[0]) == "Your Ghostty Theme")
+    }
+
     @Test func continueKeepsTheThemeClosingBeforeRevertsIt() {
         let services = MockOnboardingServices()
         let model = OnboardingModel(services: services, start: .theme)

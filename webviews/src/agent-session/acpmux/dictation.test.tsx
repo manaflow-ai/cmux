@@ -51,22 +51,32 @@ async function mountPane(options: { refuse?: string } = {}) {
   const send = async (update: Partial<DictationUpdate> & Pick<DictationUpdate, "state">) => {
     await act(async () => dom.window.cmuxAcpmuxBridge!.dictation!({ text: "", level: 0, cancelled: false, ...update }));
   };
+  /// Types into the prompt the way the browser does: the composer keeps the text as state.
+  const type = async (value: string, caret = value.length) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(prompt, value);
+      prompt.setSelectionRange(caret, caret);
+      prompt.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+  };
   const methods = () => posted.map((message) => message.method).filter((method) => method !== "ready");
   const unmount = async () => {
     await act(async () => root.unmount());
     delete host.webkit;
     delete host.cmuxAcpmuxRegistry;
   };
-  return { document, prompt, mic, send, posted, methods, unmount };
+  return { document, prompt, mic, send, posted, methods, unmount, type };
 }
 
 describe("composer dictation", () => {
   test("the mic toggles native dictation and the words land at the cursor", async () => {
     const pane = await mountPane();
     try {
-      pane.prompt.value = "Please  now";
-      pane.prompt.setSelectionRange(7, 7);
+      await pane.type("Please  now", 7);
       expect(pane.mic().getAttribute("aria-label")).toBe("Dictate");
+      // The mic is the composer's accessory, just before Send.
+      expect(pane.mic().parentElement?.className).toBe("acpmux-composer-actions");
+      expect(pane.mic().nextElementSibling?.classList.contains("acpmux-send")).toBe(true);
       await act(async () => pane.mic().click());
       expect(pane.methods()).toEqual(["dictation.toggle"]);
       await pane.send({ state: "starting" });
@@ -91,8 +101,7 @@ describe("composer dictation", () => {
   test("Esc cancels a running session and its words leave the prompt", async () => {
     const pane = await mountPane();
     try {
-      pane.prompt.value = "keep ";
-      pane.prompt.setSelectionRange(5, 5);
+      await pane.type("keep ", 5);
       const escape = () => pane.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
       // Idle: Esc is not ours.
       expect(escape()).toBe(true);
@@ -132,6 +141,7 @@ describe("composer dictation", () => {
       await act(async () => dom.window.cmuxAcpmuxBridge!.applyCustomization({ layout: { dictation: { autoSend: true } } }));
       await pane.send({ state: "listening", text: "ship it" });
       await pane.send({ state: "idle", text: "ship it" });
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
       expect(pane.posted.at(-1)).toMatchObject({ method: "chat.send", params: { text: "ship it" } });
       await act(async () => dom.window.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
     } finally {
@@ -218,7 +228,7 @@ describe("composer dictation", () => {
     try {
       await act(async () => dom.window.cmuxAcpmuxBridge!.applyCustomization({ layout: { dictation: { autoSend: true } } }));
       await pane.send({ state: "listening", text: "first message" });
-      pane.prompt.value = "typing new";
+      await pane.type("typing new");
       await pane.send({ state: "idle", text: "first message" });
       expect(pane.methods()).not.toContain("chat.send");
       expect(pane.prompt.value).toBe("typing new");
@@ -231,8 +241,7 @@ describe("composer dictation", () => {
   test("a cancel that arrives during a composition is not lost behind the next session", async () => {
     const pane = await mountPane();
     try {
-      pane.prompt.value = "keep ";
-      pane.prompt.setSelectionRange(5, 5);
+      await pane.type("keep ", 5);
       await pane.send({ state: "listening", text: "drop this" });
       pane.prompt.dispatchEvent(new dom.window.Event("compositionstart"));
       await pane.send({ state: "idle", cancelled: true });

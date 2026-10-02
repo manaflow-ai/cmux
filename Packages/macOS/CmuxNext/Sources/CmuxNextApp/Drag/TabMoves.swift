@@ -9,8 +9,8 @@ import Foundation
 enum TabMoves {
     typealias Completion = @MainActor (Bool) -> Void
 
-    /// Reorder or cross-pane move to `index` (final display index), with an
-    /// optimistic store patch settled by the transaction echo.
+    /// Reorder or cross-pane move to `index` (final display index), shown
+    /// at once as an intent in the store's intent log.
     static func move(_ tab: TabModel, to pane: PaneModel, index: Int, services: AppServices,
                      transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
@@ -22,8 +22,8 @@ enum TabMoves {
         let wire = TabMoveIndex.wireIndex(finalIndex: index, currentIndex: current)
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         services.registry.track(Task {
-            let ok = await daemon.commit("move-tab", patch: .moveTab(surface: surface, toPane: target, index: index),
-                                                   transaction: transaction, expectEcho: echoes) { connection -> Void in
+            let ok = await daemon.intend("move-tab", .moveTab(surface: surface, toPane: target, index: index),
+                                         transaction: transaction) { connection -> Void in
                 _ = try await connection.moveTab(surface, to: target, index: wire, transaction: echoes ? transaction : nil)
             } != nil
             completion(ok)
@@ -50,8 +50,7 @@ enum TabMoves {
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         services.registry.track(Task {
-            let ok = await daemon.commit("move-tab-to-split", patch: .custom { _ in }, transaction: transaction,
-                                                   expectEcho: echoes) { connection -> Void in
+            let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {
                     _ = try await connection.moveTabToSplit(surface, pane: paneHandle, edge: edge, transaction: echoes ? transaction : nil)
                 } catch DaemonError.missingCapabilities {
@@ -75,8 +74,7 @@ enum TabMoves {
         let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
         let width = spawn.width
         services.registry.track(Task {
-            let ok = await daemon.commit("move-tab-to-column", patch: .custom { _ in }, transaction: transaction,
-                                                   expectEcho: echoes) { connection -> Void in
+            let ok = await daemon.request("move-tab-to-column") { connection -> Void in
                 do {
                     _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), afterColumn: afterColumn,
                                                              width: width, transaction: echoes ? transaction : nil)
@@ -100,8 +98,7 @@ enum TabMoves {
         let surface = tab.surface
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         let before = Set(daemon.store.workspaces.compactMap(\.key))
-        let key = await daemon.commit("move-tab-to-new-workspace", patch: .custom { _ in }, transaction: transaction,
-                                               expectEcho: echoes) { connection -> WorkspaceKey? in
+        let key = await daemon.request("move-tab-to-new-workspace") { connection -> WorkspaceKey? in
             let result = try await connection.moveTabToNewWorkspace(surface, group: group, index: index, transaction: echoes ? transaction : nil)
             let created: WorkspaceKey?
             if let resultKey = result.key {
@@ -131,8 +128,7 @@ enum TabMoves {
         let surface = tab.surface, handle = workspace.handle
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         services.registry.track(Task {
-            let ok = await daemon.commit("move-tab-to-workspace", patch: .custom { _ in }, transaction: transaction,
-                                                   expectEcho: echoes) { connection -> Void in
+            let ok = await daemon.request("move-tab-to-workspace") { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
             } != nil
             completion(ok)
