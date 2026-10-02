@@ -96,6 +96,129 @@ export type CronSpec = {
 /** A device (hardware) that groups installs. */
 export type DeviceId = string
 
+export type FeedAction = {
+  readonly id: string
+  readonly label: string
+  readonly style?: "default" | "primary" | "destructive"
+  readonly answer?: unknown
+}
+
+/** A file attached to a feed item or an answer. */
+export type FeedAttachment = {
+  readonly id: string
+  readonly name: string
+  readonly mime: string
+  readonly size: number
+  readonly sha256: string
+  readonly ref: string
+}
+
+export type FeedCancelReason = "poster" | "declined" | "answered_elsewhere" | "superseded" | "poster_gone"
+
+/** What the item is about; clients open it and use it for the visibility rule. */
+export type FeedContext = {
+  readonly host?: string
+  readonly workspace?: string
+  readonly tab?: string
+  readonly terminal?: string
+  readonly browser_tab?: string
+  readonly acp_session?: string
+  readonly task?: string
+  readonly url?: string
+}
+
+export type FeedFilter = {
+  readonly poster_kind?: FeedPosterKind
+  readonly thread?: string
+  readonly workspace?: string
+  readonly kind?: FeedKind
+}
+
+/** One notice or request in a user's feed. */
+export type FeedItem = {
+  readonly id: FeedItemId
+  readonly home: string
+  readonly type: "notice" | "request"
+  readonly kind: FeedKind
+  readonly title: string
+  readonly body: string
+  readonly prompt?: unknown
+  readonly answer_schema?: unknown
+  readonly priority: FeedPriority
+  readonly dedupe_key: string | null
+  readonly thread: string | null
+  readonly context: FeedContext
+  readonly attachments: ReadonlyArray<FeedAttachment>
+  readonly actions: ReadonlyArray<FeedAction>
+  readonly open: FeedOpen | null
+  readonly poster: FeedPoster
+  readonly state: FeedState
+  readonly answer: {
+    readonly value: unknown
+    readonly by: string
+    readonly device: string | null
+    readonly at: number
+  } | null
+  readonly cancel: {
+    readonly reason: FeedCancelReason
+    readonly by: string
+    readonly at: number
+    readonly note: string | null
+  } | null
+  readonly needs_mac: boolean
+  readonly expires_at: number
+  readonly read_at: number | null
+  readonly seen_at: number | null
+  readonly archived_at: number | null
+  readonly snoozed_until: number | null
+  readonly push_due_at: number | null
+  readonly pushed_at: number | null
+  readonly count: number
+  readonly order: number
+  readonly revision: number
+  readonly created_at: number
+  readonly updated_at: number
+  readonly closed_at: number | null
+}
+
+/** A feed item; stable when its home moves from a local owner to the cloud. */
+export type FeedItemId = string
+
+/** notice, a built-in request kind, or a custom kind x-<publisher>.<name>. */
+export type FeedKind = string
+
+export type FeedOpen = {
+  readonly action: "tab.focus" | "workspace.focus" | "browser.open" | "browser.duplicateRight" | "url.open" | "task.open" | "acp.session.open" | "app.open"
+  readonly args: Readonly<Record<string, never>>
+}
+
+export type FeedPoster = {
+  readonly kind: FeedPosterKind
+  readonly scope: string
+  readonly label: string
+  readonly install?: string
+  readonly agent?: string
+  readonly harness?: string
+}
+
+export type FeedPosterKind = "agent" | "harness" | "app" | "server" | "vm" | "automation" | "integration" | "system" | "user"
+
+/** Per-user push rules, synced by the feed owner. */
+export type FeedPrefs = {
+  readonly push_enabled: boolean
+  readonly push_delay: {
+    readonly urgent: number | null
+    readonly high: number | null
+    readonly normal: number | null
+    readonly low: number | null
+  }
+  readonly push_skip_when_mac_active: boolean
+}
+
+export type FeedPriority = "low" | "normal" | "high" | "urgent"
+
+export type FeedState = "open" | "answered" | "cancelled" | "expired"
+
 export type Grant = {
   readonly id: GrantId
   readonly grantee: string
@@ -377,6 +500,209 @@ export interface CloudOps {
       readonly scheme: string
     }
   }
+  /** Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect. */
+  readonly "feed.adopt": {
+    readonly params: {
+      readonly item: FeedItem
+    }
+    readonly result: {
+      readonly item: FeedItem
+    }
+  }
+  /** Answer an open request (the user only, origin user). The first answer wins; a closed item is refused with feed.closed. */
+  readonly "feed.answer": {
+    readonly params: {
+      readonly item: FeedItemId
+      readonly answer: unknown
+      readonly device?: string
+    }
+    readonly result: {
+      readonly item: FeedItem
+    }
+  }
+  /** Archive items (done) by ids or a filter. Open requests cannot be archived: answer or decline them (a filter skips them). */
+  readonly "feed.archive": {
+    readonly params: {
+      readonly items?: ReadonlyArray<FeedItemId>
+      readonly filter?: FeedFilter
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<{
+        readonly id: FeedItemId
+        readonly revision: number
+      }>
+    }
+  }
+  /** Cancel an open item: its poster withdraws it, an adapter reports it answered elsewhere, or the user declines it. */
+  readonly "feed.cancel": {
+    readonly params: {
+      readonly item: FeedItemId
+      readonly reason?: FeedCancelReason
+      readonly note?: string
+    }
+    readonly result: {
+      readonly item: FeedItem
+    }
+  }
+  /** Badge counts: open requests, unread active items, open requests by priority. */
+  readonly "feed.counts": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly open_requests: number
+      readonly unread: number
+      readonly by_priority: Readonly<Record<string, number>>
+      readonly by_poster_kind: Readonly<Record<string, number>>
+      readonly revision: string
+    }
+  }
+  /** Read one feed item (its answer once it is answered). An agent reads only the items it posted. */
+  readonly "feed.get": {
+    readonly params: {
+      readonly item: FeedItemId
+    }
+    readonly result: {
+      readonly item: FeedItem
+    }
+  }
+  /** The built-in request kinds with JSON Schemas of their prompt and answer; custom kinds x-<publisher>.<name> carry their own answer_schema. */
+  readonly "feed.kinds": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly kinds: ReadonlyArray<{
+        readonly kind: string
+        readonly priority: FeedPriority
+        readonly needs_mac: boolean
+        readonly docs: string
+        readonly prompt_schema: unknown
+        readonly answer_schema: unknown
+      }>
+    }
+  }
+  /** List feed items in the owner's order (one order for every client), optionally grouped. An agent sees only the items it posted. */
+  readonly "feed.list": {
+    readonly params: {
+      readonly state?: "open" | "closed" | "all"
+      readonly type?: "notice" | "request"
+      readonly kind?: FeedKind
+      readonly unread?: boolean
+      readonly archived?: boolean
+      readonly thread?: string
+      readonly needs_response?: boolean
+      readonly poster_kind?: FeedPosterKind
+      readonly workspace?: string
+      readonly query?: string
+      readonly order?: "urgent" | "recent"
+      readonly group_by?: "thread" | "poster" | "workspace"
+      readonly after?: FeedItemId
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<FeedItem>
+      readonly groups?: ReadonlyArray<{
+        readonly key: string
+        readonly label: string
+        readonly items: ReadonlyArray<FeedItemId>
+      }>
+      readonly next: FeedItemId | null
+      readonly revision: string
+    }
+  }
+  /** Post a notice or a request to the user's feed. A request waits for one answer from the user (use feed.watch or --wait). */
+  readonly "feed.post": {
+    readonly params: {
+      readonly type: "notice" | "request"
+      readonly kind: FeedKind
+      readonly title: string
+      readonly body?: string
+      readonly prompt?: unknown
+      readonly answer_schema?: unknown
+      readonly priority?: FeedPriority
+      readonly dedupe_key?: string
+      readonly thread?: string
+      readonly context?: FeedContext
+      readonly attachments?: ReadonlyArray<FeedAttachment>
+      readonly actions?: ReadonlyArray<FeedAction>
+      readonly open?: FeedOpen
+      readonly expires_in_ms?: number
+      readonly poster?: {
+        readonly kind?: FeedPosterKind
+        readonly label?: string
+        readonly agent?: string
+        readonly harness?: string
+      }
+    }
+    readonly result: {
+      readonly item: FeedItem
+      readonly deduped: boolean
+    }
+  }
+  /** Change the user's synced push rules. */
+  readonly "feed.prefs.set": {
+    readonly params: {
+      readonly push_enabled?: boolean
+      readonly push_delay?: {
+        readonly urgent?: number | null
+        readonly high?: number | null
+        readonly normal?: number | null
+        readonly low?: number | null
+      }
+      readonly push_skip_when_mac_active?: boolean
+    }
+    readonly result: {
+      readonly prefs: FeedPrefs
+    }
+  }
+  /** Mark items read (the user opened or acknowledged them): by ids, by a filter, or `all` unread items. */
+  readonly "feed.read": {
+    readonly params: {
+      readonly items?: ReadonlyArray<FeedItemId>
+      readonly all?: boolean
+      readonly filter?: FeedFilter
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<{
+        readonly id: FeedItemId
+        readonly revision: number
+      }>
+    }
+  }
+  /** Report items the user saw in view (a client's visibility rule); seen items do not push. */
+  readonly "feed.seen": {
+    readonly params: {
+      readonly items: ReadonlyArray<FeedItemId>
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<{
+        readonly id: FeedItemId
+        readonly revision: number
+      }>
+    }
+  }
+  /** Hide items until a time (at most one year ahead); they come back unread. Open requests cannot be snoozed. */
+  readonly "feed.snooze": {
+    readonly params: {
+      readonly items: ReadonlyArray<FeedItemId>
+      readonly until: number
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<{
+        readonly id: FeedItemId
+        readonly revision: number
+      }>
+    }
+  }
+  /** Move archived items back to the active list. */
+  readonly "feed.unarchive": {
+    readonly params: {
+      readonly items: ReadonlyArray<FeedItemId>
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<{
+        readonly id: FeedItemId
+        readonly revision: number
+      }>
+    }
+  }
   /** Comment on a GitHub issue or pull request as the cmux GitHub App installation. */
   readonly "github.issue.comment": {
     readonly params: {
@@ -564,6 +890,20 @@ export const cloudOpMeta = {
   "automation.settings.set": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.update": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.webhook.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "feed.adopt": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.answer": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.archive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.cancel": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.counts": { class: "read", owner: "cloud:FeedDO", risk: "read" },
+  "feed.get": { class: "read", owner: "cloud:FeedDO", risk: "read" },
+  "feed.kinds": { class: "read", owner: "cloud:FeedDO", risk: "read" },
+  "feed.list": { class: "read", owner: "cloud:FeedDO", risk: "read" },
+  "feed.post": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.prefs.set": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.read": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.seen": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.snooze": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.unarchive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },

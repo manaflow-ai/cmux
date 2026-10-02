@@ -52,6 +52,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     this.store = doSql(ctx.storage)
     void ctx.blockConcurrencyWhile(async () => {
       this.store.exec(`CREATE TABLE IF NOT EXISTS do_entity (id INTEGER PRIMARY KEY CHECK (id = 1), entity TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)`)
+      this.store.exec(`CREATE TABLE IF NOT EXISTS do_wake (id INTEGER PRIMARY KEY CHECK (id = 1), attempts INTEGER NOT NULL)`)
       const row = this.store.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
       if (row) this.open(row.entity)
     })
@@ -109,6 +110,14 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    */
   protected nextWakeAt(_state: S, _now: number): number | null {
     return null
+  }
+
+  /**
+   * A frame type the base does not know (for example FeedDO's `presence.set`).
+   * Return true when handled. Never commits state: ops go through `op` frames.
+   */
+  protected onFrame(_ws: WebSocket, _frame: { readonly t?: string } & Record<string, unknown>): boolean {
+    return false
   }
 
   /** Subclasses prune their own side tables older than `before` (same replay window). */
@@ -243,6 +252,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         return
       }
       default:
+        if (this.onFrame(ws, frame as { t?: string } & Record<string, unknown>)) return
         safeSend(ws, JSON.stringify({ t: "error", code: "validation.invalid", message: `unknown frame ${frame.t}` }))
     }
   }
@@ -279,14 +289,21 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     // Bounded prune; if more remain, the oldest is still past the window and the alarm comes back at once.
     this.engine.pruneLedger(Date.now() - LEDGER_RETENTION_MS)
     this.onPrune(Date.now() - LEDGER_RETENTION_MS)
+    // A failing wake backs off like the drain; otherwise its past-due work would refire the alarm at once, forever.
+    let wakeRetryAt: number | null = null
     try {
       await this.onWake(Date.now())
+      this.store.exec(`DELETE FROM do_wake`)
     } catch (e) {
-      console.error(JSON.stringify({ msg: "owner wake failed", stream: this.engine.stream, error: String(e) }))
+      const attempts = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_wake WHERE id = 1`)[0]?.attempts ?? 0) + 1
+      this.store.exec(`INSERT INTO do_wake (id, attempts) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET attempts = excluded.attempts`, attempts)
+      wakeRetryAt = Date.now() + Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempts)
+      console.error(JSON.stringify({ msg: "owner wake failed", stream: this.engine.stream, attempts, error: String(e) }))
     }
     // Ops committed during the wake may have added outbox rows (their afterCommit saw the running alarm).
     if (outboxAt === null && this.engine.outboxPending(1).length > 0) outboxAt = Date.now()
-    const wake = this.wakeAt(Date.now())
+    const due = this.wakeAt(Date.now())
+    const wake = wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due
     const at = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
     if (at !== null) await this.ctx.storage.setAlarm(at)
   }
