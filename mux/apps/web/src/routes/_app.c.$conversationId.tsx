@@ -72,6 +72,7 @@ function Thread() {
       </ol>
       <form className="composer" onSubmit={submit}>
         <textarea
+          autoFocus
           rows={1}
           value={draft}
           placeholder="Message"

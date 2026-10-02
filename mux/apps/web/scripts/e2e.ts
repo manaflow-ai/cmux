@@ -22,8 +22,11 @@ try {
   } else {
     await page.goto(`${base}/?dev_user=e2e-${Date.now().toString(36)}`);
   }
-  await page.getByRole("button", { name: "New conversation" }).click();
-  await page.waitForURL(/\/c\//);
+  // A server with one conversation (the local mux) opens it directly.
+  if (!/\/c\//.test(page.url())) {
+    await page.getByRole("button", { name: "New conversation" }).click();
+    await page.waitForURL(/\/c\//);
+  }
   await page.getByPlaceholder("Message").fill(text);
   await page.keyboard.press("Enter");
   await page.locator(".bubble-row.mine .bubble:not(.sending)").first().waitFor();

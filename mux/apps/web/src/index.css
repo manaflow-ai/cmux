@@ -289,3 +289,10 @@ body {
   font-size: 13px;
   margin: 0;
 }
+
+.app.single {
+  grid-template-columns: 1fr;
+}
+.app.single .list {
+  display: none;
+}

@@ -35,7 +35,8 @@ function AppLayout() {
     await navigate({ to: "/sign-in" });
   };
   return (
-    <div className="app">
+    // One conversation (the local mux): no list, the chat takes the window.
+    <div className={conversations.length <= 1 ? "app single" : "app"}>
       <nav className="list">
         <header className="list-header">
           <span className="list-title">Messages</span>
