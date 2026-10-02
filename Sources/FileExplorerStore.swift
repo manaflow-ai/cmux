@@ -223,13 +223,6 @@ protocol FileExplorerProvider: AnyObject {
     var isAvailable: Bool { get }
 }
 
-struct SSHFileExplorerConnection: Equatable, Sendable {
-    let destination: String
-    let port: Int?
-    let identityFile: String?
-    let sshOptions: [String]
-}
-
 protocol SSHFileExplorerTransport: AnyObject {
     nonisolated func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String
     nonisolated func listDirectory(
@@ -313,9 +306,6 @@ final class SSHFileExplorerProvider: RemoteFileExplorerProvider, @unchecked Send
     }
 
     var destination: String { connection.destination }
-    nonisolated var remoteIdentity: String {
-        "ssh:\(connection.destination)|\(connection.port.map(String.init) ?? "")|\(connection.identityFile ?? "")|\(connection.sshOptions.joined(separator: "\u{1f}"))"
-    }
     var port: Int? { connection.port }
     var identityFile: String? { connection.identityFile }
     var sshOptions: [String] { connection.sshOptions }
@@ -637,22 +627,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
-        var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
-        if let port = connection.port {
-            args += ["-p", String(port)]
-        }
-        if let identityFile = connection.identityFile {
-            args += ["-i", identityFile]
-        }
-        for option in connection.sshOptions {
-            args += ["-o", option]
-        }
-        // Batch mode, no TTY, connection timeout
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        // Forwarding stays as configured: without `ControlMaster=no` this run
-        // can become the shared master that interactive sessions reuse.
-        args += ["--", connection.destination, command]
-        return args
+        connection.sshArguments(command: command)
     }
 
     private static func runSSHListCommand(
@@ -918,8 +893,7 @@ final class FileExplorerStore: ObservableObject {
         Task { [weak self] in
             let status = await Task.detached(priority: .utility) {
                 if let connection {
-                    return source.fetchStatusSSH(directory: path, destination: connection.destination,
-                        port: connection.port, identityFile: connection.identityFile, sshOptions: connection.sshOptions)
+                    return source.fetchStatusSSH(directory: path, connection: connection)
                 }
                 return source.fetchStatus(directory: path)
             }.value
@@ -1016,12 +990,13 @@ final class FileExplorerStore: ObservableObject {
         cancelAllLoads()
         rootNodes = []
         nodesByPath = [:]
-        guard !rootPath.isEmpty, provider != nil else { return }
+        guard !rootPath.isEmpty, let provider else { return }
         isRootLoading = true
         let path = rootPath
+        let context = resourceContextID
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.loadChildren(for: nil, at: path)
+            await self.loadChildren(for: nil, at: path, using: provider, context: context)
         }
         loadTasks[rootPath] = task
     }
@@ -1030,13 +1005,15 @@ final class FileExplorerStore: ObservableObject {
         guard node.resourceContextID == nil || node.resourceContextID == resourceContextID, node.isDirectory else { return }
         expandedPaths.insert(node.path)
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
+            guard let provider else { return }
             node.isLoading = true
             node.error = nil
             objectWillChange.send()
             let nodePath = node.path
+            let context = resourceContextID
             let task = Task { [weak self] in
                 guard let self else { return }
-                await self.loadChildren(for: node, at: nodePath)
+                await self.loadChildren(for: node, at: nodePath, using: provider, context: context)
             }
             loadTasks[node.path] = task
         }
@@ -1092,9 +1069,18 @@ final class FileExplorerStore: ObservableObject {
         prefetchSchedulers[path] = scheduler
         scheduler.schedule(after: .milliseconds(200)) { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, node.children == nil, !self.loadingPaths.contains(path) else { return }
+                guard let self,
+                      let provider = self.provider,
+                      node.children == nil,
+                      !self.loadingPaths.contains(path) else { return }
                 // Silent prefetch: don't show loading indicator
-                await self.loadChildren(for: node, at: path, silent: true)
+                await self.loadChildren(
+                    for: node,
+                    at: path,
+                    using: provider,
+                    context: self.resourceContextID,
+                    silent: true
+                )
             }
         }
     }
@@ -1117,13 +1103,20 @@ final class FileExplorerStore: ObservableObject {
     // MARK: - Private
 
     @MainActor
-    private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
+    private func loadChildren(
+        for parentNode: FileExplorerNode?,
+        at path: String,
+        using provider: FileExplorerProvider,
+        context: UUID,
+        silent: Bool = false
+    ) async {
         guard parentNode?.resourceContextID == nil || parentNode?.resourceContextID == resourceContextID else { return }
         // A load cancelled by cancelAllLoads (e.g. a root reload during an SSH provider swap) must not
         // reach provider.listDirectory: the provider may have been replaced, so a stale in-flight load
         // would list the old path through the new transport. Bail before any listing.
-        guard !Task.isCancelled else { return }
-        guard let provider else { return }
+        guard !Task.isCancelled,
+              resourceContextID == context,
+              self.provider === provider else { return }
 
         if !silent {
             loadingPaths.insert(path)
@@ -1134,6 +1127,7 @@ final class FileExplorerStore: ObservableObject {
         do {
             let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
             try Task.checkCancellation()
+            guard resourceContextID == context, self.provider === provider else { return }
             let children = entries.map { entry in
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
                 node.resourceContextID = resourceContextID
@@ -1174,7 +1168,12 @@ final class FileExplorerStore: ObservableObject {
                 let childPath = child.path
                 let childTask = Task { [weak self] in
                     guard let self else { return }
-                    await self.loadChildren(for: child, at: childPath)
+                    await self.loadChildren(
+                        for: child,
+                        at: childPath,
+                        using: provider,
+                        context: context
+                    )
                 }
                 loadTasks[child.path] = childTask
             }

@@ -1983,6 +1983,7 @@
 		FE5996060000000000000002 /* FileExplorerSearchResultCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996060000000000000001 /* FileExplorerSearchResultCellView.swift */; };
 		FE5996070000000000000002 /* FileExplorerSearchResultsTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996070000000000000001 /* FileExplorerSearchResultsTableView.swift */; };
 		F5996002A1B2C3D4E5F60001 /* FileExplorerShortcutSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5996002A1B2C3D4E5F60002 /* FileExplorerShortcutSettingsTests.swift */; };
+		8A8D3A9A13AD1206F1E9F40D /* FileExplorerSSHSessionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F168DC53D66B4F61ADB42C0A /* FileExplorerSSHSessionMonitor.swift */; };
 		B37A00000000000000000009 /* FileExplorerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000A /* FileExplorerState.swift */; };
 		B37A0000000000000000000B /* FileExplorerStateModePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */; };
 		CFSF00000000000000000008 /* FileExplorerStore+RemoteRoots.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000008 /* FileExplorerStore+RemoteRoots.swift */; };
@@ -3387,6 +3388,7 @@
 		BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */; };
 		F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */; };
 		797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800040000000000000002 /* SSHDeepSleepReattachTests.swift */; };
+		A9E6D2E8A83E261BCD9CBE11 /* SSHFileExplorerConnection+DetectedSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E2A8A076186E1D82773FF2E /* SSHFileExplorerConnection+DetectedSession.swift */; };
 		8410A0020000000000000002 /* SSHForegroundAuthenticationMarkerCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8410A0010000000000000001 /* SSHForegroundAuthenticationMarkerCleanupTests.swift */; };
 		797800050000000000000001 /* SSHPersistentPTYRetryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800050000000000000002 /* SSHPersistentPTYRetryLifecycleTests.swift */; };
 		A87500010000000000000001 /* SSHPTYAttachNoProgressRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87500010000000000000002 /* SSHPTYAttachNoProgressRetryTests.swift */; };
@@ -3871,6 +3873,7 @@
 		A1329C080000000000000101 /* TerminalSizeParticipantRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329C080000000000000001 /* TerminalSizeParticipantRow.swift */; };
 		91E525AB0D9ABD5F965A5FD7 /* TerminalSSHSessionDetectionTimeoutGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DA313712597F71E6015ABBC /* TerminalSSHSessionDetectionTimeoutGate.swift */; };
 		19C3B3B9103CA947118B64FD /* TerminalSSHSessionDetector+Async.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7611B3AEEB664825A7DD8733 /* TerminalSSHSessionDetector+Async.swift */; };
+		9701DBE576FD064E128DE642 /* TerminalSSHSessionDetector+FileExplorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6571374E2CBB8BE3B1C259AC /* TerminalSSHSessionDetector+FileExplorer.swift */; };
 		09B7D763834218583E039E4D /* TerminalSSHSessionDetector+ProcessInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61BF07E91B28C5740AD10DD9 /* TerminalSSHSessionDetector+ProcessInfo.swift */; };
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
 		B42AD1F9F86EEE736ABB7EC3 /* TerminalSSHSessionDetectorProcessSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31BFCF49D4B667B5C2A0BE3C /* TerminalSSHSessionDetectorProcessSnapshotTests.swift */; };
@@ -4147,6 +4150,7 @@
 		D86840000000000000000013 /* Workspace+DockSessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000014 /* Workspace+DockSessionRestore.swift */; };
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
 		5612833801064F77B42F8A36 /* Workspace+ExternalTabDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FA535CA67264C0F864B049B /* Workspace+ExternalTabDrop.swift */; };
+		77A8DAC0B73A8685603A796D /* Workspace+FileExplorerSSHObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 233AB149DDD636E4030F5CB2 /* Workspace+FileExplorerSSHObservation.swift */; };
 		F0ACC0DE0000000000000009 /* Workspace+ForkAgentConversationAvailability.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000A /* Workspace+ForkAgentConversationAvailability.swift */; };
 		F0ACC0DE0000000000000003 /* Workspace+ForkConversationContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000004 /* Workspace+ForkConversationContextMenu.swift */; };
 		112950000000000000000010 /* Workspace+ForkStartupInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11295000000000000000000F /* Workspace+ForkStartupInput.swift */; };
@@ -6302,6 +6306,7 @@
 		FE5996060000000000000001 /* FileExplorerSearchResultCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSearchResultCellView.swift; sourceTree = "<group>"; };
 		FE5996070000000000000001 /* FileExplorerSearchResultsTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSearchResultsTableView.swift; sourceTree = "<group>"; };
 		F5996002A1B2C3D4E5F60002 /* FileExplorerShortcutSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerShortcutSettingsTests.swift; sourceTree = "<group>"; };
+		F168DC53D66B4F61ADB42C0A /* FileExplorerSSHSessionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSSHSessionMonitor.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000A /* FileExplorerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerState.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerStateModePersistenceTests.swift; sourceTree = "<group>"; };
 		CFSR00000000000000000008 /* FileExplorerStore+RemoteRoots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileExplorerStore+RemoteRoots.swift"; sourceTree = "<group>"; };
@@ -7689,6 +7694,7 @@
 		EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHConfiguredRemoteCommandHostTests+Harness.swift"; sourceTree = "<group>"; };
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
 		797800040000000000000002 /* SSHDeepSleepReattachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHDeepSleepReattachTests.swift; sourceTree = "<group>"; };
+		0E2A8A076186E1D82773FF2E /* SSHFileExplorerConnection+DetectedSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHFileExplorerConnection+DetectedSession.swift"; sourceTree = "<group>"; };
 		8410A0010000000000000001 /* SSHForegroundAuthenticationMarkerCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHForegroundAuthenticationMarkerCleanupTests.swift; sourceTree = "<group>"; };
 		797800050000000000000002 /* SSHPersistentPTYRetryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPersistentPTYRetryLifecycleTests.swift; sourceTree = "<group>"; };
 		A87500010000000000000002 /* SSHPTYAttachNoProgressRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachNoProgressRetryTests.swift; sourceTree = "<group>"; };
@@ -8165,6 +8171,7 @@
 		A1329C080000000000000001 /* TerminalSizeParticipantRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSizeParticipantRow.swift; sourceTree = "<group>"; };
 		2DA313712597F71E6015ABBC /* TerminalSSHSessionDetectionTimeoutGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetectionTimeoutGate.swift; sourceTree = "<group>"; };
 		7611B3AEEB664825A7DD8733 /* TerminalSSHSessionDetector+Async.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalSSHSessionDetector+Async.swift"; sourceTree = "<group>"; };
+		6571374E2CBB8BE3B1C259AC /* TerminalSSHSessionDetector+FileExplorer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalSSHSessionDetector+FileExplorer.swift"; sourceTree = "<group>"; };
 		61BF07E91B28C5740AD10DD9 /* TerminalSSHSessionDetector+ProcessInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalSSHSessionDetector+ProcessInfo.swift"; sourceTree = "<group>"; };
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
 		31BFCF49D4B667B5C2A0BE3C /* TerminalSSHSessionDetectorProcessSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalSSHSessionDetectorProcessSnapshotTests.swift"; sourceTree = "<group>"; };
@@ -8438,6 +8445,7 @@
 		D86840000000000000000014 /* Workspace+DockSessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DockSessionRestore.swift"; sourceTree = "<group>"; };
 		E3309A06 /* Workspace+EqualizeSplitsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+EqualizeSplitsSupport.swift"; sourceTree = "<group>"; };
 		7FA535CA67264C0F864B049B /* Workspace+ExternalTabDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ExternalTabDrop.swift"; sourceTree = "<group>"; };
+		233AB149DDD636E4030F5CB2 /* Workspace+FileExplorerSSHObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+FileExplorerSSHObservation.swift"; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000A /* Workspace+ForkAgentConversationAvailability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ForkAgentConversationAvailability.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000004 /* Workspace+ForkConversationContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ForkConversationContextMenu.swift"; sourceTree = "<group>"; };
 		11295000000000000000000F /* Workspace+ForkStartupInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+ForkStartupInput.swift"; sourceTree = "<group>"; };
@@ -11660,6 +11668,10 @@
 				1D73814AACE7C58BF8E4A217 /* PortProcessTableReading.swift */,
 				C037CA7A6B20B3F495BAB401 /* PortTerminalDeviceLookup.swift */,
 				7195972CC9EBB2353ACFF8AB /* TestProcessDefaults.swift */,
+				F168DC53D66B4F61ADB42C0A /* FileExplorerSSHSessionMonitor.swift */,
+				0E2A8A076186E1D82773FF2E /* SSHFileExplorerConnection+DetectedSession.swift */,
+				6571374E2CBB8BE3B1C259AC /* TerminalSSHSessionDetector+FileExplorer.swift */,
+				233AB149DDD636E4030F5CB2 /* Workspace+FileExplorerSSHObservation.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14886,6 +14898,7 @@
 				FE5996050000000000000002 /* FileExplorerSearchField.swift in Sources */,
 				FE5996060000000000000002 /* FileExplorerSearchResultCellView.swift in Sources */,
 				FE5996070000000000000002 /* FileExplorerSearchResultsTableView.swift in Sources */,
+				8A8D3A9A13AD1206F1E9F40D /* FileExplorerSSHSessionMonitor.swift in Sources */,
 				B37A00000000000000000009 /* FileExplorerState.swift in Sources */,
 				CFSF00000000000000000008 /* FileExplorerStore+RemoteRoots.swift in Sources */,
 				ECAF5D9819531E51EA9DB681 /* FileExplorerStore+Workspace.swift in Sources */,
@@ -15798,6 +15811,7 @@
 					A6AC72060000000000000001 /* SpinnerGalleryRootView.swift in Sources */,
 					A6AC72070000000000000001 /* SpinnerSpec.swift in Sources */,
 				A13387000000000000000005 /* SplitPaneGeometryProjection.swift in Sources */,
+				A9E6D2E8A83E261BCD9CBE11 /* SSHFileExplorerConnection+DetectedSession.swift in Sources */,
 					E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				C5CEF76F24FA34BD48C15272 /* SSHTuiAgentStatusProjector.swift in Sources */,
 				C7BB9987974451FAD2D5F467 /* SSHTuiLinkManager.swift in Sources */,
@@ -16168,6 +16182,7 @@
 				A1329C080000000000000101 /* TerminalSizeParticipantRow.swift in Sources */,
 				91E525AB0D9ABD5F965A5FD7 /* TerminalSSHSessionDetectionTimeoutGate.swift in Sources */,
 				19C3B3B9103CA947118B64FD /* TerminalSSHSessionDetector+Async.swift in Sources */,
+				9701DBE576FD064E128DE642 /* TerminalSSHSessionDetector+FileExplorer.swift in Sources */,
 				09B7D763834218583E039E4D /* TerminalSSHSessionDetector+ProcessInfo.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
 				D4A9923A0000000000000001 /* TerminalStartupRestoreCoordinator.swift in Sources */,
@@ -16362,6 +16377,7 @@
 				D86840000000000000000013 /* Workspace+DockSessionRestore.swift in Sources */,
 				E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */,
 				5612833801064F77B42F8A36 /* Workspace+ExternalTabDrop.swift in Sources */,
+				77A8DAC0B73A8685603A796D /* Workspace+FileExplorerSSHObservation.swift in Sources */,
 				F0ACC0DE0000000000000009 /* Workspace+ForkAgentConversationAvailability.swift in Sources */,
 				F0ACC0DE0000000000000003 /* Workspace+ForkConversationContextMenu.swift in Sources */,
 				112950000000000000000010 /* Workspace+ForkStartupInput.swift in Sources */,

@@ -6128,7 +6128,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 _ = updatePanelTitle(panelId: panelId, title: pendingRestoredTitle)
             }
         }
-        panelShellActivityStates[panelId] = state
+        panelShellActivityStates[panelId] = state; postFileExplorerShellActivityChangeIfFocused(panelId: panelId)
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
         }

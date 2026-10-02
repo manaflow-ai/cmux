@@ -25,7 +25,11 @@ struct FileExplorerWorkspaceRootResolver {
         self.managedCloudEnabled = managedCloudEnabled
     }
 
-    func resolve(_ workspace: Workspace) -> FileExplorerWorkspaceRoot {
+    func resolve(
+        _ workspace: Workspace,
+        detectedSSHSession: DetectedSSHSession? = nil,
+        detectedRemoteWorkingDirectory: String? = nil
+    ) -> FileExplorerWorkspaceRoot {
         // A cmux-tui binding is the explicit Cloud filesystem authority. A
         // legacy managedCloudVMID on an SSH workspace must keep using its SSH
         // transport, otherwise Files would silently change hosts.
@@ -112,6 +116,16 @@ struct FileExplorerWorkspaceRootResolver {
                 rootPath: workspace.trustedRemoteCurrentDirectory,
                 isAvailable: workspace.remoteConnectionState == .connected,
                 unavailableDetail: workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
+            )
+        }
+        if let detectedSSHSession {
+            return .remoteSSH(
+                workspaceId: workspace.id,
+                connection: SSHFileExplorerConnection(detectedSSHSession: detectedSSHSession),
+                displayTarget: detectedSSHSession.destination,
+                rootPath: detectedRemoteWorkingDirectory,
+                isAvailable: true,
+                unavailableDetail: nil
             )
         }
         let path = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
