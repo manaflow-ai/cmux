@@ -24,22 +24,41 @@ impl Inner {
         let url = required_str(params, "url")?;
         let wait_until = WaitUntil::parse(params.get("waitUntil").and_then(Value::as_str))?;
         let deadline = Instant::now() + timeout_of(params);
+        let (before, downloads) = self.begin_navigation(&session.target_id);
         let result = self.send_until(&session, "Page.navigate", json!({"url": url}), deadline)?;
         if let Some(error) =
             result.get("errorText").and_then(Value::as_str).filter(|e| !e.is_empty())
         {
             return Err(DriverError::invalid(format!("{error} at {url}")));
         }
-        let Some(loader) = result.get("loaderId").and_then(Value::as_str).map(str::to_owned) else {
+        if result.get("loaderId").and_then(Value::as_str).is_none() {
             // Same-document navigation: committed when Page.navigate returns.
             let url = self.lock().tabs.get(&session.target_id).map(|tab| tab.url.clone());
             return Ok(json!({"url": url.unwrap_or_else(|| url_string(params))}));
-        };
+        }
+        // Any document committed after this call counts, so a client redirect
+        // continues the navigation instead of stranding the wait.
         let what = format!("navigation to {url}");
         self.wait_for(&session.target_id, deadline, &what, |tab| {
-            (tab.loader.as_deref() == Some(loader.as_str()) && reached(tab, wait_until))
+            if tab.download_seq > downloads {
+                return Some(Err(DriverError::invalid(format!("Download is starting: {url}"))));
+            }
+            (tab.nav_seq > before && !tab.last_nav_same_document && reached(tab, wait_until))
                 .then(|| Ok(json!({"url": tab.url})))
         })
+    }
+
+    /// Clears a crash (navigation starts a new renderer) and returns the
+    /// navigation and download counters to wait past.
+    fn begin_navigation(&self, target_id: &str) -> (u64, u64) {
+        let mut state = self.lock();
+        match state.tabs.get_mut(target_id) {
+            Some(tab) => {
+                tab.crashed = false;
+                (tab.nav_seq, tab.download_seq)
+            }
+            None => (0, 0),
+        }
     }
 
     /// Waits for the main-frame navigation that follows `after_seq`, then its load state.
@@ -60,7 +79,7 @@ impl Inner {
         let session = self.session(params)?;
         let wait_until = WaitUntil::parse(params.get("waitUntil").and_then(Value::as_str))?;
         let deadline = Instant::now() + timeout_of(params);
-        let before = self.nav_seq(&session.target_id);
+        let (before, _) = self.begin_navigation(&session.target_id);
         self.send_until(&session, "Page.reload", json!({}), deadline)?;
         self.wait_for_next_load(&session.target_id, before, wait_until, deadline)?;
         Ok(json!({}))
@@ -88,7 +107,7 @@ impl Inner {
         }
         let entry_id =
             entry["id"].as_i64().ok_or_else(|| DriverError::invalid("history entry has no id"))?;
-        let before = self.nav_seq(&session.target_id);
+        let (before, _) = self.begin_navigation(&session.target_id);
         self.send_until(
             &session,
             "Page.navigateToHistoryEntry",
@@ -96,10 +115,6 @@ impl Inner {
             deadline,
         )?;
         self.wait_for_next_load(&session.target_id, before, wait_until, deadline)
-    }
-
-    fn nav_seq(&self, target_id: &str) -> u64 {
-        self.lock().tabs.get(target_id).map(|tab| tab.nav_seq).unwrap_or(0)
     }
 
     pub(super) fn info(&self, params: &Value) -> Result<Value, DriverError> {

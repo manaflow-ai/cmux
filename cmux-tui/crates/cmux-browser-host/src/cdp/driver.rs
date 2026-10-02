@@ -10,9 +10,10 @@
 use super::connection::{CdpConnection, CdpEvent};
 use super::state::{AGENT_WORLD, FollowUp, State, TabState};
 use crate::driver::{Driver, EventSink};
+use crate::protocol::DriverEvent;
 use crate::protocol::{DriverError, ErrorCode, timeout_of};
 use serde_json::{Value, json};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
 /// Deadline for the per-tab setup calls and other internal calls.
@@ -25,7 +26,9 @@ pub struct CdpDriver {
 pub(super) struct Inner {
     pub(super) conn: Arc<CdpConnection>,
     pub(super) agent_source: Arc<str>,
-    events: EventSink,
+    /// Driver events go to the sink from a dispatcher thread, in order, so a
+    /// sink that answers an event with a driver call cannot block the reader.
+    events: Mutex<mpsc::Sender<DriverEvent>>,
     state: Mutex<State>,
     changed: Condvar,
 }
@@ -39,10 +42,19 @@ impl CdpDriver {
         agent_source: impl Into<Arc<str>>,
         events: EventSink,
     ) -> Result<CdpDriver, DriverError> {
+        let (event_tx, event_rx) = mpsc::channel::<DriverEvent>();
+        std::thread::Builder::new()
+            .name("cmux-browser-host-cdp-events".into())
+            .spawn(move || {
+                for event in event_rx {
+                    events(event);
+                }
+            })
+            .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
         let inner = Arc::new(Inner {
             conn: conn.clone(),
             agent_source: agent_source.into(),
-            events,
+            events: Mutex::new(event_tx),
             state: Mutex::new(State::default()),
             changed: Condvar::new(),
         });
@@ -50,6 +62,14 @@ impl CdpDriver {
         conn.set_event_handler(Arc::new(move |event| {
             if let Some(inner) = weak.upgrade() {
                 inner.handle_event(event);
+            }
+        }));
+        let weak: Weak<Inner> = Arc::downgrade(&inner);
+        conn.set_close_handler(Arc::new(move || {
+            if let Some(inner) = weak.upgrade() {
+                // Take the lock so no waiter misses the wake-up between its check and its wait.
+                drop(inner.lock());
+                inner.changed.notify_all();
             }
         }));
         conn.call(None, "Target.setDiscoverTargets", json!({"discover": true}), INTERNAL_TIMEOUT)?;
@@ -134,8 +154,11 @@ impl Inner {
     fn handle_event(self: &Arc<Self>, event: CdpEvent) {
         let applied = self.lock().apply(&event);
         self.changed.notify_all();
-        for event in applied.events {
-            (self.events)(event);
+        if !applied.events.is_empty() {
+            let events = self.events.lock().unwrap_or_else(PoisonError::into_inner);
+            for event in applied.events {
+                let _ = events.send(event);
+            }
         }
         for follow_up in applied.follow_ups {
             let inner = self.clone();
@@ -158,8 +181,28 @@ impl Inner {
                     INTERNAL_TIMEOUT,
                 );
             }
+            FollowUp::SetUpFrame { target_id: _, session_id } => {
+                // Failures leave the frame unreachable; it must still run.
+                if self.set_up_frame(&session_id).is_err() {
+                    let _ = self.conn.call(
+                        Some(&session_id),
+                        "Runtime.runIfWaitingForDebugger",
+                        json!({}),
+                        INTERNAL_TIMEOUT,
+                    );
+                }
+            }
             FollowUp::SetUpPage { target_id, session_id } => {
                 let result = self.set_up_page(&target_id, &session_id);
+                if result.is_err() {
+                    // Never leave a page paused: a popup would hang its opener.
+                    let _ = self.conn.call(
+                        Some(&session_id),
+                        "Runtime.runIfWaitingForDebugger",
+                        json!({}),
+                        INTERNAL_TIMEOUT,
+                    );
+                }
                 let mut state = self.lock();
                 if let Some(tab) = state.tabs.get_mut(&target_id) {
                     tab.ready = true;
@@ -195,8 +238,53 @@ impl Inner {
             json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
         )?;
         call("Emulation.setFocusEmulationEnabled", json!({"enabled": true}))?;
+        // Out-of-process iframes attach as child sessions of this page.
+        call(
+            "Target.setAutoAttach",
+            json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}),
+        )?;
         call("Runtime.runIfWaitingForDebugger", json!({}))?;
         Ok(())
+    }
+
+    fn set_up_frame(&self, session_id: &str) -> Result<(), DriverError> {
+        let call = |method: &str, params: Value| {
+            self.conn.call(Some(session_id), method, params, INTERNAL_TIMEOUT)
+        };
+        call("Page.enable", json!({}))?;
+        call("Page.setLifecycleEventsEnabled", json!({"enabled": true}))?;
+        call("Runtime.enable", json!({}))?;
+        call(
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
+        )?;
+        call(
+            "Target.setAutoAttach",
+            json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}),
+        )?;
+        call("Runtime.runIfWaitingForDebugger", json!({}))?;
+        Ok(())
+    }
+
+    /// The CDP session that owns a frame of a tab (its own session for an
+    /// out-of-process frame, else the tab's).
+    pub(super) fn frame_session(&self, session: &Session, frame_id: &str) -> String {
+        self.lock()
+            .tabs
+            .get(&session.target_id)
+            .and_then(|tab| tab.frame_sessions.get(frame_id).cloned())
+            .unwrap_or_else(|| session.session_id.clone())
+    }
+
+    pub(super) fn send_on(
+        &self,
+        session_id: &str,
+        method: &str,
+        params: Value,
+        deadline: Instant,
+    ) -> Result<Value, DriverError> {
+        let left = deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
+        self.conn.call(Some(session_id), method, params, left)
     }
 
     /// Waits until `check` returns a value for the tab, the tab goes away, or
@@ -332,6 +420,10 @@ impl Inner {
                     .unwrap_or_else(PoisonError::into_inner)
                     .0;
             }
+            if let Some(error) = state.tabs.get(&target_id).and_then(|tab| tab.setup_error.clone())
+            {
+                return Err(DriverError::closed(format!("Tab setup failed: {error}")));
+            }
             if !background {
                 state.active = Some(target_id.clone());
             }
@@ -359,6 +451,9 @@ impl Inner {
         )?;
         let mut state = self.lock();
         while state.tabs.contains_key(&session.target_id) {
+            if let Some(reason) = self.conn.closed_reason() {
+                return Err(DriverError::closed(reason));
+            }
             let now = Instant::now();
             if now >= deadline {
                 return Err(DriverError::timeout("Timed out waiting for the tab to close"));
@@ -386,49 +481,40 @@ impl Inner {
 
     fn dialog_respond(&self, params: &Value) -> Result<Value, DriverError> {
         let dialog_id = crate::protocol::required_str(params, "dialogId")?;
-        let target_id = self
+        let (_, session_id) = self
             .lock()
             .dialogs
-            .remove(dialog_id)
+            .get(dialog_id)
+            .cloned()
             .ok_or_else(|| DriverError::not_found(format!("Dialog {dialog_id} is gone")))?;
-        let session = self.session(&json!({"targetId": target_id}))?;
         let accept = params.get("accept").and_then(Value::as_bool).unwrap_or(false);
         let mut args = json!({"accept": accept});
         if let Some(text) = params.get("promptText").and_then(Value::as_str) {
             args["promptText"] = json!(text);
         }
-        self.send(&session, "Page.handleJavaScriptDialog", args)?;
+        let deadline = Instant::now() + timeout_of(params);
+        self.send_on(&session_id, "Page.handleJavaScriptDialog", args, deadline)?;
+        self.lock().dialogs.remove(dialog_id);
         Ok(Value::Null)
     }
 
     fn cookies_get(&self, params: &Value) -> Result<Value, DriverError> {
         let cookies = self.conn.call(None, "Storage.getCookies", json!({}), INTERNAL_TIMEOUT)?;
         let all = cookies["cookies"].as_array().cloned().unwrap_or_default();
-        let Some(urls) =
-            params.get("urls").and_then(Value::as_array).filter(|urls| !urls.is_empty())
-        else {
-            return Ok(Value::Array(all));
-        };
-        let hosts: Vec<String> = urls
-            .iter()
-            .filter_map(Value::as_str)
-            .filter_map(|url| url.split_once("://").map(|(_, rest)| rest))
-            .map(|rest| {
-                rest.split(['/', '?', '#'])
-                    .next()
-                    .unwrap_or("")
-                    .split(':')
-                    .next()
-                    .unwrap_or("")
-                    .to_owned()
+        let urls: Vec<url::Url> = params
+            .get("urls")
+            .and_then(Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(|u| url::Url::parse(u).ok())
+                    .collect()
             })
-            .collect();
+            .unwrap_or_default();
         let matching = all
-            .into_iter()
-            .filter(|cookie| {
-                let domain = cookie["domain"].as_str().unwrap_or("").trim_start_matches('.');
-                hosts.iter().any(|host| host == domain || host.ends_with(&format!(".{domain}")))
-            })
+            .iter()
+            .filter(|cookie| urls.is_empty() || urls.iter().any(|url| cookie_matches(cookie, url)))
+            .map(playwright_cookie)
             .collect();
         Ok(Value::Array(matching))
     }
@@ -450,17 +536,132 @@ impl Inner {
     }
 
     /// Raw CDP on a tab's session (capability `cdp`). The host grants it per
-    /// session; the driver only routes it.
+    /// session; the driver only routes allowlisted domains. Domains that could
+    /// navigate around the policy, read other origins' cookies, write files,
+    /// capture without masking or stop the driver's own instrumentation
+    /// (`Page`, `Network`, `Fetch`, `Storage`, `Target`, `Browser`, `IO`,
+    /// `Security`, `ServiceWorker`, `SystemInfo`) are refused.
     fn raw_cdp(&self, params: &Value) -> Result<Value, DriverError> {
         let session = self.session(params)?;
         let method = crate::protocol::required_str(params, "method")?;
-        if method.starts_with("Target.") || method.starts_with("Browser.") {
+        if !raw_cdp_allowed(method) {
             return Err(DriverError::new(
                 ErrorCode::Forbidden,
-                format!("{method}: browser-level CDP is not available to sessions"),
+                format!("{method}: this CDP domain is not available to sessions"),
             ));
         }
         let args = params.get("params").cloned().unwrap_or_else(|| json!({}));
         self.send_until(&session, method, args, Instant::now() + timeout_of(params))
+    }
+}
+
+/// CDP domains a session with the raw CDP grant may use.
+const RAW_CDP_DOMAINS: &[&str] = &[
+    "Accessibility",
+    "Animation",
+    "CSS",
+    "DOM",
+    "DOMDebugger",
+    "DOMSnapshot",
+    "Emulation",
+    "Input",
+    "LayerTree",
+    "Log",
+    "Overlay",
+    "Performance",
+    "Profiler",
+    "HeapProfiler",
+    "Runtime",
+    "Debugger",
+];
+
+/// Runtime methods that would stop the driver's own context tracking.
+const RAW_CDP_DENIED: &[&str] = &["Runtime.disable", "Emulation.setFocusEmulationEnabled"];
+
+pub(super) fn raw_cdp_allowed(method: &str) -> bool {
+    let domain = method.split('.').next().unwrap_or("");
+    RAW_CDP_DOMAINS.contains(&domain) && !RAW_CDP_DENIED.contains(&method) && method.contains('.')
+}
+
+/// RFC 6265 domain and path match, plus `secure` on non-https URLs.
+fn cookie_matches(cookie: &Value, url: &url::Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let domain = cookie["domain"].as_str().unwrap_or("");
+    let domain_ok = match domain.strip_prefix('.') {
+        Some(base) => host == base || host.ends_with(&format!(".{base}")),
+        None => host == domain,
+    };
+    let path = cookie["path"].as_str().unwrap_or("/");
+    let url_path = url.path();
+    let path_ok = url_path == path
+        || (url_path.starts_with(path)
+            && (path.ends_with('/') || url_path[path.len()..].starts_with('/')));
+    let secure_ok =
+        cookie["secure"].as_bool() != Some(true) || url.scheme() == "https" || host == "localhost";
+    domain_ok && path_ok && secure_ok
+}
+
+/// CDP cookie -> Playwright cookie (`storageState` shape).
+fn playwright_cookie(cookie: &Value) -> Value {
+    json!({
+        "name": cookie["name"],
+        "value": cookie["value"],
+        "domain": cookie["domain"],
+        "path": cookie["path"],
+        "expires": if cookie["session"].as_bool() == Some(true) { json!(-1) } else { cookie["expires"].clone() },
+        "httpOnly": cookie["httpOnly"].as_bool().unwrap_or(false),
+        "secure": cookie["secure"].as_bool().unwrap_or(false),
+        "sameSite": cookie["sameSite"].as_str().unwrap_or("Lax"),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_cdp_allows_inspection_domains_only() {
+        assert!(raw_cdp_allowed("DOM.getDocument"));
+        assert!(raw_cdp_allowed("Runtime.evaluate"));
+        for refused in [
+            "Page.navigate",
+            "Network.getAllCookies",
+            "Fetch.disable",
+            "Storage.getCookies",
+            "Target.closeTarget",
+            "Browser.close",
+            "Runtime.disable",
+            "IO.read",
+            "Page.setDownloadBehavior",
+            "DOM",
+        ] {
+            assert!(!raw_cdp_allowed(refused), "{refused}");
+        }
+    }
+
+    #[test]
+    fn cookies_match_host_only_domains_paths_and_secure() {
+        let url = url::Url::parse("https://app.example.com/account/settings").unwrap();
+        let cookie = |domain: &str, path: &str, secure: bool| json!({"domain": domain, "path": path, "secure": secure});
+        assert!(cookie_matches(&cookie(".example.com", "/", true), &url));
+        assert!(cookie_matches(&cookie("app.example.com", "/account", false), &url));
+        assert!(
+            !cookie_matches(&cookie("example.com", "/", false), &url),
+            "host-only cookies do not match subdomains"
+        );
+        assert!(!cookie_matches(&cookie("app.example.com", "/acc", false), &url));
+        let plain = url::Url::parse("http://app.example.com/").unwrap();
+        assert!(!cookie_matches(&cookie("app.example.com", "/", true), &plain));
+    }
+
+    #[test]
+    fn cookies_convert_to_the_playwright_shape() {
+        let cdp = json!({"name": "a", "value": "b", "domain": "x.test", "path": "/", "expires": -1, "size": 2, "httpOnly": true, "secure": false, "session": true, "priority": "Medium"});
+        assert_eq!(
+            playwright_cookie(&cdp),
+            json!({"name": "a", "value": "b", "domain": "x.test", "path": "/", "expires": -1, "httpOnly": true, "secure": false, "sameSite": "Lax"})
+        );
     }
 }

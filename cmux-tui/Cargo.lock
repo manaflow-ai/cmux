@@ -660,6 +660,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]

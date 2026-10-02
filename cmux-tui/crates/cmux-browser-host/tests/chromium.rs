@@ -44,14 +44,16 @@ fn serve() -> u16 {
                 }
             }
             let body = match path.as_str() {
-                "/" => {
+                "/" => format!(
                     "<!doctype html><title>Host test</title>\
-                        <button id=b style=\"width:120px;height:40px\" onclick=\"window.clicked = event.isTrusted\">Go</button>\
-                        <input id=i><iframe id=f src=\"/child\" style=\"width:300px;height:100px\"></iframe>"
-                }
-                "/child" => "<!doctype html><p id=p>child frame</p>",
-                "/second" => "<!doctype html><title>Second</title><p>second</p>",
-                _ => "<!doctype html><title>404</title>",
+                     <button id=b style=\"width:120px;height:40px\" onclick=\"window.clicked = event.isTrusted\">Go</button>\
+                     <input id=i><iframe id=f src=\"/child\" style=\"width:300px;height:100px\"></iframe>\
+                     <iframe id=x src=\"http://localhost:{port}/cross\" style=\"width:300px;height:100px\"></iframe>"
+                ),
+                "/child" => "<!doctype html><p id=p>child frame</p>".to_owned(),
+                "/cross" => "<!doctype html><p id=c>cross-origin frame</p>".to_owned(),
+                "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
+                _ => "<!doctype html><title>404</title>".to_owned(),
             };
             let mut stream = stream;
             let _ = write!(
@@ -124,9 +126,22 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
 
     let frames = call("frames.list", json!({"targetId": target}));
     let frames = frames.as_array().unwrap();
-    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert_eq!(frames.len(), 3, "{frames:?}");
     assert_eq!(frames[1]["url"], format!("{origin}/child"));
     assert_eq!(frames[1]["crossOrigin"], false);
+    let cross = frames
+        .iter()
+        .find(|f| f["url"].as_str().is_some_and(|u| u.ends_with("/cross")))
+        .expect("the out-of-process frame is listed");
+    assert_eq!(cross["crossOrigin"], true);
+    let cross_text = call(
+        "frame.evaluate",
+        json!({"targetId": target, "frameId": cross["frameId"], "world": "agent", "source": "() => document.querySelector('#c').textContent"}),
+    );
+    assert_eq!(cross_text, "cross-origin frame", "cross-origin frames are reachable");
+    let cross_box =
+        call("frame.ownerBox", json!({"targetId": target, "frameId": cross["frameId"]}));
+    assert!(cross_box["width"].as_f64().unwrap() > 290.0, "{cross_box}");
     let child_frame = frames[1]["frameId"].clone();
 
     let target_box = call(
@@ -223,6 +238,20 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
     let back = call("tab.history", json!({"targetId": target, "delta": -1}));
     assert_eq!(back["url"], format!("{origin}/"));
     assert_eq!(call("tab.info", json!({"targetId": target}))["loadState"], "load");
+
+    // A popup arrives as tab.created with its opener and is drivable.
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source": "() => { window.open('/second'); }"}),
+    );
+    let created = wait_event(&events, "tab.created");
+    assert_eq!(created.payload["openerTargetId"], target.as_str());
+    let popup = created.payload["targetId"].as_str().unwrap().to_owned();
+    let popup_title = driver
+        .call("frame.evaluate", &json!({"targetId": popup, "world": "agent", "source": "() => new Promise((r) => { const t = () => document.title ? r(document.title) : setTimeout(t, 20); t(); })", "timeoutMs": 10000}))
+        .expect("the popup is set up and resumed");
+    assert_eq!(popup_title, "Second");
+    call("tabs.close", json!({"targetId": popup}));
 
     call("tabs.close", json!({"targetId": target}));
     wait_event(&events, "tab.closed");

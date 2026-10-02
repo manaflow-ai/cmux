@@ -71,7 +71,7 @@ pub struct Lease {
 }
 
 /// One provider frame, tagged by `t`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t")]
 pub enum Frame {
     #[serde(rename = "hello")]
@@ -140,6 +140,53 @@ pub enum Frame {
     },
 }
 
+/// Debug output names the frame and its ids only: `call` params, raw CDP
+/// messages and results can carry typed text and page data.
+impl fmt::Debug for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Frame::Hello { version, provider_id, install_id, engines, tabs, .. } => f
+                .debug_struct("Hello")
+                .field("version", version)
+                .field("provider_id", provider_id)
+                .field("install_id", install_id)
+                .field("engines", engines)
+                .field("tabs", &tabs.len())
+                .finish_non_exhaustive(),
+            Frame::Call { id, method, .. } => f
+                .debug_struct("Call")
+                .field("id", id)
+                .field("method", method)
+                .finish_non_exhaustive(),
+            Frame::Result { id, error, .. } => f
+                .debug_struct("Result")
+                .field("id", id)
+                .field("error", &error.as_ref().map(|e| e.code))
+                .finish_non_exhaustive(),
+            Frame::Event { name, .. } => {
+                f.debug_struct("Event").field("name", name).finish_non_exhaustive()
+            }
+            Frame::CdpAttach { target_id } => {
+                f.debug_struct("CdpAttach").field("target_id", target_id).finish()
+            }
+            Frame::CdpDetach { target_id } => {
+                f.debug_struct("CdpDetach").field("target_id", target_id).finish()
+            }
+            Frame::Cdp { target_id, message } => f
+                .debug_struct("Cdp")
+                .field("target_id", target_id)
+                .field("bytes", &message.len())
+                .finish_non_exhaustive(),
+            Frame::Lease { target_id, lease } => {
+                f.debug_struct("Lease").field("target_id", target_id).field("lease", lease).finish()
+            }
+            Frame::UserInput { target_id } => {
+                f.debug_struct("UserInput").field("target_id", target_id).finish()
+            }
+        }
+    }
+}
+
 impl Frame {
     /// The result of a `result` frame as the driver protocol defines it: an
     /// error wins, a missing result is `null`.
@@ -194,8 +241,16 @@ pub fn write_frame(writer: &mut impl Write, frame: &Frame) -> Result<(), CodecEr
     writer.flush().map_err(CodecError::Io)
 }
 
+/// Largest frame accepted before the provider is authenticated (`hello`).
+pub const MAX_HELLO_BYTES: usize = 1 << 20;
+
 /// Reads one frame. `Ok(None)` is a clean end of stream at a frame boundary.
 pub fn read_frame(reader: &mut impl Read) -> Result<Option<Frame>, CodecError> {
+    read_frame_limited(reader, MAX_FRAME_BYTES)
+}
+
+/// [`read_frame`] with a smaller size limit (use [`MAX_HELLO_BYTES`] until `hello`).
+pub fn read_frame_limited(reader: &mut impl Read, max: usize) -> Result<Option<Frame>, CodecError> {
     let mut header = [0u8; 4];
     let mut filled = 0;
     while filled < header.len() {
@@ -208,7 +263,7 @@ pub fn read_frame(reader: &mut impl Read) -> Result<Option<Frame>, CodecError> {
         }
     }
     let len = u32::from_be_bytes(header) as usize;
-    if len > MAX_FRAME_BYTES {
+    if len > max.min(MAX_FRAME_BYTES) {
         return Err(CodecError::TooLarge(len));
     }
     let mut body = vec![0u8; len];
@@ -314,6 +369,31 @@ mod tests {
         assert!(ProviderSecret::new("abc").matches(&ProviderSecret::new("abc")));
         assert!(!ProviderSecret::new("abc").matches(&ProviderSecret::new("abd")));
         assert!(!ProviderSecret::new("abc").matches(&ProviderSecret::new("abcd")));
+    }
+
+    #[test]
+    fn debug_output_hides_payloads() {
+        let call = Frame::Call {
+            id: 1,
+            method: "input.insertText".into(),
+            params: json!({"text": "hunter2"}),
+        };
+        let cdp = Frame::Cdp {
+            target_id: "t".into(),
+            message: r#"{"params":{"text":"hunter2"}}"#.into(),
+        };
+        let text = format!("{call:?} {cdp:?}");
+        assert!(!text.contains("hunter2"), "{text}");
+        assert!(text.contains("input.insertText"));
+    }
+
+    #[test]
+    fn hello_reads_use_a_small_limit() {
+        let mut reader: &[u8] = &((MAX_HELLO_BYTES as u32) + 1).to_be_bytes();
+        assert!(matches!(
+            read_frame_limited(&mut reader, MAX_HELLO_BYTES),
+            Err(CodecError::TooLarge(_))
+        ));
     }
 
     #[test]

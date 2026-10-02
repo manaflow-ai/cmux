@@ -8,14 +8,11 @@ use super::connection::{CdpConnection, CdpWire};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::unix::ffi::OsStringExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone)]
 pub struct HeadlessOptions {
@@ -50,9 +47,11 @@ impl HeadlessChromium {
     pub fn launch(options: &HeadlessOptions) -> io::Result<Self> {
         let (profile_dir, profile_ephemeral) = match &options.user_data_dir {
             Some(dir) => (dir.clone(), false),
-            None => (ephemeral_profile_dir(), true),
+            None => (ephemeral_profile_dir()?, true),
         };
-        std::fs::create_dir_all(&profile_dir)?;
+        if !profile_ephemeral {
+            std::fs::create_dir_all(&profile_dir)?;
+        }
 
         // to_browser: host writes, Chromium reads (its fd 3).
         // from_browser: Chromium writes (its fd 4), host reads.
@@ -64,6 +63,8 @@ impl HeadlessChromium {
         let mut command = Command::new(&options.binary);
         command.args(default_args(&profile_dir)).args(&options.extra_args);
         command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        // Its own process group, so stopping it also stops renderers and the GPU process.
+        command.process_group(0);
         // SAFETY: the closure runs in the forked child before exec and only
         // calls async-signal-safe functions (fcntl, dup2) on fds it owns.
         unsafe {
@@ -112,6 +113,7 @@ impl HeadlessChromium {
             });
         let mut child = child;
         if let Err(error) = reader_thread {
+            kill_group(&child);
             let _ = child.kill();
             let _ = child.wait();
             if profile_ephemeral {
@@ -140,6 +142,7 @@ impl HeadlessChromium {
     /// Stops the browser and waits for it.
     pub fn kill(&self) {
         if let Some(mut child) = self.child.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            kill_group(&child);
             let _ = child.kill();
             let _ = child.wait();
         }
@@ -173,26 +176,54 @@ fn default_args(profile_dir: &std::path::Path) -> Vec<String> {
         "--password-store=basic".into(),
         "--use-mock-keychain".into(),
         "--hide-scrollbars".into(),
+        // The protocol's hidden-tab size (driver-protocol.md: 1280x800).
+        "--window-size=1280,800".into(),
         "--mute-audio".into(),
         "about:blank".into(),
     ]
 }
 
-fn ephemeral_profile_dir() -> PathBuf {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let seq = PROFILE_SEQ.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("cmux-browser-host-{}-{nanos}-{seq}", std::process::id()))
+/// A new private profile directory (mode 0700; fails if the name exists).
+fn ephemeral_profile_dir() -> io::Result<PathBuf> {
+    let template =
+        std::env::temp_dir().join(format!("cmux-browser-host-{}-XXXXXX", std::process::id()));
+    let mut bytes = template.into_os_string().into_vec();
+    bytes.push(0);
+    // SAFETY: `bytes` is a NUL-terminated, writable template ending in XXXXXX.
+    let made = unsafe { libc::mkdtemp(bytes.as_mut_ptr().cast()) };
+    if made.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    bytes.pop();
+    Ok(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+}
+
+/// SIGKILL to the browser's process group.
+fn kill_group(child: &Child) {
+    if let Ok(pid) = libc::pid_t::try_from(child.id()) {
+        // SAFETY: kill(2) with a negative pid signals that process group only.
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
+        }
+    }
 }
 
 /// A pipe whose ends are close-on-exec in this process.
 fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
     let mut fds: [RawFd; 2] = [-1, -1];
+    // Linux sets close-on-exec atomically, so a concurrent spawn cannot inherit the ends.
+    #[cfg(target_os = "linux")]
+    // SAFETY: `fds` is a valid two-element array for pipe2(2) to fill.
+    let made = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) };
+    #[cfg(not(target_os = "linux"))]
     // SAFETY: `fds` is a valid two-element array for pipe(2) to fill.
-    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+    let made = unsafe { libc::pipe(fds.as_mut_ptr()) };
+    if made != 0 {
         return Err(io::Error::last_os_error());
     }
-    // SAFETY: pipe(2) succeeded, so both fds are open and owned by us.
+    // SAFETY: the call succeeded, so both fds are open and owned by us.
     let (read, write) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+    #[cfg(not(target_os = "linux"))]
     for fd in [read.as_raw_fd(), write.as_raw_fd()] {
         // SAFETY: fd is open; F_SETFD with FD_CLOEXEC has no memory effects.
         if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {

@@ -32,7 +32,12 @@ impl Inner {
             if width <= 0.0 || height <= 0.0 {
                 return Err(DriverError::invalid("clip: width and height must be positive"));
             }
-            args["clip"] = json!({"x": read("x"), "y": read("y"), "width": width, "height": height, "scale": 1});
+            // CDP clips are in document coordinates; the protocol's are viewport ones.
+            let metrics =
+                self.send_until(&session, "Page.getLayoutMetrics", json!({}), deadline)?;
+            let page_x = metrics["cssVisualViewport"]["pageX"].as_f64().unwrap_or(0.0);
+            let page_y = metrics["cssVisualViewport"]["pageY"].as_f64().unwrap_or(0.0);
+            args["clip"] = json!({"x": read("x") + page_x, "y": read("y") + page_y, "width": width, "height": height, "scale": 1});
             size = Some((width, height));
         } else if params.get("fullPage").and_then(Value::as_bool) == Some(true) {
             let metrics =

@@ -137,8 +137,8 @@ fn execution_contexts_are_tracked_per_frame_and_world() {
     state.apply(&created(2, AGENT_WORLD, false));
     state.apply(&created(3, "some-extension-world", false));
     let tab = &state.tabs["T1"];
-    assert_eq!(tab.contexts.get(&("MAIN".to_string(), World::Page)), Some(&1));
-    assert_eq!(tab.contexts.get(&("MAIN".to_string(), World::Agent)), Some(&2));
+    assert_eq!(tab.contexts.get(&("MAIN".to_string(), World::Page)), Some(&("S1".to_string(), 1)));
+    assert_eq!(tab.contexts.get(&("MAIN".to_string(), World::Agent)), Some(&("S1".to_string(), 2)));
     assert_eq!(tab.contexts.len(), 2);
 
     state.apply(&cdp(
@@ -165,7 +165,7 @@ fn dialogs_get_ids_and_stay_counted_until_closed() {
     assert_eq!(payload["dialogId"], "d1");
     assert_eq!(payload["type"], "prompt");
     assert_eq!(payload["defaultValue"], "x");
-    assert_eq!(state.dialogs.get("d1").map(String::as_str), Some("T1"));
+    assert_eq!(state.dialogs.get("d1").map(|(tab, _)| tab.as_str()), Some("T1"));
     assert_eq!(state.tabs["T1"].open_dialogs, 1);
     state.apply(&cdp(Some("S1"), "Page.javascriptDialogClosed", json!({"result": true})));
     assert_eq!(state.tabs["T1"].open_dialogs, 0);
@@ -225,4 +225,90 @@ fn back_forward_cache_restores_count_as_loaded() {
     ));
     assert_eq!(state.tabs["T1"].load_state(), "load");
     assert!(state.tabs["T1"].lifecycle.contains("networkIdle"));
+}
+
+#[test]
+fn out_of_process_frames_get_their_own_sessions() {
+    let mut state = State::default();
+    attach(&mut state, "T1", "S1", None);
+    let applied = state.apply(&cdp(
+        Some("S1"),
+        "Target.attachedToTarget",
+        json!({"sessionId": "C1", "targetInfo": {"targetId": "FRAME9", "type": "iframe", "url": "https://b.test/"}, "waitingForDebugger": true}),
+    ));
+    assert_eq!(
+        applied.follow_ups,
+        vec![FollowUp::SetUpFrame { target_id: "T1".into(), session_id: "C1".into() }]
+    );
+    assert_eq!(state.target_for_session("C1"), Some("T1"));
+    assert_eq!(state.tabs["T1"].frame_sessions.get("FRAME9").map(String::as_str), Some("C1"));
+
+    // The frame's own root navigation does not change the tab's main frame.
+    navigate_main(&mut state, "S1", "L1", "https://a.test/");
+    state.apply(&cdp(
+        Some("C1"),
+        "Page.frameNavigated",
+        json!({"frame": {"id": "FRAME9", "loaderId": "LC", "url": "https://b.test/"}}),
+    ));
+    assert_eq!(state.tabs["T1"].main_frame.as_deref(), Some("MAIN"));
+    assert_eq!(state.tabs["T1"].loader.as_deref(), Some("L1"));
+
+    state.apply(&cdp(
+        Some("C1"),
+        "Runtime.executionContextCreated",
+        json!({"context": {"id": 1, "name": AGENT_WORLD, "auxData": {"frameId": "FRAME9", "isDefault": false}}}),
+    ));
+    state.apply(&cdp(
+        Some("S1"),
+        "Runtime.executionContextCreated",
+        json!({"context": {"id": 1, "name": "", "auxData": {"frameId": "MAIN", "isDefault": true}}}),
+    ));
+    // Context ids repeat across sessions: destroying C1's id 1 keeps S1's.
+    state.apply(&cdp(
+        Some("C1"),
+        "Runtime.executionContextDestroyed",
+        json!({"executionContextId": 1}),
+    ));
+    assert_eq!(state.tabs["T1"].contexts.len(), 1);
+
+    let detached =
+        state.apply(&cdp(Some("S1"), "Target.detachedFromTarget", json!({"sessionId": "C1"})));
+    assert!(detached.events.is_empty(), "a frame detaching is not a closed tab");
+    assert!(state.tabs["T1"].frame_sessions.is_empty());
+    assert!(state.tabs.contains_key("T1"));
+}
+
+#[test]
+fn prerender_pages_are_not_tabs() {
+    let mut state = State::default();
+    let applied = state.apply(&cdp(
+        None,
+        "Target.attachedToTarget",
+        json!({"sessionId": "P", "targetInfo": {"targetId": "PT", "type": "page", "subtype": "prerender"}, "waitingForDebugger": true}),
+    ));
+    assert_eq!(applied.follow_ups, vec![FollowUp::Resume { session_id: "P".into() }]);
+    assert!(state.tabs.is_empty());
+}
+
+#[test]
+fn navigation_after_a_crash_clears_it() {
+    let mut state = State::default();
+    attach(&mut state, "T1", "S1", None);
+    state.apply(&cdp(Some("S1"), "Inspector.targetCrashed", json!({})));
+    assert!(state.tabs["T1"].crashed);
+    navigate_main(&mut state, "S1", "L2", "https://a.test/");
+    assert!(!state.tabs["T1"].crashed);
+}
+
+#[test]
+fn closed_dialogs_forget_their_ids() {
+    let mut state = State::default();
+    attach(&mut state, "T1", "S1", None);
+    state.apply(&cdp(
+        Some("S1"),
+        "Page.javascriptDialogOpening",
+        json!({"type": "alert", "message": "m"}),
+    ));
+    state.apply(&cdp(Some("S1"), "Page.javascriptDialogClosed", json!({"result": true})));
+    assert!(state.dialogs.is_empty());
 }

@@ -36,6 +36,7 @@ pub struct CdpConnection {
     next_id: AtomicU64,
     pending: Mutex<HashMap<u64, mpsc::SyncSender<Reply>>>,
     handler: Mutex<Option<CdpEventHandler>>,
+    on_close: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     closed: Mutex<Option<String>>,
 }
 
@@ -46,12 +47,18 @@ impl CdpConnection {
             next_id: AtomicU64::new(1),
             pending: Mutex::new(HashMap::new()),
             handler: Mutex::new(None),
+            on_close: Mutex::new(None),
             closed: Mutex::new(None),
         })
     }
 
     pub fn set_event_handler(&self, handler: CdpEventHandler) {
         *self.handler.lock().unwrap_or_else(PoisonError::into_inner) = Some(handler);
+    }
+
+    /// Called once when the connection closes (drivers wake their waiters).
+    pub fn set_close_handler(&self, handler: Arc<dyn Fn() + Send + Sync>) {
+        *self.on_close.lock().unwrap_or_else(PoisonError::into_inner) = Some(handler);
     }
 
     /// Why the connection closed, if it did.
@@ -73,6 +80,12 @@ impl CdpConnection {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::sync_channel(1);
         self.pending.lock().unwrap_or_else(PoisonError::into_inner).insert(id, tx);
+        // A close that ran between the check above and the insert drained
+        // `pending` before this waiter was in it.
+        if let Some(reason) = self.closed_reason() {
+            self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+            return Err(DriverError::closed(reason));
+        }
         let mut message = Map::new();
         message.insert("id".into(), json!(id));
         message.insert("method".into(), json!(method));
@@ -141,6 +154,10 @@ impl CdpConnection {
             self.pending.lock().unwrap_or_else(PoisonError::into_inner).drain().collect();
         for (_, waiter) in waiters {
             let _ = waiter.try_send(Err(DriverError::closed(reason.to_owned())));
+        }
+        let hook = self.on_close.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(hook) = hook {
+            hook();
         }
     }
 }

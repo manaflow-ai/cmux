@@ -35,7 +35,10 @@ pub struct TabState {
     pub title: String,
     pub opener: Option<String>,
     pub main_frame: Option<String>,
-    pub contexts: HashMap<(String, World), i64>,
+    /// Script contexts per frame and world, with the flat session that owns them.
+    pub contexts: HashMap<(String, World), (String, i64)>,
+    /// Out-of-process frames: frame id -> its own CDP session.
+    pub frame_sessions: HashMap<String, String>,
     /// Loader of the main frame's current document.
     pub loader: Option<String>,
     /// Lifecycle events (`DOMContentLoaded`, `load`, `networkIdle`) seen for `loader`.
@@ -49,6 +52,9 @@ pub struct TabState {
     pub device_scale_factor: f64,
     pub crashed: bool,
     pub open_dialogs: usize,
+    /// Bumps when the main frame starts a download, so a navigation that
+    /// turns into a download fails instead of waiting out its deadline.
+    pub download_seq: u64,
 }
 
 impl TabState {
@@ -62,16 +68,18 @@ impl TabState {
             opener,
             main_frame: None,
             contexts: HashMap::new(),
+            frame_sessions: HashMap::new(),
             loader: None,
             lifecycle: HashSet::new(),
             nav_seq: 0,
             last_nav_same_document: false,
             buttons: 0,
             mouse: (0.0, 0.0),
-            viewport: (800.0, 600.0),
+            viewport: (1280.0, 800.0),
             device_scale_factor: 1.0,
             crashed: false,
             open_dialogs: 0,
+            download_seq: 0,
         }
     }
 
@@ -93,6 +101,8 @@ impl TabState {
 pub enum FollowUp {
     /// A page target was attached: enable domains, install the agent world, resume it.
     SetUpPage { target_id: String, session_id: String },
+    /// An out-of-process frame of a tab was attached: same setup on its session.
+    SetUpFrame { target_id: String, session_id: String },
     /// A non-page target (worker) attached paused: let it run.
     Resume { session_id: String },
 }
@@ -109,7 +119,8 @@ pub struct State {
     pub sessions: HashMap<String, String>,
     pub order: Vec<String>,
     pub active: Option<String>,
-    pub dialogs: HashMap<String, String>,
+    /// Dialog id -> (tab, session that opened it).
+    pub dialogs: HashMap<String, (String, String)>,
     pub next_dialog: u64,
 }
 
@@ -122,8 +133,11 @@ impl State {
     fn remove_tab(&mut self, target_id: &str, applied: &mut Applied) {
         if let Some(tab) = self.tabs.remove(target_id) {
             self.sessions.remove(&tab.session_id);
+            for session in tab.frame_sessions.values() {
+                self.sessions.remove(session);
+            }
             self.order.retain(|id| id != target_id);
-            self.dialogs.retain(|_, owner| owner.as_str() != target_id);
+            self.dialogs.retain(|_, (owner, _)| owner.as_str() != target_id);
             if self.active.as_deref() == Some(target_id) {
                 self.active = None;
             }
@@ -136,12 +150,24 @@ impl State {
         let mut applied = Applied::default();
         let params = &cdp.params;
         match cdp.method.as_str() {
-            "Target.attachedToTarget" => self.attached(params, &mut applied),
+            "Target.attachedToTarget" => {
+                self.attached(params, cdp.session_id.as_deref(), &mut applied);
+            }
             "Target.detachedFromTarget" => {
                 if let Some(session_id) = params.get("sessionId").and_then(Value::as_str)
                     && let Some(target_id) = self.sessions.get(session_id).cloned()
                 {
-                    self.remove_tab(&target_id, &mut applied);
+                    let is_main =
+                        self.tabs.get(&target_id).is_some_and(|tab| tab.session_id == session_id);
+                    if is_main {
+                        self.remove_tab(&target_id, &mut applied);
+                    } else {
+                        self.sessions.remove(session_id);
+                        if let Some(tab) = self.tabs.get_mut(&target_id) {
+                            tab.frame_sessions.retain(|_, session| session.as_str() != session_id);
+                            tab.contexts.retain(|_, (session, _)| session.as_str() != session_id);
+                        }
+                    }
                 }
             }
             "Target.targetDestroyed" => {
@@ -168,17 +194,17 @@ impl State {
                 }
             }
             _ => {
-                if let Some(target_id) =
-                    cdp.session_id.as_deref().and_then(|s| self.sessions.get(s)).cloned()
+                if let Some(session_id) = cdp.session_id.as_deref()
+                    && let Some(target_id) = self.sessions.get(session_id).cloned()
                 {
-                    self.session_event(&target_id, &cdp.method, params, &mut applied);
+                    self.session_event(&target_id, session_id, &cdp.method, params, &mut applied);
                 }
             }
         }
         applied
     }
 
-    fn attached(&mut self, params: &Value, applied: &mut Applied) {
+    fn attached(&mut self, params: &Value, parent: Option<&str>, applied: &mut Applied) {
         let Some(session_id) = params.get("sessionId").and_then(Value::as_str) else {
             return;
         };
@@ -187,10 +213,32 @@ impl State {
         let Some(target_id) = info.get("targetId").and_then(Value::as_str) else {
             return;
         };
-        if kind != "page" || self.tabs.contains_key(target_id) {
-            if params.get("waitingForDebugger").and_then(Value::as_bool) == Some(true) {
+        let waiting = params.get("waitingForDebugger").and_then(Value::as_bool) == Some(true);
+        let resume = |applied: &mut Applied| {
+            if waiting {
                 applied.follow_ups.push(FollowUp::Resume { session_id: session_id.to_owned() });
             }
+        };
+        // Prerenders and other page subtypes are not tabs.
+        if info.get("subtype").and_then(Value::as_str).is_some_and(|s| !s.is_empty()) {
+            resume(applied);
+            return;
+        }
+        // An out-of-process iframe of a tab (its target id is its frame id).
+        if kind == "iframe"
+            && let Some(tab_id) = parent.and_then(|p| self.sessions.get(p)).cloned()
+            && let Some(tab) = self.tabs.get_mut(&tab_id)
+        {
+            tab.frame_sessions.insert(target_id.to_owned(), session_id.to_owned());
+            self.sessions.insert(session_id.to_owned(), tab_id.clone());
+            applied.follow_ups.push(FollowUp::SetUpFrame {
+                target_id: tab_id,
+                session_id: session_id.to_owned(),
+            });
+            return;
+        }
+        if kind != "page" || parent.is_some() || self.tabs.contains_key(target_id) {
+            resume(applied);
             return;
         }
         let url = info.get("url").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -226,6 +274,7 @@ impl State {
     fn session_event(
         &mut self,
         target_id: &str,
+        session_id: &str,
         method: &str,
         params: &Value,
         applied: &mut Applied,
@@ -237,7 +286,7 @@ impl State {
         if method == "Page.javascriptDialogOpening" {
             self.next_dialog += 1;
             let dialog_id = format!("d{}", self.next_dialog);
-            self.dialogs.insert(dialog_id.clone(), target_id.to_owned());
+            self.dialogs.insert(dialog_id.clone(), (target_id.to_owned(), session_id.to_owned()));
             if let Some(tab) = self.tabs.get_mut(target_id) {
                 tab.open_dialogs += 1;
             }
@@ -252,15 +301,26 @@ impl State {
             applied.events.push(event("dialog.opened", target_id, payload));
             return;
         }
+        if method == "Page.javascriptDialogClosed" {
+            self.dialogs.retain(|_, (tab, session)| {
+                !(tab.as_str() == target_id && session.as_str() == session_id)
+            });
+            if let Some(tab) = self.tabs.get_mut(target_id) {
+                tab.open_dialogs = tab.open_dialogs.saturating_sub(1);
+            }
+            return;
+        }
         let Some(tab) = self.tabs.get_mut(target_id) else {
             return;
         };
+        let is_main = tab.session_id == session_id;
         match method {
             "Page.frameNavigated" => {
                 let frame = &params["frame"];
                 let frame_id = frame.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
                 let url = frame_url(frame);
-                if frame.get("parentId").and_then(Value::as_str).is_none() {
+                if is_main && frame.get("parentId").and_then(Value::as_str).is_none() {
+                    tab.crashed = false;
                     tab.main_frame = Some(frame_id.clone());
                     tab.url = url.clone();
                     tab.loader = frame.get("loaderId").and_then(Value::as_str).map(str::to_owned);
@@ -329,17 +389,23 @@ impl State {
                     None
                 };
                 if let Some(world) = world {
-                    tab.contexts.insert((frame_id.to_owned(), world), id);
+                    tab.contexts.insert((frame_id.to_owned(), world), (session_id.to_owned(), id));
                 }
             }
             "Runtime.executionContextDestroyed" => {
                 if let Some(id) = params.get("executionContextId").and_then(Value::as_i64) {
-                    tab.contexts.retain(|_, context| *context != id);
+                    tab.contexts.retain(|_, (session, context)| {
+                        !(session.as_str() == session_id && *context == id)
+                    });
                 }
             }
-            "Runtime.executionContextsCleared" => tab.contexts.clear(),
-            "Page.javascriptDialogClosed" => {
-                tab.open_dialogs = tab.open_dialogs.saturating_sub(1);
+            "Runtime.executionContextsCleared" => {
+                tab.contexts.retain(|_, (session, _)| session.as_str() != session_id);
+            }
+            "Page.downloadWillBegin" => {
+                if params.get("frameId").and_then(Value::as_str) == tab.main_frame.as_deref() {
+                    tab.download_seq += 1;
+                }
             }
             "Runtime.consoleAPICalled" => {
                 let text = params
