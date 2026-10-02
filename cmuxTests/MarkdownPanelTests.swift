@@ -183,6 +183,33 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(panel.resetZoom())
     }
 
+    func testMarkdownInlineEditModeSharesThePanelDirtyBuffer() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-inline-edit-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# Original\n\nBody.\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        if let load = panel.loadTextContent() {
+            await load.value
+        }
+
+        panel.setDisplayMode(.edit)
+        XCTAssertEqual(panel.displayMode, .edit)
+        panel.updateInlineMarkdown("# Edited\n\n**Formatted**.\n")
+
+        XCTAssertEqual(panel.content, panel.textContent)
+        XCTAssertEqual(panel.textContent, "# Edited\n\n**Formatted**.\n")
+        XCTAssertTrue(panel.isDirty)
+
+        panel.setDisplayMode(.preview)
+        XCTAssertEqual(panel.content, "# Edited\n\n**Formatted**.\n")
+        XCTAssertTrue(panel.isDirty)
+    }
+
     func testMarkdownPanelTypographyResetsToConfiguredDefaults() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -302,10 +329,10 @@ final class MarkdownPanelTests: XCTestCase {
 
         let panel = try XCTUnwrap(workspace.markdownPanel(for: openedPanelId))
         XCTAssertEqual(panel.filePath, fileURL.path)
-        XCTAssertEqual(panel.displayMode, .preview)
+        XCTAssertEqual(panel.displayMode, .edit)
         XCTAssertNil(workspace.filePreviewPanel(for: openedPanelId))
         XCTAssertEqual(payload["panel_type"] as? String, PanelType.markdown.rawValue)
-        XCTAssertEqual(payload["display_mode"] as? String, MarkdownPanelDisplayMode.preview.rawValue)
+        XCTAssertEqual(payload["display_mode"] as? String, MarkdownPanelDisplayMode.edit.rawValue)
     }
 
     func testExternalFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
@@ -359,7 +386,7 @@ final class MarkdownPanelTests: XCTestCase {
         let originalMarkdownPanel = try XCTUnwrap(markdownPanels.first)
         let originalMarkdownPanelID = ObjectIdentifier(originalMarkdownPanel)
         XCTAssertEqual(originalMarkdownPanel.filePath, fileURL.path)
-        XCTAssertEqual(originalMarkdownPanel.displayMode, .preview)
+        XCTAssertEqual(originalMarkdownPanel.displayMode, .edit)
         XCTAssertTrue(workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.isEmpty)
 
         XCTAssertTrue(
@@ -435,8 +462,10 @@ final class MarkdownPanelTests: XCTestCase {
             fontSize: 15,
             fontFamily: MarkdownFontFamily.systemDefault,
             maxContentWidth: MarkdownMaxWidthSettings.defaultCSSPixels,
+            isEditing: false,
             session: session,
-            onRequestPanelFocus: {}
+            onRequestPanelFocus: {},
+            onMarkdownEdited: { _ in }
         )
         let firstCoordinator = firstRenderer.makeCoordinator()
 
@@ -451,8 +480,10 @@ final class MarkdownPanelTests: XCTestCase {
             fontSize: 15,
             fontFamily: MarkdownFontFamily.systemDefault,
             maxContentWidth: MarkdownMaxWidthSettings.defaultCSSPixels,
+            isEditing: false,
             session: session,
-            onRequestPanelFocus: {}
+            onRequestPanelFocus: {},
+            onMarkdownEdited: { _ in }
         )
         let recreatedCoordinator = recreatedRenderer.makeCoordinator()
 
