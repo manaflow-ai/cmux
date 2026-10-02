@@ -72,9 +72,32 @@ class ChecksJobStructure(unittest.TestCase):
         outcomes = aggregate["env"]["OUTCOMES"]
         for step in checks:
             with self.subTest(step=step["name"]):
-                self.assertIn("${{ steps.%s.outcome }} %s\n" % (step["id"], step["name"]), outcomes)
+                self.assertIn("${{ steps.%s.outcome }}|%s\n" % (step["id"], step["name"]), outcomes)
         self.assertIn("GITHUB_STEP_SUMMARY", aggregate["run"])
         self.assertIn("exit 1", aggregate["run"])
+
+    def run_aggregate(self, outcomes: str) -> subprocess.CompletedProcess:
+        _, _, aggregate = self.split()
+        with tempfile.NamedTemporaryFile() as summary:
+            return subprocess.run(
+                ["bash", "-c", aggregate["run"]],
+                env={**os.environ, "OUTCOMES": outcomes, "GITHUB_STEP_SUMMARY": summary.name},
+                capture_output=True,
+                text=True,
+            )
+
+    def test_aggregate_fails_closed_on_an_empty_outcome(self):
+        # An id typo renders `${{ steps.x.outcome }}` as empty; that check never ran.
+        for outcomes in ("|Lint\n", "|Crash safety\nsuccess|Lint\n"):
+            with self.subTest(outcomes=outcomes):
+                result = self.run_aggregate(outcomes)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                name = outcomes.split("\n")[0].split("|")[1]
+                self.assertIn("- %s (not run)" % name, result.stdout)
+
+    def test_aggregate_passes_when_every_check_succeeds(self):
+        result = self.run_aggregate("success|Lint\nsuccess|Crash safety\n")
+        self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_rust_ratchet_is_its_own_step(self):
         _, checks, _ = self.split()
