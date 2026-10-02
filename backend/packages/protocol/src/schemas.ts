@@ -96,5 +96,7 @@ export const ErrorCode = Schema.Literals([
   "auth.forbidden",
   "owner.unreachable",
   "mutation.indeterminate",
-  "policy.invalid"
+  "policy.invalid",
+  "domain.not_verified",
+  "domain.taken"
 ]).annotate({ identifier: "ErrorCode" })
