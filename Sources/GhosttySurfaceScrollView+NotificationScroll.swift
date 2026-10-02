@@ -390,8 +390,9 @@ extension GhosttySurfaceScrollView {
         )
         guard nextIntent != scrollbackViewportIntent else { return }
 
-        scrollbackViewportIntent = nextIntent
+        applyScrollbackViewportIntent(nextIntent)
         surfaceView.scrollbar = geometry.scrollbar
+        synchronizeJumpToBottomIndicator()
         synchronizeScrollView(forceViewportSync: nextIntent == .followingOutput)
     }
 
