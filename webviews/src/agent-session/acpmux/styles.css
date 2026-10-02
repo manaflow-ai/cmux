@@ -17,7 +17,7 @@
 .acpmux-composer-box button{font:inherit;cursor:pointer}
 .acpmux-composer-field{flex:1;min-width:0;align-self:center;box-sizing:border-box;max-height:40vh;margin:0;padding:4px 6px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:13px;line-height:20px;color:var(--agent-text);caret-color:var(--agent-text)}
 .acpmux-composer-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
-.acpmux-composer-meta{display:flex;align-items:center;min-height:24px;padding:4px 8px 0;font-size:12px}
+.acpmux-composer-meta{display:flex;align-items:center;min-height:28px;padding:2px 4px 0;font-size:12px}
 .acpmux-composer-meta button{font:inherit;cursor:pointer}
 .acpmux-chips{flex:1;min-width:0;display:flex;align-items:center;gap:2px}
 .acpmux-chips-spacer{flex:1}
@@ -25,12 +25,12 @@
 .acpmux-composer-meta select{height:22px;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);font:inherit}
 .acpmux-icon{flex:none;display:block}
 .acpmux-picker{display:flex;min-width:0}
-.acpmux-picker-button{display:flex;align-items:center;gap:4px;min-width:0;height:22px;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);white-space:nowrap}
-.acpmux-picker-button .acpmux-icon{width:12px;height:12px}
+.acpmux-picker-button{display:flex;align-items:center;gap:5px;min-width:0;height:26px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);white-space:nowrap}
+.acpmux-picker-button .acpmux-icon{width:15px;height:15px}
 .acpmux-picker-button>span{overflow:hidden;text-overflow:ellipsis}
 .acpmux-picker-button:hover,.acpmux-picker-button[aria-expanded=true]{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-picker-button:focus-visible,.acpmux-send:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
-.acpmux-mode .acpmux-picker-button{padding-left:4px}
+.acpmux-mode .acpmux-picker-button{padding-left:6px}
 .acpmux-mode.acpmux-unrestricted .acpmux-picker-button{color:var(--acpmux-warning)}
 .acpmux-model-name{color:inherit}
 .acpmux-model-effort{opacity:.75}
