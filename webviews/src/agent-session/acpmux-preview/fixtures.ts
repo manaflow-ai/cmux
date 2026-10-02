@@ -2,6 +2,7 @@ import codexRecording from "./fixtures/codex-session-events.ndjson?raw";
 import claudeRecording from "./fixtures/claude-live-notifications.ndjson?raw";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../acpmux/model";
 import { commandsFromUpdate } from "../acpmux/slashCommands";
+import { sessionEntry } from "../acpmux/sessionList";
 
 const catalog = [{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }, { id: "gpt-5.6-sol", name: "GPT-5.6-Sol" }] }, { id: "claude", name: "Claude", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] }];
 
@@ -70,10 +71,26 @@ function permissionSnapshot(): AcpmuxSnapshot {
 const codex = recordingRows(codexRecording, "Codex recorded session", "codex");
 const claude = recordingRows(claudeRecording, "Claude recorded session", "claude");
 
+function sessionListSnapshot(): AcpmuxSnapshot {
+  const now = Date.now();
+  const minutes = (count: number) => now - count * 60_000;
+  const web = "/Users/preview/src/web";
+  const sessions = [
+    { sessionId: "web-1", name: "codex", harness: "codex", title: "Fix the checkout page", cwd: web, status: "waiting", pendingPermissions: 1, updatedAt: minutes(1) },
+    { sessionId: "web-2", name: "claude", harness: "claude", title: "Port the sidebar", cwd: web, status: "running", updatedAt: minutes(3) },
+    { sessionId: "web-3", name: "codex-2", harness: "codex", title: "Review the pricing copy", cwd: web, status: "idle", unread: true, updatedAt: minutes(9) },
+    ...Array.from({ length: 6 }, (_, index) => ({ sessionId: `web-old-${index}`, name: "codex", harness: "codex", title: `Older task ${index + 1}`, cwd: web, status: "closed", updatedAt: minutes(60 + index) })),
+    { sessionId: "app-1", name: "release-notes", harness: "claude", title: "Draft notes", cwd: "/Users/preview/src/app", status: "disconnected", updatedAt: minutes(20) },
+    { sessionId: "home-1", name: "claude", harness: "claude", title: "Clean up dotfiles", cwd: "/Users/preview", status: "idle", updatedAt: minutes(40) },
+  ].map(sessionEntry);
+  return { ...baseSnapshot("Port the sidebar", "claude"), sessions, sessionId: "web-2" };
+}
+
 export const previewFixtures: PreviewFixture[] = [
   { id: "codex-recording", label: "Codex recording", snapshot: codex.snapshot, replay: codex.replay },
   { id: "claude-recording", label: "Claude recording", snapshot: claude.snapshot, replay: claude.replay },
   { id: "streaming-replay", label: "Live streaming replay", snapshot: { ...codex.snapshot, rows: [] }, replay: codex.replay },
   { id: "synthetic-5000", label: "5,000 row fling", snapshot: syntheticSnapshot() },
   { id: "permission-queue", label: "Permission and queue", snapshot: permissionSnapshot() },
+  { id: "session-list", label: "Session list", snapshot: sessionListSnapshot() },
 ];
