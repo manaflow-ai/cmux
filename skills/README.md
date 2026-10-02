@@ -22,6 +22,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Which commit broke a test on main, stale test or regression | [cmux-test-bisect](cmux-test-bisect/SKILL.md) |
 | Package boundaries, Swift APIs and concurrency | [cmux-architecture](cmux-architecture/SKILL.md) |
 | Backend APIs, providers, database and migrations | [cmux-backend](cmux-backend/SKILL.md) |
+| cmux-next cloud backend migrations (`backend/`, PlanetScale `cmux-next`) | [cmux-backend-migrations](cmux-backend-migrations/SKILL.md) |
 | Billing implementation, Stripe and entitlements | [cmux-billing](cmux-billing/SKILL.md) |
 | Instrumentation and app/runtime implementation bugs | [cmux-debugging](cmux-debugging/SKILL.md) |
 | User-facing strings and localization | [cmux-localization](cmux-localization/SKILL.md) |
