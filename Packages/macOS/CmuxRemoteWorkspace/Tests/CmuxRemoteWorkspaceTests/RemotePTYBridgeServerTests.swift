@@ -13,6 +13,8 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
     private var _eventQueue: DispatchQueue?
     var attachError: (any Error)?
     var supportsInputSeqAck = false
+    let daemonVersion: String? = "0.64.22"
+    var replayByteCount = 0
 
     var writes: [Data] {
         lock.lock()
@@ -58,7 +60,11 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
         _onEvent = onEvent
         _eventQueue = queue
         lock.unlock()
-        return RemotePTYBridgeAttachment(attachmentID: attachmentID, token: "attach-token-1")
+        return RemotePTYBridgeAttachment(
+            attachmentID: attachmentID,
+            token: "attach-token-1",
+            replayByteCount: replayByteCount
+        )
     }
 
     func writePTY(
@@ -213,6 +219,7 @@ struct RemotePTYBridgeServerTests {
         let server = makeServer(client: RecordingPTYBridgeRPCClient())
         defer { server.stop() }
         let endpoint = try server.start()
+        #expect(endpoint.daemonVersion == "0.64.22")
         #expect(endpoint.host == "127.0.0.1")
         #expect(endpoint.port > 0)
         #expect(!endpoint.token.isEmpty)
@@ -224,6 +231,7 @@ struct RemotePTYBridgeServerTests {
     @Test("a valid handshake attaches and the bridge pumps both directions")
     func handshakeAttachesAndPumps() throws {
         let rpc = RecordingPTYBridgeRPCClient()
+        rpc.replayByteCount = 6
         let server = makeServer(client: rpc)
         defer { server.stop() }
         let endpoint = try server.start()
@@ -235,7 +243,9 @@ struct RemotePTYBridgeServerTests {
         // The bridge answers with the newline-terminated ready status line
         // carrying the daemon attachment token (wire-pinned shape).
         #expect(client.waitForReceived { data, _ in
-            String(decoding: data, as: UTF8.self).contains("\"attachment_token\":\"attach-token-1\"")
+            let status = String(decoding: data, as: UTF8.self)
+            return status.contains("\"attachment_token\":\"attach-token-1\"") &&
+                status.contains("\"replay_bytes\":6")
         })
 
         // Client input is forwarded to pty.write.
@@ -380,6 +390,35 @@ struct RemotePTYBridgeServerTests {
         let client = BridgeTestClient(endpoint: endpoint)
         defer { client.cancel() }
         client.send(Data("{\"token\":\"wrong\"}\n".utf8))
+
+        #expect(client.waitForReceived { data, closed in
+            closed && data.isEmpty
+        })
+    }
+
+    @Test(
+        "a near-miss handshake token closes the connection without attaching",
+        arguments: ["lastByte", "prefix", "extended"]
+    )
+    func nearMissTokenCloses(variant: String) throws {
+        let rpc = RecordingPTYBridgeRPCClient()
+        let server = makeServer(client: rpc)
+        defer { server.stop() }
+        let endpoint = try server.start()
+        let token = endpoint.token
+        let offered: String
+        switch variant {
+        case "lastByte":
+            offered = String(token.dropLast()) + (token.hasSuffix("0") ? "1" : "0")
+        case "prefix":
+            offered = String(token.dropLast())
+        default:
+            offered = token + "0"
+        }
+
+        let client = BridgeTestClient(endpoint: endpoint)
+        defer { client.cancel() }
+        client.send(Data("{\"token\":\"\(offered)\",\"cols\":120,\"rows\":40}\n".utf8))
 
         #expect(client.waitForReceived { data, closed in
             closed && data.isEmpty

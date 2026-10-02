@@ -3,6 +3,7 @@ import { hasFeatureWorkflowContent } from "@/i18n/locale-availability";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
+import { BlogPostMeta } from "@/app/[locale]/components/blog-author";
 
 export async function generateMetadata({
   params,
@@ -58,9 +59,7 @@ export default async function CmuxVaultPage({
       </div>
 
       <h1>{t("title")}</h1>
-      <time dateTime="2026-05-22" className="text-sm text-muted">
-        {t("date")}
-      </time>
+      <BlogPostMeta date={t("date")} dateTime="2026-05-22" />
 
       <video
         src="/blog/cmux-vault.mp4"

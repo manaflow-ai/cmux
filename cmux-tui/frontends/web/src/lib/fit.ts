@@ -6,7 +6,7 @@ export interface TerminalSize {
 // Decides whether a fit proposal should be applied to the terminal and pushed
 // to the server. Returns the size to apply, or null for no-op. Sends only
 // originate from local fits (attach replay, pane geometry changes), never from
-// applying a server resize, so accepting a foreign size cannot echo back and
+// applying a server resize, so receiving the shared size cannot echo back and
 // start a resize war between attached clients.
 export function nextFitSize(reported: TerminalSize | null, proposed: TerminalSize | undefined): TerminalSize | null {
   if (!proposed) return null;

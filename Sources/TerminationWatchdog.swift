@@ -28,7 +28,7 @@ import Foundation
 /// Not a singleton: the app's lifecycle owner (`AppDelegate`) holds the
 /// instance, alongside its other terminate-control state.
 final class TerminationWatchdog: Sendable {
-    /// Budget for the committed-quit sequence (remote-session kill defer plus
+    /// Budget for the committed-quit sequence (owned asynchronous cleanup plus
     /// AppKit's will-terminate gauntlet). Normal teardown finishes in well under
     /// a second; this leaves generous headroom while still beating the OS's
     /// ~30s hang watchdog by a wide margin.

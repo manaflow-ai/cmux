@@ -7,6 +7,52 @@ import Testing
 
 @MainActor
 @Suite struct MobileMacInstanceRouteRaceTests {
+    @Test func pushedRouteBurstSharesOneBoundedSyncOwner() async {
+        let shell = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        let scope = MobileShellScopeSnapshot(
+            userID: "user-1",
+            teamID: "team-a",
+            generation: 0
+        )
+        let first = PresenceInstance(
+            deviceId: "mac-a",
+            tag: "feature-a",
+            platform: "mac",
+            online: true,
+            lastSeenAt: 1_000
+        )
+        let second = PresenceInstance(
+            deviceId: "mac-b",
+            tag: "feature-b",
+            platform: "mac",
+            online: true,
+            lastSeenAt: 1_000
+        )
+
+        let firstTask = shell.syncPushedRoutes(
+            from: [first],
+            scope: scope
+        )
+        let firstOperationID = shell.pushedRouteSyncOperationID
+        let secondTask = shell.syncPushedRoutes(
+            from: [second],
+            scope: scope
+        )
+
+        #expect(firstOperationID != nil)
+        #expect(shell.pushedRouteSyncOperationID == firstOperationID)
+        #expect(shell.pushedRouteSyncPendingInstances.count == 2)
+
+        await firstTask?.value
+        await secondTask?.value
+        #expect(shell.pushedRouteSyncTask == nil)
+        #expect(shell.pushedRouteSyncPendingInstances.isEmpty)
+    }
+
     @Test func delayedRegistryAResultCannotOverwriteSameDeviceAfterBCommit() async throws {
         let routeA = try route(id: "a", port: 51_001)
         let staleA = try route(id: "stale-a", port: 52_001)

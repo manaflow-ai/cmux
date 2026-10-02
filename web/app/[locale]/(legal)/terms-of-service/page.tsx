@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { legalMetadata } from "../legal-metadata";
+import { getCurrentYear } from "@/app/lib/current-year";
 
 export const metadata: Metadata = legalMetadata(
   "/terms-of-service",
@@ -7,7 +8,9 @@ export const metadata: Metadata = legalMetadata(
   "Terms of service for the cmux website and macOS application",
 );
 
-export default function TermsOfServicePage() {
+export default async function TermsOfServicePage() {
+  const currentYear = await getCurrentYear();
+
   return (
     <>
       <h1>Terms of Service</h1>
@@ -162,7 +165,7 @@ export default function TermsOfServicePage() {
       <p>
         You have the right to opt out of this arbitration agreement by sending
         written notice to{" "}
-        <a href="mailto:founders@manaflow.com">founders@manaflow.com</a> within 30
+        <a href="mailto:founders@cmux.com">founders@cmux.com</a> within 30
         days of first becoming subject to it.
       </p>
 
@@ -178,11 +181,11 @@ export default function TermsOfServicePage() {
       <h2>10. Contact</h2>
       <p>
         Questions about these Terms should be sent to{" "}
-        <a href="mailto:founders@manaflow.com">founders@manaflow.com</a>.
+        <a href="mailto:founders@cmux.com">founders@cmux.com</a>.
       </p>
 
       <p>
-        Copyright &copy; {new Date().getFullYear()} Manaflow. All rights reserved.
+        Copyright &copy; {currentYear} Manaflow. All rights reserved.
       </p>
     </>
   );

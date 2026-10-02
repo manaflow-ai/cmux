@@ -25,14 +25,14 @@ Run package tests:
 swift test --package-path ios/cmuxPackage
 ```
 
-## Pairing a sideloaded dev build with a real (beta/stable) Mac
+## Build compatibility and production-auth DEV builds
 
-A plain dev (DEBUG) build signs in to cmux's development Stack project. Stack
-user ids are per-project, so a dev build's user id can never match the
-production account binding (`ub`) a release Mac stamps into its pairing QR —
-pairing fails instantly, even with the same email on the same tailnet
-(https://github.com/manaflow-ai/cmux/issues/7145). To dogfood a device build
-against your real Mac, build with production auth:
+A DEV iOS build connects only to the Mac DEV build with the same tag. BETA,
+INTERNAL, and App Store iOS builds connect only to Stable or Nightly Mac builds.
+Account environment does not change that compatibility boundary.
+
+Use `--prod-auth` only when a tagged DEV build needs to test production account,
+registry, or API behavior:
 
 ```bash
 ios/scripts/reload.sh --tag my-tag --device-only --prod-auth
@@ -46,21 +46,22 @@ What `--prod-auth` does:
   registry/API and the magic-link callback.
 - Makes the presence worker follow the auth channel: the app resolves the
   production presence instance (see `PresenceClient.productionServiceURL`) so
-  your real Macs appear in Computers. The worker URLs live only in Swift —
-  the script bakes no copy — and an explicit `CMUX_PRESENCE_BASE_URL` still
+  compatible Macs appear in Computers. The worker URLs live only in Swift;
+  the script bakes no copy, and an explicit `CMUX_PRESENCE_BASE_URL` still
   wins.
 - Skips the dogfood auto sign-in/auto-pair (those credentials belong to the
   development Stack project). Sign in in-app with the same account as your
-  Mac.
+  matching tagged DEV Mac.
 - On first launch after switching auth environments on the same install, the
   app clears the previous environment's session/caches (tokens and user ids
   are per-Stack-project), so you start signed out instead of restoring a
   stale identity.
 
-Scan the Mac's pairing QR with the **in-app** scanner. The system Camera app
-routes release QR links (`cmux-ios://…`) to the beta/App Store app because
-pairing URL schemes are channel-specific; the in-app scanner accepts both
-schemes.
+Every installed iOS bundle registers one URL scheme derived from its complete
+bundle identifier, for example `cmux-ios-dev.cmux.app.beta://…` or
+`cmux-ios-dev.cmux.ios.my-tag://…`. No two cmux builds register the same system
+route. The authenticated Mac status supplies the exact instance tag, which the
+app validates before it saves or adopts the connection.
 
 Without the flag, the same override is available by bundling a
 `LocalConfig.plist` with an `AuthEnvironment` string of `production` (see
@@ -97,18 +98,18 @@ Internal testers (the `cmux beta` group) get every uploaded build instantly with
 no review. An `--external` build is different: the FIRST external build of a new
 `MARKETING_VERSION` must pass a one-time Apple Beta App Review (~24h) before any
 external tester can install it. Subsequent external builds of the same version
-ship without re-review. The scheduled `main` sync lane now uploads
-external-eligible builds too, so founders track `main` once the current beta
-version has cleared that review gate. That lane reuses
+ship without re-review. External cuts reuse
 `CMUX_IOS_BETA_MARKETING_VERSION` from `ios/Config/Shared.xcconfig`; bump it
 only when you want a fresh Beta App Review cycle. The upload path assigns the
-processed build to the app's external beta group automatically, auto-selecting
-the single external
-group or using `IOS_TESTFLIGHT_EXTERNAL_GROUP_ID` / `IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME`
-repo variables when the app has multiple external groups. When Apple reports the
-build as `READY_FOR_BETA_SUBMISSION`, the same lane also creates the beta app
-review submission automatically so a new `MARKETING_VERSION` is not left stuck
-at "Ready to Submit".
+processed build to both the Founder's Edition and Pro external beta groups. It
+uses `CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID` /
+`CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME` for the primary group and
+`CMUX_TESTFLIGHT_PRO_GROUP_ID` for Pro. GitHub Actions maps the repository
+variables `IOS_TESTFLIGHT_EXTERNAL_GROUP_ID`,
+`IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME`, and `IOS_TESTFLIGHT_PRO_GROUP_ID` to those
+script inputs. When Apple reports the build as `READY_FOR_BETA_SUBMISSION`, the
+same lane also creates the beta app review submission automatically so a new
+`MARKETING_VERSION` is not left stuck at "Ready to Submit".
 
 If CI is moved back from a pending higher version to the last approved version,
 external testers are unblocked because they could not install the pending build.
@@ -119,15 +120,15 @@ reinstall, or operators need to cut an internal-only build on the higher version
 ## TestFlight GitHub Actions signing
 
 `.github/workflows/ios-testflight.yml` uses manual export signing because Xcode's
-automatic App Store Connect export has produced IPAs whose signed app entitlements
-omit `aps-environment=production`. That upload is intentionally blocked because
-TestFlight push would silently fail. The workflow tracks `main` on a schedule and
-uploads beta builds as external-eligible. Internal testers get the build
-immediately, and the post-upload external distribution step both assigns the
-build to the founders group and keeps using the checked-in approved
-`CMUX_IOS_BETA_MARKETING_VERSION`. When that version is intentionally bumped, the same
-distribution step auto-submits the first build of the new version for Beta App
-Review.
+automatic App Store Connect export has produced IPAs whose signed app
+entitlements omit `aps-environment=production`. That upload is intentionally
+blocked because TestFlight push would silently fail. Scheduled `main` uploads
+ship only to the internal TestFlight group. A manual run with
+`marketing_version_override` switches to the external beta bundle, installs its
+provisioning profile, and assigns the processed build to both the Founder's
+Edition and Pro groups. That external override reuses an already approved
+marketing version and auto-submits the first build when Apple reports that Beta
+App Review is required.
 
 Required GitHub secrets:
 

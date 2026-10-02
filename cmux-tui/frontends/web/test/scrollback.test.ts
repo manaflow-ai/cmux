@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { ReadScrollbackResult, RenderRow } from "cmux/browser";
+import type { ReadScrollbackResult, RenderRow } from "cmux/raw";
+import type { RenderGraphicsModel } from "../src/lib/renderModel";
 import {
   createScrollbackWindow,
   latestScrollbackRequest,
   mergeScrollbackPage,
   nextScrollbackRequest,
   previousScrollbackRequest,
+  projectRenderGraphicsToRows,
+  refreshScrollbackRequest,
   reconcileScrollbackWindow,
   scrollbackAnchorDelta,
 } from "../src/lib/scrollback";
@@ -14,8 +17,50 @@ function row(relative: number, text = String(relative)): RenderRow {
   return { row: relative, runs: [{ text, fg: null, bg: null, attrs: 0 }] };
 }
 
-function page(start: number, total: number, count: number): ReadScrollbackResult {
-  return { start, total, rows: Array.from({ length: count }, (_, index) => row(index, `${start + index}`)) };
+function page(start: number, total: number, count: number, epoch = 1n): ReadScrollbackResult {
+  return {
+    start,
+    total,
+    epoch,
+    rows: Array.from({ length: count }, (_, index) => row(index, `${start + index}`)),
+  } as ReadScrollbackResult;
+}
+
+function historyGraphics(anchorRow: number): RenderGraphicsModel {
+  return {
+    generation: 1n,
+    images: [{
+      id: 9,
+      generation: 1n,
+      width: 1,
+      height: 1,
+      format: "rgb",
+      data: "/wAA",
+    }],
+    placements: [{
+      image_id: 9,
+      placement_id: 3,
+      ordinal: 0,
+      x_offset: 0,
+      y_offset: 0,
+      source_x: 0,
+      source_y: 0,
+      source_width: 1,
+      source_height: 1,
+      columns: 1,
+      rows: 2,
+      grid_cols: 1,
+      grid_rows: 2,
+      pixel_width: 8,
+      pixel_height: 32,
+      viewport_col: 0,
+      viewport_row: 0,
+      viewport_visible: false,
+      anchor_col: 2,
+      anchor_row: anchorRow,
+      z: -1,
+    }],
+  };
 }
 
 describe("scrollback window", () => {
@@ -32,6 +77,7 @@ describe("scrollback window", () => {
     const merged = mergeScrollbackPage(initial, {
       start: 10,
       total: 20,
+      epoch: 1n,
       rows: [row(2, "twelve"), row(0, "ten")],
     });
 
@@ -61,6 +107,13 @@ describe("scrollback window", () => {
     expect(reconciled.window.total).toBe(340);
     expect(scrollbackAnchorDelta(cached, reconciled.window, "previous")).toBe(0);
     expect(nextScrollbackRequest(reconciled.window)).toEqual({ start: 300, count: 40 });
+  });
+
+  it("refreshes the currently cached range without moving its anchor", () => {
+    const cached = mergeScrollbackPage(createScrollbackWindow(300, 100, 250), page(200, 300, 100));
+    const grown = reconcileScrollbackWindow(cached, 300, 340, false).window;
+
+    expect(refreshScrollbackRequest(grown, 340)).toEqual({ start: 200, count: 100 });
   });
 
   it("merges a page that observes growth before the render delta without dropping cached rows", () => {
@@ -119,5 +172,29 @@ describe("scrollback window", () => {
     expect(reset.total).toBe(4);
     expect(reset.rows.map((candidate) => candidate.row)).toEqual([0, 1, 2, 3]);
     expect(previousScrollbackRequest(reset)).toBeNull();
+  });
+
+  it("discards cached indexes when retained history changes at a fixed total", () => {
+    const initial = mergeScrollbackPage(createScrollbackWindow(20, 10, 20), page(10, 20, 10, 1n));
+    const reset = mergeScrollbackPage(initial, page(0, 20, 4, 2n));
+
+    expect(reset.rows.map((candidate) => candidate.row)).toEqual([0, 1, 2, 3]);
+    expect((reset as { epoch?: bigint }).epoch).toBe(2n);
+  });
+
+  it("projects absolute Kitty anchors onto cached history rows", () => {
+    const projected = projectRenderGraphicsToRows(historyGraphics(7), [row(8), row(9)], 1n, 1n);
+
+    expect(projected?.placements).toEqual([
+      expect.objectContaining({
+        viewport_col: 2,
+        viewport_row: -1,
+        viewport_visible: true,
+      }),
+    ]);
+  });
+
+  it("suppresses current Kitty graphics over cached rows from an older history epoch", () => {
+    expect(projectRenderGraphicsToRows(historyGraphics(7), [row(7)], 2n, 1n)).toBeUndefined();
   });
 });

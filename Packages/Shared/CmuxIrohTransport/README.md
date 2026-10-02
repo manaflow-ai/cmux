@@ -23,3 +23,17 @@ Run the package behavior tests without launching either app:
 ```sh
 swift test --package-path Packages/Shared/CmuxIrohTransport
 ```
+
+An admitted Mac connection gives one supervisor ownership of its control and
+application-lane tasks. Injecting those operations keeps the lifetime policy
+testable without an endpoint or app process:
+
+```swift
+let supervisor = CmxIrohAdmittedConnectionSupervisor(
+    runControl: { await serveControl() },
+    runApplicationLanes: { await serveApplicationLanes() },
+    closeConnection: { await connection.close() },
+    stopApplicationLanes: { await lanes.stop() }
+)
+await supervisor.run()
+```

@@ -1,4 +1,11 @@
-import { CmuxClient, CmuxCommandError, CmuxTimeoutError, Tree } from "../src/index.js";
+import {
+  NodeClient as CmuxClient,
+  CmuxCommandError,
+  CmuxTimeoutError,
+  stringifyWireJson,
+  type Id,
+  type Tree,
+} from "../src/raw/index.js";
 
 async function main(): Promise<void> {
   const socketPath = process.env.CMUX_TUI_SOCKET || process.env.CMUX_MUX_SOCKET;
@@ -10,7 +17,7 @@ async function main(): Promise<void> {
   try {
     const identify = await client.identify();
     assert(identify.app === "cmux-tui", `unexpected app ${identify.app}`);
-    assert(identify.protocol >= 5 && identify.protocol <= 7, `unsupported protocol ${identify.protocol}`);
+    assert(identify.protocol >= 5 && identify.protocol <= 12, `unsupported protocol ${identify.protocol}`);
 
     const created = await client.newWorkspace({ name: marker, cols: 80, rows: 24 });
     await client.send(created.surface, { text: `printf '${marker}\\n'\r` });
@@ -21,17 +28,38 @@ async function main(): Promise<void> {
     const tree = await client.listWorkspaces();
     const workspaceId = findWorkspaceForSurface(tree, created.surface);
     assert(workspaceId !== undefined, "new workspace not found");
+    const paneId = findPaneForSurface(tree, created.surface);
+    assert(paneId !== undefined, "new pane not found");
+
+    await client.newPane(paneId);
+    const viewportScreen = findScreenForSurface(await client.listWorkspaces(), created.surface);
+    assert(viewportScreen !== undefined, "viewport screen not found");
+
+    await client.split(paneId, "right");
+    const splitTree = await client.listWorkspaces();
+    const layout = findLayoutForSurface(splitTree, created.surface);
+    assert(layout?.type === "split", "split layout not found");
+    if (identify.protocol >= 8) {
+      assert(layout.split !== undefined, "protocol v8 split id missing");
+      const splitId = layout.split;
+      await client.setSplitRatio(splitId, 0.65);
+      const resizedLayout = findLayoutForSurface(await client.listWorkspaces(), created.surface);
+      assert(resizedLayout?.type === "split", "resized split layout not found");
+      assert(resizedLayout.split === splitId, "split id changed after ratio update");
+      assert(Math.abs(resizedLayout.ratio - 0.65) < 0.0001, "split ratio did not update");
+    }
+    await client.setRatio(paneId, "right", 0.55);
 
     await client.renameSurface(created.surface, `${marker}-renamed`);
     const events = await client.subscribe();
     const title = `${marker}-title`;
     await client.send(created.surface, { text: `printf '\\033]2;${title}\\007'; sleep 5\r` });
     const titleChanged = await nextTitleChanged(events, created.surface, title, 3000);
-    assert(titleChanged.title === title, `bad title event ${JSON.stringify(titleChanged)}`);
+    assert(titleChanged.title === title, `bad title event ${stringifyWireJson(titleChanged)}`);
     await client.send(created.surface, { text: "\x03" });
     await client.resizeSurface(created.surface, 100, 31);
     const resized = await nextSurfaceResized(events, created.surface, 1000);
-    assert(resized.cols === 100 && resized.rows === 31, `bad resize event ${JSON.stringify(resized)}`);
+    assert(resized.cols === 100 && resized.rows === 31, `bad resize event ${stringifyWireJson(resized)}`);
     await client.resizeSurface(created.surface, 100, 31);
     const duplicate = await nextSurfaceResized(events, created.surface, 500).catch((err) => {
       if (err instanceof CmuxTimeoutError) return null;
@@ -40,9 +68,17 @@ async function main(): Promise<void> {
     assert(duplicate === null, "same-size resize emitted surface-resized");
     events.close();
 
-    const attach = await client.attachSurface(created.surface);
+    const attach = await client.attachSurface(created.surface, { cols: 100, rows: 31 });
     const first = await attach.next(1000);
     assert(first.event === "vt-state", `first attach event was ${first.event}`);
+    if (identify.protocol >= 10) {
+      let sizing = findClientSurfaceSize(await client.listClients(), created.surface);
+      assert(sizing.size.size_participating === true, "protocol 10 surface sizing state missing");
+      await client.setClientSizing(created.surface, sizing.client, false);
+      sizing = findClientSurfaceSize(await client.listClients(), created.surface);
+      assert(sizing.size.size_participating === false, "surface sizing mutation was not reflected");
+      await client.setClientSizing(created.surface, sizing.client, true);
+    }
     await client.send(created.surface, { text: `printf '${later}\\n'\r` });
     const output = await nextAttachOutput(attach, 3000);
     assert(output.event === "output" || output.event === "resized", "attach did not produce output/resized after vt-state");
@@ -65,10 +101,10 @@ async function main(): Promise<void> {
 
 async function nextTitleChanged(
   events: Awaited<ReturnType<CmuxClient["subscribe"]>>,
-  surface: number,
+  surface: Id,
   title: string,
   timeoutMs: number,
-): Promise<{ event: "title-changed"; surface: number; title: string }> {
+): Promise<{ event: "title-changed"; surface: Id; title: string }> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const event = await events.next(Math.max(1, deadline - Date.now()));
@@ -85,7 +121,7 @@ async function nextTitleChanged(
   throw new Error("title-changed event not observed");
 }
 
-async function waitForMarker(client: CmuxClient, surface: number, marker: string): Promise<void> {
+async function waitForMarker(client: CmuxClient, surface: Id, marker: string): Promise<void> {
   const deadline = Date.now() + 5000;
   let last = "";
   while (Date.now() < deadline) {
@@ -96,7 +132,7 @@ async function waitForMarker(client: CmuxClient, surface: number, marker: string
   throw new Error(`marker not found; last screen: ${JSON.stringify(last)}`);
 }
 
-async function nextSurfaceResized(events: Awaited<ReturnType<CmuxClient["subscribe"]>>, surface: number, timeoutMs: number) {
+async function nextSurfaceResized(events: Awaited<ReturnType<CmuxClient["subscribe"]>>, surface: Id, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const remaining = deadline - Date.now();
@@ -116,7 +152,7 @@ async function nextAttachOutput(attach: Awaited<ReturnType<CmuxClient["attachSur
   }
 }
 
-function findWorkspaceForSurface(tree: Tree, surface: number): number | undefined {
+function findWorkspaceForSurface(tree: Tree, surface: Id): Id | undefined {
   for (const workspace of tree.workspaces) {
     for (const screen of workspace.screens) {
       for (const pane of screen.panes) {
@@ -125,6 +161,50 @@ function findWorkspaceForSurface(tree: Tree, surface: number): number | undefine
     }
   }
   return undefined;
+}
+
+function findPaneForSurface(tree: Tree, surface: Id): Id | undefined {
+  for (const workspace of tree.workspaces) {
+    for (const screen of workspace.screens) {
+      for (const pane of screen.panes) {
+        if ("tabs" in pane && pane.tabs?.some((tab) => tab.surface === surface)) return pane.id;
+      }
+    }
+  }
+  return undefined;
+}
+
+function findLayoutForSurface(tree: Tree, surface: Id) {
+  for (const workspace of tree.workspaces) {
+    for (const screen of workspace.screens) {
+      if (screen.panes.some((pane) => "tabs" in pane && pane.tabs.some((tab) => tab.surface === surface))) {
+        return screen.layout;
+      }
+    }
+  }
+  return undefined;
+}
+
+function findScreenForSurface(tree: Tree, surface: Id) {
+  for (const workspace of tree.workspaces) {
+    for (const screen of workspace.screens) {
+      if (screen.panes.some((pane) => "tabs" in pane && pane.tabs.some((tab) => tab.surface === surface))) {
+        return screen;
+      }
+    }
+  }
+  return undefined;
+}
+
+function findClientSurfaceSize(
+  clients: Awaited<ReturnType<CmuxClient["listClients"]>>,
+  surface: Id,
+) {
+  for (const client of clients) {
+    const size = client.sizes.find((candidate) => candidate.surface === surface);
+    if (size) return { client: client.client, size };
+  }
+  throw new Error(`client size for surface ${surface} not found`);
 }
 
 function assert(condition: unknown, message: string): asserts condition {

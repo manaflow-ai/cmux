@@ -123,15 +123,7 @@ extension CMUXCLI {
         guard let executable else { return nil }
         return runAutoNamingSummarizer(
             executable: executable,
-            arguments: [
-                "-p",
-                "--model", policy.claudeModel(from: env),
-                "--tools", "",
-                "--disable-slash-commands",
-                "--no-session-persistence",
-                "--strict-mcp-config",
-                "--mcp-config", "{}"
-            ],
+            arguments: policy.claudeSummarizerArguments(from: env),
             prompt: prompt,
             environment: policy.summarizerEnvironment(from: env),
             timeout: timeout
@@ -152,29 +144,52 @@ extension CMUXCLI {
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-autoname-cwd-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        let configToml = codexConfigToml(from: summarizerEnv)
+        let temporaryConfigHome: URL? = {
+            guard let configToml else { return nil }
+            let home = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-codex-autoname-home-\(UUID().uuidString)", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(
+                    at: home,
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+                )
+                let configURL = home.appendingPathComponent("config.toml", isDirectory: false)
+                try Data(configToml.utf8).write(to: configURL, options: .atomic)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: NSNumber(value: Int16(0o600))],
+                    ofItemAtPath: configURL.path
+                )
+                return home
+            } catch {
+                try? FileManager.default.removeItem(at: home)
+                return nil
+            }
+        }()
         defer {
             try? FileManager.default.removeItem(at: outputFile)
             try? FileManager.default.removeItem(at: workingDirectory)
+            if let temporaryConfigHome {
+                try? FileManager.default.removeItem(at: temporaryConfigHome)
+            }
         }
+        if configToml != nil, temporaryConfigHome == nil { return nil }
+        if let temporaryConfigHome {
+            summarizerEnv["CODEX_HOME"] = temporaryConfigHome.path
+        }
+        var arguments = CodexAutoNamingArguments.build(
+            configToml: configToml,
+            usesTemporaryConfig: temporaryConfigHome != nil
+        )
+        arguments += [
+            "--cd", workingDirectory.path,
+            "--output-last-message", outputFile.path,
+            "-"
+        ]
         guard runAutoNamingSummarizer(
             executable: executable,
-            arguments: [
-                "exec",
-                "-c", "default_tools_enabled=false",
-                "-c", "tools={}",
-                "-c", "mcp_servers={}",
-                "-c", "web_search=false",
-                "-c", "approval_policy=never",
-                "-c", "shell_environment_policy.inherit=none",
-                "--skip-git-repo-check",
-                "--ephemeral",
-                "--ignore-user-config",
-                "--ignore-rules",
-                "--sandbox", "read-only",
-                "--cd", workingDirectory.path,
-                "--output-last-message", outputFile.path,
-                "-"
-            ],
+            arguments: arguments,
             prompt: prompt,
             environment: summarizerEnv,
             timeout: timeout
@@ -182,5 +197,12 @@ extension CMUXCLI {
             return nil
         }
         return (try? String(contentsOf: outputFile, encoding: .utf8)) ?? ""
+    }
+
+    private func codexConfigToml(from env: [String: String]) -> String? {
+        let home = env["CODEX_HOME"] ??
+            ((env["HOME"].map { $0 + "/.codex" }) ?? "")
+        guard !home.isEmpty else { return nil }
+        return try? String(contentsOfFile: home + "/config.toml", encoding: .utf8)
     }
 }

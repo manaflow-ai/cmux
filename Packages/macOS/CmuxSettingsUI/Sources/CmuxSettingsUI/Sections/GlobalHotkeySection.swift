@@ -22,12 +22,14 @@ public struct GlobalHotkeySection: View {
     ///   - catalog: The settings key catalog shared by both stores.
     ///   - errorLog: Records persistence failures.
     ///   - hostActions: Invalidates host-owned shortcut caches after successful writes.
+    ///   - defaultShortcutResolver: Host-scoped factory defaults for dynamic actions.
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
-        hostActions: SettingsHostActions = NoopSettingsHostActions()
+        hostActions: SettingsHostActions = NoopSettingsHostActions(),
+        defaultShortcutResolver: ShortcutDefaultResolver = .builtIn
     ) {
         _enabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.systemWideHotkeyEnabled))
         _shortcutModel = State(initialValue: ShortcutListModel(
@@ -35,6 +37,10 @@ public struct GlobalHotkeySection: View {
             userDefaultsStore: defaultsStore,
             catalog: catalog,
             errorLog: errorLog,
+            canRegisterSystemWideHotkey: {
+                hostActions.canRegisterSystemWideHotkey($0)
+            },
+            defaultShortcutResolver: defaultShortcutResolver,
             onShortcutsChanged: { hostActions.notifyShortcutSettingsDidChange() }
         ))
     }
@@ -62,9 +68,7 @@ public struct GlobalHotkeySection: View {
                 configurationReview: .settingsOnly,
                 searchAnchorID: "setting:globalHotkey:enable-hotkey",
                 String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"),
-                subtitle: enabled.current
-                    ? String(localized: "settings.globalHotkey.enable.subtitleOn", defaultValue: "Press the shortcut from any app to show or hide all cmux windows.")
-                    : String(localized: "settings.globalHotkey.enable.subtitleOff", defaultValue: "Turn this on to show or hide all cmux windows from any app.")
+                subtitle: String(localized: "settings.globalHotkey.enable.subtitle", defaultValue: "Pressing the shortcut in any app shows or hides all cmux windows.")
             ) {
                 Toggle("", isOn: Binding(get: { enabled.current }, set: { enabled.set($0) }))
                     .labelsHidden()
@@ -88,7 +92,7 @@ public struct GlobalHotkeySection: View {
                 subtitle: nil,
                 placeholder: shortcutModel.formatPlaceholder(effective: effective, numbered: false),
                 chordsEnabled: false,
-                hasPendingRejection: shortcutModel.bareKeyRejections.contains(hotkeyAction.rawValue),
+                hasPendingRejection: shortcutModel.hasPendingRejection(for: hotkeyAction),
                 firstStrokeRequiresModifier: true,
                 isUnbound: effective?.isUnbound ?? true,
                 canRestore: shortcutModel.canRestore(for: hotkeyAction),

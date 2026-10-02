@@ -11,6 +11,13 @@ final class IrohSettingsModel {
     private(set) var isMutating = false
     private(set) var showsSaveError = false
     private(set) var testResults: [String: CmxIrohRelayTestResult] = [:]
+    private(set) var connectionCheck: CmxIrohConnectionCheckReport?
+    private(set) var isRunningConnectionCheck = false
+    private(set) var diagnosticReport = DiagnosticReport.empty
+    private(set) var diagnosticExportText = ""
+    private var diagnosticReloadGeneration: UInt64 = 0
+    private var connectionCheckTask: Task<Void, Never>?
+    private var connectionCheckGeneration: UInt64 = 0
 
     init(controller: (any CmxIrohSettingsControlling)?) {
         self.controller = controller
@@ -18,10 +25,14 @@ final class IrohSettingsModel {
 
     func observe() async {
         guard let controller else { return }
-        snapshot = await controller.irohSettingsSnapshot()
+        await acceptSnapshot(
+            await controller.irohSettingsSnapshot(),
+            previousStatus: nil,
+            using: controller
+        )
         for await next in controller.irohSettingsUpdates() {
             guard !Task.isCancelled else { return }
-            snapshot = next
+            await acceptSnapshot(next, previousStatus: snapshot.runtimeStatus, using: controller)
         }
     }
 
@@ -30,7 +41,17 @@ final class IrohSettingsModel {
         Task {
             await controller.refreshIrohSettings()
             snapshot = await controller.irohSettingsSnapshot()
+            await reloadDiagnostics(using: controller)
         }
+    }
+
+    func clearDiagnosticReport() async {
+        guard let controller, !isMutating else { return }
+        isMutating = true
+        diagnosticReloadGeneration &+= 1
+        defer { isMutating = false }
+        await controller.clearIrohDiagnosticReport()
+        await reloadDiagnostics(using: controller)
     }
 
     func setPreference(_ preference: CmxIrohRelayPreferenceDraft) {
@@ -39,16 +60,23 @@ final class IrohSettingsModel {
         }
     }
 
-    #if DEBUG
-    func setDebugRelayOnly(_ enabled: Bool) {
-        mutate { controller in
-            guard let debugController = controller as? any CmxIrohDebugSettingsControlling else {
-                return
+    func setPathPreference(_ preference: CmxIrohPathPreference) {
+        // The controller persists the preference and publishes the new
+        // snapshot immediately, then restarts Iroh before returning. The
+        // restart can take tens of seconds, so it must not hold `isMutating`
+        // (which disables the Networking controls); the settings update
+        // stream reconciles the UI while the restart runs.
+        guard let controller else { return }
+        Task {
+            do {
+                try await controller.setIrohPathPreference(preference)
+                snapshot = await controller.irohSettingsSnapshot()
+            } catch {
+                snapshot = await controller.irohSettingsSnapshot()
+                showsSaveError = true
             }
-            try await debugController.setIrohDebugRelayOnly(enabled)
         }
     }
-    #endif
 
     func upsertCustomRelay(_ relay: CmxIrohCustomRelayDraft, deviceSecret: String?) async -> Bool {
         await mutateAndWait { controller in
@@ -67,6 +95,28 @@ final class IrohSettingsModel {
         Task {
             testResults[id] = await controller.testIrohCustomRelay(id: id)
         }
+    }
+
+    func runConnectionCheck() {
+        // Reserve ownership before the task starts so rapid calls cannot
+        // create competing tasks whose cleanup clears each other's handle.
+        guard let controller, connectionCheckTask == nil,
+              !isRunningConnectionCheck else { return }
+        connectionCheckGeneration &+= 1
+        let generation = connectionCheckGeneration
+        connectionCheckTask = Task { [weak self] in
+            guard let self else { return }
+            await runConnectionCheckAndWait(using: controller)
+            if connectionCheckGeneration == generation {
+                connectionCheckTask = nil
+            }
+        }
+    }
+
+    func cancelConnectionCheck() {
+        connectionCheckGeneration &+= 1
+        connectionCheckTask?.cancel()
+        connectionCheckTask = nil
     }
 
     func clearSaveError() {
@@ -94,5 +144,53 @@ final class IrohSettingsModel {
             showsSaveError = true
             return false
         }
+    }
+
+    private func reloadDiagnostics(using controller: any CmxIrohSettingsControlling) async {
+        diagnosticReloadGeneration &+= 1
+        let generation = diagnosticReloadGeneration
+        let report = await controller.irohDiagnosticReport()
+        let exportText: String
+        if report.events.isEmpty {
+            exportText = ""
+        } else {
+            exportText = await report.humanReadableText()
+        }
+        guard generation == diagnosticReloadGeneration else { return }
+        diagnosticReport = report
+        diagnosticExportText = exportText
+    }
+
+    private func runConnectionCheckAndWait(
+        using controller: any CmxIrohSettingsControlling
+    ) async {
+        guard !Task.isCancelled, !isRunningConnectionCheck else { return }
+        isRunningConnectionCheck = true
+        defer { isRunningConnectionCheck = false }
+        let report = await controller.runIrohConnectionCheck()
+        guard !Task.isCancelled else { return }
+        let refreshedSnapshot = await controller.irohSettingsSnapshot()
+        guard !Task.isCancelled else { return }
+        connectionCheck = report
+        snapshot = refreshedSnapshot
+        await reloadDiagnostics(using: controller)
+    }
+
+    private func acceptSnapshot(
+        _ next: CmxIrohSettingsSnapshot,
+        previousStatus: CmxIrohSettingsSnapshot.RuntimeStatus?,
+        using controller: any CmxIrohSettingsControlling
+    ) async {
+        snapshot = next
+        await reloadDiagnostics(using: controller)
+        // Auto-diagnose only a diagnosed degraded entry: a connection failure
+        // in diagnostics, or a relay-configuration failure on the snapshot
+        // (relay-policy-only degradation carries no lastFailureKind).
+        guard !Task.isCancelled,
+              previousStatus != .degraded,
+              next.runtimeStatus == .degraded,
+              diagnosticReport.lastFailureKind != nil
+                  || next.failureDescription != nil else { return }
+        await runConnectionCheckAndWait(using: controller)
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxSettings
 import Testing
 import WebKit
@@ -86,15 +87,15 @@ struct ViewerNavigationTests {
     }
 
     @Test
-    func sidecarBridgeRequiresRegisteredCustomSchemeViewerURL() throws {
+    func sidecarBridgeRequiresRegisteredCustomSchemeViewerURL() async throws {
         let token = UUID().uuidString.lowercased()
-        let root = FileManager.default.temporaryDirectory
+        let root = CmuxDiffViewerSessionPreparer.defaultTrustedRootURL
             .appendingPathComponent("cmux-sidecar-bridge-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let html = root.appendingPathComponent("index.html", isDirectory: false)
         try "<html></html>".write(to: html, atomically: true, encoding: .utf8)
-        try CmuxDiffViewerURLSchemeHandler.shared.register(
+        try await CmuxDiffViewerURLSchemeHandler.shared.register(
             token: token,
             files: [.init(requestPath: "/index.html", fileURL: html, mimeType: "text/html")]
         )
@@ -224,6 +225,7 @@ struct ViewerNavigationTests {
                 browserPanel: nil,
                 markdownPanel: nil,
                 filePreviewTextEditorFocused: false,
+                simulatorFocused: false,
                 rightSidebarFocused: false,
                 shortcutContext: shortcutContext
             )
@@ -278,6 +280,9 @@ struct ViewerNavigationTests {
         let nativeCalls = try #require(
             try await webView.evaluateJavaScript("window.__cmuxNativeNavigationCalls") as? [[String: Any]]
         )
+        // Four native scroll calls are asserted below by position; a short
+        // list must fail the expectation, not crash the app host.
+        try #require(nativeCalls.count >= 4)
         #expect(nativeCalls.count == 4)
         #expect(nativeCalls.map { $0["behavior"] as? String } == ["smooth", "smooth", "smooth", "smooth"])
         #expect((nativeCalls[0]["top"] as? NSNumber)?.doubleValue == 72)
@@ -375,6 +380,7 @@ struct ViewerNavigationTests {
                 browserPanel: nil,
                 markdownPanel: nil,
                 filePreviewTextEditorFocused: false,
+                simulatorFocused: false,
                 rightSidebarFocused: false,
                 shortcutContext: shortcutContext
             )

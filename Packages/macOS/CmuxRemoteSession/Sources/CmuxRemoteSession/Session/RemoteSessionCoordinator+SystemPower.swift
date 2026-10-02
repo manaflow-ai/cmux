@@ -29,6 +29,9 @@ extension RemoteSessionCoordinator {
         guard !isStopping else { return }
         isSystemSleeping = true
         cancelReconnectRetryLocked()
+        // The deadline measures time spent seeking readiness, not time asleep;
+        // the post-wake reconnect arms a fresh one.
+        cancelReadinessDeadlineLocked()
         reachabilityProbeGeneration &+= 1
         debugLog("remote.session.systemSleep \(debugConfigSummary())")
     }
@@ -44,7 +47,8 @@ extension RemoteSessionCoordinator {
         cancelReconnectRetryLocked()
         reconnectRetryCount = 0
         consecutiveUnreachableProbeCount = 0
-        reconnectSuspended = false
+        resetBootstrapFailureTrackingLocked()
+        endReadinessSeekLocked()
         reachabilityProbeGeneration &+= 1
         debugLog(
             "remote.session.reconnect.rearmed reason=\(reason.debugLogSnippet(limit: 80)) " +
@@ -53,11 +57,20 @@ extension RemoteSessionCoordinator {
         return shouldReconnect
     }
 
-    private func resetTransportForReconnectLocked() {
+    func resetTransportForReconnectLocked(
+        preservePersistentRelayMetadata: Bool = false
+    ) {
         cancelTransportDependentWorkLocked()
         cancelReverseRelayRestartLocked()
-        stopReverseRelayLocked()
-        failPendingPTYBridgeStartsLocked("remote daemon is not ready")
+        if preservePersistentRelayMetadata {
+            invalidateReverseRelayAfterControlMasterReapLocked()
+        } else {
+            stopReverseRelayLocked()
+        }
+        // Wait-for-ready bridge requests belong to the persistent remote PTY,
+        // not to this particular local transport lease. Leave them parked so
+        // a sleep/wake or transient reconnect does not manufacture a failed
+        // attach that the pane immediately has to retry.
         releaseProxyLeaseLocked()
         proxyEndpoint = nil
         daemonReady = false

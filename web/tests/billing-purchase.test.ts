@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   accountDeletionTombstones,
+  accountMutationLeases,
   billingEmailClaims,
   stripeCustomers,
   stripeSubscriptions,
 } from "../db/schema";
+import { FOUNDER_TESTFLIGHT_GROUP_ID } from "../services/asc/testflightOwnership";
 
 process.env.RESEND_API_KEY ??= "test-resend-key";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
@@ -14,7 +16,18 @@ process.env.STACK_SECRET_SERVER_KEY ??= "test-stack-secret";
 process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-000000000000";
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
 
-const { applySubscriptionUpdate, recordCheckoutCompletion } = await import(
+const {
+  applySubscriptionUpdate,
+  canonicalizeEmailForMatching,
+  findBillingUserByEmail,
+  findUserIdByEmail,
+  isCmuxCheckoutSession,
+  isActiveStripeSubscriptionStatus,
+  latestStripeSubscriptionForSession,
+  recordCheckoutCompletion,
+  recordFoundersCheckoutCompletion,
+  recordProCheckoutCompletionByEmail,
+} = await import(
   "../services/billing/purchase"
 );
 
@@ -24,12 +37,17 @@ const upsertUpdates: Array<{ table: unknown; values: Record<string, unknown> }> 
 const insertErrorsByTable = new Map<unknown, unknown>();
 let selectResults: unknown[][] = [];
 let tombstoneSelectResults: unknown[][] = [];
+let accountMutationOperationId: string | null = null;
 
 function fakeDb() {
   const client = {
     insert: (table: unknown) => ({
       values: (values: Record<string, unknown>) => {
-        inserts.push({ table, values });
+        if (table === accountMutationLeases) {
+          accountMutationOperationId = values.operationId as string;
+        } else {
+          inserts.push({ table, values });
+        }
         return {
           onConflictDoUpdate: (options?: { set?: Record<string, unknown> }) => {
             upsertUpdates.push({ table, values: options?.set ?? {} });
@@ -43,26 +61,48 @@ function fakeDb() {
     }),
     select: () => ({
       from: (table: unknown) => ({
-        where: () => table === accountDeletionTombstones
-          ? tombstoneSelectableResult()
-          : selectableResult(),
+        where: () => {
+          if (table === accountDeletionTombstones) {
+            return tombstoneSelectableResult();
+          }
+          if (table === accountMutationLeases) {
+            return accountMutationLeaseSelectableResult();
+          }
+          return selectableResult();
+        },
       }),
     }),
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
         where: () => {
-          updates.push({ table, values });
+          if (table !== accountMutationLeases) {
+            updates.push({ table, values });
+          }
           return Promise.resolve();
         },
       }),
     }),
+    delete: (table: unknown) => ({
+      where: async () => {
+        if (table === accountMutationLeases) {
+          accountMutationOperationId = null;
+        }
+      },
+    }),
   };
   return {
     ...client,
-    execute: async (_query?: unknown) => undefined,
+    execute: async (_query?: unknown) => {
+      void _query;
+    },
     transaction: async <T>(
       callback: (tx: typeof client & { execute: (_query?: unknown) => Promise<void> }) => Promise<T>,
-    ) => await callback({ ...client, execute: async (_query?: unknown) => undefined }),
+    ) => await callback({
+      ...client,
+      execute: async (_query?: unknown) => {
+        void _query;
+      },
+    }),
   };
 }
 
@@ -77,6 +117,17 @@ function tombstoneSelectableResult() {
   return {
     orderBy: () => tombstoneSelectableResult(),
     limit: () => Promise.resolve(tombstoneSelectResults.shift() ?? []),
+  };
+}
+
+function accountMutationLeaseSelectableResult() {
+  return {
+    orderBy: () => accountMutationLeaseSelectableResult(),
+    limit: () => Promise.resolve(
+      accountMutationOperationId
+        ? [{ operationId: accountMutationOperationId }]
+        : [],
+    ),
   };
 }
 
@@ -99,7 +150,7 @@ function checkoutInput(customerId = "cus_123") {
         data: [
           {
             current_period_end: 1_800_000_000,
-            price: { id: "price_123" },
+            price: { id: "price_123", lookup_key: "cmux-pro-monthly-50" },
           },
         ],
       },
@@ -152,6 +203,967 @@ function teamCheckoutInput(customerId = "cus_team", stackUserId?: string) {
   };
 }
 
+describe("Stripe subscription entitlement states", () => {
+  for (const status of ["active", "trialing", "past_due"]) {
+    test(`${status} retains Pro access`, () => {
+      expect(isActiveStripeSubscriptionStatus(status)).toBe(true);
+    });
+  }
+
+  for (const status of [
+    "canceled",
+    "incomplete",
+    "incomplete_expired",
+    "paused",
+    "unpaid",
+  ]) {
+    test(`${status} revokes Pro access`, () => {
+      expect(isActiveStripeSubscriptionStatus(status)).toBe(false);
+    });
+  }
+});
+
+describe("billing email matching", () => {
+  test("canonicalizes Gmail dots but preserves plus tags", () => {
+    expect(canonicalizeEmailForMatching(" Billing.Fi.Xture@GMAIL.COM ")).toBe(
+      "billingfixture@gmail.com",
+    );
+    expect(canonicalizeEmailForMatching("billing.fixture+tag@gmail.com")).toBe(
+      "billingfixture+tag@gmail.com",
+    );
+    expect(canonicalizeEmailForMatching("b.illing+tag.one@gmail.com")).toBe(
+      "billing+tag.one@gmail.com",
+    );
+    expect(canonicalizeEmailForMatching("A.l.i.a.s@googlemail.com")).toBe(
+      "alias@gmail.com",
+    );
+    expect(canonicalizeEmailForMatching(" User@Example.com ")).toBe(
+      "user@example.com",
+    );
+    expect(canonicalizeEmailForMatching("a.b@outlook.com")).toBe(
+      "a.b@outlook.com",
+    );
+  });
+
+  test("recognizes Founder's Edition sessions as cmux checkouts", () => {
+    expect(
+      isCmuxCheckoutSession({
+        client_reference_id: null,
+        metadata: { founders_edition: "true" },
+      }),
+    ).toBe(true);
+  });
+
+  test("does not let a cmux subscription override a foreign session marker", () => {
+    expect(
+      isCmuxCheckoutSession(
+        {
+          client_reference_id: "foreign-user",
+          metadata: { app: "other", plan: "pro" },
+        },
+        { metadata: { app: "cmux", plan: "pro" } },
+      ),
+    ).toBe(false);
+  });
+
+  test("does not let Founder metadata override a foreign session marker", () => {
+    expect(
+      isCmuxCheckoutSession(
+        {
+          client_reference_id: "foreign-user",
+          metadata: { app: "other", founders_edition: "true" },
+        },
+        { metadata: { app: "cmux", founders_edition: "true" } },
+      ),
+    ).toBe(false);
+  });
+
+  test("chooses the undotted Gmail account when a duplicate alias exists", async () => {
+    const undotted = {
+      id: "real",
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: true,
+      update: mock(async () => undefined),
+    };
+    const dotted = {
+      id: "duplicate",
+      primaryEmail: "billing.fixture@gmail.com",
+      primaryEmailVerified: false,
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (...args: unknown[]) => {
+      const id = args[0] as string;
+      return id === "real" ? undotted : dotted;
+    });
+    const user = await findBillingUserByEmail(
+      {
+        listUsers: async () => [dotted, undotted],
+        getUser,
+      } as never,
+      "billing.fixture@gmail.com",
+    );
+    expect(user?.id).toBe("real");
+    expect(getUser).not.toHaveBeenCalled();
+  });
+
+  test("checks every Gmail spelling before choosing a verified owner", async () => {
+    const unverified = {
+      id: "unverified-canonical",
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: false,
+      isAnonymous: false,
+      isRestricted: true,
+    };
+    const verified = {
+      id: "verified-dotted",
+      primaryEmail: "billing.fixture@gmail.com",
+      primaryEmailVerified: true,
+      isAnonymous: false,
+      isRestricted: false,
+    };
+    const listUsers = mock(async (...args: unknown[]) => {
+      const query = (args[0] as { query?: string }).query;
+      if (query === "billingfixture@gmail.com") return [unverified];
+      if (query === "billing.fixture@gmail.com") return [verified];
+      return [];
+    });
+    const getUser = mock(async (...args: unknown[]) =>
+      (args[0] as string) === verified.id ? verified : unverified,
+    );
+
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser } as never,
+      "billing.fixture@gmail.com",
+    );
+
+    expect(user?.id).toBe(verified.id);
+    expect(listUsers).toHaveBeenCalledWith({
+      query: "billing.fixture@gmail.com",
+      limit: 20,
+      includeAnonymous: true,
+      includeRestricted: true,
+    });
+  });
+
+  test("finds a dotted Gmail account through the identity snapshot, never a list scan", async () => {
+    const dotted = {
+      id: "dotted-only",
+      primaryEmail: "billing.fixture@gmail.com",
+      primaryEmailVerified: true,
+      update: mock(async () => undefined),
+    };
+    const listUsers = mock(async () => []);
+
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser: async () => dotted } as never,
+      "billingfixture@gmail.com",
+      { snapshotUserIds: async () => ["dotted-only"] },
+    );
+
+    expect(user?.id).toBe("dotted-only");
+    expect(listUsers).not.toHaveBeenCalledWith({
+      limit: 100,
+      includeAnonymous: true,
+      includeRestricted: true,
+    });
+  });
+
+  test("uses the same snapshot fallback when checking email ownership", async () => {
+    const listUsers = mock(async () => []);
+    const getUser = async () => ({ id: "dotted-owner", primaryEmail: "billing.fixture@gmail.com" });
+
+    await expect(
+      findUserIdByEmail(
+        { listUsers, getUser } as never,
+        "billingfixture@gmail.com",
+        { snapshotUserIds: async () => ["dotted-owner"] },
+      ),
+    ).resolves.toBe("dotted-owner");
+  });
+});
+
+describe("Founder success read-back", () => {
+  beforeEach(() => {
+    selectResults = [];
+  });
+
+  test("reads a synthetic Founder entitlement by Stripe customer when no subscription id exists", async () => {
+    const row = {
+      id: "founders_cs_fixture",
+      status: "active",
+      raw: { metadata: { founders_edition: "true" } },
+    };
+    selectResults = [[row]];
+
+    await expect(
+      latestStripeSubscriptionForSession(
+        {
+          id: "cs_fixture",
+          customer: "cus_fixture",
+          subscription: null,
+          metadata: { founders_edition: "true" },
+        } as never,
+        fakeDb() as never,
+      ),
+    ).resolves.toEqual(row);
+  });
+
+  test("does not use customer fallback for a non-Founder checkout without a subscription id", async () => {
+    const unrelatedRow = { id: "sub_pro", status: "active" };
+    selectResults = [[unrelatedRow]];
+
+    await expect(
+      latestStripeSubscriptionForSession(
+        {
+          id: "cs_pro_fixture",
+          customer: "cus_fixture",
+          subscription: null,
+          metadata: { app: "cmux", plan: "pro" },
+        } as never,
+        fakeDb() as never,
+      ),
+    ).resolves.toBeNull();
+    expect(selectResults).toEqual([[unrelatedRow]]);
+  });
+
+  test("selects only a Founder-marked row from a customer with multiple Pro purchases", async () => {
+    const unrelatedRow = {
+      id: "sub_pro",
+      status: "active",
+      raw: { metadata: { app: "cmux", plan: "pro" } },
+    };
+    const founderRow = {
+      id: "founders_cs_fixture",
+      status: "active",
+      raw: { metadata: { founders_edition: "true" } },
+    };
+    selectResults = [[unrelatedRow, founderRow]];
+
+    await expect(
+      latestStripeSubscriptionForSession(
+        {
+          id: "cs_fixture",
+          customer: "cus_fixture",
+          subscription: null,
+          metadata: { founders_edition: "true" },
+        } as never,
+        fakeDb() as never,
+      ),
+    ).resolves.toEqual(founderRow);
+  });
+
+  test("does not substitute a different customer subscription for a known id", async () => {
+    const unrelatedRow = {
+      id: "sub_other",
+      customerId: "cus_fixture",
+      status: "canceled",
+    };
+    selectResults = [[], [unrelatedRow]];
+
+    await expect(
+      latestStripeSubscriptionForSession(
+        {
+          id: "cs_fixture",
+          customer: "cus_fixture",
+          subscription: "sub_missing",
+        } as never,
+        fakeDb() as never,
+      ),
+    ).resolves.toBeNull();
+  });
+});
+
+describe("recordFoundersCheckoutCompletion", () => {
+  beforeEach(() => {
+    inserts.length = 0;
+    updates.length = 0;
+    upsertUpdates.length = 0;
+    insertErrorsByTable.clear();
+    selectResults = [];
+    tombstoneSelectResults = [];
+    accountMutationOperationId = null;
+  });
+
+  test("finds and parks a Founder buyer until mailbox verification", async () => {
+    const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const user = {
+      id: "founder_1",
+      primaryEmail: null,
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    const createUser = mock(async () => user);
+    const listUsers = mock(async () => []);
+    const enroll = mock(async () => undefined);
+    // tombstone, customer ownership, existing customer, lease reads/writes
+    selectResults = [[], [], [], [], [], [], []];
+
+    const result = await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_founder",
+          customer: "cus_founder",
+          customer_details: {
+            email: "Buyer@Example.com",
+            name: "Sample Buyer",
+          },
+          metadata: { founders_edition: "true" },
+          subscription: "sub_founder",
+        } as never,
+        subscription: {
+          id: "sub_founder",
+          customer: "cus_founder",
+          status: "active",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: "price_founder" } }] },
+        } as never,
+        customer: {
+          id: "cus_founder",
+          deleted: false,
+          email: "Buyer@Example.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          listUsers,
+          createUser,
+          sendMagicLinkEmail,
+        } as never,
+        testflight: { enrollTester: enroll },
+      },
+    );
+
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: "founder_1",
+      subscriptionId: "sub_founder",
+    });
+    expect(createUser).toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
+    });
+    expect(
+      inserts.some(
+        (entry) =>
+          entry.table === stripeCustomers &&
+          entry.values.email === "Buyer@Example.com" &&
+          entry.values.stackUserId === "founder_1",
+      ),
+    ).toBe(true);
+    expect(
+      inserts.some(
+        (entry) =>
+          entry.table === stripeSubscriptions &&
+          entry.values.plan === "pro" &&
+          entry.values.scope === "user",
+      ),
+    ).toBe(true);
+    expect(update).toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
+    });
+    expect(update).not.toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
+    expect(
+      inserts.some(
+        (entry) =>
+          entry.table === billingEmailClaims &&
+          entry.values.email === "buyer@example.com" &&
+          entry.values.stackUserId === "founder_1",
+      ),
+    ).toBe(true);
+    expect(update).not.toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+    expect(enroll).not.toHaveBeenCalled();
+  });
+
+  test("does not verify an existing Founder account from payment email alone", async () => {
+    const update = mock(async () => undefined);
+    const setPrimaryEmail = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const user = {
+      id: "founder_existing",
+      primaryEmail: "Billing.Fixture@gmail.com",
+      primaryEmailVerified: false,
+      primaryEmailAuthEnabled: true,
+      clientReadOnlyMetadata: {},
+      update,
+      setPrimaryEmail,
+    };
+    selectResults = Array.from({ length: 20 }, () => []);
+
+    await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_existing",
+          customer: "cus_existing",
+          customer_details: {
+            email: "billing.fixture@gmail.com",
+          },
+          metadata: { founders_edition: "true" },
+          subscription: "sub_existing",
+        } as never,
+        subscription: {
+          id: "sub_existing",
+          customer: "cus_existing",
+          status: "active",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_existing",
+          deleted: false,
+          email: "billing.fixture@gmail.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          listUsers: async () => [
+            {
+              id: user.id,
+              primaryEmail: user.primaryEmail,
+              primaryEmailVerified: false,
+              primaryEmailAuthEnabled: true,
+              update,
+              setPrimaryEmail,
+            },
+          ],
+          sendMagicLinkEmail,
+        } as never,
+      },
+    );
+
+    expect(setPrimaryEmail).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalledWith({
+      primaryEmail: "billing.fixture@gmail.com",
+      primaryEmailAuthEnabled: true,
+    });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("billing.fixture@gmail.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
+  });
+
+  test("does not verify an existing Founder account before the deletion guard", async () => {
+    const update = mock(async () => undefined);
+    const createUser = mock(async () => {
+      throw new Error("must not create while deleting");
+    });
+    const user = {
+      id: "founder_deleting",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      primaryEmailAuthEnabled: true,
+      isAnonymous: false,
+      clientReadOnlyMetadata: { cmuxAccountDeleting: true },
+      update,
+    };
+    selectResults = Array.from({ length: 20 }, () => []);
+
+    const result = await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_deleting",
+          customer: "cus_deleting",
+          customer_details: { email: "buyer@example.com" },
+          metadata: { founders_edition: "true" },
+          subscription: "sub_deleting",
+        } as never,
+        subscription: {
+          id: "sub_deleting",
+          customer: "cus_deleting",
+          status: "active",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_deleting",
+          deleted: false,
+          email: "buyer@example.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          listUsers: async () => [user],
+          createUser,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: "founder_deleting",
+      subscriptionId: "sub_deleting",
+    });
+    expect(update).not.toHaveBeenCalled();
+    expect(createUser).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+  });
+
+  test("does not recreate a deleted Founder account from a replayed checkout", async () => {
+    const createUser = mock(async () => {
+      throw new Error("must not recreate a deleted account");
+    });
+    // The first row guards the synthetic email lease. The second row is the
+    // tombstone for the Stack id retained in the Stripe checkout metadata.
+    tombstoneSelectResults = [
+      [],
+      [{ status: "completed", updatedAt: new Date() }],
+    ];
+
+    await expect(
+      recordFoundersCheckoutCompletion(
+        {
+          session: {
+            id: "cs_deleted_replay",
+            customer: "cus_deleted_replay",
+            customer_details: { email: "deleted@example.com" },
+            client_reference_id: "deleted_stack_user",
+            metadata: {
+              founders_edition: "true",
+              stackUserId: "deleted_stack_user",
+            },
+            subscription: "sub_deleted_replay",
+          } as never,
+          subscription: {
+            id: "sub_deleted_replay",
+            customer: "cus_deleted_replay",
+            status: "active",
+            metadata: {
+              founders_edition: "true",
+              stackUserId: "deleted_stack_user",
+            },
+            cancel_at_period_end: false,
+            items: { data: [] },
+          } as never,
+          customer: {
+            id: "cus_deleted_replay",
+            deleted: false,
+            email: "deleted@example.com",
+          } as never,
+        },
+        {
+          db: fakeDb() as never,
+          stackApp: {
+            getUser: async () => null,
+            listUsers: async () => [],
+            createUser,
+          } as never,
+        },
+      ),
+    ).rejects.toThrow("account deletion");
+    expect(createUser).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+  });
+
+  test("checks a mapped Stripe owner before creating a Founder account", async () => {
+    const createUser = mock(async () => {
+      throw new Error("must not recreate a mapped deleted account");
+    });
+    const deletedOwnerID = "deleted_founder_owner";
+    // The durable Stripe customer owner is read before the Stack email lookup.
+    selectResults = [[{ stackUserId: deletedOwnerID, stackTeamId: null }]];
+    tombstoneSelectResults = [[{ status: "completed", updatedAt: new Date() }]];
+
+    const result = await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_mapped_deleted_replay",
+          customer: "cus_mapped_deleted_replay",
+          customer_details: { email: "deleted-mapped@example.com" },
+          metadata: { founders_edition: "true" },
+          subscription: "sub_mapped_deleted_replay",
+        } as never,
+        subscription: {
+          id: "sub_mapped_deleted_replay",
+          customer: "cus_mapped_deleted_replay",
+          status: "active",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_mapped_deleted_replay",
+          deleted: false,
+          email: "deleted-mapped@example.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => null,
+          listUsers: async () => [],
+          createUser,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      skipped: "account_deletion_in_progress",
+      stackUserId: deletedOwnerID,
+      subscriptionId: "sub_mapped_deleted_replay",
+    });
+    expect(createUser).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+  });
+
+  test("skips a Founder session without an email before Stack mutation", async () => {
+    const createUser = mock(async () => {
+      throw new Error("must not create");
+    });
+    const result = await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_no_email",
+          customer: "cus_no_email",
+          customer_details: null,
+          metadata: { founders_edition: "true" },
+          subscription: "sub_no_email",
+        } as never,
+        subscription: {
+          id: "sub_no_email",
+          customer: "cus_no_email",
+          status: "active",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+      },
+      { db: fakeDb() as never, stackApp: { getUser: async () => null, listUsers: async () => [], createUser } as never },
+    );
+    expect(result).toEqual({ skipped: "no_customer_email", subscriptionId: "sub_no_email" });
+    expect(createUser).not.toHaveBeenCalled();
+  });
+
+  test("skips a Founder session without an email even when Stripe has no customer id", async () => {
+    const result = await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_no_email_customer",
+          customer: null,
+          customer_details: null,
+          metadata: { founders_edition: "true" },
+          subscription: null,
+        } as never,
+        customer: null,
+      },
+      { db: fakeDb() as never, stackApp: { listUsers: async () => [] } as never },
+    );
+
+    expect(result).toEqual({
+      skipped: "no_customer_email",
+      subscriptionId: "founders_cs_no_email_customer",
+    });
+  });
+
+  test("replays a Founder checkout idempotently", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "founder_replay",
+      primaryEmail: "replay@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update,
+    };
+    const listUsers = mock(async () => [
+      {
+        id: user.id,
+        primaryEmail: user.primaryEmail,
+        primaryEmailVerified: true,
+      },
+    ]);
+    const enroll = mock(async () => undefined);
+    const input = {
+      session: {
+        id: "cs_replay",
+        customer: "cus_replay",
+        customer_details: { email: "replay@example.com", name: "Replay Buyer" },
+        metadata: { founders_edition: "true" },
+        subscription: "sub_replay",
+      },
+      subscription: {
+        id: "sub_replay",
+        customer: "cus_replay",
+        status: "active",
+        metadata: { founders_edition: "true" },
+        cancel_at_period_end: false,
+        items: { data: [] },
+      },
+      customer: { id: "cus_replay", deleted: false, email: "replay@example.com" },
+    } as never;
+    const stackApp = { getUser: async () => user, listUsers };
+
+    selectResults = Array.from({ length: 20 }, () => []);
+    await recordFoundersCheckoutCompletion(input, {
+      db: fakeDb() as never,
+      stackApp: stackApp as never,
+      testflight: { enrollTester: enroll },
+    });
+    selectResults = Array.from({ length: 20 }, () => []);
+    await recordFoundersCheckoutCompletion(input, {
+      db: fakeDb() as never,
+      stackApp: stackApp as never,
+      testflight: { enrollTester: enroll },
+    });
+
+    expect(listUsers).toHaveBeenCalledTimes(2);
+    expect(enroll).toHaveBeenCalledTimes(2);
+    expect(inserts.filter((entry) => entry.table === stripeSubscriptions)).toHaveLength(2);
+  });
+
+  test("keeps a paid Founder entitlement active when provider history is canceled", async () => {
+    const user = {
+      id: "founder_history",
+      primaryEmail: "history@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    selectResults = Array.from({ length: 20 }, () => []);
+    await recordFoundersCheckoutCompletion(
+      {
+        session: {
+          id: "cs_history",
+          customer: "cus_history",
+          customer_details: { email: "history@example.com" },
+          metadata: { founders_edition: "true" },
+          subscription: "sub_history",
+        } as never,
+        subscription: {
+          id: "sub_history",
+          customer: "cus_history",
+          status: "canceled",
+          metadata: { founders_edition: "true" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: { id: "cus_history", deleted: false, email: "history@example.com" } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          listUsers: async () => [{ id: user.id, primaryEmail: user.primaryEmail, primaryEmailVerified: true }],
+        } as never,
+      },
+    );
+    const subscriptionInsert = inserts.find((entry) => entry.table === stripeSubscriptions);
+    expect(subscriptionInsert?.values.status).toBe("active");
+  });
+
+  test("preserves a locally marked Founder entitlement on an unmarked event", async () => {
+    const update = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "founder@example.com",
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update,
+    };
+    selectResults = [
+      [{ stackUserId: "user_123" }],
+      [{
+        id: "sub_user",
+        raw: { metadata: { founders_edition: "true" } },
+      }],
+    ];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+      },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test("does not let a later Founder subscription webhook revoke the entitlement", async () => {
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_founder_webhook",
+        customer: "cus_founder_webhook",
+        status: "canceled",
+        metadata: {
+          founders_edition: "true",
+          app: "cmux",
+          plan: "pro",
+          stackUserId: "founder_webhook",
+        },
+      } as never,
+      { db: fakeDb() as never },
+    );
+
+    expect(result).toEqual({ skipped: true });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
+
+  test("routes a dotted Gmail purchase to the existing undotted account", async () => {
+    const anonymous = {
+      id: "anonymous_purchase",
+      isAnonymous: true,
+      primaryEmail: null,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const real = {
+      id: "alias_real",
+      isAnonymous: false,
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const listUsers = mock(async () => [
+      {
+        id: real.id,
+        primaryEmail: real.primaryEmail,
+        primaryEmailVerified: false,
+        isAnonymous: false,
+      },
+    ]);
+    const getUser = mock(async (...args: unknown[]) => {
+      const id = args[0] as string;
+      return id === anonymous.id ? anonymous : real;
+    });
+    // The first select is the normal customer's existing-row lookup. Keep all
+    // subsequent account-mutation lease reads empty.
+    selectResults = [[], [], [], [], [], [], [], []];
+
+    const result = await recordCheckoutCompletion(
+      {
+        session: {
+          id: "cs_alias",
+          client_reference_id: anonymous.id,
+          customer: "cus_alias",
+          customer_details: { email: "billing.fixture@gmail.com" },
+          subscription: "sub_alias",
+          metadata: { app: "cmux", plan: "pro" },
+        } as never,
+        subscription: {
+          id: "sub_alias",
+          customer: "cus_alias",
+          status: "active",
+          metadata: { app: "cmux", plan: "pro", stackUserId: anonymous.id },
+          cancel_at_period_end: false,
+          items: { data: [{ price: { id: "price_pro" } }] },
+        } as never,
+        customer: {
+          id: "cus_alias",
+          deleted: false,
+          email: "billing.fixture@gmail.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser, listUsers } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: real.id,
+      subscriptionId: "sub_alias",
+    });
+    expect(
+      inserts.some(
+        (entry) =>
+          entry.table === stripeSubscriptions &&
+          entry.values.stackUserId === real.id,
+      ),
+    ).toBe(true);
+    expect(inserts.some((entry) => entry.table === billingEmailClaims)).toBe(false);
+    expect(real.update).not.toHaveBeenCalledWith({ primaryEmailVerified: true });
+  });
+
+  test("moves an already-parked alias customer without leaving a claim", async () => {
+    const anonymous = {
+      id: "anonymous_parked",
+      isAnonymous: true,
+      primaryEmail: null,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const real = {
+      id: "alias_real_parked",
+      isAnonymous: false,
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: true,
+      emailAuthEnabled: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const db = fakeDb();
+    selectResults = [
+      [{ stackUserId: anonymous.id, stackTeamId: null }],
+      [{ stackUserId: anonymous.id, stackTeamId: null }],
+      [],
+      [],
+      [],
+      [],
+      [],
+    ];
+    const result = await recordCheckoutCompletion(
+      {
+        session: {
+          id: "cs_alias_parked",
+          client_reference_id: anonymous.id,
+          customer: "cus_alias_parked",
+          customer_details: { email: "billing.fixture@gmail.com" },
+          subscription: "sub_alias_parked",
+        } as never,
+        subscription: {
+          id: "sub_alias_parked",
+          customer: "cus_alias_parked",
+          status: "active",
+          metadata: { app: "cmux", plan: "pro", stackUserId: anonymous.id },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: { id: "cus_alias_parked", deleted: false, email: "billing.fixture@gmail.com" } as never,
+      },
+      {
+        db: db as never,
+        stackApp: {
+          getUser: async (id: string) => id === anonymous.id ? anonymous : real,
+          listUsers: async () => [{ id: real.id, primaryEmail: real.primaryEmail, primaryEmailVerified: true, emailAuthEnabled: true }],
+        } as never,
+      },
+    );
+    expect(result).toMatchObject({ scope: "user", stackUserId: real.id });
+    expect(
+      updates.some(
+        (entry) => entry.table === stripeCustomers && entry.values.stackUserId === real.id,
+      ),
+    ).toBe(true);
+    expect(
+      updates.some(
+        (entry) => entry.table === stripeSubscriptions && entry.values.stackUserId === real.id,
+      ),
+    ).toBe(true);
+    expect(inserts.some((entry) => entry.table === billingEmailClaims)).toBe(false);
+  });
+});
+
 describe("recordCheckoutCompletion", () => {
   beforeEach(() => {
     inserts.length = 0;
@@ -160,24 +1172,260 @@ describe("recordCheckoutCompletion", () => {
     insertErrorsByTable.clear();
     selectResults = [];
     tombstoneSelectResults = [];
+    accountMutationOperationId = null;
   });
 
-  test("attaches Stripe email to a purchaser without a primary email", async () => {
+  test("attaches Stripe email as an unverified auth channel", async () => {
     const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
     const user = { id: "user_123", primaryEmail: null, clientReadOnlyMetadata: {}, update };
 
     await recordCheckoutCompletion(checkoutInput() as never, {
       db: fakeDb() as never,
-      stackApp: { getUser: async () => user } as never,
+      stackApp: { getUser: async () => user, sendMagicLinkEmail } as never,
     });
 
     expect(update).toHaveBeenCalledWith({
       primaryEmail: "buyer@example.com",
       primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
+    });
+    expect(update).not.toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
     });
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
+  });
+
+  test("promotes an already verified anonymous checkout account before granting Pro access", async () => {
+    const previousFetch = globalThis.fetch;
+    const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const user = {
+      id: "anonymous_checkout",
+      isAnonymous: true,
+      isRestricted: true,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    const fetchMock = mock(async (rawInput: unknown, rawInit?: unknown) => {
+      const request = new Request(rawInput as RequestInfo | URL, rawInit as RequestInit);
+      expect(request.method).toBe("PATCH");
+      expect(request.url).toContain("/api/v1/users/anonymous_checkout");
+      expect(await request.json()).toEqual({
+        primary_email_auth_enabled: true,
+        is_anonymous: false,
+      });
+      return new Response(null, { status: 200 });
+    });
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+    try {
+      const input = checkoutInput();
+      input.session.client_reference_id = user.id;
+      input.subscription.metadata.stackUserId = user.id;
+      await recordCheckoutCompletion(input as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          sendMagicLinkEmail,
+        } as never,
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(user.update).not.toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+    });
+    expect(user.update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
+  });
+
+  test("sends recovery mail without verifying an existing unverified purchase email", async () => {
+    const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      primaryEmailAuthEnabled: true,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+
+    await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser: async () => user, sendMagicLinkEmail } as never,
+    });
+
+    expect(update).not.toHaveBeenCalledWith({ primaryEmailVerified: true });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
+  });
+
+  test("deduplicates recovery mail when the same checkout webhook repeats", async () => {
+    const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      primaryEmailAuthEnabled: true,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    const sentCheckoutSessions = new Set<string>();
+    let deliveryCalls = 0;
+    const magicLinkDelivery = {
+      deliverOnce: async (
+        input: { checkoutSessionId: string },
+        deliver: () => Promise<void>,
+      ) => {
+        deliveryCalls += 1;
+        if (sentCheckoutSessions.has(input.checkoutSessionId)) {
+          return "already_sent" as const;
+        }
+        await deliver();
+        sentCheckoutSessions.add(input.checkoutSessionId);
+        return "sent" as const;
+      },
+    };
+    const input = checkoutInput();
+    const dependencies = {
+      db: fakeDb() as never,
+      stackApp: { getUser: async () => user, sendMagicLinkEmail } as never,
+      magicLinkDelivery: magicLinkDelivery as never,
+    };
+
+    await recordCheckoutCompletion(input as never, dependencies);
+    await recordCheckoutCompletion(input as never, dependencies);
+
+    expect(deliveryCalls).toBe(2);
+    expect(sendMagicLinkEmail).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps an unverified anonymous checkout account until mailbox confirmation", async () => {
+    const previousFetch = globalThis.fetch;
+    const update = mock(async () => undefined);
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const user = {
+      id: "anonymous_unverified",
+      isAnonymous: true,
+      isRestricted: true,
+      primaryEmail: null,
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update,
+    };
+    const fetchMock = mock(async () => {
+      throw new Error("anonymous promotion must wait for verification");
+    });
+    globalThis.fetch = fetchMock as typeof globalThis.fetch;
+    try {
+      const input = checkoutInput();
+      input.session.client_reference_id = user.id;
+      input.subscription.metadata.stackUserId = user.id;
+      await recordCheckoutCompletion(input as never, {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => user,
+          sendMagicLinkEmail,
+        } as never,
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith({
+      primaryEmail: "buyer@example.com",
+      primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
+    });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
+  });
+
+  test("does not remap an anonymous checkout to an unverified email owner", async () => {
+    const sourceUpdate = mock(async (options: unknown) => {
+      if (
+        options &&
+        typeof options === "object" &&
+        "primaryEmail" in options
+      ) {
+        throw new Error("CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE");
+      }
+    });
+    const source = {
+      id: "anonymous_source_unverified_owner",
+      isAnonymous: true,
+      isRestricted: true,
+      primaryEmail: null,
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: sourceUpdate,
+    };
+    const unverifiedOwner = {
+      id: "unverified_email_owner",
+      isAnonymous: false,
+      isRestricted: true,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (...args: unknown[]) =>
+      (args[0] as string) === source.id ? source : unverifiedOwner,
+    );
+    const listUsers = mock(async () => [
+      {
+        id: unverifiedOwner.id,
+        primaryEmail: unverifiedOwner.primaryEmail,
+        primaryEmailVerified: false,
+        isAnonymous: false,
+        isRestricted: true,
+      },
+    ]);
+
+    await recordCheckoutCompletion(
+      {
+        ...checkoutInput("cus_unverified_email_owner"),
+        session: {
+          ...checkoutInput("cus_unverified_email_owner").session,
+          client_reference_id: source.id,
+        },
+        subscription: {
+          ...checkoutInput("cus_unverified_email_owner").subscription,
+          metadata: { app: "cmux", plan: "pro", stackUserId: source.id },
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser, listUsers } as never,
+      },
+    );
+
+    expect(getUser).toHaveBeenCalledWith(source.id);
+    expect(sourceUpdate).toHaveBeenCalled();
+    expect(
+      updates.some(
+        (entry) =>
+          entry.table === stripeCustomers &&
+          entry.values.stackUserId === unverifiedOwner.id,
+      ),
+    ).toBe(false);
   });
 
   test("blocks checkout completion while account deletion is in progress", async () => {
@@ -262,7 +1510,7 @@ describe("recordCheckoutCompletion", () => {
     expect(updates).toHaveLength(0);
   });
 
-  test("syncs checkout metadata under a fresh account deletion lock", async () => {
+  test("releases the database transaction before syncing checkout metadata", async () => {
     let transactionOpen = false;
     let lockCount = 0;
     const baseDb = fakeDb();
@@ -276,6 +1524,7 @@ describe("recordCheckoutCompletion", () => {
           return await callback({
             ...baseDb,
             execute: async (_query?: unknown) => {
+              void _query;
               lockCount += 1;
             },
           });
@@ -285,8 +1534,8 @@ describe("recordCheckoutCompletion", () => {
       },
     };
     const update = mock(async () => {
-      expect(transactionOpen).toBe(true);
-      expect(lockCount).toBe(2);
+      expect(transactionOpen).toBe(false);
+      expect(lockCount).toBeGreaterThanOrEqual(2);
     });
     const user = {
       id: "user_123",
@@ -303,7 +1552,7 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
     });
-    expect(lockCount).toBe(2);
+    expect(lockCount).toBeGreaterThanOrEqual(2);
   });
 
   test("skips checkout metadata sync when deletion starts after checkout rows commit", async () => {
@@ -398,6 +1647,7 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       primaryEmail: "buyer@example.com",
       primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
     });
     expect(inserts.some((insert) => insert.table === billingEmailClaims)).toBe(false);
   });
@@ -417,6 +1667,7 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       primaryEmail: "buyer@example.com",
       primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
     });
     expect(inserts.some((insert) => insert.table === billingEmailClaims)).toBe(false);
   });
@@ -466,6 +1717,7 @@ describe("recordCheckoutCompletion", () => {
     expect(update).toHaveBeenCalledWith({
       primaryEmail: "buyer@example.com",
       primaryEmailAuthEnabled: true,
+      primaryEmailVerified: false,
     });
     expect(
       inserts.some(
@@ -486,7 +1738,7 @@ describe("recordCheckoutCompletion", () => {
       { id: "other_user", primaryEmail: "buyer@example.com" },
     ]);
     const user = { id: "user_123", primaryEmail: null, clientReadOnlyMetadata: {}, update };
-    selectResults = [[], [], [], [{ id: "claim_1" }]];
+    selectResults = [[], [], [], [], [], [{ id: "claim_1" }]];
 
     await recordCheckoutCompletion(checkoutInput() as never, {
       db: fakeDb() as never,
@@ -504,6 +1756,403 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("rejects an ordinary checkout when Stripe customer ownership differs", async () => {
+    const requestedUser = {
+      id: "user_123",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const mappedOwner = {
+      id: "mapped_owner",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "different@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (rawID: unknown) =>
+      (rawID as string) === mappedOwner.id ? mappedOwner : requestedUser,
+    );
+    selectResults = [[{ stackUserId: mappedOwner.id, stackTeamId: null }]];
+
+    await expect(
+      recordCheckoutCompletion(checkoutInput() as never, {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      }),
+    ).rejects.toThrow("ownership conflict");
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(getUser).toHaveBeenCalledWith(mappedOwner.id);
+  });
+
+  test("recovery can remap a parked historical customer before recording Pro", async () => {
+    const source = {
+      id: "parked_source",
+      isAnonymous: true,
+      primaryEmail: "billing.fixture@gmail.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const target = {
+      id: "recovery_target",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (rawID: unknown) =>
+      (rawID as string) === source.id ? source : target,
+    );
+    selectResults = [
+      [{ stackUserId: source.id, stackTeamId: null }],
+      [{ stackUserId: source.id, stackTeamId: null }],
+      [],
+      ...Array.from({ length: 20 }, () => []),
+    ];
+
+    const result = await recordProCheckoutCompletionByEmail(
+      {
+        session: {
+          id: "cs_recovery",
+          client_reference_id: source.id,
+          customer: "cus_recovery",
+          customer_details: { email: "billing.fixture@gmail.com" },
+          metadata: { app: "cmux", plan: "pro" },
+          subscription: "sub_recovery",
+        } as never,
+        subscription: {
+          id: "sub_recovery",
+          customer: "cus_recovery",
+          status: "active",
+          metadata: { app: "cmux", plan: "pro", stackUserId: source.id },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_recovery",
+          deleted: false,
+          email: "billing.fixture@gmail.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser,
+          listUsers: async () => [
+            {
+              id: target.id,
+              primaryEmail: target.primaryEmail,
+              primaryEmailVerified: true,
+              update: target.update,
+            },
+          ],
+        } as never,
+        stripeClient: () => ({
+          customers: {
+            retrieve: async () => { throw new Error("offline"); },
+            update: async () => undefined,
+          },
+          subscriptions: {
+            retrieve: async () => { throw new Error("offline"); },
+            update: async () => undefined,
+          },
+        }) as never,
+      },
+    );
+
+    expect(result).toMatchObject({
+      scope: "user",
+      stackUserId: target.id,
+      subscriptionId: "sub_recovery",
+    });
+    expect(
+      updates.some(
+        (entry) =>
+          entry.table === stripeCustomers &&
+          entry.values.stackUserId === target.id,
+      ),
+    ).toBe(true);
+  });
+
+  test("defers recovery ownership until an unverified destination confirms email", async () => {
+    const source = {
+      id: "deferred_source",
+      isAnonymous: true,
+      primaryEmail: null,
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: mock(async (options: unknown) => {
+        if ("primaryEmail" in (options as Record<string, unknown>)) {
+          throw new Error("CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE");
+        }
+      }),
+    };
+    const target = {
+      id: "deferred_target",
+      isAnonymous: false,
+      isRestricted: true,
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (rawID: unknown) =>
+      (rawID as string) === source.id ? source : target,
+    );
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const magicLinkDelivery = {
+      deliverOnce: async (
+        _input: unknown,
+        deliver: () => Promise<void>,
+      ) => {
+        await deliver();
+        return "sent" as const;
+      },
+    };
+    selectResults = [
+      [{ stackUserId: source.id, stackTeamId: null }],
+      [{ stackUserId: source.id, stackTeamId: null }],
+      [],
+      [],
+    ];
+    tombstoneSelectResults = [[], []];
+
+    const result = await recordProCheckoutCompletionByEmail(
+      {
+        session: {
+          id: "cs_deferred_recovery",
+          client_reference_id: source.id,
+          customer: "cus_deferred_recovery",
+          customer_details: { email: "billing.fixture@gmail.com" },
+          metadata: { app: "cmux", plan: "pro" },
+          subscription: "sub_deferred_recovery",
+        } as never,
+        subscription: {
+          id: "sub_deferred_recovery",
+          customer: "cus_deferred_recovery",
+          status: "active",
+          metadata: { app: "cmux", plan: "pro", stackUserId: source.id },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_deferred_recovery",
+          deleted: false,
+          email: "billing.fixture@gmail.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        magicLinkDelivery: magicLinkDelivery as never,
+        stackApp: {
+          getUser,
+          listUsers: async () => [
+            {
+              id: target.id,
+              primaryEmail: target.primaryEmail,
+              primaryEmailVerified: target.primaryEmailVerified,
+              isAnonymous: target.isAnonymous,
+              isRestricted: target.isRestricted,
+              update: target.update,
+            },
+          ],
+          sendMagicLinkEmail,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      deferred: "email_verification",
+      stackUserId: source.id,
+      subscriptionId: "sub_deferred_recovery",
+      deliveryEmail: "billing.fixture@gmail.com",
+    });
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith(
+      "billing.fixture@gmail.com",
+      { callbackUrl: "https://cmux.com/handler/after-sign-in" },
+    );
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === billingEmailClaims &&
+          insert.values.stackUserId === source.id &&
+          insert.values.email === "billingfixture@gmail.com",
+      ),
+    ).toBe(true);
+    expect(
+      updates.some(
+        (update) =>
+          update.table === stripeCustomers &&
+          update.values.stackUserId === target.id,
+      ),
+    ).toBe(false);
+    expect(target.update).not.toHaveBeenCalled();
+  });
+
+  test("does not grant Pro metadata when recovery creates an unverified account", async () => {
+    const targetUpdate = mock(async () => undefined);
+    const target = {
+      id: "new_unverified_recovery_target",
+      isAnonymous: false,
+      isRestricted: true,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: targetUpdate,
+    };
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const result = await recordProCheckoutCompletionByEmail(
+      {
+        session: {
+          id: "cs_new_unverified_recovery",
+          customer: "cus_new_unverified_recovery",
+          customer_details: { email: "buyer@example.com" },
+          metadata: { app: "cmux", plan: "pro" },
+          subscription: "sub_new_unverified_recovery",
+        } as never,
+        subscription: {
+          id: "sub_new_unverified_recovery",
+          customer: "cus_new_unverified_recovery",
+          status: "active",
+          metadata: { app: "cmux", plan: "pro" },
+          cancel_at_period_end: false,
+          items: { data: [] },
+        } as never,
+        customer: {
+          id: "cus_new_unverified_recovery",
+          deleted: false,
+          email: "buyer@example.com",
+        } as never,
+      },
+      {
+        db: fakeDb() as never,
+        magicLinkDelivery: {
+          deliverOnce: async (_input: unknown, deliver: () => Promise<void>) => {
+            await deliver();
+            return "sent";
+          },
+        } as never,
+        stackApp: {
+          getUser: async () => target,
+          listUsers: async () => [
+            {
+              id: target.id,
+              primaryEmail: target.primaryEmail,
+              primaryEmailVerified: false,
+              isAnonymous: false,
+              isRestricted: true,
+              update: targetUpdate,
+            },
+          ],
+          sendMagicLinkEmail,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({
+      deferred: "email_verification",
+      stackUserId: target.id,
+      subscriptionId: "sub_new_unverified_recovery",
+      deliveryEmail: "buyer@example.com",
+    });
+    expect(targetUpdate).not.toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    });
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === billingEmailClaims &&
+          insert.values.stackUserId === target.id &&
+          insert.values.stripeCustomerId === "cus_new_unverified_recovery",
+      ),
+    ).toBe(true);
+  });
+
+  test("does not remap a parked customer to an unverified target", async () => {
+    const source = {
+      id: "parked_unverified_source",
+      isAnonymous: true,
+      primaryEmail: null,
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const target = {
+      id: "unverified_recovery_target",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "billingfixture@gmail.com",
+      primaryEmailVerified: false,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (rawID: unknown) =>
+      (rawID as string) === source.id ? source : target,
+    );
+    selectResults = [
+      [{ stackUserId: source.id, stackTeamId: null }],
+      [{ stackUserId: source.id, stackTeamId: null }],
+    ];
+
+    const result = await recordCheckoutCompletion(
+        {
+          ...checkoutInput("cus_unverified_recovery"),
+          session: {
+            ...checkoutInput("cus_unverified_recovery").session,
+            client_reference_id: source.id,
+            customer: "cus_unverified_recovery",
+            customer_details: { email: "billing.fixture@gmail.com" },
+            metadata: { app: "cmux", plan: "pro" },
+          },
+          subscription: {
+            ...checkoutInput("cus_unverified_recovery").subscription,
+            customer: "cus_unverified_recovery",
+            metadata: { app: "cmux", plan: "pro", stackUserId: source.id },
+          },
+          customer: {
+            id: "cus_unverified_recovery",
+            deleted: false,
+            email: "billing.fixture@gmail.com",
+          },
+          allowCanonicalOwnershipRecovery: true,
+        } as never,
+        {
+          db: fakeDb() as never,
+          stackApp: {
+            getUser,
+            listUsers: async () => [
+              {
+                id: target.id,
+                primaryEmail: target.primaryEmail,
+                primaryEmailVerified: false,
+                update: target.update,
+              },
+            ],
+          } as never,
+        },
+      );
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: source.id,
+      subscriptionId: "sub_123",
+    });
+    expect(
+      inserts.some(
+        (insert) => insert.table === stripeCustomers && insert.values.stackUserId === target.id,
+      ),
+    ).toBe(false);
+    expect(target.update).not.toHaveBeenCalled();
+  });
+
   test("updates the Stripe customer id when the same Stack user repurchases", async () => {
     const update = mock(async () => undefined);
     const user = {
@@ -512,7 +2161,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update,
     };
-    selectResults = [[{ id: "cus_old" }]];
+    selectResults = [[], [{ id: "cus_old" }]];
 
     await recordCheckoutCompletion(checkoutInput("cus_new") as never, {
       db: fakeDb() as never,
@@ -605,7 +2254,7 @@ describe("recordCheckoutCompletion", () => {
       ),
     ).toBe(true);
     expect(updateTeam).toHaveBeenCalledWith({
-      clientReadOnlyMetadata: { cmuxPlan: "team" },
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 },
     });
   });
 
@@ -656,7 +2305,7 @@ describe("recordCheckoutCompletion", () => {
       ),
     ).toBe(true);
     expect(updateTeam).toHaveBeenCalledWith({
-      clientReadOnlyMetadata: { cmuxPlan: "team" },
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 },
     });
   });
 
@@ -1079,12 +2728,105 @@ describe("recordCheckoutCompletion", () => {
 
   test("removes a user from TestFlight when a user Pro subscription lapses", async () => {
     const update = mock(async () => undefined);
-    const removeTester = mock(async () => undefined);
+    let transactionDepth = 0;
+    const baseDb = fakeDb();
+    const trackedDb = {
+      ...baseDb,
+      transaction: async <T>(
+        callback: (tx: typeof baseDb) => Promise<T>,
+      ) => {
+        transactionDepth += 1;
+        try {
+          return await callback(baseDb);
+        } finally {
+          transactionDepth -= 1;
+        }
+      },
+    };
+    const removeTester = mock(async () => {
+      expect(transactionDepth).toBe(0);
+    });
     const user = {
       id: "user_123",
       primaryEmail: "buyer@example.com",
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update,
+    };
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+
+    const result = await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: trackedDb as never,
+        stackApp: { getUser: async () => user } as never,
+        testflight: {
+          isAscConfigured: () => true,
+          removeTester,
+        },
+      },
+    );
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
+    expect(removeTester).toHaveBeenCalledWith("buyer@example.com", {
+      ownedLegacyGroupIDs: [],
+    });
+    expect(updates.find((entry) => entry.table === stripeSubscriptions)?.values).not.toHaveProperty(
+      "id",
+    );
+    expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
+  });
+
+  test("does not restore Pro metadata while removing recorded TestFlight ownership after a lapse", async () => {
+    const metadataWrites: unknown[] = [];
+    const update = mock(async (...args: unknown[]) => {
+      const [options] = args as [{ readonly clientReadOnlyMetadata: unknown }];
+      metadataWrites.push(options.clientReadOnlyMetadata);
+    });
+    const removeTester = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "buyer@example.com",
+      clientReadOnlyMetadata: {
+        cmuxPlan: "pro",
+        cmuxProTestflightEnrollmentEmails: ["buyer@example.com"],
+        cmuxProTestflightGrants: [
+          { email: "buyer@example.com", source: "user" },
+        ],
+      },
+      update,
+    };
+    selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+
+    await applySubscriptionUpdate(
+      userSubscriptionUpdate({ status: "canceled" }) as never,
+      {
+        db: fakeDb() as never,
+        stackApp: { getUser: async () => user } as never,
+        testflight: {
+          isAscConfigured: () => true,
+          removeTester,
+        },
+      },
+    );
+
+    expect(metadataWrites).toHaveLength(2);
+    expect(metadataWrites[0]).not.toHaveProperty("cmuxPlan");
+    expect(metadataWrites[1]).toEqual({});
+  });
+
+  test("removes an explicitly recorded legacy Pro membership when Pro lapses", async () => {
+    const removeTester = mock(async () => undefined);
+    const user = {
+      id: "user_123",
+      primaryEmail: "current@example.com",
+      clientReadOnlyMetadata: {
+        cmuxPlan: "pro",
+        cmuxProTestflightOwnedLegacyGroupIDs: [
+          FOUNDER_TESTFLIGHT_GROUP_ID,
+        ],
+        cmuxProTestflightOwnedLegacyEmails: ["legacy@example.com"],
+      },
+      update: mock(async () => undefined),
     };
     selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
 
@@ -1100,15 +2842,22 @@ describe("recordCheckoutCompletion", () => {
       },
     );
 
-    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
-    expect(removeTester).toHaveBeenCalledWith("buyer@example.com");
-    expect(updates.find((entry) => entry.table === stripeSubscriptions)?.values).not.toHaveProperty(
-      "id",
-    );
-    expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: "user_123",
+      isActive: false,
+    });
+    expect(removeTester).toHaveBeenNthCalledWith(1, "current@example.com", {
+      ownedLegacyGroupIDs: [],
+    });
+    expect(removeTester).toHaveBeenNthCalledWith(2, "legacy@example.com", {
+      ownedLegacyGroupIDs: [
+        FOUNDER_TESTFLIGHT_GROUP_ID,
+      ],
+    });
   });
 
-  test("does not fail the webhook when TestFlight removal fails", async () => {
+  test("keeps the webhook retryable when TestFlight removal fails", async () => {
     const captureAscError = mock(() => undefined);
     const user = {
       id: "user_123",
@@ -1118,22 +2867,23 @@ describe("recordCheckoutCompletion", () => {
     };
     selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
 
-    const result = await applySubscriptionUpdate(
-      userSubscriptionUpdate({ status: "canceled" }) as never,
-      {
-        db: fakeDb() as never,
-        stackApp: { getUser: async () => user } as never,
-        testflight: {
-          isAscConfigured: () => true,
-          removeTester: async () => {
-            throw new Error("ASC down");
+    await expect(
+      applySubscriptionUpdate(
+        userSubscriptionUpdate({ status: "canceled" }) as never,
+        {
+          db: fakeDb() as never,
+          stackApp: { getUser: async () => user } as never,
+          testflight: {
+            isAscConfigured: () => true,
+            removeTester: async () => {
+              throw new Error("ASC down");
+            },
+            captureAscError,
           },
-          captureAscError,
         },
-      },
-    );
+      ),
+    ).rejects.toThrow("ASC down");
 
-    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: false });
     expect(captureAscError).toHaveBeenCalledWith(
       expect.objectContaining({ message: "ASC down" }),
       expect.objectContaining({
@@ -1501,9 +3251,156 @@ function userSubscriptionUpdate({ status }: { status: string }) {
       data: [
         {
           current_period_end: 1_800_000_000,
-          price: { id: "price_123" },
+          price: { id: "price_123", lookup_key: "cmux-pro-monthly-50" },
         },
       ],
     },
   };
 }
+
+describe("billing user lookup without a user-list scan", () => {
+  const dotted = {
+    id: "dotted-owner",
+    primaryEmail: "billing.fixture@gmail.com",
+    primaryEmailVerified: true,
+    isAnonymous: false,
+    isRestricted: false,
+    update: mock(async () => undefined),
+  };
+
+  test("a dotted Gmail alias is found through the identity snapshot, not by scanning every user", async () => {
+    const listUsers = mock<(options?: { query?: string }) => Promise<never[]>>(async () => []);
+    const getUser = mock(async (...args: unknown[]) => ((args[0] as string) === dotted.id ? dotted : null));
+    const snapshotUserIds = mock(async () => [dotted.id]);
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser } as never,
+      "billingfixture@gmail.com",
+      { snapshotUserIds },
+    );
+    expect(user?.id).toBe(dotted.id);
+    expect(snapshotUserIds).toHaveBeenCalledWith("billingfixture@gmail.com");
+    const scanned = listUsers.mock.calls.some(([options]) => options?.query === undefined);
+    expect(scanned).toBe(false);
+  });
+
+  test("an unknown Gmail purchaser resolves to no user instead of failing the purchase", async () => {
+    const listUsers = mock(async () => []);
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser: mock(async () => null) } as never,
+      "nobody.yet@gmail.com",
+      { snapshotUserIds: async () => [] },
+    );
+    expect(user).toBeNull();
+    expect(
+      await findUserIdByEmail(
+        { listUsers, getUser: mock(async () => null) } as never,
+        "nobody.yet@gmail.com",
+        { snapshotUserIds: async () => [] },
+      ),
+    ).toBeNull();
+  });
+
+  test("a query whose pages never end still returns the exact match it found", async () => {
+    let cursor = 0;
+    const listUsers = mock(async () => Object.assign([dotted], { nextCursor: `page-${(cursor += 1)}` }));
+    const user = await findBillingUserByEmail(
+      { listUsers, getUser: mock(async () => dotted) } as never,
+      "billing.fixture@gmail.com",
+      { snapshotUserIds: async () => [] },
+    );
+    expect(user?.id).toBe(dotted.id);
+    const callCount = (listUsers as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    expect(callCount).toBeLessThanOrEqual(400);
+  });
+});
+
+describe("purchase sign-in email delivery", () => {
+  test("sends the magic link when Stack accepts it", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const sendMagicLinkEmail = mock(async () => undefined);
+    const kind = await deliverPurchaseSignInEmail(
+      { sendMagicLinkEmail, getUser: mock(async () => null) } as never,
+      { email: "buyer@example.com", stackUserId: "u1" },
+    );
+    expect(kind).toBe("magic_link");
+    expect(sendMagicLinkEmail).toHaveBeenCalledWith("buyer@example.com", {
+      callbackUrl: "https://cmux.com/handler/after-sign-in",
+    });
+  });
+
+  test("falls back to the mailbox verification link when Stack refuses a sign-in link for an unverified shell", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const sendVerificationEmail = mock(async () => undefined);
+    const channel = {
+      id: "ch1",
+      type: "email",
+      value: "Buyer@Example.com",
+      isPrimary: true,
+      isVerified: false,
+      usedForAuth: true,
+      sendVerificationEmail,
+    };
+    const stackApp = {
+      sendMagicLinkEmail: mock(async () => ({ status: "error", error: { code: "USER_EMAIL_ALREADY_EXISTS" } })),
+      getUser: mock(async () => ({ id: "u1", primaryEmail: "buyer@example.com", listContactChannels: async () => [channel] })),
+    };
+    const kind = await deliverPurchaseSignInEmail(stackApp as never, { email: "buyer@example.com", stackUserId: "u1" });
+    expect(kind).toBe("verification");
+    expect(sendVerificationEmail).toHaveBeenCalledWith({
+      callbackUrl: "https://cmux.com/handler/email-verification",
+    });
+  });
+
+  test("a refused sign-in link with no unverified channel is a provider rejection", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const { PurchaseMagicLinkProviderRejectedError } = await import("../services/billing/emailVerificationDelivery");
+    const stackApp = {
+      sendMagicLinkEmail: mock(async () => ({ status: "error" })),
+      getUser: mock(async () => ({ id: "u1", primaryEmail: "buyer@example.com", listContactChannels: async () => [] })),
+    };
+    await expect(
+      deliverPurchaseSignInEmail(stackApp as never, { email: "buyer@example.com", stackUserId: "u1" }),
+    ).rejects.toBeInstanceOf(PurchaseMagicLinkProviderRejectedError);
+  });
+});
+
+describe("purchase sign-in email delivery when Stack throws", () => {
+  const channel = {
+    id: "ch1",
+    type: "email",
+    value: "buyer@example.com",
+    isPrimary: true,
+    isVerified: false,
+    usedForAuth: true,
+    sendVerificationEmail: mock(async () => undefined),
+  };
+  const user = { id: "u1", primaryEmail: "buyer@example.com", listContactChannels: async () => [channel] };
+
+  test("a thrown unverified-mailbox refusal falls back to the verification link", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const stackApp = {
+      sendMagicLinkEmail: mock(async () => {
+        throw new Error('A user with email "buyer@example.com" already exists but the email is not verified.');
+      }),
+      getUser: mock(async () => user),
+    };
+    channel.sendVerificationEmail.mockClear();
+    const kind = await deliverPurchaseSignInEmail(stackApp as never, { email: "buyer@example.com", stackUserId: "u1" });
+    expect(kind).toBe("verification");
+    expect(channel.sendVerificationEmail).toHaveBeenCalledTimes(1);
+  });
+
+  test("any other thrown error is surfaced unchanged so the delivery marker stays", async () => {
+    const { deliverPurchaseSignInEmail } = await import("../services/billing/purchase");
+    const boom = new Error("socket hang up");
+    const stackApp = {
+      sendMagicLinkEmail: mock(async () => { throw boom; }),
+      getUser: mock(async () => user),
+    };
+    channel.sendVerificationEmail.mockClear();
+    await expect(
+      deliverPurchaseSignInEmail(stackApp as never, { email: "buyer@example.com", stackUserId: "u1" }),
+    ).rejects.toBe(boom);
+    expect(channel.sendVerificationEmail).not.toHaveBeenCalled();
+  });
+});

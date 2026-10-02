@@ -11,6 +11,62 @@ import Testing
 @MainActor
 struct AppDelegateOversizedFrameRestoreTests {
     @Test
+    func sameDisplaySavedFrameCutOffPastLeftEdgeIsFittedToVisibleFrame() throws {
+        let visible = CGRect(x: 0, y: 0, width: 1_512, height: 944)
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            stableID: "uuid:BUILTIN",
+            frame: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+            visibleFrame: visible
+        )
+        let restored = try #require(AppDelegate.resolvedWindowFrame(
+            from: SessionRectSnapshot(CGRect(x: -240, y: 120, width: 900, height: 700)),
+            display: SessionDisplaySnapshot(
+                displayID: 1,
+                stableID: "uuid:BUILTIN",
+                frame: SessionRectSnapshot(display.frame),
+                visibleFrame: SessionRectSnapshot(visible)
+            ),
+            availableDisplays: [display],
+            fallbackDisplay: display
+        ))
+
+        #expect(restored == CGRect(x: 0, y: 120, width: 900, height: 700))
+        #expect(visible.contains(restored))
+    }
+
+    @Test
+    func replacementDisplayPreservesAlreadyVisibleSavedFrameCoordinates() throws {
+        let builtInDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            stableID: "uuid:BUILTIN",
+            frame: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_512, height: 944)
+        )
+        let replacementDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 3,
+            stableID: "uuid:NEW-EXTERNAL",
+            frame: CGRect(x: 1_512, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 1_512, y: 0, width: 2_560, height: 1_415)
+        )
+        let savedFrame = CGRect(x: 1_700, y: 100, width: 900, height: 700)
+        let restored = try #require(AppDelegate.resolvedWindowFrame(
+            from: SessionRectSnapshot(savedFrame),
+            display: SessionDisplaySnapshot(
+                displayID: 2,
+                stableID: "uuid:OLD-EXTERNAL",
+                frame: SessionRectSnapshot(replacementDisplay.frame),
+                visibleFrame: SessionRectSnapshot(replacementDisplay.visibleFrame)
+            ),
+            availableDisplays: [builtInDisplay, replacementDisplay],
+            fallbackDisplay: builtInDisplay
+        ))
+
+        #expect(restored == savedFrame)
+        #expect(replacementDisplay.visibleFrame.contains(restored))
+    }
+
+    @Test
     func oversizedSavedFrameClampsToItsDisplay() throws {
         let visible = CGRect(x: 0, y: 0, width: 1_512, height: 944)
         let display = AppDelegate.SessionDisplayGeometry(
@@ -65,7 +121,7 @@ struct AppDelegateOversizedFrameRestoreTests {
     }
 
     @Test
-    func fullPhysicalDisplayHeightIsPreserved() {
+    func fullPhysicalDisplayHeightIsFittedToVisibleFrame() throws {
         let display = AppDelegate.SessionDisplayGeometry(
             displayID: 1,
             stableID: "uuid:BUILTIN",
@@ -74,15 +130,66 @@ struct AppDelegateOversizedFrameRestoreTests {
         )
         let saved = CGRect(x: 0, y: 0, width: 1_200, height: 982)
 
-        let restored = AppDelegate.preservingOrClampingExactFrame(
-            saved,
-            targetDisplay: display,
+        let restored = try #require(AppDelegate.resolvedWindowFrame(
+            from: SessionRectSnapshot(saved),
+            display: SessionDisplaySnapshot(
+                displayID: 1,
+                stableID: "uuid:BUILTIN",
+                frame: SessionRectSnapshot(display.frame),
+                visibleFrame: SessionRectSnapshot(display.visibleFrame)
+            ),
             availableDisplays: [display],
-            minWidth: 400,
-            minHeight: 300
-        )
+            fallbackDisplay: display
+        ))
 
-        #expect(restored == saved)
+        #expect(restored == CGRect(x: 0, y: 0, width: 1_200, height: 944))
+        #expect(display.visibleFrame.contains(restored))
+    }
+
+    @Test
+    func unchangedDisplayStillFitsSavedFrameToItsVisibleFrame() throws {
+        let visible = CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: visible
+        )
+        let restored = try #require(AppDelegate.resolvedWindowFrame(
+            from: SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410),
+            display: SessionDisplaySnapshot(
+                displayID: 2,
+                frame: SessionRectSnapshot(display.frame),
+                visibleFrame: SessionRectSnapshot(visible)
+            ),
+            availableDisplays: [display],
+            fallbackDisplay: display
+        ))
+
+        #expect(restored == CGRect(x: 1_280, y: 0, width: 1_280, height: 1_410))
+        #expect(visible.contains(restored))
+    }
+
+    @Test
+    func changedVisibleFrameFitsOtherwiseAccessibleSavedFrame() throws {
+        let visible = CGRect(x: 0, y: 40, width: 2_560, height: 1_360)
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: visible
+        )
+        let restored = try #require(AppDelegate.resolvedWindowFrame(
+            from: SessionRectSnapshot(x: 1_100, y: -20, width: 1_280, height: 1_000),
+            display: SessionDisplaySnapshot(
+                displayID: 2,
+                frame: SessionRectSnapshot(display.frame),
+                visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+            ),
+            availableDisplays: [display],
+            fallbackDisplay: display
+        ))
+
+        #expect(restored == CGRect(x: 1_100, y: 40, width: 1_280, height: 1_000))
+        #expect(visible.contains(restored))
     }
 
     @Test

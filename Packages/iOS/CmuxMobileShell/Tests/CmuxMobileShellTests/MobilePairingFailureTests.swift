@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxMobileShellModel
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -38,6 +39,22 @@ import Testing
         #expect(category.message.contains("58465"))
         // The dominant no-Tailscale case must give actionable reachability guidance.
         #expect(category.guidance != nil)
+    }
+
+    @Test func unavailableTailscaleAuthorizationNamesSetupInsteadOfReachability() throws {
+        let category = MobilePairingFailureCategory.classify(
+            error: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable,
+            route: try route()
+        )
+
+        #expect(category == .tailscaleUnavailable)
+        #expect(!category.isAuthorizationFailure)
+        #expect(category.analyticsReason == "tailscale_unavailable")
+        #expect(category.message.localizedCaseInsensitiveContains("Tailscale"))
+        // Stale-copy repair: the guidance now points at the Mac pairing QR /
+        // Tailscale IP setup path rather than the pre-0.64.18 "Pair iPhone"
+        // window name.
+        #expect(category.guidance?.contains("pairing QR") == true)
     }
 
     @Test func connectionRefusedMeansListenerNotRunning() throws {
@@ -102,6 +119,33 @@ import Testing
         #expect(category.analyticsReason == "timeout")
     }
 
+    @Test func gatedConnectAttemptIsNotPresentedAsATimeout() throws {
+        // `connectAttemptGated` means another attempt already owns the route.
+        // Timeout copy ("No response from …") would tell the user the Mac is
+        // unresponsive while it is actually mid-reconnect.
+        let category = MobilePairingFailureCategory.classify(
+            error: MobileShellConnectionError.connectAttemptGated,
+            route: try route()
+        )
+        #expect(category == .connectAttemptGated)
+        #expect(category.analyticsReason == "connect_attempt_gated")
+        #expect(!category.message.lowercased().contains("no response"))
+        #expect(category.guidance?.isEmpty == false)
+    }
+
+    @Test func cleanupDebtNamesTheRequiredAppRestart() {
+        let category = MobilePairingFailureCategory.classify(
+            error: MobileShellConnectionError.routeCleanupBlocked,
+            route: nil
+        )
+
+        #expect(category == .routeCleanupBlocked)
+        #expect(category.analyticsReason == "route_cleanup_blocked")
+        #expect(category.message.contains("paused new connections"))
+        #expect(category.guidance?.contains("Force-quit") == true)
+        #expect(!category.isAuthorizationFailure)
+    }
+
     @Test func expiredTicketIsAuthorizationFailureNeedingRescan() {
         let category = MobilePairingFailureCategory.classify(
             error: MobileShellConnectionError.attachTicketExpired,
@@ -142,17 +186,34 @@ import Testing
         #expect(category.analyticsReason == "unsupported_route")
     }
 
+    @Test func incompatibleBuildNamesTheCompatibilityBoundary() {
+        let category = MobilePairingFailureCategory.classify(
+            error: MobileShellConnectionError.rpcError(
+                "build_incompatible",
+                "Mac build is incompatible with this iOS build"
+            ),
+            route: nil
+        )
+
+        #expect(category == .buildIncompatible)
+        #expect(category.analyticsReason == "build_incompatible")
+        #expect(category.message.contains("cannot connect"))
+        #expect(category.guidance?.contains("any DEV Mac build") == true)
+        #expect(!category.isAuthorizationFailure)
+    }
+
     @Test func authEnvironmentMismatchTellsTheTruthAboutTheChannel() {
         // A dev-channel build failing a release Mac's QR user-id binding: the
         // emails DO match, so the copy must name the auth-environment cause and
-        // the --prod-auth remedy instead of the authFailed "same email" advice
+        // the matching-build remedy instead of the authFailed "same email" advice
         // (https://github.com/manaflow-ai/cmux/issues/7145).
         let category = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: true)
         #expect(category.analyticsReason == "auth_environment_mismatch")
         #expect(category.message.contains("development auth environment"))
         #expect(category.message != MobilePairingFailureCategory.authFailed.message)
         #expect(!category.message.contains("Make sure both devices are signed in"))
-        #expect(category.guidance?.contains("--prod-auth") == true)
+        #expect(category.guidance?.contains("BETA") == true)
+        #expect(category.guidance?.contains("any DEV Mac build") == true)
         // Signing out cannot move the account to another Stack project, so this
         // must not drive the re-auth (Sign Out) prompt.
         #expect(!category.isAuthorizationFailure)
@@ -224,6 +285,7 @@ import Testing
         let route = try route()
         let categories: [MobilePairingFailureCategory] = [
             .offline,
+            .tailscaleUnavailable,
             .hostUnreachable(host: "h", port: 1),
             .listenerNotRunning(host: "h", port: 1),
             .localNetworkBlocked,
@@ -235,12 +297,15 @@ import Testing
             .authFailed,
             .authEnvironmentMismatch(macChannelIsRelease: true),
             .authEnvironmentMismatch(macChannelIsRelease: false),
+            .buildIncompatible,
             .ticketExpired,
             .invalidCode,
             .unrecognizedVersion,
             .macUpdateRequired,
             .unsupportedRoute,
             .noSupportedRoute,
+            .routeCleanupBlocked,
+            .connectAttemptGated,
             .unknown(host: "h", port: 1),
         ]
         for category in categories {
@@ -267,6 +332,7 @@ import Testing
         // wrong "code" was entered.
         let message = MobilePairingFailureCategory.invalidCode.message
         #expect(!message.lowercased().contains("pairing code"))
+        #expect(message.localizedCaseInsensitiveContains("pairing QR"))
         #expect(!message.isEmpty)
     }
 
@@ -290,5 +356,79 @@ import Testing
         #expect(!category.message.isEmpty)
         #expect(!category.message.contains("%@"))
         #expect(!category.message.contains("%d"))
+    }
+
+    // MARK: - Distribution-channel copy gating (App Review Guideline 2.2)
+    //
+    // The public App Store build must describe Mac compatibility in product
+    // terms only: App Review rejected the app for internal build-lane
+    // vocabulary (DEV, BETA, INTERNAL, tag grants) in production UI. Team
+    // channels keep the precise lane copy their users choose between.
+
+    @Test func officialBuildGetsNeutralBuildIncompatibleCopy() {
+        let category = MobilePairingFailureCategory.buildIncompatible
+        let message = category.message(buildType: .prod)
+        let guidance = category.guidance(buildType: .prod)
+
+        #expect(message.contains("incompatible version of cmux"))
+        #expect(guidance?.contains("Update cmux on your Mac") == true)
+        for text in [message, guidance ?? ""] {
+            #expect(!text.contains("DEV"))
+            #expect(!text.contains("BETA"))
+            #expect(!text.contains("INTERNAL"))
+            #expect(!text.localizedCaseInsensitiveContains("TestFlight"))
+            #expect(!text.localizedCaseInsensitiveContains("tag"))
+        }
+    }
+
+    @Test func teamBuildsKeepDetailedBuildIncompatibleCopy() {
+        let category = MobilePairingFailureCategory.buildIncompatible
+        #expect(category.message(buildType: .beta).contains("cannot connect"))
+        #expect(category.guidance(buildType: .dev)?.contains("any DEV Mac build") == true)
+        #expect(category.guidance(buildType: .beta)?.contains("BETA") == true)
+        #expect(category.guidance(buildType: .internal)?.contains("INTERNAL") == true)
+    }
+
+    @Test func officialBuildGetsNeutralAuthEnvironmentCopyInBothDirections() {
+        for macChannelIsRelease in [true, false] {
+            let category = MobilePairingFailureCategory.authEnvironmentMismatch(
+                macChannelIsRelease: macChannelIsRelease
+            )
+            let message = category.message(buildType: .prod)
+            let guidance = category.guidance(buildType: .prod)
+
+            #expect(message.contains("sign-in environment"))
+            #expect(message.contains("even with the same email"))
+            #expect(guidance?.contains("standard cmux app") == true)
+            for text in [message, guidance ?? ""] {
+                #expect(!text.localizedCaseInsensitiveContains("dev build"))
+                #expect(!text.localizedCaseInsensitiveContains("development"))
+                #expect(!text.contains("BETA"))
+                #expect(!text.contains("INTERNAL"))
+            }
+        }
+    }
+
+    @Test func teamBuildsKeepDirectionalAuthEnvironmentCopy() {
+        let devPhone = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: true)
+        let devMac = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: false)
+        #expect(devPhone.message(buildType: .beta).contains("development auth environment"))
+        #expect(devPhone.guidance(buildType: .beta)?.contains("BETA") == true)
+        #expect(devMac.guidance(buildType: .internal)?.contains("release cmux app") == true)
+    }
+
+    @Test func officialUpdateGuidanceDropsTestFlight() {
+        let category = MobilePairingFailureCategory.unrecognizedVersion
+        #expect(category.guidance(buildType: .prod)?.contains("TestFlight") != true)
+        #expect(category.guidance(buildType: .prod)?.contains("App Store") == true)
+        #expect(category.guidance(buildType: .beta)?.contains("TestFlight") == true)
+    }
+
+    @Test func demoBuildsUseTheNeutralVocabularyToo() {
+        // Demo builds face external audiences, so they fail to the neutral
+        // copy alongside the App Store channel.
+        let guidance = MobilePairingFailureCategory.buildIncompatible.guidance(buildType: .demo)
+        #expect(guidance?.contains("BETA") != true)
+        #expect(guidance?.contains("Update cmux on your Mac") == true)
     }
 }

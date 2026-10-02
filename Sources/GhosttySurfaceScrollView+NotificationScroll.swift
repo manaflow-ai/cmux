@@ -249,9 +249,9 @@ extension GhosttySurfaceScrollView {
         pendingRequest: (Int) -> NotificationScrollRequestPhase
     ) -> Bool {
         let currentLastTopRow = Int(clamping: scrollbar.total - min(scrollbar.total, scrollbar.len))
-        let previousUserScrolledAwayFromBottom = userScrolledAwayFromBottom
-        allowExplicitScrollbarSync = true
-        userScrolledAwayFromBottom = targetTopRow < currentLastTopRow
+        let previousScrollIntent = prepareExplicitViewportRestore(
+            isAtBottom: targetTopRow >= currentLastTopRow
+        )
         let restoredGeometry = perform()
         var didRestore = restoredGeometry != nil
         if requiresLiveBottom, let restoredGeometry {
@@ -268,8 +268,7 @@ extension GhosttySurfaceScrollView {
         if didRestore {
             clearPendingNotificationScrollRestore()
         } else {
-            allowExplicitScrollbarSync = false
-            userScrolledAwayFromBottom = previousUserScrolledAwayFromBottom
+            rollbackExplicitViewportRestore(to: previousScrollIntent)
             let remainingAfterAttempt = attemptsRemaining - 1
             if remainingAfterAttempt == 0 {
                 clearPendingNotificationScrollRestore()
@@ -376,6 +375,25 @@ extension GhosttySurfaceScrollView {
 
     func terminalSurfaceDidReceiveExplicitInput() {
         cancelPendingNotificationScrollRestoreForUserInput()
+    }
+
+    func terminalSurfaceDidAcceptExplicitInput() {
+        // Following panes already track the live bottom. Avoid touching the
+        // runtime on the typing hot path unless review mode needs reconciling.
+        guard scrollbackViewportIntent.isReviewingScrollback
+                || scrollbackViewportIntent.isAwaitingExplicitScrollbarSync else {
+            return
+        }
+        guard let geometry = surfaceView.authoritativeScrollbarGeometry() else { return }
+        let nextIntent = scrollbackViewportIntent.resolvingAcceptedExplicitInput(
+            isAtBottom: geometry.scrollbar.isAtBottom
+        )
+        guard nextIntent != scrollbackViewportIntent else { return }
+
+        applyScrollbackViewportIntent(nextIntent)
+        surfaceView.scrollbar = geometry.scrollbar
+        synchronizeJumpToBottomIndicator()
+        synchronizeScrollView(forceViewportSync: nextIntent == .followingOutput)
     }
 
     func restorePendingNotificationScrollPositionAfterScrollbarUpdate() {

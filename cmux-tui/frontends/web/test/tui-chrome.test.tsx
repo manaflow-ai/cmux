@@ -5,21 +5,21 @@ import { StatusBar } from "../src/components/StatusBar";
 import type { WorkspaceView } from "../src/lib/tree";
 
 const workspace: WorkspaceView = {
-  id: 1,
+  id: 1n,
   name: "alpha",
   active: true,
   subtitle: "shell",
   screens: [{
-    id: 2,
-    workspaceId: 1,
+    id: 2n,
+    workspaceId: 1n,
     label: "shell title",
     statusLabel: "named",
     active: true,
     pane: null,
     tab: null,
     panes: [],
-    layout: { type: "leaf", pane: 3 },
-    activePane: 3,
+    layout: { type: "leaf", pane: 3n },
+    activePane: 3n,
     zoomedPane: null,
     unread: false,
   }],

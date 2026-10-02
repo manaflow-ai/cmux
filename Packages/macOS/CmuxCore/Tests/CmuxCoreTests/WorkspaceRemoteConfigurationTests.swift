@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 @testable import CmuxCore
@@ -87,6 +88,8 @@ struct WorkspaceRemoteConfigurationNormalizationTests {
 struct WorkspaceRemoteConfigurationValueTests {
     private func makeConfiguration(
         transport: WorkspaceRemoteTransport = .ssh,
+        terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
         destination: String = "user@host",
         port: Int? = nil,
         identityFile: String? = nil,
@@ -100,6 +103,8 @@ struct WorkspaceRemoteConfigurationValueTests {
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
+            terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -116,6 +121,65 @@ struct WorkspaceRemoteConfigurationValueTests {
             persistentDaemonSlot: persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
+    }
+
+    @Test("remote configuration resolves terminal transport and supported pairings")
+    func remoteTerminalTransportSelection() {
+        #expect(WorkspaceRemoteTerminalTransport(remoteConfigurationValue: nil) == .ssh)
+        #expect(WorkspaceRemoteTerminalTransport(remoteConfigurationValue: " MOSH\n") == .mosh)
+        #expect(WorkspaceRemoteTerminalTransport(remoteConfigurationValue: "udp") == nil)
+        #expect(
+            WorkspaceRemoteTerminalTransport.mosh.isSupportedForRemoteConfiguration(
+                managementTransport: .ssh,
+                skipDaemonBootstrap: false
+            )
+        )
+        #expect(
+            !WorkspaceRemoteTerminalTransport.mosh.isSupportedForRemoteConfiguration(
+                managementTransport: .websocket,
+                skipDaemonBootstrap: false
+            )
+        )
+        #expect(
+            !WorkspaceRemoteTerminalTransport.mosh.isSupportedForRemoteConfiguration(
+                managementTransport: .ssh,
+                skipDaemonBootstrap: true
+            )
+        )
+    }
+
+    @Test("terminal transport participates in value equality and snapshots")
+    func terminalTransportValueBehavior() throws {
+        let ssh = makeConfiguration(terminalTransport: .ssh)
+        let mosh = makeConfiguration(terminalTransport: .mosh)
+        let snapshot = try #require(mosh.sessionSnapshot())
+
+        #expect(ssh != mosh)
+        #expect(mosh.scopedToOwnerWorkspace(UUID()).terminalTransport == .mosh)
+        #expect(snapshot.terminalTransport == .mosh)
+    }
+
+    @Test("terminal profile participates in value equality and snapshots")
+    func terminalProfileValueBehavior() throws {
+        let shell = makeConfiguration(terminalProfile: .shell)
+        let tmux = makeConfiguration(terminalProfile: .defaultTmux)
+        let snapshot = try #require(tmux.sessionSnapshot())
+
+        #expect(shell != tmux)
+        #expect(tmux.scopedToOwnerWorkspace(UUID()).terminalProfile == .defaultTmux)
+        #expect(snapshot.terminalProfile == .defaultTmux)
+    }
+
+    @Test("Mosh terminals disable SSH persistent-PTY state")
+    func moshDisablesPersistentPTYState() {
+        let configuration = makeConfiguration(
+            terminalTransport: .mosh,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ssh-mosh"
+        )
+
+        #expect(!configuration.preserveAfterTerminalExit)
+        #expect(configuration.persistentDaemonSlot == nil)
     }
 
     @Test("persistent daemon slot is gated on preserveAfterTerminalExit")
@@ -276,6 +340,30 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(a.hasSamePersistentPTYIdentity(as: b))
     }
 
+    @Test("persistent PTY lookup keys cover exact and managed wildcard owners")
+    func persistentPTYLookupKeys() {
+        let ownerID = UUID()
+        let preserved = makeConfiguration(
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "slot",
+            ownerWorkspaceID: ownerID
+        )
+        #expect(preserved.persistentPTYIdentityLookupKeys.count == 1)
+        #expect(preserved.persistentPTYIdentityLookupKeys.first?.hasSuffix(ownerID.uuidString.lowercased()) == true)
+
+        let managed = makeConfiguration(
+            transport: .websocket,
+            destination: "cloud-vm",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            managedCloudVMID: "vm-base",
+            skipDaemonBootstrap: true,
+            ownerWorkspaceID: ownerID
+        )
+        #expect(managed.persistentPTYIdentityLookupKeys.count == 2)
+        #expect(managed.persistentPTYIdentityLookupKeys.last?.hasSuffix("\u{1e}*") == true)
+    }
+
     @Test("sessionSnapshot persists restorable transports with a non-empty destination")
     func sessionSnapshotGating() {
         #expect(makeConfiguration(transport: .websocket).sessionSnapshot() == nil)
@@ -312,6 +400,19 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(snapshot?.preserveAfterTerminalExit == true)
         #expect(snapshot?.relayPort == 7000)
         #expect(snapshot?.persistentDaemonSlot == "slot")
+    }
+
+    @Test("Mosh snapshots retain the relay namespace without persistent SSH PTY state")
+    func moshSnapshotRetainsRelayNamespace() {
+        let snapshot = makeConfiguration(
+            terminalTransport: .mosh,
+            relayPort: 52_000
+        ).sessionSnapshot()
+
+        #expect(snapshot?.terminalTransport == .mosh)
+        #expect(snapshot?.preserveAfterTerminalExit == nil)
+        #expect(snapshot?.relayPort == 52_000)
+        #expect(snapshot?.persistentDaemonSlot == nil)
     }
 
     @Test("sshTerminalStartupEnvironment carries SSH_AUTH_SOCK only when an agent socket exists")

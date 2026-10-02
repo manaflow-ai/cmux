@@ -43,7 +43,7 @@ extension RemoteSessionCoordinator {
         reconnectToken = nil
         guard !isStopping, !isSystemSleeping else { return }
         guard proxyLease == nil else { return }
-        beginConnectionAttemptLocked()
+        requestConnectionAttemptLocked()
     }
 
     func cancelReconnectRetryLocked() {
@@ -104,15 +104,12 @@ extension RemoteSessionCoordinator {
     /// and the `workspace.remote.reconnect` socket command) replaces this
     /// coordinator, which resets the policy state.
     func suspendAutoReconnectLocked() {
-        cancelReconnectRetryLocked()
-        reconnectSuspended = true
         debugLog(
             "remote.session.reconnect.suspended afterUnreachableProbes=\(consecutiveUnreachableProbeCount) " +
             debugConfigSummary()
         )
         let detail = String(format: strings.suspendedDetailFormat, configuration.displayTarget)
-        publishDaemonStatus(.unavailable, detail: detail)
-        publishState(.suspended, detail: detail)
+        parkSessionLocked(cause: .hostUnreachable, daemonState: .unavailable, detail: detail)
     }
 
     static func debugDescription(for outcome: RemoteHostProbeOutcome) -> String {

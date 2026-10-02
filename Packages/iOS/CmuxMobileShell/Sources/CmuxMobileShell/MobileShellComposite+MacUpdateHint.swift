@@ -9,6 +9,9 @@ internal import CmuxMobileRPC
 /// `macUpdateHint` itself).
 final class MacUpdateHintSessionState {
     var macDeviceID: String?
+    /// The connected app instance the visible hint belongs to; sibling builds
+    /// of one Mac dismiss their hints independently.
+    var instanceTag: String?
     var shownSignatures: Set<String> = []
     /// The persisted dismissal store, carried here so both the lookup and the
     /// dismissal path share one instance and tests/previews can swap in a
@@ -21,6 +24,8 @@ extension MobileShellComposite {
     public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
     /// Whether the Mac supports rename/pin workspace actions.
     public var supportsWorkspaceActions: Bool { supportedHostCapabilities.contains(Self.workspaceActionsCapability) }
+    /// Whether the Mac supports workspace description/color actions.
+    public var supportsWorkspaceMetadata: Bool { supportedHostCapabilities.contains(Self.workspaceMetadataCapability) }
     /// Whether the Mac supports mark read/unread workspace actions.
     public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
 
@@ -57,8 +62,10 @@ extension MobileShellComposite {
             return
         }
 
+        let instanceTag = activeMacInstanceTag
         guard !macUpdateHintSessionState.dismissalStore.isDismissed(
             macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
             signature: hint.dismissalSignature
         ) else {
             clearMacUpdateHint()
@@ -67,12 +74,15 @@ extension MobileShellComposite {
 
         macUpdateHint = hint
         macUpdateHintSessionState.macDeviceID = macDeviceID
+        macUpdateHintSessionState.instanceTag = instanceTag
         // Keyed per Mac so two hosts sharing one gap signature each emit an
         // event, while reconnects to the same host stay deduplicated. Named
         // "eligible" deliberately: this fires when the model computes a
         // visible hint, not when the toolbar indicator actually renders
         // (chrome, navigation state, or backgrounding can defer that).
-        guard macUpdateHintSessionState.shownSignatures.insert("\(macDeviceID)|\(hint.dismissalSignature)").inserted else { return }
+        guard macUpdateHintSessionState.shownSignatures.insert(
+            "\(CmxMacAppInstanceIdentity(macDeviceID: macDeviceID, instanceTag: instanceTag).id)|\(hint.dismissalSignature)"
+        ).inserted else { return }
         analytics.capture("ios_mac_update_hint_eligible", analyticsProperties(for: hint))
     }
 
@@ -93,6 +103,7 @@ extension MobileShellComposite {
         guard let hint = macUpdateHint, let macDeviceID = macUpdateHintSessionState.macDeviceID else { return }
         macUpdateHintSessionState.dismissalStore.dismiss(
             macDeviceID: macDeviceID,
+            instanceTag: macUpdateHintSessionState.instanceTag,
             signature: hint.dismissalSignature
         )
         clearMacUpdateHint()
@@ -103,6 +114,7 @@ extension MobileShellComposite {
     func clearMacUpdateHint() {
         macUpdateHint = nil
         macUpdateHintSessionState.macDeviceID = nil
+        macUpdateHintSessionState.instanceTag = nil
     }
 
     private func analyticsProperties(for hint: MobileMacUpdateHint) -> [String: AnalyticsValue] {

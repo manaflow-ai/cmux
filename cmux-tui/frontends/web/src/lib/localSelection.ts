@@ -1,4 +1,4 @@
-import type { Id, Tree } from "cmux/browser";
+import type { Id, Tree } from "cmux/raw";
 
 interface SelectionScreenSnapshot {
   id: Id;

@@ -56,6 +56,57 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
         lifecycleID: String
     ) throws
 
+    /// Returns the current broker owner for a wrapper generation.
+    func currentPTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleOwner?
+
+    /// Returns the broker owner that a wrapper-end callback must match.
+    ///
+    /// Unlike ``currentPTYLifecycleOwner(sessionID:lifecycleID:)``, this lookup
+    /// also resolves a stale or just-ended generation so its cleanup can be
+    /// reconciled without treating it as current readiness authority.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The owner that must still match at claim time, or `nil` when
+    ///   the lifecycle is unknown.
+    func ptyLifecycleOwnerForWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndOwner?
+
+    /// Claims and enqueues retirement of a wrapper-owned generation.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The exact retired ownership, or `nil` when it is unknown.
+    @discardableResult
+    func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndClaim?
+
+    /// Conditionally claims and enqueues retirement of a wrapper generation.
+    ///
+    /// The production broker compares `expectedOwner` and removes the
+    /// lifecycle in one queue-confined operation.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    ///   - expectedOwner: The transport and attachment validated by the caller.
+    /// - Returns: The exact retired ownership, or `nil` if ownership changed.
+    @discardableResult
+    func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner
+    ) -> RemotePTYLifecycleWrapperEndClaim?
+
     /// Claims and enqueues retirement of a wrapper-owned generation.
     ///
     /// - Returns: Whether this was the current generation for its attachment.
@@ -90,4 +141,57 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
         command: String?,
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint
+}
+
+extension RemoteProxyBrokering {
+    /// Compatibility lookup for conformers without ended-generation state.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The current owner adapted for wrapper-end validation, or
+    ///   `nil` when the lifecycle is not current.
+    public func ptyLifecycleOwnerForWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndOwner? {
+        currentPTYLifecycleOwner(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        ).map {
+            RemotePTYLifecycleWrapperEndOwner(
+                transportKey: $0.transportKey,
+                attachmentID: $0.attachmentID
+            )
+        }
+    }
+
+    /// Compatibility claim for test fakes that do not own production broker
+    /// queue state. ``RemoteProxyBroker`` overrides this with one atomic claim.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The exact retired ownership, or `nil` when it is unknown.
+    @discardableResult
+    public func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        guard let owner = currentPTYLifecycleOwner(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        ) else {
+            return nil
+        }
+        let wasCurrent = acknowledgePTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        )
+        return RemotePTYLifecycleWrapperEndClaim(
+            transportKey: owner.transportKey,
+            attachmentID: owner.attachmentID,
+            wasCurrent: wasCurrent
+        )
+    }
 }

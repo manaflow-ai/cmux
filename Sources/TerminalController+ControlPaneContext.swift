@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import CmuxControlSocket
+import CmuxPanes
 import Foundation
 
 /// Pane-domain witnesses keep app-coupled topology resolution in the app while
@@ -12,6 +14,10 @@ extension TerminalController: ControlPaneContext {
 
     func controlPaneResizeInvalidParametersMessage() -> String {
         String(localized: "socket.pane.resize.invalidParameters", defaultValue: "Invalid pane resize parameters")
+    }
+
+    func controlPaneSurfaceNotFoundMessage() -> String {
+        String(localized: "socket.pane.error.surfaceNotFound", defaultValue: "Surface not found")
     }
 
     // MARK: - Routing helpers
@@ -68,63 +74,13 @@ extension TerminalController: ControlPaneContext {
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else { return nil }
 
-        return controlPaneList(workspace: ws, tabManager: tabManager)
-    }
-
-    private func controlDockPaneList(
-        dock: DockSplitStore,
-        tabManager: TabManager
-    ) -> ControlPaneListSnapshot {
-        let focusedPaneId = dock.bonsplitController.focusedPaneId
-        let snapshot = dock.bonsplitController.layoutSnapshot()
-        let geometryByPaneId = Dictionary(
-            snapshot.panes.map { ($0.paneId, $0.frame) },
-            uniquingKeysWith: { first, _ in first }
-        )
-
-        let panes: [ControlPaneSummary] = dock.bonsplitController.allPaneIds.map { paneId in
-            let tabs = dock.bonsplitController.tabs(inPane: paneId)
-            let surfaceUUIDs: [UUID] = tabs.compactMap { dock.panel(for: $0.id)?.id }
-            let selectedTab = dock.bonsplitController.selectedTab(inPane: paneId)
-            let selectedSurfaceUUID = selectedTab.flatMap { dock.panel(for: $0.id)?.id }
-
-            let pixelFrame: ControlPanePixelFrame? = geometryByPaneId[paneId.id.uuidString].map { frame in
-                ControlPanePixelFrame(x: frame.x, y: frame.y, width: frame.width, height: frame.height)
-            }
-
-            var gridSize: ControlPaneGridSize?
-            if let panelUUID = selectedSurfaceUUID,
-               let panel = dock.panels[panelUUID] as? TerminalPanel,
-               panel.surface.hasLiveSurface,
-               let ghosttySurface = panel.surface.surface {
-                let size = ghostty_surface_size(ghosttySurface)
-                if size.columns > 0 && size.rows > 0 {
-                    let cellPoints = panel.surface.cellSizePoints()
-                    gridSize = ControlPaneGridSize(
-                        columns: Int(size.columns),
-                        rows: Int(size.rows),
-                        cellWidthPx: Int(size.cell_width_px),
-                        cellHeightPx: Int(size.cell_height_px),
-                        cellWidthPoints: cellPoints.map { Double($0.width) },
-                        cellHeightPoints: cellPoints.map { Double($0.height) }
-                    )
-                }
-            }
-
-            return ControlPaneSummary(
-                paneID: paneId.id,
-                isFocused: paneId == focusedPaneId,
-                surfaceIDs: surfaceUUIDs,
-                selectedSurfaceID: selectedSurfaceUUID,
-                pixelFrame: pixelFrame,
-                gridSize: gridSize
-            )
-        }
-
+        let snapshot = ws.bonsplitController.layoutSnapshot()
         return ControlPaneListSnapshot(
-            workspaceID: dock.workspaceId,
-            windowID: dockResultWindowId(for: dock, tabManager: tabManager),
-            panes: panes,
+            workspaceID: ws.id,
+            windowID: v2ResolveWindowId(tabManager: tabManager),
+            panes: controlPaneSummaries(workspace: ws, snapshot: snapshot) +
+                controlTopologyDocks(workspace: ws, tabManager: tabManager)
+                .flatMap { controlDockPaneSummaries(dock: $0, includePixelFrames: false) },
             containerWidth: snapshot.containerFrame.width,
             containerHeight: snapshot.containerFrame.height
         )
@@ -143,8 +99,10 @@ extension TerminalController: ControlPaneContext {
             guard let paneId = dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID }) else {
                 return .paneNotFound(paneID)
             }
-            focusAndRevealWindowDock(for: dock, fallback: tabManager)
-            dock.bonsplitController.focusPane(paneId)
+            guard focusAndRevealWindowDock(for: dock, fallback: tabManager) else {
+                return .dockUnavailable(message: dockFocusUnavailableMessage())
+            }
+            dock.focusPaneFromDockInteraction(paneId, window: nil)
             return .focused(windowID: dockResultWindowId(for: dock, tabManager: tabManager), workspaceID: dock.workspaceId, paneID: paneId.id)
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
@@ -163,35 +121,22 @@ extension TerminalController: ControlPaneContext {
             return nil
         }
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {
-            let paneId: PaneID? = {
-                if let paneID {
-                    return dock.bonsplitController.allPaneIds.first(where: { $0.id == paneID })
-                }
-                return dock.bonsplitController.focusedPaneId
-            }()
-            guard let paneId else { return nil }
-
-            let selectedTab = dock.bonsplitController.selectedTab(inPane: paneId)
-            let tabs = dock.bonsplitController.tabs(inPane: paneId)
-
-            let surfaces: [ControlPaneSurfaceSummary] = tabs.map { tab in
-                let panel = dock.panel(for: tab.id)
-                return ControlPaneSurfaceSummary(
-                    surfaceID: panel?.id,
-                    title: tab.title,
-                    typeRawValue: panel?.panelType.rawValue,
-                    isSelected: tab.id == selectedTab?.id
-                )
-            }
-
-            return ControlPaneSurfacesSnapshot(
-                workspaceID: dock.workspaceId,
-                paneID: paneId.id,
-                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
-                surfaces: surfaces
+            return controlDockPaneSurfaces(
+                dock: dock,
+                paneID: paneID,
+                tabManager: tabManager
             )
         }
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else { return nil }
+        if let paneID,
+           let dock = ws._dockSplit,
+           dock.containsPane(paneID) {
+            return controlDockPaneSurfaces(
+                dock: dock,
+                paneID: paneID,
+                tabManager: tabManager
+            )
+        }
 
         return controlPaneSurfaces(workspace: ws, paneID: paneID, tabManager: tabManager)
     }
@@ -218,14 +163,62 @@ extension TerminalController: ControlPaneContext {
         if case .invalid(let raw) = placement {
             return .invalidPlacement(rawValue: raw)
         }
-        if case .dock = placement, !RightSidebarMode.dock.isAvailable() {
-            return .dockUnavailable(message: dockUnavailableMessage())
-        }
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if case .dock = placement, let invalid = validateDockPaneCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
             return invalid
         }
+        let hasProfileParam = inputs.profileRaw != nil
+            || inputs.hasInvalidProfileParam
+            || inputs.hasMultipleProfileParams
+        let preferredBrowserProfileID: UUID?
+        if panelType != .browser, hasProfileParam {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.profileRequiresBrowserPane.description,
+                candidates: []
+            )
+        } else if inputs.hasMultipleProfileParams {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.multipleProfileSelectors.description,
+                candidates: []
+            )
+        } else if panelType == .browser, inputs.hasInvalidProfileParam {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.invalidProfileSelector.description,
+                candidates: []
+            )
+        } else if panelType == .browser, let selector = inputs.profileRaw {
+            switch BrowserProfileStore.shared.resolveProfileSelection(selector) {
+            case .matched(let profile):
+                preferredBrowserProfileID = profile.id
+            case .notFound:
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.profileNotFound(selector).description,
+                    candidates: []
+                )
+            case .ambiguous(let profiles):
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.ambiguousProfile(selector, profiles).description,
+                    candidates: profiles.map {
+                        ControlPaneBrowserProfileCandidate(id: $0.id, displayName: $0.displayName)
+                    }
+                )
+            }
+        } else {
+            preferredBrowserProfileID = nil
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            if let selector = inputs.profileRaw {
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.browserDisabled.description,
+                    candidates: []
+                )
+            }
             return browserDisabledCreateResolution(rawURL: inputs.urlRaw, url: url, tabManager: tabManager)
         }
 
@@ -249,6 +242,7 @@ extension TerminalController: ControlPaneContext {
                 orientation: orientation,
                 insertFirst: insertFirst,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
+                preferredProfileID: preferredBrowserProfileID,
                 inputs: inputs
             )
         }
@@ -256,7 +250,13 @@ extension TerminalController: ControlPaneContext {
         guard let ws = resolveWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-
+        if panelType == .browser, preferredBrowserProfileID != nil, ws.isRemoteWorkspace {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.profileUnavailableInRemoteWorkspace.description,
+                candidates: []
+            )
+        }
         if panelType == .terminal {
             let remoteTarget: RemoteTmuxControlPaneLocation?
             if let requestedSurfaceID = inputs.requestedSourceSurfaceID {
@@ -276,12 +276,14 @@ extension TerminalController: ControlPaneContext {
                     insertFirst: insertFirst,
                     workingDirectory: inputs.workingDirectory,
                     initialCommand: inputs.initialCommand,
+                    initialInput: inputs.initialInput,
                     tmuxStartCommand: inputs.tmuxStartCommand,
                     startupEnvironment: inputs.startupEnvironment,
                     initialDividerPosition: initialDividerPosition
                 )
                 guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
-                guard remoteTarget.requestSplit(vertical: orientation == .vertical) else {
+                let focusIntent = remoteTmuxSplitFocusIntent(requested: inputs.requestedFocus)
+                guard remoteTarget.requestSplit(vertical: orientation == .vertical, focusIntent: focusIntent) else {
                     return .createFailed
                 }
                 v2MaybeFocusWindow(for: tabManager)
@@ -306,6 +308,7 @@ extension TerminalController: ControlPaneContext {
                 insertFirst: insertFirst,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: initialDividerPosition
@@ -315,6 +318,16 @@ extension TerminalController: ControlPaneContext {
             }
         }
 
+        // Terminal splits check the minimum pane size in
+        // `newTerminalSplitOutcome`; other panel types check it here (#15371).
+        if panelType != .terminal, !ws.isRemoteTmuxMirror,
+           ws.splitSpaceVerdict(
+               splittingPanel: sourcePanelId,
+               orientation: orientation,
+               dividerPosition: initialDividerPosition.map { CGFloat($0) }
+           ) == .noSpace {
+            return .noSpace
+        }
         let newPanelId: UUID?
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         if panelType == .browser {
@@ -323,8 +336,17 @@ extension TerminalController: ControlPaneContext {
                 orientation: orientation,
                 insertFirst: insertFirst,
                 url: url,
+                preferredProfileID: preferredBrowserProfileID,
                 focus: focus,
                 creationPolicy: .automationPreload,
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+            )?.id
+        } else if panelType == .simulator {
+            newPanelId = ws.newSimulatorSplit(
+                from: sourcePanelId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                focus: focus,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
             )?.id
         } else {
@@ -335,6 +357,7 @@ extension TerminalController: ControlPaneContext {
                 focus: focus,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
@@ -348,6 +371,8 @@ extension TerminalController: ControlPaneContext {
                     workspaceID: ws.id,
                     typeRawValue: panelType.rawValue
                 )
+            case .noSpace:
+                return .noSpace
             case .failed:
                 newPanelId = nil
             }
@@ -355,6 +380,10 @@ extension TerminalController: ControlPaneContext {
 
         guard let newPanelId else {
             return .createFailed
+        }
+        // An explicit divider position wins over equalize-on-create.
+        if initialDividerPosition == nil {
+            ws.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: newPanelId)
         }
         let paneUUID = ws.paneId(forPanelId: newPanelId)?.id
         let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -367,28 +396,7 @@ extension TerminalController: ControlPaneContext {
         )
     }
 
-    /// The byte-faithful twin of `v2PanelType`, mapping a raw token to a
-    /// `PanelType` (used only by the create path; the coordinator passes the raw
-    /// string so Bonsplit/PanelType stay app-side).
-    private func panelType(forRawToken raw: String) -> PanelType? {
-        switch v2NormalizedToken(raw) {
-        case "terminal":
-            return .terminal
-        case "browser":
-            return .browser
-        case "markdown":
-            return .markdown
-        case "filepreview":
-            return .filePreview
-        case "rightsidebartool":
-            return .rightSidebarTool
-        case "agentsession":
-            return .agentSession
-        default:
-            return nil
-        }
-    }
-
+    private func panelType(forRawToken raw: String) -> PanelType? { v2PanelType(rawToken: raw) }
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped
     /// onto ``ControlPaneCreateResolution``.
     private func browserDisabledCreateResolution(

@@ -15,11 +15,16 @@ public struct DogfoodAttachPreparation: Sendable {
     }
 
     @MainActor
-    public func run(
-        _ operation: @escaping @MainActor @Sendable () async -> Void
-    ) async {
+    public func waitUntilReady() async {
         await prepare()
-        await operation()
+    }
+
+    @MainActor
+    public func run<Result: Sendable>(
+        _ operation: @escaping @MainActor @Sendable () async -> Result
+    ) async -> Result {
+        await waitUntilReady()
+        return await operation()
     }
 }
 

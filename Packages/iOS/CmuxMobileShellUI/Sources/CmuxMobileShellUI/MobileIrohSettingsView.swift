@@ -9,9 +9,16 @@ struct MobileIrohSettingsView: View {
     @State private var showsCustomEditor = false
     @State private var editedCustomRelayID: String?
     @State private var pendingCustomRemovalID: String?
+    @State private var showsResetConfirmation = false
 
-    init(controller: any CmxIrohSettingsControlling) {
-        _model = State(initialValue: MobileIrohSettingsModel(controller: controller))
+    init(
+        controller: any CmxIrohSettingsControlling,
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
+        _model = State(initialValue: MobileIrohSettingsModel(
+            controller: controller,
+            diagnosticLog: diagnosticLog
+        ))
     }
 
     var body: some View {
@@ -41,8 +48,15 @@ struct MobileIrohSettingsView: View {
                         .accessibilityIdentifier("MobileIrohManagedRelay-\(relay.id)")
                     }
                 }
+
+                // The catalog refresh lived in the removed Diagnostics section;
+                // it acts on the relay policy, so it belongs with the relays.
+                Button(
+                    L10n.string("mobile.iroh.refresh", defaultValue: "Refresh Relay Policy"),
+                    action: model.refresh
+                )
             } header: {
-                Text(L10n.string("mobile.iroh.relays", defaultValue: "Iroh Relays"))
+                Text(L10n.string("mobile.iroh.relays", defaultValue: "Relays"))
             } footer: {
                 Text(L10n.string(
                     "mobile.iroh.relays.footer",
@@ -92,53 +106,53 @@ struct MobileIrohSettingsView: View {
             }
 
             Section {
-                LabeledContent(
-                    L10n.string("mobile.iroh.private.iroh", defaultValue: "Iroh Private Paths"),
-                    value: L10n.string("mobile.iroh.private.automatic", defaultValue: "Automatic")
-                )
-                LabeledContent(
-                    L10n.string("mobile.iroh.private.tailscale", defaultValue: "Tailscale Compatibility"),
-                    value: L10n.string("mobile.iroh.private.automatic", defaultValue: "Automatic")
-                )
-            } header: {
-                Text(L10n.string("mobile.iroh.private", defaultValue: "Private Networks"))
+                Toggle(isOn: pathPreferenceBinding) {
+                    Text(L10n.string(
+                        "mobile.iroh.neverUseRelays",
+                        defaultValue: "Never Use Relays"
+                    ))
+                }
+                .accessibilityIdentifier("MobileIrohNeverUseRelays")
             } footer: {
                 Text(L10n.string(
-                    "mobile.iroh.private.footer",
-                    defaultValue: "Iroh discovers LAN and VPN paths after authenticating the Mac. Custom raw TCP routes are not accepted because they cannot prove the remote Mac."
+                    "mobile.iroh.pathPreference.footer",
+                    defaultValue: "When enabled, cmux requires a reachable direct, local-network, or private-network path and will not fall back to a relay. Applies on the next reconnect."
                 ))
             }
 
-            Section {
-                LabeledContent(
-                    L10n.string("mobile.iroh.status", defaultValue: "Connection"),
-                    value: runtimeStatusText
+            // Per-Mac private addresses and the per-Mac connection check moved
+            // to each computer's detail screen; transport diagnostics moved to
+            // the Settings top-level Diagnostics section. This screen owns only
+            // app-wide relay configuration.
+            #if DEBUG
+            if let mode = model.snapshot.debugTransportVerificationMode {
+                MobileIrohDebugTransportSection(
+                    mode: mode,
+                    setMode: model.setDebugTransportVerificationMode
                 )
-                LabeledContent(
-                    L10n.string("mobile.iroh.policy", defaultValue: "Relay Policy"),
-                    value: policyStatusText
-                )
-                if !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil {
-                    Label(
-                        L10n.string(
-                            "mobile.iroh.attention",
-                            defaultValue: "Your relay preference needs attention. cmux is keeping an unselected provider disabled."
-                        ),
-                        systemImage: "exclamationmark.triangle.fill"
-                    )
-                    .foregroundStyle(.orange)
-                }
-                Button(L10n.string("mobile.iroh.refresh", defaultValue: "Refresh Relay Policy")) {
-                    model.refresh()
-                }
-            } header: {
-                Text(L10n.string("mobile.iroh.diagnostics", defaultValue: "Diagnostics"))
             }
+            #endif
         }
         .disabled(model.isMutating)
-        .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Iroh and Relays"))
+        .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Networking"))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showsResetConfirmation = true
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .accessibilityLabel(L10n.string(
+                    "mobile.iroh.reset",
+                    defaultValue: "Reset to Defaults"
+                ))
+                .accessibilityIdentifier("MobileIrohResetDefaults")
+                .disabled(model.isMutating)
+            }
+        }
         .task { await model.observe() }
+        .onDisappear { model.cancelOperations() }
         .sheet(isPresented: $showsCustomEditor) {
             MobileIrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in
                 await model.upsertCustomRelay(relay, deviceSecret: secret)
@@ -155,7 +169,27 @@ struct MobileIrohSettingsView: View {
         } message: {
             Text(L10n.string(
                 "mobile.iroh.saveFailed.message",
-                defaultValue: "Your previous networking configuration is still active. Check your account connection and values, then try again."
+                defaultValue: "Your previous networking configuration is still active. Check the values, then try again."
+            ))
+        }
+        .alert(
+            L10n.string(
+                "mobile.iroh.reset.title",
+                defaultValue: "Reset Networking Settings?"
+            ),
+            isPresented: $showsResetConfirmation
+        ) {
+            Button(
+                L10n.string("mobile.iroh.reset.confirm", defaultValue: "Reset"),
+                role: .destructive
+            ) {
+                model.resetToDefaults()
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.iroh.reset.message",
+                defaultValue: "Relay and path preferences will return to Automatic. Saved custom relays and private addresses will remain, but private addresses will be disabled."
             ))
         }
         .confirmationDialog(
@@ -216,6 +250,13 @@ struct MobileIrohSettingsView: View {
         )
     }
 
+    private var pathPreferenceBinding: Binding<Bool> {
+        Binding(
+            get: { model.snapshot.pathPreference == .neverUseRelays },
+            set: { model.setPathPreference($0 ? .neverUseRelays : .automatic) }
+        )
+    }
+
     private var editedCustomRelay: CmxIrohSettingsSnapshot.CustomRelay? {
         guard let editedCustomRelayID else { return nil }
         return model.snapshot.customRelays.first { $0.id == editedCustomRelayID }
@@ -238,24 +279,57 @@ struct MobileIrohSettingsView: View {
         }
     }
 
-    private var runtimeStatusText: String {
-        switch model.snapshot.runtimeStatus {
-        case .inactive: L10n.string("mobile.iroh.status.inactive", defaultValue: "Inactive")
-        case .starting: L10n.string("mobile.iroh.status.starting", defaultValue: "Starting")
-        case .active: L10n.string("mobile.iroh.status.active", defaultValue: "Iroh Active")
-        case .direct: L10n.string("mobile.iroh.status.direct", defaultValue: "Direct Peer-to-Peer")
-        case .relayed: L10n.string("mobile.iroh.status.relayed", defaultValue: "Relayed")
-        case .privateNetwork: L10n.string("mobile.iroh.status.private", defaultValue: "Private Network")
-        case .degraded: L10n.string("mobile.iroh.status.degraded", defaultValue: "Direct-Only")
-        }
-    }
+}
 
-    private var policyStatusText: String {
-        switch model.snapshot.policySource {
-        case .server: L10n.string("mobile.iroh.policy.server", defaultValue: "Verified from cmux")
-        case .cached: L10n.string("mobile.iroh.policy.cached", defaultValue: "Last Verified Catalog")
-        case .unavailable: L10n.string("mobile.iroh.policy.unavailable", defaultValue: "Unavailable")
+
+#if DEBUG
+@MainActor
+private struct MobileIrohDebugTransportSection: View {
+    let mode: CmxIrohTransportVerificationMode
+    let setMode: (CmxIrohTransportVerificationMode) -> Void
+
+    var body: some View {
+        Section {
+            Picker(
+                L10n.string(
+                    "mobile.iroh.debug.transportMode",
+                    defaultValue: "Transport Mode"
+                ),
+                selection: Binding(
+                    get: { mode },
+                    set: setMode
+                )
+            ) {
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.automatic",
+                    defaultValue: "Automatic"
+                ))
+                .tag(CmxIrohTransportVerificationMode.automatic)
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.relayOnly",
+                    defaultValue: "Relay Only"
+                ))
+                .tag(CmxIrohTransportVerificationMode.relayOnly)
+                Text(L10n.string(
+                    "mobile.iroh.debug.transportMode.directOnly",
+                    defaultValue: "No Relay (Direct Only)"
+                ))
+                .tag(CmxIrohTransportVerificationMode.directOnly)
+            }
+            .accessibilityIdentifier("MobileIrohDebugTransportMode")
+        } header: {
+            Text(L10n.string(
+                "mobile.iroh.debug",
+                defaultValue: "Debug Verification"
+            ))
+        } footer: {
+            Text(L10n.string(
+                "mobile.iroh.debug.footer",
+                defaultValue: "Changing this restarts Iroh without signing out or changing this app's device identity."
+            ))
         }
     }
 }
+#endif
+
 #endif

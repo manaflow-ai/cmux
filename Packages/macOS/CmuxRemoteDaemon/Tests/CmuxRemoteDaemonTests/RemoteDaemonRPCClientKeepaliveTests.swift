@@ -26,7 +26,10 @@ struct RemoteDaemonRPCClientKeepaliveTests {
     private func strings() -> RemoteDaemonStrings {
         RemoteDaemonStrings(
             missingPersistentPTYCapability: "missing persistent PTY",
-            missingRequiredFunctionality: "missing functionality"
+            missingRequiredFunctionality: "missing functionality",
+            cloudNotificationClearWorkspaceInvalid: "invalid workspace",
+            cloudNotificationClearWorkspaceDenied: "workspace denied",
+            cloudNotificationClearSurfaceInvalid: "invalid surface"
         )
     }
 
@@ -106,5 +109,42 @@ struct RemoteDaemonRPCClientKeepaliveTests {
         try client.start()
 
         #expect(terminated.wait(timeout: .now() + 2.0) == .timedOut)
+    }
+
+    @Test("stdio keepalive does not kill a valid in-flight RPC")
+    func validSlowRPCDoesNotTerminateTransport() throws {
+        let executable = try makeTransportScript(
+            name: "fake-ssh-slow-rpc",
+            body: helloResponseScript(loopBody: """
+            while IFS= read -r line; do
+              case "$line" in
+                *'"method":"proxy.open"'*)
+                  sleep 1
+                  id=$(printf '%s\\n' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+                  printf '{"id":%s,"ok":true,"result":{"stream_id":"slow-stream"}}\\n' "$id"
+                  ;;
+                *) respond "$line" ;;
+              esac
+            done
+            """)
+        )
+        defer { try? FileManager.default.removeItem(at: URL(fileURLWithPath: executable).deletingLastPathComponent()) }
+        let terminated = DispatchSemaphore(value: 0)
+        let client = RemoteDaemonRPCClient(
+            configuration: configuration(),
+            remotePath: "/fake/cmuxd-remote",
+            strings: strings(),
+            keepaliveInterval: 0.1,
+            keepaliveTimeout: 0.2
+        ) { _ in
+            terminated.signal()
+        }
+        defer { client.stop() }
+        client.transportExecutableOverride = executable
+
+        try client.start()
+
+        #expect(try client.openStream(host: "127.0.0.1", port: 22) == "slow-stream")
+        #expect(terminated.wait(timeout: .now() + 0.5) == .timedOut)
     }
 }

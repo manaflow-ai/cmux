@@ -11,6 +11,10 @@ import {
 } from "../services/iroh/publicationPolicy";
 
 describe("Next monorepo module boundary", () => {
+  test("allows generated cmux development publication origins for HMR", () => {
+    expect(nextConfig.allowedDevOrigins).toContain("*.cmux.sh");
+  });
+
   test("keeps runtime imports inside web while generated consumers remain identical", () => {
     const webRoot = path.dirname(fileURLToPath(new URL("../next.config.ts", import.meta.url)));
     const webCatalogPath = fileURLToPath(
@@ -25,5 +29,16 @@ describe("Next monorepo module boundary", () => {
     expect(MANAGED_RELAY_URLS).toEqual(
       MANAGED_IROH_RELAY_CATALOG.relays.map((relay) => relay.url),
     );
+  });
+
+  test("enables the Next 16.3 instant navigation stack", () => {
+    expect(nextConfig.cacheComponents).toBeTrue();
+    expect(nextConfig.partialPrefetching).toBeTrue();
+    expect(nextConfig.experimental?.instantInsights).toEqual({
+      validationLevel: "warning",
+    });
+    expect(
+      nextConfig.experimental?.exposeTestingApiInProductionBuild,
+    ).toBeFalse();
   });
 });

@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 public import CmuxMobilePairedMac
 public import Foundation
 import os
@@ -31,10 +32,20 @@ public struct PairedMacRestore: Sendable {
     /// local store untouched and reports `completed: false` so the caller can
     /// retry; a successful fetch (even of an empty list) reports `completed:
     /// true`.
-    /// - Parameter teamID: the Stack team this restore is for. The backup fetch is
-    ///   already server-scoped to that team (`X-Cmux-Team-Id`), so every restored
-    ///   row is stamped with it; this is what scopes the local list per team. `nil`
-    ///   when no team is selected (rows stay team-less / visible everywhere).
+    /// - Parameters:
+    ///   - teamID: the Stack team this restore is for. The backup fetch is
+    ///     already server-scoped to that team (`X-Cmux-Team-Id`), so every restored
+    ///     row is stamped with it; this is what scopes the local list per team. `nil`
+    ///     when no team is selected (rows stay team-less / visible everywhere).
+    ///   - onResolvedBackupTeam: called once, AFTER the merge, when the
+    ///     snapshot carries the worker's echoed resolved team — with one echo
+    ///     per snapshot record (not just the ones written locally: each record
+    ///     lives in that team's backup regardless of the merge outcome). Every
+    ///     echo also reports whether a local row for the pairing survived the
+    ///     merge and under which team it is actually stored, plus the record's
+    ///     creation time — so the owner can persist the mapping against the
+    ///     ROW's real scope and can tell a post-forget revival from a stale
+    ///     copy.
     @discardableResult
     public func run(
         accountID: String,
@@ -42,7 +53,8 @@ public struct PairedMacRestore: Sendable {
         now: Date = Date(),
         boundary: PairedMacRestoreBoundary? = nil,
         boundaryGeneration: UInt64? = nil,
-        locallyDeletedMacDeviceIDs: Set<String> = []
+        suppressions: [PairedMacRestoreSuppression] = [],
+        onResolvedBackupTeam: (@Sendable ([PairedMacRestoreEcho], String) async -> Void)? = nil
     ) async -> RestoreOutcome {
         func isCurrent() -> Bool {
             guard !Task.isCancelled else { return false }
@@ -53,6 +65,7 @@ public struct PairedMacRestore: Sendable {
         guard let snapshot = await backup.fetchSnapshot(teamID: teamID, expectedUserID: accountID) else {
             return RestoreOutcome(completed: false, restored: 0)
         }
+        let restoreCompleted = !snapshot.requiresMigrationRetry
         // Sign-out (or any wipe) can race this restore: if the owning task was
         // cancelled while the network fetch was suspended, do NOT write the
         // previous account's Macs back into the just-emptied local store. Report
@@ -60,28 +73,54 @@ public struct PairedMacRestore: Sendable {
         if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
         }
-        let tombstoneIDs = Set(snapshot.deletedMacDeviceIDs
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty })
-            .union(locallyDeletedMacDeviceIDs)
-        let liveRecords = snapshot.records.filter { record in
-            !tombstoneIDs.contains(MobilePairedMac.pairingID(
-                macDeviceID: record.macDeviceID,
-                instanceTag: record.instanceTag
-            ))
+        func canonicalPairingID(_ value: String) -> String? {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let identity = MobilePairedMac.pairingIdentity(from: trimmed)
+            return MobilePairedMac.pairingID(
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag
+            )
         }
-        guard !liveRecords.isEmpty || !tombstoneIDs.isEmpty else {
-            return RestoreOutcome(completed: true, restored: 0)
+        // Server tombstones were written only by the retired legacy-delete
+        // behavior. They no longer remove or suppress local paired-Mac rows.
+        // Locally pending deletes remain authoritative until their outbox
+        // flushes — UNLESS the record is a REVIVAL: a server write newer than
+        // the suppressing tombstone means another device re-paired the Mac
+        // after this phone's forget, and the record must merge normally (the
+        // owner retires the tombstone from the post-merge echo). A record
+        // survives only when EVERY covering suppression sees it as revived.
+        let normalizedSuppressions = suppressions.compactMap { suppression in
+            canonicalPairingID(suppression.pairingID).map {
+                PairedMacRestoreSuppression(pairingID: $0, stampMs: suppression.stampMs)
+            }
+        }
+        let pendingDeleteIDs = Set(normalizedSuppressions.map(\.pairingID))
+        let liveRecords = snapshot.records.filter { record in
+            let pairingID = MobilePairedMac.pairingID(
+                macDeviceID: cmxCanonicalDeviceID(record.macDeviceID),
+                instanceTag: record.instanceTag
+            )
+            return !normalizedSuppressions.contains { suppression in
+                suppression.covers(pairingID: pairingID)
+                    && !suppression.treatsAsRevived(serverUpdatedAtMs: record.serverUpdatedAtMs)
+            }
+        }
+        guard !liveRecords.isEmpty || !pendingDeleteIDs.isEmpty else {
+            return RestoreOutcome(completed: restoreCompleted, restored: 0)
         }
 
-        let localBeforeTombstones = (try? await store.loadAll(stackUserID: accountID, teamID: teamID)) ?? []
+        let localBeforePendingDeletes = (try? await store.loadAll(
+            stackUserID: accountID,
+            teamID: teamID
+        )) ?? []
         // The fetch is not the only sign-out window: re-check after the load too,
         // before we start writing (a wipe between fetch and load must not be
         // overwritten with the old account's Macs).
         if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
         }
-        for pairingID in tombstoneIDs {
+        for pairingID in pendingDeleteIDs {
             if !isCurrent() {
                 return RestoreOutcome(completed: false, restored: 0)
             }
@@ -103,12 +142,12 @@ public struct PairedMacRestore: Sendable {
                 }
             } catch {
                 pairedMacRestoreLog.warning(
-                    "failed to apply paired mac tombstone \(pairingID, privacy: .public): \(String(describing: error), privacy: .public)"
+                    "failed to apply pending paired mac delete \(pairingID, privacy: .public): \(String(describing: error), privacy: .public)"
                 )
             }
         }
-        let local = tombstoneIDs.isEmpty
-            ? localBeforeTombstones
+        let local = pendingDeleteIDs.isEmpty
+            ? localBeforePendingDeletes
             : ((try? await store.loadAll(stackUserID: accountID, teamID: teamID)) ?? [])
         if !isCurrent() {
             return RestoreOutcome(completed: false, restored: 0)
@@ -128,8 +167,9 @@ public struct PairedMacRestore: Sendable {
             if !isCurrent() {
                 return RestoreOutcome(completed: false, restored: restored)
             }
+            let canonicalDeviceID = cmxCanonicalDeviceID(record.macDeviceID)
             let pairingID = MobilePairedMac.pairingID(
-                macDeviceID: record.macDeviceID,
+                macDeviceID: canonicalDeviceID,
                 instanceTag: record.instanceTag
             )
             let backupSeconds = record.lastSeenAt / 1000.0
@@ -154,7 +194,7 @@ public struct PairedMacRestore: Sendable {
             do {
                 let backupDate = Date(timeIntervalSince1970: backupSeconds)
                 let restoredThisRecord = try await store.upsertIfNewer(
-                    macDeviceID: record.macDeviceID,
+                    macDeviceID: canonicalDeviceID,
                     displayName: record.displayName,
                     routes: record.routes,
                     instanceTag: record.instanceTag,
@@ -170,7 +210,7 @@ public struct PairedMacRestore: Sendable {
                 if !isCurrent() {
                     if localByID[pairingID] == nil {
                         try? await store.remove(
-                            macDeviceID: record.macDeviceID,
+                            macDeviceID: canonicalDeviceID,
                             instanceTag: record.instanceTag,
                             stackUserID: accountID,
                             teamID: teamID
@@ -184,13 +224,113 @@ public struct PairedMacRestore: Sendable {
                 restored += 1
             } catch {
                 pairedMacRestoreLog.warning(
-                    "failed to restore paired mac \(record.macDeviceID, privacy: .public): \(String(describing: error), privacy: .public)"
+                    "failed to restore paired mac \(canonicalDeviceID, privacy: .public): \(String(describing: error), privacy: .public)"
                 )
             }
         }
         if restored > 0 {
             pairedMacRestoreLog.info("restored \(restored, privacy: .public) paired mac(s) from backup")
         }
-        return RestoreOutcome(completed: true, restored: restored)
+        // The echo fires AFTER the merge so each record can report the RETAINED
+        // local row's actual scope: LWW can keep a newer team-less local row
+        // without re-stamping it into this restore's team, and a mapping keyed
+        // by the restore team would never be found by that row's later forget.
+        if let onResolvedBackupTeam, let resolvedTeamID = snapshot.resolvedTeamID,
+           !snapshot.records.isEmpty {
+            let localAfter = (try? await store.loadAll(
+                stackUserID: accountID,
+                teamID: teamID
+            )) ?? []
+            var retainedTeams: [String: String?] = [:]
+            for mac in localAfter {
+                // updateValue, not the subscript: retention of a TEAM-LESS row
+                // must store a present entry whose value is nil, never read as
+                // ambiguous double-optional assignment.
+                retainedTeams.updateValue(mac.teamID, forKey: mac.id)
+            }
+            let echoes = snapshot.records.map { record -> PairedMacRestoreEcho in
+                let pairingID = MobilePairedMac.pairingID(
+                    macDeviceID: cmxCanonicalDeviceID(record.macDeviceID),
+                    instanceTag: record.instanceTag
+                )
+                let retained = retainedTeams[pairingID]
+                return PairedMacRestoreEcho(
+                    pairingID: pairingID,
+                    hasRetainedLocalRow: retained != nil,
+                    retainedRowTeamID: retained ?? nil,
+                    serverUpdatedAtMs: record.serverUpdatedAtMs
+                )
+            }
+            await onResolvedBackupTeam(echoes, resolvedTeamID)
+        }
+        return RestoreOutcome(completed: restoreCompleted, restored: restored)
+    }
+}
+
+/// One snapshot record's routing echo (see ``PairedMacRestore/run``).
+public struct PairedMacRestoreEcho: Sendable {
+    /// The record's composite pairing id.
+    public let pairingID: String
+    /// Whether a local row for this pairing exists after the merge.
+    public let hasRetainedLocalRow: Bool
+    /// The retained local row's OWN team (nil = a team-less row); meaningful
+    /// only when ``hasRetainedLocalRow``.
+    public let retainedRowTeamID: String?
+    /// SERVER-authored last-write time (ms since epoch): a record the server
+    /// wrote AFTER a forget is a revival, not a stale copy. `nil` for
+    /// snapshots from workers that predate the field.
+    public let serverUpdatedAtMs: Double?
+
+    public init(
+        pairingID: String,
+        hasRetainedLocalRow: Bool,
+        retainedRowTeamID: String?,
+        serverUpdatedAtMs: Double?
+    ) {
+        self.pairingID = pairingID
+        self.hasRetainedLocalRow = hasRetainedLocalRow
+        self.retainedRowTeamID = retainedRowTeamID
+        self.serverUpdatedAtMs = serverUpdatedAtMs
+    }
+}
+
+/// One tombstone the restore must honor: records covered by it are withheld
+/// from the merge unless the server wrote them AFTER the tombstone.
+public struct PairedMacRestoreSuppression: Sendable {
+    /// The forgotten pairing; a TAG-LESS id is the device-wide wildcard and
+    /// covers every tag of its device.
+    public let pairingID: String
+    /// The tombstone's creation time (ms since epoch); 0 = no boundary is
+    /// known (legacy records), which suppresses unconditionally.
+    public let stampMs: Double
+
+    public init(pairingID: String, stampMs: Double) {
+        self.pairingID = pairingID
+        self.stampMs = stampMs
+    }
+
+    /// Whether this tombstone covers the pairing (exact, or any tag of the
+    /// device for a tag-less wildcard).
+    public func covers(pairingID other: String) -> Bool {
+        if pairingID == other { return true }
+        let own = MobilePairedMac.pairingIdentity(from: pairingID)
+        guard own.instanceTag == nil else { return false }
+        let identity = MobilePairedMac.pairingIdentity(from: other)
+        return cmxCanonicalDeviceID(identity.macDeviceID)
+            == cmxCanonicalDeviceID(own.macDeviceID)
+    }
+
+    /// Whether a record the server last wrote at `serverUpdatedAtMs` counts as
+    /// a post-forget revival for this tombstone: STRICTLY after the stamp,
+    /// never earlier. Forgetting a currently-online Mac whose backup was
+    /// route-mirrored seconds earlier is the COMMON case, so any allowance
+    /// accepting pre-forget writes would bypass suppression for it. The
+    /// residual (phone clock behind the server by more than NTP drift) fails
+    /// in the recoverable direction: the revival is deleted ONCE, the other
+    /// device's next mirror re-uploads it with a fresh server stamp, and the
+    /// following restore classifies it correctly.
+    public func treatsAsRevived(serverUpdatedAtMs: Double?) -> Bool {
+        guard stampMs > 0, let serverUpdatedAtMs else { return false }
+        return serverUpdatedAtMs > stampMs
     }
 }

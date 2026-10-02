@@ -1,3 +1,5 @@
+internal import CMUXMobileCore
+
 /// Stable, account-and-build-scoped inputs for one iOS Iroh lifecycle.
 public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     /// The authenticated account scope used only for device-local policy isolation.
@@ -8,6 +10,9 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
 
     /// The account-and-build-scoped app-instance UUID.
     public let appInstanceID: String
+
+    /// Exact installed-app namespace sent to every broker request.
+    public let clientNamespace: String
 
     /// The release channel or tagged-build scope registered with the broker.
     public let tag: String
@@ -32,6 +37,13 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     /// A previously validated endpoint-scoped relay credential, when available.
     public let cachedRelayCredential: CmxIrohRelayTokenResponse?
 
+    /// The exact locally persisted binding tuple from a prior verified discovery.
+    ///
+    /// When it still appears exactly once in an authenticated connectivity
+    /// snapshot, startup can install that snapshot while endpoint binding is in
+    /// flight. A signed registration refresh follows after activation.
+    public let cachedBinding: CmxIrohBrokerBindingMetadata?
+
     /// Creates an immutable iOS client lifecycle configuration.
     ///
     /// Broker-facing validation occurs when ``CmxIrohClientRuntime/start()``
@@ -47,21 +59,25 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     ///   - managedRelayURLs: The exact managed relay fleet.
     ///   - endpointRelayProfile: An optional local selection or custom override.
     ///   - cachedRelayCredential: A validated cached relay capability.
+    ///   - cachedBinding: A previously verified exact local binding tuple.
     public init(
         accountID: String,
         deviceID: String,
         appInstanceID: String,
+        clientNamespace: String,
         tag: String,
         displayName: String?,
         identity: CmxIrohIdentityMaterial,
         capabilities: [String],
         managedRelayURLs: Set<String>,
         endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil,
-        cachedRelayCredential: CmxIrohRelayTokenResponse? = nil
+        cachedRelayCredential: CmxIrohRelayTokenResponse? = nil,
+        cachedBinding: CmxIrohBrokerBindingMetadata? = nil
     ) {
         self.accountID = accountID
-        self.deviceID = deviceID.lowercased()
+        self.deviceID = cmxCanonicalDeviceID(deviceID)
         self.appInstanceID = appInstanceID.lowercased()
+        self.clientNamespace = clientNamespace
         self.tag = tag
         self.displayName = displayName
         self.identity = identity
@@ -69,5 +85,6 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         self.managedRelayURLs = managedRelayURLs
         self.endpointRelayProfile = endpointRelayProfile
         self.cachedRelayCredential = cachedRelayCredential
+        self.cachedBinding = cachedBinding
     }
 }

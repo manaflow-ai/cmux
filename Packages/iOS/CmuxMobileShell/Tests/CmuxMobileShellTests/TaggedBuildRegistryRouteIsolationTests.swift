@@ -38,7 +38,7 @@ import Testing
         ) == nil)
     }
 
-    @Test func productionAuthTaggedIOSReadsOnlyDefaultMacRoutes() throws {
+    @Test func officialIOSReadsOnlyRequestedStableMacRoutes() throws {
         let data = try JSONSerialization.data(withJSONObject: [
             "devices": [[
                 "deviceId": "shared-physical-mac",

@@ -28,6 +28,42 @@ import Testing
         #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-created")])
     }
 
+    @Test func composerSuccessFromEmptyPathPushesCreatedWorkspace() {
+        let path = policy.pathForCompletedCreate(
+            currentPath: [MobileWorkspacePreview.ID](),
+            selectedWorkspaceID: .init(rawValue: "workspace-created"),
+            existingWorkspaceIDs: [.init(rawValue: "workspace-a")],
+            succeeded: true
+        )
+
+        #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-created")])
+    }
+
+    @Test func composerFailureClearsPendingIntentWithoutPushing() {
+        let path = policy.pathForCompletedCreate(
+            currentPath: [MobileWorkspacePreview.ID](),
+            selectedWorkspaceID: .init(rawValue: "workspace-created"),
+            existingWorkspaceIDs: [.init(rawValue: "workspace-a")],
+            succeeded: false
+        )
+
+        #expect(path == nil)
+    }
+
+    @Test func composerSuccessRetargetsExistingNonemptyPath() {
+        let path = policy.pathForCompletedCreate(
+            currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-open")],
+            selectedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-created"),
+            existingWorkspaceIDs: [
+                MobileWorkspacePreview.ID(rawValue: "workspace-a"),
+                MobileWorkspacePreview.ID(rawValue: "workspace-open"),
+            ],
+            succeeded: true
+        )
+
+        #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-created")])
+    }
+
     @Test func doesNotTreatExistingSelectionAsCreatedWorkspace() {
         let path = policy.pathForCreatedWorkspaceSelection(
             currentPath: [MobileWorkspacePreview.ID](),
@@ -111,5 +147,50 @@ import Testing
         )
 
         #expect(path.isEmpty)
+    }
+
+    @Test func clearedSelectionKeepsDetailWhileListIsNotAuthoritative() {
+        let detailID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let path = policy.pathForSelectionChange(
+            currentPath: [detailID],
+            selectedWorkspaceID: nil,
+            listIsAuthoritative: false
+        )
+
+        #expect(path == [detailID])
+    }
+
+    @Test func clearedSelectionStillPopsWhenListIsAuthoritative() {
+        let path = policy.pathForSelectionChange(
+            currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
+            selectedWorkspaceID: nil,
+            listIsAuthoritative: true
+        )
+
+        #expect(path.isEmpty)
+    }
+
+    @Test func listHoleKeepsDetailWhileListIsNotAuthoritative() {
+        let detailID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let path = policy.pathForVisibleWorkspaceIDsChange(
+            currentPath: [detailID],
+            visibleWorkspaceIDs: [],
+            selectedWorkspaceID: nil,
+            listIsAuthoritative: false
+        )
+
+        #expect(path == [detailID])
+    }
+
+    @Test func retargetsToVisibleSelectionWhileListIsNotAuthoritative() {
+        let selectedID = MobileWorkspacePreview.ID(rawValue: "workspace-b")
+        let path = policy.pathForVisibleWorkspaceIDsChange(
+            currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
+            visibleWorkspaceIDs: [selectedID],
+            selectedWorkspaceID: selectedID,
+            listIsAuthoritative: false
+        )
+
+        #expect(path == [selectedID])
     }
 }

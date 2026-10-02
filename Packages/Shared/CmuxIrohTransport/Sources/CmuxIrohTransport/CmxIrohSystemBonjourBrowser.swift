@@ -29,6 +29,7 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
     private var pending: [CmxIrohBonjourServiceID: PendingResolve] = [:]
     private var queued: [CmxIrohBonjourServiceID: QueuedResolve] = [:]
     private var queuedOrder: [CmxIrohBonjourServiceID] = []
+    private var serviceNameAllowlist: Set<String>?
     private var observers: [
         UUID: AsyncStream<CmxIrohBonjourBrowserEvent>.Continuation
     ] = [:]
@@ -70,6 +71,17 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
         return stream
     }
 
+    public func replaceServiceNameAllowlist(_ serviceNames: Set<String>) {
+        let canonical = Set(
+            serviceNames.filter(CmxIrohLANRendezvousAliasGenerator.isCanonicalAlias)
+        )
+        guard canonical != serviceNameAllowlist else { return }
+        serviceNameAllowlist = canonical
+        guard browseOperation != nil || browseEventTask != nil else { return }
+        stopOperations()
+        if !observers.isEmpty { startBrowsing() }
+    }
+
     public func stop() {
         stopOperations()
         for observer in observers.values { observer.finish() }
@@ -83,7 +95,10 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
             of: CmxIrohBonjourRawBrowseEvent.self,
             bufferingPolicy: .bufferingOldest(64)
         )
-        let ingress = CmxIrohBonjourBrowseIngress(continuation: continuation)
+        let ingress = CmxIrohBonjourBrowseIngress(
+            continuation: continuation,
+            serviceNameAllowlist: serviceNameAllowlist
+        )
         browseIngress = ingress
         browseEventTask = Task { [weak self] in
             for await event in events {
@@ -156,6 +171,7 @@ public actor CmxIrohSystemBonjourBrowser: CmxIrohBonjourBrowsing {
         guard interfaceIndex != 0,
               let serviceName,
               CmxIrohLANRendezvousAliasGenerator.isCanonicalAlias(serviceName),
+              serviceNameAllowlist?.contains(serviceName) ?? true,
               let regtype,
               let domain,
               regtype == "\(CmxIrohLANAdvertisement.serviceType).",

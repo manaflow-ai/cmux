@@ -1,6 +1,6 @@
 import CMUXMobileCore
-import CmuxAgentChat
 import CmuxMobileBrowser
+import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -21,6 +21,8 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         workspaces: initialWorkspaces
     )
     @State private var browserStore = BrowserSurfaceStore()
+    @State private var browserStreamStore = BrowserStreamStore()
+    @State private var simulatorStreamStore = MobileSimulatorStreamStore()
     @State private var didStartFixture = false
     @State private var themeStage = "loading"
 
@@ -31,6 +33,8 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             showAddDevice: nil
         )
         .environment(browserStore)
+        .environment(browserStreamStore)
+        .environment(simulatorStreamStore)
         .overlay(alignment: .topLeading) {
             if Self.showsThemeParitySequence {
                 Color.clear
@@ -45,11 +49,25 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             store.selectedWorkspaceID = Self.workspaceID
             if Self.usesRefreshingTerminalMenu {
                 store.selectedTerminalID = Self.refreshingTerminalID(0)
-                for generation in 1...80 {
+                // Keep updates running throughout a slow UI test, including
+                // scrolling and reopening. The view's task owns cancellation.
+                var generation = 0
+                while !Task.isCancelled {
                     try? await ContinuousClock().sleep(for: .milliseconds(250))
                     guard !Task.isCancelled else { return }
+                    generation += 1
                     store.replaceForegroundWorkspaceState([Self.refreshingWorkspace(generation: generation)])
                     store.selectedWorkspaceID = Self.workspaceID
+                    if ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_MENU_BROWSER_REFRESH"] == "1" {
+                        browserStreamStore.replacePanels(in: Self.workspaceID.rawValue, with: [
+                            MobileBrowserPanelDescriptor(
+                                panelID: "browser-refresh", workspaceID: Self.workspaceID.rawValue,
+                                url: "https://cmux.com", title: "Browser refresh \(generation)",
+                                pageWidth: 800, pageHeight: 600,
+                                canGoBack: false, canGoForward: false, isLoading: false
+                            ),
+                        ])
+                    }
                 }
                 return
             }
@@ -69,31 +87,11 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             if Self.showsThemeParitySequence {
                 await runThemeParitySequence()
             }
-            if Self.showsChatToggle {
-                store.rememberChatSessions(
-                    [
-                        ChatSessionDescriptor(
-                            id: "preview-chat-session",
-                            agentKind: .claude,
-                            title: "Preview Agent",
-                            workspaceID: Self.workspaceID.rawValue,
-                            terminalID: Self.terminalID.rawValue,
-                            state: .working(since: Date()),
-                            lastActivityAt: Date()
-                        ),
-                    ],
-                    workspaceID: Self.workspaceID.rawValue
-                )
-            }
         }
     }
 
     private static var usesLongTitle: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE"] == "1"
-    }
-
-    private static var showsChatToggle: Bool {
-        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE"] == "1"
     }
 
     private static var showsThemeParitySequence: Bool {

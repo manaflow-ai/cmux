@@ -1,3 +1,4 @@
+import CmuxAgentChat
 import Foundation
 
 enum TextBoxAgentDetection: CaseIterable {
@@ -76,6 +77,23 @@ enum TextBoxAgentDetection: CaseIterable {
 
     static func isClaudeCode(context: String) -> Bool {
         claudeCode.matches(context: context)
+    }
+
+    static func composedPromptSubmitKey(containsNewline: Bool, context: String) -> String {
+        // A terminal can run another provider after its original launch or
+        // restore. Prefer current process identities, including providers that
+        // do not participate in textbox prefix completion (Gemini, Grok, Cursor).
+        let activeIdentities = context.split(separator: "\n").compactMap { line in
+            metadataValue(String(line).trimmingCharacters(in: .whitespacesAndNewlines), prefix: "agentPIDKey:")
+        }.filter { !$0.isEmpty }
+        let isClaude = activeIdentities.isEmpty
+            ? isClaudeCode(context: context)
+            : activeIdentities.contains { claudeCode.matchesIdentity($0) }
+        return isClaude && containsNewline ? "ctrl+enter" : "return"
+    }
+
+    static func composedPromptSubmitKey(containsNewline: Bool, agentKind: ChatAgentKind) -> String {
+        agentKind == .claude && containsNewline ? "ctrl+enter" : "return"
     }
 
     static func boundedLaunchCommandContext(from rawCommand: String) -> String? {
@@ -339,7 +357,7 @@ enum TextBoxAgentDetection: CaseIterable {
             return nil
         }
         let key = String(token[..<equalsIndex])
-        guard key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil else {
+        guard key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*\z"#, options: .regularExpression) != nil else {
             return nil
         }
         return (key, String(token[token.index(after: equalsIndex)...]))

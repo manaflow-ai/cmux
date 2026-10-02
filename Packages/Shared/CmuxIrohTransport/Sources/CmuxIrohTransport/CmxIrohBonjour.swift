@@ -31,6 +31,7 @@ public protocol CmxIrohBonjourPublishing: Sendable {
 
 /// Browses only the declared cmux Iroh service and reports resolved TXT records.
 public protocol CmxIrohBonjourBrowsing: Sendable {
+    func replaceServiceNameAllowlist(_ serviceNames: Set<String>) async
     func events() async -> AsyncStream<CmxIrohBonjourBrowserEvent>
     func stop() async
 }

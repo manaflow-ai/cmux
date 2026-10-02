@@ -122,9 +122,11 @@ struct CmxIrohRelayPolicyBrokerTests {
         try CmxIrohTrustBrokerClient(
             baseURL: #require(URL(string: "https://cmux.example")),
             tokenSource: CmxIrohBrokerTokenSource(
-                accessToken: { "access" },
-                refreshToken: { "refresh" }
+                credentialPair: {
+                    CmxIrohBrokerCredentials(accessToken: "access", refreshToken: "refresh")
+                }
             ),
+            clientNamespace: "legacy",
             transport: transport
         )
     }

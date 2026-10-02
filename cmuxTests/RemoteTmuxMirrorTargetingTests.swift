@@ -202,15 +202,33 @@ struct RemoteTmuxMirrorTargetingTests {
             ],
             isError: false
         ))
-        for kind in connection.pendingCommandKindsForTesting {
-            guard case let .paneRects(windowId, _) = kind else { continue }
-            let paneId = windowId == 1 ? 0 : 5
-            let size = windowId == 1 ? "80 24" : "90 30"
-            connection.handleMessageForTesting(.commandResult(
-                commandNumber: 2,
-                lines: ["%\(paneId) 0 0 \(size) 1 off :zsh"],
-                isError: false
-            ))
+        // Each window publishes only on its own paneRects reply, and those fetches
+        // can be enqueued incrementally (window @2's arrives after @1 resolves), so
+        // a single snapshot of pending kinds would leave the second window unpublished
+        // and the mirror would build only one tab. Drain every paneRects fetch.
+        // Replies consume the FIFO head (`pendingCommandKindsForTesting.first`), so
+        // drain strictly from the head: reply to a leading paneRects with ITS window's
+        // pane, and consume a leading incidental (.other). Iterating a stale snapshot
+        // instead could reply to the wrong queued command when an incidental precedes a
+        // fetch. Stop at the first correlated command so we never swallow its reply.
+        var rectsDrainGuard = 0
+        drain: while rectsDrainGuard < 16, let kind = connection.pendingCommandKindsForTesting.first {
+            rectsDrainGuard += 1
+            switch kind {
+            case let .paneRects(windowId, _):
+                let paneId = windowId == 1 ? 0 : 5
+                let size = windowId == 1 ? "80 24" : "90 30"
+                connection.handleMessageForTesting(.commandResult(
+                    commandNumber: 2,
+                    lines: ["%\(paneId) 0 0 \(size) 1 off :zsh"],
+                    isError: false
+                ))
+            case .other:
+                connection.handleMessageForTesting(.commandResult(
+                    commandNumber: 2, lines: [], isError: false))
+            default:
+                break drain
+            }
         }
 
         let controller = RemoteTmuxController()
@@ -433,6 +451,70 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(try harness.surfaceTitles() == ["logs", "logs [1]"])
     }
 
+    @Test func deliberatelyNamedTmuxPanesUseTheirTitlesOnMirrorSurfaces() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} [] logs",
+        ])
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 4, index: 0, title: "cmuxs-Mac-mini.local"),
+            harness.paneRectLine(paneID: 5, index: 1, title: "run: build"),
+            harness.paneRectLine(paneID: 8, index: 2, title: "run: publish"),
+        ]])
+
+        #expect(try harness.surfaceTitles() == ["logs", "run: build", "run: publish"])
+    }
+
+    @Test func liveTmuxPaneRetitleUpdatesTheMirroredSurfaceTitle() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} [] logs",
+        ])
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 4, index: 0, title: "cmuxs-Mac-mini.local"),
+            harness.paneRectLine(paneID: 5, index: 1, title: "cmuxs-Mac-mini.local"),
+            harness.paneRectLine(paneID: 8, index: 2, title: "cmuxs-Mac-mini.local"),
+        ]])
+        #expect(try harness.surfaceTitles() == ["logs", "logs [1]", "logs [2]"])
+
+        var topologyChanges = 0
+        let observer = harness.connection.addObserver(onTopologyChanged: {
+            topologyChanges += 1
+        })
+        defer { harness.connection.removeObserver(observer) }
+        harness.connection.handleMessageForTesting(.subscriptionChanged(
+            name: "cmux_title_5",
+            value: harness.paneTitleMetadata(title: "run: db-migration")
+        ))
+
+        #expect(try harness.surfaceTitles() == ["logs", "run: db-migration", "logs [2]"])
+        #expect(topologyChanges == 0)
+    }
+
+    @Test func liveTmuxPaneRetitleWinsOverOlderPaneRectSnapshot() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]} [] logs",
+        ])
+
+        // The title event can overtake the list-panes reply. The older snapshot
+        // still reports the host default and must not roll the live title back.
+        harness.connection.handleMessageForTesting(.subscriptionChanged(
+            name: "cmux_title_5",
+            value: harness.paneTitleMetadata(title: "run: db-migration")
+        ))
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 4, index: 0, title: "cmuxs-Mac-mini.local"),
+            harness.paneRectLine(paneID: 5, index: 1, title: "cmuxs-Mac-mini.local"),
+            harness.paneRectLine(paneID: 8, index: 2, title: "cmuxs-Mac-mini.local"),
+        ]])
+
+        #expect(try harness.surfaceTitles() == ["logs", "run: db-migration", "logs [2]"])
+    }
+
     @MainActor private struct MirrorTitleHarness {
         let windowId: UUID
         let controller: RemoteTmuxController
@@ -469,6 +551,14 @@ struct RemoteTmuxMirrorTargetingTests {
 
         func publishListWindows(_ lines: [String]) {
             connection.handleMessageForTesting(.commandResult(commandNumber: 1, lines: lines, isError: false))
+        }
+
+        func paneTitleMetadata(title: String) -> String {
+            [title, "cmuxs-Mac-mini.local", "cmuxs-Mac-mini"].joined(separator: "\u{1f}")
+        }
+
+        func paneRectLine(paneID: Int, index: Int, title: String) -> String {
+            "%\(paneID) 0 0 60 40 \(index == 0 ? 1 : 0) off :\(index) \"\(title)\"\u{1f}\(paneTitleMetadata(title: title))"
         }
 
         func drainThroughPaneRects(_ linesByWindow: [Int: [String]]) throws {

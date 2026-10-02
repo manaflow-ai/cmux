@@ -21,6 +21,9 @@ struct CmxIrohLANPeerDiscoveryTests {
         }
         await fixture.browser.waitUntilStarted()
         #expect(await fixture.factory.callCount() == 1)
+        let allowedServiceNames = await fixture.browser.serviceNameAllowlist()
+        #expect(allowedServiceNames.count == 3)
+        #expect(allowedServiceNames.contains(fixture.serviceID.serviceName))
         await fixture.browser.emit(.resolved(fixture.serviceID, fixture.service))
 
         guard case let .found(peers) = await discoveryTask.value else {
@@ -31,6 +34,73 @@ struct CmxIrohLANPeerDiscoveryTests {
         #expect(peer.binding == fixture.binding)
         #expect(peer.pathGeneration == 1)
         #expect(await fixture.path.snapshot().activeNetworkProfiles == [peer.networkProfile])
+    }
+
+    @Test
+    func developmentBindingQuotaStillAllowsPinnedLANDiscovery() async throws {
+        let fixture = try Fixture()
+        let path = fixture.path
+        let discovery = CmxIrohLANPeerDiscovery(
+            browserFactory: {
+                PreloadedLANBrowser(
+                    event: .resolved(fixture.serviceID, fixture.service)
+                )
+            },
+            interfaces: TestLANInterfaces(values: [
+                try CmxIrohLANInterfaceAddress(
+                    interfaceIndex: 4,
+                    ipAddress: "192.168.1.22",
+                    netmask: "255.255.255.0"
+                ),
+            ]),
+            clock: TestLANClock(now: fixture.date),
+            networkPath: { await path.snapshot() },
+            authorizeProfile: { profile, generation, interfaceIndex in
+                await path.authorize(
+                    profile: profile,
+                    generation: generation,
+                    interfaceIndex: interfaceIndex
+                )
+            },
+            revokeProfile: { profile, generation in
+                await path.revoke(profile: profile, generation: generation)
+            }
+        )
+        let unrelated = try (1 ... 32).map { index in
+            try CmxIrohBrokerBindingMetadata(
+                bindingID: String(
+                    format: "323e4567-e89b-42d3-a456-%012d",
+                    index
+                ),
+                deviceID: String(
+                    format: "423e4567-e89b-42d3-a456-%012d",
+                    index
+                ),
+                appInstanceID: String(
+                    format: "523e4567-e89b-42d3-a456-%012d",
+                    index
+                ),
+                tag: "test-\(index)",
+                platform: .mac,
+                endpointID: CmxIrohPeerIdentity(
+                    endpointID: String(format: "%064llx", UInt64(index + 1))
+                ),
+                identityGeneration: 1
+            )
+        }
+        let outcome = await discovery.discover(
+            rendezvous: fixture.rendezvous,
+            authenticatedBindings: [fixture.binding] + unrelated,
+            expectedMacDeviceID: fixture.binding.deviceID,
+            expectedEndpointID: fixture.binding.endpointID,
+            timeout: 0.2
+        )
+
+        guard case let .found(peers) = outcome else {
+            Issue.record("Expected pinned LAN discovery within development quota")
+            return
+        }
+        #expect(peers.map(\.binding) == [fixture.binding])
     }
 
     @Test
@@ -87,6 +157,30 @@ struct CmxIrohLANPeerDiscoveryTests {
         #expect(snapshot.activeNetworkProfiles.isEmpty)
         #expect(!snapshot.activeNetworkProfiles.contains(previous.networkProfile))
         #expect(await fixture.browser.wasStopped())
+    }
+
+    @Test
+    func pathChangeDuringAllowlistInstallationCannotResurrectBrowser() async throws {
+        let fixture = try Fixture()
+        await fixture.browser.blockNextAllowlistReplacement()
+        let discoveryTask = Task {
+            await fixture.discovery.discover(
+                rendezvous: fixture.rendezvous,
+                authenticatedBindings: [fixture.binding],
+                expectedMacDeviceID: fixture.binding.deviceID,
+                expectedEndpointID: fixture.binding.endpointID,
+                timeout: 5
+            )
+        }
+        await fixture.browser.waitUntilAllowlistReplacementIsBlocked()
+
+        await fixture.path.advanceGeneration()
+        await fixture.discovery.pathDidChange()
+        await fixture.browser.resumeAllowlistReplacement()
+
+        #expect(await discoveryTask.value == .notFound)
+        #expect(await fixture.browser.wasStopped())
+        #expect(!(await fixture.browser.hasStartedEventStream()))
     }
 
     @Test
@@ -189,6 +283,21 @@ struct CmxIrohLANPeerDiscoveryTests {
     }
 }
 
+private struct PreloadedLANBrowser: CmxIrohBonjourBrowsing {
+    let event: CmxIrohBonjourBrowserEvent
+
+    func replaceServiceNameAllowlist(_: Set<String>) async {}
+
+    func events() async -> AsyncStream<CmxIrohBonjourBrowserEvent> {
+        AsyncStream { continuation in
+            continuation.yield(event)
+            continuation.finish()
+        }
+    }
+
+    func stop() async {}
+}
+
 private struct TestLANInterfaces: CmxIrohLANInterfaceSnapshotProviding {
     let values: [CmxIrohLANInterfaceAddress]
     func interfaceAddresses() throws -> [CmxIrohLANInterfaceAddress] { values }
@@ -198,6 +307,25 @@ private actor TestLANBrowser: CmxIrohBonjourBrowsing {
     private var continuation: AsyncStream<CmxIrohBonjourBrowserEvent>.Continuation?
     private var startWaiters: [CheckedContinuation<Void, Never>] = []
     private var stopped = false
+    private var allowedServiceNames: Set<String> = []
+    private var shouldBlockNextAllowlistReplacement = false
+    private var allowlistReplacementIsBlocked = false
+    private var allowlistStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var allowlistResume: CheckedContinuation<Void, Never>?
+
+    func replaceServiceNameAllowlist(_ serviceNames: Set<String>) async {
+        allowedServiceNames = serviceNames
+        guard shouldBlockNextAllowlistReplacement else { return }
+        shouldBlockNextAllowlistReplacement = false
+        allowlistReplacementIsBlocked = true
+        let waiters = allowlistStartWaiters
+        allowlistStartWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { continuation in
+            allowlistResume = continuation
+        }
+        allowlistReplacementIsBlocked = false
+    }
 
     func events() -> AsyncStream<CmxIrohBonjourBrowserEvent> {
         AsyncStream { continuation in
@@ -224,6 +352,22 @@ private actor TestLANBrowser: CmxIrohBonjourBrowsing {
     }
 
     func wasStopped() -> Bool { stopped }
+    func serviceNameAllowlist() -> Set<String> { allowedServiceNames }
+    func hasStartedEventStream() -> Bool { continuation != nil }
+
+    func blockNextAllowlistReplacement() {
+        shouldBlockNextAllowlistReplacement = true
+    }
+
+    func waitUntilAllowlistReplacementIsBlocked() async {
+        if allowlistReplacementIsBlocked { return }
+        await withCheckedContinuation { allowlistStartWaiters.append($0) }
+    }
+
+    func resumeAllowlistReplacement() {
+        allowlistResume?.resume()
+        allowlistResume = nil
+    }
 }
 
 private actor TestLANBrowserFactoryRecorder {

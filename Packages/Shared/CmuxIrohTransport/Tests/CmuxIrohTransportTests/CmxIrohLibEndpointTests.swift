@@ -115,6 +115,21 @@ struct CmxIrohLibEndpointTests {
     }
 
     @Test
+    func directOnlyReplaysAddressObservedBeforeHealthSubscription() async throws {
+        let (endpoint, observedAddress) = try await makeUnmonitoredEndpoint(
+            transportVerificationMode: .directOnly
+        )
+
+        await endpoint.recordAddressSnapshot(observedAddress)
+
+        let events = await endpoint.healthEvents()
+        #expect(
+            await firstHealthEvent(in: events, timeout: .seconds(1)) == .networkChanged
+        )
+        await endpoint.close()
+    }
+
+    @Test
     func onlineStateReplaysToLateHealthObservers() async throws {
         let endpoint = try await makeEndpoint(managedRelayURLs: [])
         let concrete = try #require(endpoint as? CmxIrohLibEndpoint)
@@ -261,9 +276,10 @@ struct CmxIrohLibEndpointTests {
     }
 
     @Test
-    func relayOnlyIgnoresDirectAddressHintsAndAdvertisement() async throws {
+    func relayOnlyKeepsManagedRelayAndIgnoresDirectHintsAndAdvertisement() async throws {
+        let relayURL = "https://use1-1.relay.lawrence.cmux.iroh.link/"
         let endpoint = try await makeEndpoint(
-            managedRelayURLs: [],
+            managedRelayURLs: [relayURL],
             transportVerificationMode: .relayOnly
         )
         let concrete = try #require(endpoint as? CmxIrohLibEndpoint)
@@ -276,12 +292,24 @@ struct CmxIrohLibEndpointTests {
             observedAt: Date(),
             expiresAt: Date().addingTimeInterval(60)
         )
+        let relayHint = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: relayURL,
+            source: .native,
+            privacyScope: .publicInternet,
+            observedAt: Date(),
+            expiresAt: Date().addingTimeInterval(60)
+        )
 
         let attempts = try await concrete.endpointAddresses(
-            CmxIrohEndpointAddress(identity: identity, pathHints: [directHint])
+            CmxIrohEndpointAddress(
+                identity: identity,
+                pathHints: [directHint, relayHint]
+            )
         )
 
         #expect(attempts.count == 1)
+        #expect(attempts.first?.relayUrl() == relayURL)
         #expect(attempts.first?.directAddresses().isEmpty == true)
         #expect(await endpoint.localDirectAddresses().isEmpty)
         #expect(await endpoint.address().pathHints.allSatisfy { $0.kind != .directAddress })
@@ -403,5 +431,31 @@ struct CmxIrohLibEndpointTests {
         return try await CmxIrohLibEndpointFactory(
             transportVerificationMode: transportVerificationMode
         ).bind(configuration: configuration)
+    }
+
+    private func makeUnmonitoredEndpoint(
+        transportVerificationMode: CmxIrohTransportVerificationMode
+    ) async throws -> (endpoint: CmxIrohLibEndpoint, observedAddress: EndpointAddr) {
+        let configuration = try CmxIrohEndpointConfiguration(
+            secretKey: CmxIrohSecretKey(bytes: Data((0 ..< 32).map(UInt8.init))),
+            alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+            managedRelayURLs: [],
+            relays: []
+        )
+        let driver = try await Endpoint.bind(
+            options: CmxIrohLibEndpointFactory.endpointOptions(
+                configuration: configuration,
+                socketAddress: nil,
+                relayMap: RelayMap.empty(),
+                transportVerificationMode: transportVerificationMode
+            )
+        )
+        let endpoint = CmxIrohLibEndpoint(
+            driver: driver,
+            identity: try CmxIrohLibIdentity.peerIdentity(driver.id()),
+            configuration: configuration,
+            transportVerificationMode: transportVerificationMode
+        )
+        return (endpoint, driver.addr())
     }
 }

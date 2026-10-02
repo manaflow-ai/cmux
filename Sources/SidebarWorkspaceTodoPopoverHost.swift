@@ -120,7 +120,7 @@ struct PopoverKeyWindowElevator: NSViewRepresentable {
 /// terminal keeps grabbing focus back; the checklist popover's add-item field
 /// needs one.
 ///
-/// Follows the `SectionPopoverHost` pattern in `SessionIndexView.swift`:
+/// Follows the `SessionIndexTablePopoverPresenter` sizing pattern:
 /// - DO NOT set `sizingOptions = [.preferredContentSize]` on the hosting
 ///   controller. That makes NSHostingController continuously rewrite its
 ///   preferredContentSize from SwiftUI layout; NSPopover observes it and

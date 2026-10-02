@@ -100,6 +100,7 @@ import Testing
         #expect(mac.instanceTag == nil)
         #expect(mac.displayName == "Legacy Studio")
         #expect(!mac.routes.isEmpty)
+        #expect(shell.displayPairedMacs.map(\.macDeviceID) == ["test-mac"])
     }
 
     @Test func explicitRegistryBCommitsOnlyAfterExactStatusAndDropsARouteFallbacks() async throws {

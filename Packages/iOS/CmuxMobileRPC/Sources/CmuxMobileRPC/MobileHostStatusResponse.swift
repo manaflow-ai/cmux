@@ -25,6 +25,13 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// The Mac app instance's authoritative route tag. `nil` from older Macs
     /// that predate per-instance route authority.
     public let macInstanceTag: String?
+    /// The Mac app bundle namespace used by the trust broker. `nil` from older
+    /// Macs that predate namespace-aware authenticated host status.
+    public let macClientNamespace: String?
+    /// The sibling Mac dev tags this Mac grants to its paired development
+    /// phones (`cmux mobile compatible-tags`). `nil` from Macs that predate
+    /// the field; the phone then keeps its persisted grant set.
+    public let macCompatibleMacTags: [String]?
     /// Process-unique epoch for the Mac's terminal-theme revision counter.
     /// A changed value tells iOS that low revisions belong to a new producer.
     public let terminalThemeRevisionEpoch: String?
@@ -38,6 +45,10 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// colors. `nil` from older Macs that predate the field, in which case the
     /// phone keeps its built-in Monokai default.
     public let theme: TerminalTheme?
+    /// Authenticated Mac-side phone-forwarding status. `nil` means the caller
+    /// could not prove same-account ownership, the Mac predates this field, or
+    /// the value was malformed. None of those states is ready.
+    public let phonePush: MobileHostPhonePushStatus?
 
     private enum CodingKeys: String, CodingKey {
         case capabilities
@@ -45,10 +56,13 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         case macDisplayName = "mac_display_name"
         case macDeviceID = "mac_device_id"
         case macInstanceTag = "mac_instance_tag"
+        case macClientNamespace = "mac_client_namespace"
+        case macCompatibleMacTags = "mac_compatible_mac_tags"
         case terminalThemeRevisionEpoch = "terminal_theme_revision_epoch"
         case macAppVersion = "mac_app_version"
         case macAppBuild = "mac_app_build"
         case theme
+        case phonePush = "phone_push"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -57,7 +71,15 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         terminalFidelity = try container.decodeIfPresent(String.self, forKey: .terminalFidelity)
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
         macDeviceID = try container.decodeIfPresent(String.self, forKey: .macDeviceID)
+            .map(cmxCanonicalDeviceID)
         macInstanceTag = try container.decodeIfPresent(String.self, forKey: .macInstanceTag)
+        macClientNamespace = try container.decodeIfPresent(String.self, forKey: .macClientNamespace)
+        // A malformed grant list must not fail the whole status decode; the
+        // phone just keeps its persisted grant set, like an older Mac.
+        macCompatibleMacTags = (try? container.decodeIfPresent(
+            [String].self,
+            forKey: .macCompatibleMacTags
+        )) ?? nil
         terminalThemeRevisionEpoch = try container.decodeIfPresent(String.self, forKey: .terminalThemeRevisionEpoch)
         macAppVersion = try container.decodeIfPresent(String.self, forKey: .macAppVersion)
         macAppBuild = try container.decodeIfPresent(String.self, forKey: .macAppBuild)
@@ -68,6 +90,12 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         // leniently: a bad theme object yields `nil` and the phone keeps its
         // built-in Monokai default, exactly like an older Mac that omits it.
         theme = (try? container.decodeIfPresent(TerminalTheme.self, forKey: .theme)) ?? nil
+        // Keep an unknown future mode/account value from invalidating the
+        // transport and identity fields in the same status response.
+        phonePush = (try? container.decodeIfPresent(
+            MobileHostPhonePushStatus.self,
+            forKey: .phonePush
+        )) ?? nil
     }
 
     /// Decode a host-status response from raw JSON data.

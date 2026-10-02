@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-import { stripeSubscriptions } from "../db/schema";
+import { billingEmailClaims, stripeSubscriptions } from "../db/schema";
+import { withAccountMutationLeaseSupport } from
+  "./helpers/account-mutation-db-mock";
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -11,13 +13,19 @@ let stackConfigured = true;
 let currentUser: ReturnType<typeof planUser> | null = null;
 let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 let stripeSubscriptionResults: Array<Array<Record<string, unknown>>> = [];
+let claimLookupCount = 0;
 let dbMissing = false;
+let stackAuthUnavailable = false;
 
-const getUser = mock(async () => currentUser);
+const getUser = mock(async () => {
+  if (stackAuthUnavailable) throw new Error("Stack Auth unavailable");
+  return currentUser;
+});
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => stackConfigured,
+  promoteStackUserFromAnonymousViaApi: async () => undefined,
   stackServerApp: stackConfigured ? { getUser } : null,
 }));
 
@@ -26,20 +34,18 @@ mock.module("../db/client", () => ({
   closeCloudDbForTests: realCloseCloudDbForTests,
   cloudDb: () => {
     if (dbMissing) throw new Error("DATABASE_URL is required");
-    return {
+    return withAccountMutationLeaseSupport({
       select: () => ({
         from: (table: unknown) => ({
-          where: () => ({
-            limit: async () => {
-              if (table !== stripeSubscriptions) return [];
-              return stripeSubscriptionResults.length > 0
-                ? stripeSubscriptionResults.shift()!
-                : stripeSubscriptionRows;
-            },
-          }),
+          where: () => {
+            if (table === billingEmailClaims) claimLookupCount += 1;
+            const rows = table !== stripeSubscriptions ? []
+              : stripeSubscriptionResults.length > 0 ? stripeSubscriptionResults.shift()! : stripeSubscriptionRows;
+            return Object.assign(Promise.resolve(rows), { limit: async () => rows });
+          },
         }),
       }),
-    };
+    });
   },
 }));
 
@@ -51,12 +57,14 @@ describe("billing plan route", () => {
     currentUser = planUser();
     stripeSubscriptionRows = [];
     stripeSubscriptionResults = [];
+    claimLookupCount = 0;
     dbMissing = false;
+    stackAuthUnavailable = false;
     getUser.mockClear();
   });
 
   test("reports stripe management when an active Stripe subscription row exists", async () => {
-    stripeSubscriptionRows = [{ id: "sub_123" }];
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro", status: "active" }];
 
     const response = await planResponse();
 
@@ -96,11 +104,30 @@ describe("billing plan route", () => {
     expect(response.billingManagement).toBe("none");
   });
 
+  test("reports max as subscriptionPlanId while keeping planId at pro for older clients", async () => {
+    currentUser = planUser();
+    // Personal snapshot: subscription rows, then the active-plan query.
+    stripeSubscriptionResults = [
+      [{ id: "sub_max", status: "active", cancelAtPeriodEnd: false, plan: "max" }],
+      [{ plan: "max" }],
+    ];
+
+    const response = await planResponse();
+
+    expect(response.planId).toBe("pro");
+    expect(response.subscriptionPlanId).toBe("max");
+    expect(response.isPro).toBe(true);
+    expect(response.billingManagement).toBe("stripe");
+  });
+
   test("reports Stripe management for an active Team subscription row", async () => {
     currentUser = planUser({
       selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} },
     });
-    stripeSubscriptionResults = [[], [{ id: "sub_team" }]];
+    // The personal snapshot consumes its subscription and active-row queries
+    // before the team resolver reads the team subscription. Keep the fixture
+    // results aligned with those query boundaries.
+    stripeSubscriptionResults = [[], [], [{ id: "sub_team" }]];
 
     const response = await planResponse();
 
@@ -123,6 +150,14 @@ describe("billing plan route", () => {
     expect(response.teamBillingManagement).toBe("none");
   });
 
+  test("does not transfer pending ownership during a plan read", async () => {
+    currentUser = planUser({ primaryEmailVerified: true });
+    const response = await planResponse();
+
+    expect(response.planId).toBe("free");
+    expect(claimLookupCount).toBe(0);
+  });
+
   test("reports no Team billing management without a billing team", async () => {
     currentUser = planUser();
 
@@ -130,6 +165,19 @@ describe("billing plan route", () => {
 
     expect(response.teamPlanId).toBe("free");
     expect(response.teamBillingManagement).toBe("none");
+  });
+
+  test("returns a bounded unavailable response when Stack Auth is down", async () => {
+    stackAuthUnavailable = true;
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/plan"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "authentication_unavailable",
+    });
   });
 });
 
@@ -142,12 +190,14 @@ function planUser(options: {
   selectedTeam?: unknown;
   listTeams?: () => Promise<readonly unknown[]>;
   stackProductGrant?: boolean;
+  primaryEmailVerified?: boolean;
 } = {}) {
   return {
     id: "user-plan",
     isAnonymous: false,
     displayName: "Plan User",
     primaryEmail: "plan@example.com",
+    primaryEmailVerified: options.primaryEmailVerified ?? false,
     clientReadOnlyMetadata: {},
     selectedTeam: options.selectedTeam ?? null,
     listTeams: options.listTeams ?? mock(async () => []),

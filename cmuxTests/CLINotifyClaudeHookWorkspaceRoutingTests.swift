@@ -138,10 +138,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        // connectionCount 2: the deferred feed telemetry (the pre-fix regression this
-        // test guards against) arrives on a second socket connection, which must be
-        // accepted and drained for the feed.push absence assertion to be falsifiable.
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state, connectionCount: 2) { line in
+        // The deferred feed telemetry (the pre-fix regression this test guards
+        // against) arrives on a second socket connection, which must be accepted and
+        // drained for the feed.push absence assertion to be falsifiable. The mock
+        // server answers every connection the CLI opens, so that is covered.
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
@@ -274,16 +275,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["hooks", "claude", "notification", "--workspace", "workspace:1"],
+            arguments: ["hooks", "claude", "notification", "--workspace", "workspace:1", "--surface", targetSurfaceId],
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": focusedWorkspaceId,
                 "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
             ],
-            standardInput: #"{"session_id":"explicit-ref","hook_event_name":"Notification","message":"Claude needs your input"}"#,
+            standardInput: #"{"session_id":"explicit-ref","hook_event_name":"Notification","notification_type":"permission_prompt","tool_use_id":"explicit-ref-request","message":"Claude needs your input"}"#,
             timeout: 5
         )
 
@@ -292,9 +294,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(
             state.commands.contains {
-                $0.hasPrefix("set_status claude_code Needs input ") && $0.contains("--tab=\(targetWorkspaceId)")
+                $0.hasPrefix("set_status claude_code Needs input ")
+                    && $0.contains("--tab=\(targetWorkspaceId)")
+                    && $0.contains("--panel=\(targetSurfaceId)")
             },
             "Expected notification to route to explicit workspace ref, saw \(state.commands)"
+        )
+        XCTAssertTrue(
+            state.commands.contains {
+                $0.hasPrefix("notify_target_async \(targetWorkspaceId) \(targetSurfaceId) Claude Code|Permission|Claude needs your input")
+            },
+            "The admitted permission notification must keep the explicit target and original content, saw \(state.commands)"
         )
         XCTAssertFalse(
             state.commands.contains {

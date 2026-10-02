@@ -3,14 +3,42 @@ public import Foundation
 
 /// Generation-scoped accept loop with bounded, timed admission work.
 public actor CmxIrohEndpointServer {
-    private static let acceptRetryDelay: TimeInterval = 0.1
+    private static let initialAcceptRetryDelay: TimeInterval = 0.1
+    private static let maximumAcceptRetryDelay: TimeInterval = 5
 
     public typealias ConnectionHandler = @Sendable (
         _ connection: any CmxIrohConnection,
         _ runtimeGeneration: UInt64,
-        _ markAdmitted: @escaping AdmissionMarker
+        _ admission: AdmissionMarker
     ) async throws -> Void
-    public typealias AdmissionMarker = @Sendable () async -> Bool
+
+    /// Generation-scoped application lifecycle for one accepted connection.
+    ///
+    /// Calling the value authenticates the connection. `markUsable()` promotes
+    /// it only after the application protocol has proved ready end to end.
+    public struct AdmissionMarker: Sendable {
+        private let admit: @Sendable () async -> Bool
+        private let promote: @Sendable () async -> Bool
+
+        fileprivate init(
+            admit: @escaping @Sendable () async -> Bool,
+            promote: @escaping @Sendable () async -> Bool
+        ) {
+            self.admit = admit
+            self.promote = promote
+        }
+
+        public func callAsFunction() async -> Bool {
+            await admit()
+        }
+
+        public func markUsable() async -> Bool {
+            await promote()
+        }
+    }
+    typealias EndpointRecovery = @Sendable (
+        _ expectedGeneration: UInt64
+    ) async throws -> CmxIrohEndpointSnapshot
 
     private struct PendingAdmission {
         let generation: UInt64
@@ -25,6 +53,8 @@ public actor CmxIrohEndpointServer {
         let remoteIdentity: CmxIrohPeerIdentity
         let connection: any CmxIrohConnection
         let handlerTask: Task<Void, Never>
+        let sequence: UInt64
+        var isUsable: Bool
     }
 
     private let supervisor: CmxIrohEndpointSupervisor
@@ -34,11 +64,13 @@ public actor CmxIrohEndpointServer {
     private let maximumConnectionsPerIdentity: Int
     private let admissionTimeout: TimeInterval
     private let clock: any CmxIrohRelayClock
+    private let recoverEndpoint: EndpointRecovery
     private let handler: ConnectionHandler
     private var eventTask: Task<Void, Never>?
     private var acceptTask: Task<Void, Never>?
     private var pendingAdmissions: [UUID: PendingAdmission] = [:]
     private var activeConnections: [UUID: ActiveConnection] = [:]
+    private var nextConnectionSequence: UInt64 = 0
     private var currentGeneration: UInt64?
 
     public init(
@@ -49,6 +81,32 @@ public actor CmxIrohEndpointServer {
         maximumConnectionsPerIdentity: Int = 2,
         admissionTimeout: TimeInterval = 15,
         clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        handler: @escaping ConnectionHandler
+    ) {
+        self.init(
+            supervisor: supervisor,
+            maximumPendingAdmissions: maximumPendingAdmissions,
+            maximumPendingAdmissionsPerIdentity: maximumPendingAdmissionsPerIdentity,
+            maximumConnections: maximumConnections,
+            maximumConnectionsPerIdentity: maximumConnectionsPerIdentity,
+            admissionTimeout: admissionTimeout,
+            clock: clock,
+            recoverEndpoint: { _ in
+                try await supervisor.ensureHealthy()
+            },
+            handler: handler
+        )
+    }
+
+    init(
+        supervisor: CmxIrohEndpointSupervisor,
+        maximumPendingAdmissions: Int = 10,
+        maximumPendingAdmissionsPerIdentity: Int = 1,
+        maximumConnections: Int = 10,
+        maximumConnectionsPerIdentity: Int = 2,
+        admissionTimeout: TimeInterval = 15,
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        recoverEndpoint: @escaping EndpointRecovery,
         handler: @escaping ConnectionHandler
     ) {
         precondition(maximumPendingAdmissions > 0)
@@ -65,6 +123,7 @@ public actor CmxIrohEndpointServer {
         self.maximumConnectionsPerIdentity = maximumConnectionsPerIdentity
         self.admissionTimeout = admissionTimeout
         self.clock = clock
+        self.recoverEndpoint = recoverEndpoint
         self.handler = handler
     }
 
@@ -143,9 +202,11 @@ public actor CmxIrohEndpointServer {
         endpoint: any CmxIrohEndpoint,
         generation: UInt64
     ) async {
+        var consecutiveFailures = 0
         while !Task.isCancelled, currentGeneration == generation {
             do {
                 guard let connection = try await endpoint.accept() else { return }
+                consecutiveFailures = 0
                 guard currentGeneration == generation else {
                     await connection.close(errorCode: 1, reason: "stale_generation")
                     return
@@ -156,10 +217,16 @@ public actor CmxIrohEndpointServer {
             } catch {
                 guard currentGeneration == generation else { return }
                 do {
-                    let snapshot = try await supervisor.ensureHealthy()
+                    let snapshot = try await recoverEndpoint(generation)
                     guard snapshot.runtimeGeneration == generation else { return }
+                    let retryDelay = min(
+                        Self.initialAcceptRetryDelay
+                            * pow(2, Double(consecutiveFailures)),
+                        Self.maximumAcceptRetryDelay
+                    )
+                    consecutiveFailures = min(consecutiveFailures + 1, 20)
                     try await clock.sleep(
-                        until: clock.now().addingTimeInterval(Self.acceptRetryDelay)
+                        until: clock.now().addingTimeInterval(retryDelay)
                     )
                 } catch {
                     return
@@ -194,14 +261,20 @@ public actor CmxIrohEndpointServer {
         let activeForIdentity = activeConnections.values.lazy.filter {
             $0.remoteIdentity == remoteIdentity
         }.count
-        let isSameIdentityReplacement = pendingForIdentity == 0 && activeForIdentity > 0
+        let hasReplaceableConnection = activeConnections.values.contains {
+            $0.remoteIdentity == remoteIdentity && !$0.isUsable
+        }
+        let canReserveReplacement = pendingForIdentity == 0
+            && maximumConnectionsPerIdentity > 1
+            && activeForIdentity >= maximumConnectionsPerIdentity
+            && hasReplaceableConnection
         guard pendingAdmissions.count + activeConnections.count < maximumConnections
-            || isSameIdentityReplacement else {
+                || canReserveReplacement else {
             await connection.close(errorCode: 1, reason: "connection_capacity")
             return
         }
         guard pendingForIdentity + activeForIdentity < maximumConnectionsPerIdentity
-            || isSameIdentityReplacement else {
+                || canReserveReplacement else {
             await connection.close(
                 errorCode: 1,
                 reason: "connection_identity_capacity"
@@ -212,9 +285,18 @@ public actor CmxIrohEndpointServer {
         let handler = handler
         let handlerTask = Task { [weak self] in
             do {
-                try await handler(connection, generation) { [weak self] in
-                    await self?.markAdmitted(id, generation: generation) ?? false
-                }
+                try await handler(
+                    connection,
+                    generation,
+                    AdmissionMarker(
+                        admit: { [weak self] in
+                            await self?.markAdmitted(id, generation: generation) ?? false
+                        },
+                        promote: { [weak self] in
+                            await self?.markUsable(id, generation: generation) ?? false
+                        }
+                    )
+                )
                 await self?.finishHandler(id, error: nil)
             } catch {
                 await self?.finishHandler(id, error: error)
@@ -246,25 +328,64 @@ public actor CmxIrohEndpointServer {
         }
         admission.deadlineTask.cancel()
 
-        // One endpoint identity represents one installed client identity. A
-        // newly authenticated connection from that identity is therefore the
-        // authoritative replacement for older connections that may still look
-        // alive after the client was force-quit, crashed, or changed networks.
-        // Wait until admission succeeds before evicting them so an unauthenticated
-        // or failed reconnect cannot disrupt a healthy session.
-        let superseded = activeConnections.filter { _, connection in
+        // An authenticated replacement may use the one admission reservation
+        // above the steady identity bound. Reclaim only the oldest connection
+        // that never became application-usable. A known-good session is retired
+        // exclusively by markUsable below.
+        let activeForIdentity = activeConnections.filter { _, connection in
             connection.generation == generation
                 && connection.remoteIdentity == admission.remoteIdentity
         }
-        for supersededID in superseded.keys {
-            activeConnections[supersededID] = nil
+        let requiresReplacement = activeConnections.count >= maximumConnections
+            || activeForIdentity.count >= maximumConnectionsPerIdentity
+        let replaced = requiresReplacement
+            ? activeForIdentity
+                .filter { !$0.value.isUsable }
+                .min { $0.value.sequence < $1.value.sequence }
+            : nil
+        if requiresReplacement, replaced == nil {
+            return false
         }
+        if let replaced {
+            activeConnections[replaced.key] = nil
+        }
+        nextConnectionSequence &+= 1
         activeConnections[id] = ActiveConnection(
             generation: generation,
             remoteIdentity: admission.remoteIdentity,
             connection: admission.connection,
-            handlerTask: admission.handlerTask
+            handlerTask: admission.handlerTask,
+            sequence: nextConnectionSequence,
+            isUsable: false
         )
+        if let replaced {
+            replaced.value.handlerTask.cancel()
+            await replaced.value.connection.close(
+                errorCode: 0,
+                reason: "superseded_unready_connection"
+            )
+        }
+        return true
+    }
+
+    private func markUsable(_ id: UUID, generation: UInt64) async -> Bool {
+        guard currentGeneration == generation,
+              var promoted = activeConnections[id],
+              promoted.generation == generation else {
+            return false
+        }
+        if promoted.isUsable { return true }
+
+        let superseded = activeConnections.filter { otherID, connection in
+            otherID != id
+                && connection.generation == generation
+                && connection.remoteIdentity == promoted.remoteIdentity
+        }
+        for supersededID in superseded.keys {
+            activeConnections[supersededID] = nil
+        }
+        promoted.isUsable = true
+        activeConnections[id] = promoted
         for connection in superseded.values {
             connection.handlerTask.cancel()
             await connection.connection.close(

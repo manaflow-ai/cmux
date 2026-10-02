@@ -99,6 +99,42 @@ import Testing
         #expect(coordinator.currentUser == freshUser)
     }
 
+    @Test func selectedDevProfileReplacesAStaleSessionOnTheSameLaunch() async throws {
+        let selectedUser = CMUXAuthUser(
+            id: "selected-personal-user",
+            primaryEmail: "person@manaflow.ai",
+            displayName: "Person"
+        )
+        let client = FakeAuthClient(
+            access: "stale-agent-access",
+            refresh: "stale-agent-refresh",
+            user: selectedUser
+        )
+        let (coordinator, store) = try makeCoordinatorWithStaleSession(
+            client: client,
+            launch: AuthLaunchOptions(
+                clearAuthRequested: false,
+                mockDataEnabled: false,
+                environment: [
+                    "CMUX_UITEST_STACK_EMAIL": "person@manaflow.ai",
+                    "CMUX_UITEST_STACK_PASSWORD": "pw",
+                ],
+                includesDevAuth: true,
+                replaceStoredSessionWithAutoLogin: true
+            )
+        )
+
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        let clears = await client.clearLocalSessionCount
+        let credential = await client.signedInWithCredential
+        #expect(clears >= 1)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(credential?.email == "person@manaflow.ai")
+        #expect(coordinator.currentUser == selectedUser)
+    }
+
     @Test func uiTestClearKeepsSuppressingAutoLogin() async throws {
         // The pre-existing CMUX_UITEST_CLEAR_AUTH contract is untouched: it
         // clears and stops, credentials and all.

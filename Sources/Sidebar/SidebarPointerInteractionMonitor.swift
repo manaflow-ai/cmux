@@ -9,27 +9,40 @@ import SwiftUI
 @MainActor
 struct SidebarPointerEventHost: NSViewRepresentable {
     let onResolve: @MainActor (NSView) -> Void
+    let onDismantle: @MainActor (NSView) -> Void
+
+    init(
+        _ onResolve: @escaping @MainActor (NSView) -> Void,
+        onDismantle: @escaping @MainActor (NSView) -> Void
+    ) {
+        self.onResolve = onResolve
+        self.onDismantle = onDismantle
+    }
 
     func makeNSView(context: Context) -> SidebarPointerEventHostView {
         let view = SidebarPointerEventHostView()
         view.onResolve = onResolve
+        view.onDismantle = onDismantle
         return view
     }
 
     func updateNSView(_ nsView: SidebarPointerEventHostView, context: Context) {
         nsView.onResolve = onResolve
+        nsView.onDismantle = onDismantle
         nsView.resolve()
     }
 
     static func dismantleNSView(_ nsView: SidebarPointerEventHostView, coordinator: ()) {
-        nsView.onResolve?(nsView)
+        nsView.onDismantle?(nsView)
         nsView.onResolve = nil
+        nsView.onDismantle = nil
     }
 }
 
 @MainActor
 final class SidebarPointerEventHostView: NSView {
     var onResolve: (@MainActor (NSView) -> Void)?
+    var onDismantle: (@MainActor (NSView) -> Void)?
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -56,6 +69,7 @@ final class SidebarPointerInteractionMonitor {
     // invalidate the container and recreate the sidebar livelock at its root.
     @ObservationIgnored private var rowFrames: [SidebarWorkspaceRenderItemID: CGRect] = [:]
     @ObservationIgnored private var workspaceIdsByRowId: [SidebarWorkspaceRenderItemID: UUID] = [:]
+    @ObservationIgnored private var workspaceDragEnabledByRowId: [SidebarWorkspaceRenderItemID: Bool] = [:]
     @ObservationIgnored private var lastPointerLocation: CGPoint?
     @ObservationIgnored private weak var resolvedHostView: NSView?
     @ObservationIgnored private weak var hostView: NSView?
@@ -66,8 +80,14 @@ final class SidebarPointerInteractionMonitor {
     @ObservationIgnored private var onMiddleClickWorkspace: ((UUID) -> Void)?
     @ObservationIgnored private var geometryReconciliationTask: Task<Void, Never>?
     @ObservationIgnored private var geometryReconciliationGeneration: UInt = 0
+    @ObservationIgnored private let workspaceDragSourceMonitor = SidebarWorkspaceDragSourceMonitor()
 
-    func start(onMiddleClickWorkspace: @escaping (UUID) -> Void) {
+    var isActive: Bool { pointerEventMonitor != nil }
+
+    func start(
+        onMiddleClickWorkspace: @escaping (UUID) -> Void,
+        onBeginWorkspaceDrag: @escaping SidebarWorkspaceDragSourceMonitor.BeginDrag = { _, _, _, _, _ in false }
+    ) {
         self.onMiddleClickWorkspace = onMiddleClickWorkspace
 
         if pointerEventMonitor == nil {
@@ -98,6 +118,12 @@ final class SidebarPointerInteractionMonitor {
                 }
             }
         }
+        workspaceDragSourceMonitor.start(
+            resolveCandidate: { [weak self] point in
+                self?.workspaceDragCandidate(at: point)
+            },
+            onBeginDrag: onBeginWorkspaceDrag
+        )
     }
 
     func stop() {
@@ -113,6 +139,7 @@ final class SidebarPointerInteractionMonitor {
             self.menuEndObserver = nil
         }
         onMiddleClickWorkspace = nil
+        workspaceDragSourceMonitor.stop()
         if let pointerEventMonitor {
             NSEvent.removeMonitor(pointerEventMonitor)
             self.pointerEventMonitor = nil
@@ -125,9 +152,14 @@ final class SidebarPointerInteractionMonitor {
     func attach(to candidate: NSView) {
         if candidate.window != nil {
             resolvedHostView = candidate
-        } else if resolvedHostView === candidate {
-            // Ignore teardown from an older host after SwiftUI has already
-            // mounted and resolved its replacement.
+            workspaceDragSourceMonitor.attach(to: candidate)
+        }
+        activateResolvedHost()
+    }
+
+    func detach(from candidate: NSView) {
+        workspaceDragSourceMonitor.detach(from: candidate)
+        if resolvedHostView === candidate {
             resolvedHostView = nil
         }
         activateResolvedHost()
@@ -174,7 +206,15 @@ final class SidebarPointerInteractionMonitor {
     func removeFrame(for rowId: SidebarWorkspaceRenderItemID) {
         rowFrames.removeValue(forKey: rowId)
         workspaceIdsByRowId.removeValue(forKey: rowId)
+        workspaceDragEnabledByRowId.removeValue(forKey: rowId)
         scheduleGeometryReconciliation()
+    }
+
+    func setWorkspaceDragEnabled(
+        _ enabled: Bool,
+        for rowId: SidebarWorkspaceRenderItemID
+    ) {
+        workspaceDragEnabledByRowId[rowId] = enabled
     }
 
     /// Test seam and event-input primitive in the monitor's SwiftUI coordinate space.
@@ -192,6 +232,18 @@ final class SidebarPointerInteractionMonitor {
               let workspaceId = workspaceIdsByRowId[rowId],
               rowId == .workspace(workspaceId) else { return nil }
         return workspaceId
+    }
+
+    func workspaceDragCandidate(at point: CGPoint) -> SidebarWorkspaceDragCandidate? {
+        guard let row = rowFrames.first(where: { $0.value.contains(point) }),
+              workspaceDragEnabledByRowId[row.key] != false,
+              let workspaceId = workspaceIdsByRowId[row.key] else {
+            return nil
+        }
+        return SidebarWorkspaceDragCandidate(
+            workspaceId: workspaceId,
+            swiftUIFrame: row.value
+        )
     }
 
     nonisolated static func swiftUIPoint(

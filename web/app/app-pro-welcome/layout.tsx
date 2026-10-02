@@ -1,20 +1,27 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "../globals.css";
+import type { Metadata, Viewport } from "next";
+import { getLocale } from "./locale";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+import { loadMessages } from "../../i18n/messages";
+import { routing, type Locale } from "../../i18n/routing";
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+type AppProWelcomeMetadataMessages = {
+  title: string;
+  body: string;
+};
 
-export const metadata: Metadata = {
-  title: "Welcome to cmux Pro",
-  description: "Your next steps after upgrading to cmux Pro.",
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = supportedLocale(await getLocale());
+  const catalog = await loadMessages(locale) as {
+    appProWelcome: AppProWelcomeMetadataMessages;
+  };
+  return {
+    title: catalog.appProWelcome.title,
+    description: catalog.appProWelcome.body,
+  };
+}
+
+export const viewport: Viewport = {
+  themeColor: "transparent",
 };
 
 export default function AppProWelcomeLayout({
@@ -23,27 +30,24 @@ export default function AppProWelcomeLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning style={{ background: "transparent" }}>
-      <head>
-        <meta name="theme-color" content="transparent" />
-        <style>{`
-          :root {
-            --background: transparent;
-            --foreground: #171717;
-            --muted: #5f6368;
-            --border: rgba(0, 0, 0, 0.14);
-            --code-bg: rgba(245, 245, 245, 0.78);
-            --button-foreground: #ffffff;
-          }
-          html, body { background: transparent !important; }
-        `}</style>
-      </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
-        style={{ background: "transparent" }}
-      >
-        {children}
-      </body>
-    </html>
+    <>
+      <style>{`
+        :root {
+          --background: transparent;
+          --foreground: #171717;
+          --muted: #5f6368;
+          --border: rgba(0, 0, 0, 0.14);
+          --code-bg: rgba(245, 245, 245, 0.78);
+          --button-foreground: #ffffff;
+        }
+        html, body { background: transparent !important; }
+      `}</style>
+      {children}
+    </>
   );
+}
+
+function supportedLocale(locale: string): Locale {
+  return routing.locales.find((candidate) => candidate === locale)
+    ?? routing.defaultLocale;
 }

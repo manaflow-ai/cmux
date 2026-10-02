@@ -1,4 +1,4 @@
-import type { RenderRun, RenderUnderline } from "cmux/browser";
+import type { RenderRun, RenderUnderline } from "cmux/raw";
 
 export const renderAttrs = {
   bold: 0x0001,

@@ -36,6 +36,15 @@ struct SessionContentWidthSettingsFileStoreTests {
         }
     }
 
+    @Test
+    func settingsFileStoreAcceptsWidthAboveLegacyLimit() throws {
+        try loadSettings(maxWidthJSON: "10000", alignmentJSON: "\"center\"") { defaults in
+            #expect(
+                defaults.double(forKey: SessionContentWidthSettings.maxWidthKey) == 10_000
+            )
+        }
+    }
+
     private func loadSettings(
         maxWidthJSON: String,
         alignmentJSON: String,

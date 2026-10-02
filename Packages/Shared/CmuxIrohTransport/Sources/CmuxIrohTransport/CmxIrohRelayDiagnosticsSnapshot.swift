@@ -17,11 +17,11 @@ public struct CmxIrohRelayDiagnosticsSnapshot: Equatable, Sendable {
     /// Current account preference revision.
     public let preferenceRevision: Int64?
 
-    /// Stable IDs selected from the managed policy.
+    /// Stable relay IDs selected from the active preference.
     public let selectedRelayIDs: [String]
 
-    /// Exact relay origins currently allowed by the endpoint.
-    public let selectedRelayURLs: [String]
+    /// Number of relay origins currently allowed by the endpoint.
+    public let selectedRelayCount: Int
 
     /// Requested managed IDs missing from the signed policy.
     public let staleRelayIDs: [String]
@@ -39,7 +39,7 @@ public struct CmxIrohRelayDiagnosticsSnapshot: Equatable, Sendable {
         policyExpiresAt: nil,
         preferenceRevision: nil,
         selectedRelayIDs: [],
-        selectedRelayURLs: [],
+        selectedRelayCount: 0,
         staleRelayIDs: [],
         missingCredentialRelayIDs: [],
         failure: nil

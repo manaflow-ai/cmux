@@ -1,3 +1,4 @@
+internal import CMUXMobileCore
 import Foundation
 
 /// Encodes a backup record either as an authoritative iOS customization write
@@ -11,7 +12,7 @@ struct PairedMacBackupRecordWire: Encodable {
 
     func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: PairedMacBackupRecord.CodingKeys.self)
-        try c.encode(record.macDeviceID, forKey: .macDeviceID)
+        try c.encode(cmxCanonicalDeviceID(record.macDeviceID), forKey: .macDeviceID)
         try c.encodeIfPresent(record.displayName, forKey: .displayName)
         try c.encode(
             record.routes.compactMap {

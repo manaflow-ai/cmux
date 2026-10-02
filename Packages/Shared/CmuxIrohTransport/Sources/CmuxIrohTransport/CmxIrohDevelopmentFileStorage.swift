@@ -6,25 +6,26 @@ public import Foundation
 /// access group, so the data-protection Keychain returns
 /// `errSecMissingEntitlement`. Production compositions must keep using
 /// ``CmxIrohKeychainIdentityStore``.
-public final class CmxIrohDevelopmentFileIdentityStore:
-    CmxIrohSecureIdentityStoring,
-    @unchecked Sendable
+public actor CmxIrohDevelopmentFileIdentityStore:
+    CmxIrohSecureIdentityStoring
 {
-    private let directory: URL
+    nonisolated private let directory: URL
 
     /// Creates a store inside a tag-specific application-support directory.
     public init(directory: URL) {
         self.directory = directory
     }
 
-    public func read(account: String) throws -> Data? {
+    /// Loads one development identity record.
+    public func read(account: String) async throws -> Data? {
         try CmxIrohDevelopmentFileStorage.read(
             account: account,
             directory: directory
         )
     }
 
-    public func write(_ data: Data, account: String) throws {
+    /// Replaces one development identity record.
+    public func write(_ data: Data, account: String) async throws {
         try CmxIrohDevelopmentFileStorage.write(
             data,
             account: account,
@@ -32,14 +33,27 @@ public final class CmxIrohDevelopmentFileIdentityStore:
         )
     }
 
-    public func delete(account: String) throws {
+    /// Whether ANY identity record file exists, without reading or creating
+    /// one. File storage lives in the app container (which CAN travel in a
+    /// backup), an accepted dev-only weakening of the continuity signal.
+    public nonisolated func containsAnyRecord() -> Bool {
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        return !entries.isEmpty
+    }
+
+    /// Removes one development identity record.
+    public func delete(account: String) async throws {
         try CmxIrohDevelopmentFileStorage.delete(
             account: account,
             directory: directory
         )
     }
 
-    public func deleteAll() throws {
+    /// Removes every development identity record in this store.
+    public func deleteAll() async throws {
         try CmxIrohDevelopmentFileStorage.deleteAll(in: directory)
     }
 }

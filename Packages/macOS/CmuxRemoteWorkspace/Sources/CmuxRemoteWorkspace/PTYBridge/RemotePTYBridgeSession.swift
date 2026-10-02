@@ -1,3 +1,4 @@
+internal import CmuxFoundation
 internal import CmuxRemoteDaemon
 internal import Foundation
 internal import Network
@@ -173,7 +174,7 @@ extension RemotePTYBridgeServer {
             }
             guard let payload = try? JSONSerialization.jsonObject(with: lineData, options: []) as? [String: Any],
                   let receivedToken = payload["token"] as? String,
-                  receivedToken == token else {
+                  receivedToken.constantTimeEquals(token) else {
                 close(detach: false)
                 return
             }
@@ -229,6 +230,7 @@ extension RemotePTYBridgeServer {
                 sendBridgeStatus([
                     "type": "ready",
                     "attachment_token": remoteAttachment.token,
+                    "replay_bytes": remoteAttachment.replayByteCount,
                 ])
                 isAttached = true
                 let pendingPTYEvents = pendingPTYEventsBeforeReady

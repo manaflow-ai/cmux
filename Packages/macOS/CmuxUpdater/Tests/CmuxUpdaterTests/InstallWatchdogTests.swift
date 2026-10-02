@@ -32,25 +32,25 @@ import Testing
         [
             .idle,
             .permissionRequest(.init(request: SPUUpdatePermissionRequest(systemProfile: []), reply: { _ in })),
+            .preparingCheck(.init(cancel: {})),
             .checking(.init(cancel: {})),
             updateAvailable(),
             .notFound(.init(acknowledgement: {})),
             .error(.init(error: NSError(domain: "t", code: 1), retry: {}, dismiss: {})),
+            .startingDownload,
             .downloading(.init(cancel: {}, expectedLength: 100, progress: 10)),
             .extracting(.init(progress: 0.5)),
             .installing(.init(retryTerminatingApplication: {}, dismiss: {})),
         ]
     }
 
-    /// The watchdog reports a stall for the states an armed deadline can legitimately catch the
-    /// flow in with nothing downloading: mid-check, an unacted "Update Available" (the states the
-    /// double-idle bug got stuck in), and `.idle` (the pre-check stall where the delayed re-check
-    /// was dropped — every benign idle disarms before the deadline can fire).
+    /// The watchdog reports a stall for every accepted-install phase that has not reached download
+    /// progress, plus unattributed idle (every causal user cancellation disarms first).
     @Test func stalledForNonProgressingStates() {
         for state in everyState {
             let stalled = watchdog.installAttemptStalled(state)
             switch state {
-            case .checking, .updateAvailable, .idle:
+            case .preparingCheck, .checking, .updateAvailable, .startingDownload, .idle:
                 #expect(stalled, "\(state) should count as stalled")
             default:
                 #expect(!stalled, "\(state) should NOT count as stalled")
@@ -59,7 +59,7 @@ import Testing
     }
 
     /// Download/extract/install progress and clearly-communicated terminals (notFound/error)
-    /// disarm the watchdog; idle/permissionRequest/checking/updateAvailable do not.
+    /// disarm the watchdog; idle/permissionRequest/preparing/checking/starting do not.
     @Test func resolvedForProgressAndVisibleTerminals() {
         for state in everyState {
             let resolved = watchdog.installAttemptResolved(state)
@@ -85,7 +85,7 @@ import Testing
     /// watch too. Only an actual install hand-off — or the coordinator still being mid-flow —
     /// keeps the deadline armed.
     @Test func attemptEndedWithoutInstallTruthTable() {
-        let actions: [AttemptUpdateCoordinator.Action] = [.none, .startFreshCheck, .confirmInstall]
+        let actions: [AttemptUpdateCoordinator.Action] = [.none, .startFreshCheck, .confirmInstall, .installFailed]
         for action in actions {
             // While the coordinator is still monitoring, the attempt is alive regardless of action.
             #expect(!watchdog.attemptEndedWithoutInstall(action: action, isCoordinatorMonitoring: true))
@@ -101,8 +101,10 @@ import Testing
     @Test func cancelledFreshCheckEndsTheWatchdogsWatch() {
         var coordinator = AttemptUpdateCoordinator()
         #expect(coordinator.requestInstallLatest(currentState: updateAvailable()) == .startFreshCheck)
+        coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
-        let action = coordinator.handleStateChange(.idle)
+        coordinator.cancel()
+        let action = AttemptUpdateCoordinator.Action.none
         #expect(action == .none)
         #expect(watchdog.attemptEndedWithoutInstall(
             action: action,
@@ -116,6 +118,7 @@ import Testing
     @Test func confirmInstallHandOffKeepsWatchdogArmed() {
         var coordinator = AttemptUpdateCoordinator()
         #expect(coordinator.requestInstallLatest(currentState: .idle) == .startFreshCheck)
+        coordinator.didStartFreshCheck()
         #expect(coordinator.handleStateChange(.checking(.init(cancel: {}))) == .none)
         let action = coordinator.handleStateChange(updateAvailable())
         #expect(action == .confirmInstall)
@@ -141,10 +144,10 @@ import Testing
     @Test func manualDownloadRoutesToTheActiveChannel() throws {
         let didNotStart = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode)
         let nightlyFeed = "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
-        let recovery = UpdateManualDownloadRecovery()
+        let recovery = UpdateManualDownloadRecovery(hostArchitecture: .arm64)
 
         let nightlyURL = try #require(recovery.url(for: didNotStart, feedURLString: nightlyFeed))
-        #expect(nightlyURL.absoluteString.hasSuffix("/releases/download/nightly/cmux-nightly-macos.dmg"))
+        #expect(nightlyURL.absoluteString.hasSuffix("/releases/download/nightly/cmux-nightly-macos-arm64.dmg"))
         #expect(!nightlyURL.absoluteString.contains("latest/download"))
 
         let stableURL = try #require(recovery.url(for: didNotStart, feedURLString: "https://cmux.com/appcast.xml"))
@@ -153,7 +156,27 @@ import Testing
         // Sparkle's own install failures route by channel the same way.
         let sparkleInstallFailure = NSError(domain: SUSparkleErrorDomain, code: 4005)
         let sparkleNightlyURL = try #require(recovery.url(for: sparkleInstallFailure, feedURLString: nightlyFeed))
-        #expect(sparkleNightlyURL.absoluteString.hasSuffix("/releases/download/nightly/cmux-nightly-macos.dmg"))
+        #expect(sparkleNightlyURL.absoluteString.hasSuffix("/releases/download/nightly/cmux-nightly-macos-arm64.dmg"))
+
+        // An Intel Mac is offered the Intel nightly DMG.
+        let intelRecovery = UpdateManualDownloadRecovery(hostArchitecture: .x86_64)
+        let intelURL = try #require(intelRecovery.url(for: didNotStart, feedURLString: nightlyFeed))
+        #expect(intelURL.absoluteString.hasSuffix("/releases/download/nightly/cmux-nightly-macos-x86_64.dmg"))
+    }
+
+    /// An RC build recovers to the RC DMG for its architecture, never the stable one.
+    @Test func manualDownloadRoutesRCFeedToTheRCDMG() throws {
+        let didNotStart = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode)
+        let rcFeed = "https://files.cmux.com/rc/appcast-arm64.xml"
+
+        let armURL = try #require(UpdateManualDownloadRecovery(hostArchitecture: .arm64).url(for: didNotStart, feedURLString: rcFeed))
+        #expect(armURL.absoluteString == "https://github.com/manaflow-ai/cmux/releases/download/rc/cmux-rc-macos-arm64.dmg")
+
+        let sparkleInstallFailure = NSError(domain: SUSparkleErrorDomain, code: 4005)
+        let intelURL = try #require(UpdateManualDownloadRecovery(hostArchitecture: .x86_64).url(for: sparkleInstallFailure, feedURLString: rcFeed))
+        #expect(intelURL.absoluteString == "https://github.com/manaflow-ai/cmux/releases/download/rc/cmux-rc-macos-x86_64.dmg")
+        #expect(!intelURL.absoluteString.contains("latest/download"))
+        #expect(!intelURL.absoluteString.contains("/nightly/"))
     }
 
     /// The watchdog can fire before Sparkle asks its delegate for a feed URL; in that passive path
@@ -169,14 +192,17 @@ import Testing
             infoFeedURLProvider: { nightlyFeed }
         )
 
-        #expect(driver.resolvedFeedURLString() == nightlyFeed)
+        // The passive path resolves the build's own nightly channel, for this machine's architecture.
+        let resolvedFeed = try #require(driver.resolvedFeedURLString())
+        #expect(resolvedFeed.hasPrefix("https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast-"))
+        #expect(resolvedFeed.hasSuffix("\(UpdateHostArchitecture.current.rawValue).xml"))
 
         let didNotStart = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode)
-        let recoveryURL = try #require(UpdateManualDownloadRecovery().url(
+        let recoveryURL = try #require(UpdateManualDownloadRecovery(hostArchitecture: .arm64).url(
             for: didNotStart,
             feedURLString: driver.resolvedFeedURLString()
         ))
-        #expect(recoveryURL.absoluteString == "https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg")
+        #expect(recoveryURL.absoluteString == "https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-arm64.dmg")
 
         let recordedFeed = "https://example.com/other/appcast.xml"
         driver.recordFeedURLString(recordedFeed, usedFallback: false)

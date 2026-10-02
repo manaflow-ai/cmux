@@ -9,6 +9,8 @@ actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
     private var stoppedCodes: [UInt64] = []
     private let blockedStream: AsyncStream<Void>
     private let blockedContinuation: AsyncStream<Void>.Continuation
+    private let stoppedStream: AsyncStream<UInt64>
+    private let stoppedContinuation: AsyncStream<UInt64>.Continuation
 
     init(
         buffer: Data,
@@ -19,6 +21,9 @@ actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
         let blocked = AsyncStream<Void>.makeStream()
         blockedStream = blocked.stream
         blockedContinuation = blocked.continuation
+        let stopped = AsyncStream<UInt64>.makeStream()
+        stoppedStream = stopped.stream
+        stoppedContinuation = stopped.continuation
     }
 
     func receive(maximumByteCount: Int) async throws -> Data? {
@@ -53,6 +58,7 @@ actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
 
     func stop(errorCode: UInt64) {
         stoppedCodes.append(errorCode)
+        stoppedContinuation.yield(errorCode)
         waiter?.resume(returning: nil)
         waiter = nil
     }
@@ -65,9 +71,8 @@ actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
         stoppedCodes
     }
 
-    func releaseWithoutStopping() {
-        waiter?.resume(returning: nil)
-        waiter = nil
+    func stoppedEvents() -> AsyncStream<UInt64> {
+        stoppedStream
     }
 
     private func cancelWaiter() {

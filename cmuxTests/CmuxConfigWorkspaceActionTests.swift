@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 import Testing
 
@@ -221,6 +222,87 @@ struct CmuxConfigWorkspaceActionTests {
         #expect(optedIn.wantsNewWorkspaceMenu)
     }
 
+    @Test func actionsAndLaunchersDiscoveryReportsEffectivePlacements() throws {
+        let configPath = "/Users/test/.config/cmux/cmux.json"
+        let shortcut = try #require(StoredShortcut.parseConfig("cmd+shift+r"))
+        let agent = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "review-agent",
+            definition: CmuxConfigActionDefinition(
+                action: .agent(.claudeCode, args: nil),
+                title: "Review Agent",
+                palette: true,
+                shortcut: shortcut
+            ),
+            sourcePath: configPath
+        ))
+        let layout = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "review-layout",
+            definition: CmuxConfigActionDefinition(
+                action: .workspace(CmuxWorkspaceDefinition(name: "Review"), restart: nil),
+                title: "Review Layout",
+                palette: false,
+                newWorkspaceMenu: true
+            ),
+            sourcePath: configPath
+        ))
+        let model = ActionsAndLaunchersDiscoveryModel.build(
+            actions: [CmuxResolvedConfigAction.builtIn(.newTerminal), layout, agent],
+            resolvedNewWorkspaceActionID: layout.id,
+            newWorkspaceMenuActionIDs: [layout.id],
+            surfaceTabBarActionIDs: [agent.id]
+        )
+
+        #expect(model.entries.map(\.id) == [agent.id, layout.id])
+
+        let agentEntry = try #require(model.entries.first { $0.id == agent.id })
+        #expect(agentEntry.actionType == "agent")
+        #expect(agentEntry.appearsInCommandPalette)
+        #expect(!agentEntry.isNewWorkspaceDefault)
+        #expect(!agentEntry.appearsInNewWorkspaceMenu)
+        #expect(agentEntry.appearsInSurfaceTabBar)
+        #expect(agentEntry.shortcutDisplay == shortcut.displayString)
+
+        let layoutEntry = try #require(model.entries.first { $0.id == layout.id })
+        #expect(layoutEntry.actionType == "workspace")
+        #expect(!layoutEntry.appearsInCommandPalette)
+        #expect(layoutEntry.isNewWorkspaceDefault)
+        #expect(layoutEntry.appearsInNewWorkspaceMenu)
+        #expect(!layoutEntry.appearsInSurfaceTabBar)
+        #expect(layoutEntry.shortcutDisplay == nil)
+
+        #expect(!model.entries.contains { $0.id == CmuxSurfaceTabBarBuiltInAction.newTerminal.configID })
+    }
+
+    @Test func actionsDiscoveryDoesNotInferSurfacePlacementFromEqualPayloads() throws {
+        let configPath = "/Users/test/.config/cmux/cmux.json"
+        let first = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "first",
+            definition: CmuxConfigActionDefinition(
+                action: .command("echo same"),
+                title: "First"
+            ),
+            sourcePath: configPath
+        ))
+        let second = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "second",
+            definition: CmuxConfigActionDefinition(
+                action: .command("echo same"),
+                title: "Second"
+            ),
+            sourcePath: configPath
+        ))
+
+        let model = ActionsAndLaunchersDiscoveryModel.build(
+            actions: [first, second],
+            resolvedNewWorkspaceActionID: nil,
+            newWorkspaceMenuActionIDs: [],
+            surfaceTabBarActionIDs: [first.id]
+        )
+
+        #expect(model.entries.first { $0.id == first.id }?.appearsInSurfaceTabBar == true)
+        #expect(model.entries.first { $0.id == second.id }?.appearsInSurfaceTabBar == false)
+    }
+
     // MARK: - Executor
 
     @Test func inlineWorkspaceSyntheticCommandCarriesConfirm() throws {
@@ -295,7 +377,9 @@ struct CmuxConfigWorkspaceActionTests {
 
     @MainActor
     @Test func inlineWorkspaceActionCreatesWorkspace() throws {
-        let manager = TabManager()
+        let manager = TabManager(
+            initialWorkingDirectory: NSTemporaryDirectory()
+        )
         let action = try #require(CmuxResolvedConfigAction.fromDefinition(
             id: "dev-setup",
             definition: CmuxConfigActionDefinition(
@@ -316,6 +400,7 @@ struct CmuxConfigWorkspaceActionTests {
 
         #expect(manager.tabs.count == 2)
         #expect(manager.selectedWorkspace?.customTitle == "Dev Setup")
+        #expect(manager.selectedWorkspace?.effectiveCustomTitleSource == .auto)
     }
 
     @MainActor

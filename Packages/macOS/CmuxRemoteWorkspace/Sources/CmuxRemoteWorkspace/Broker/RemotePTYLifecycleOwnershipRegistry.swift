@@ -1,7 +1,10 @@
 /// Broker-queue-confined ownership index for exact PTY attachment generations.
 struct RemotePTYLifecycleOwnershipRegistry {
-    typealias Claim = (transportKey: String, wasCurrent: Bool)
-    private typealias Owner = (transportKey: String, attachmentKey: RemotePTYAttachmentKey)
+    private typealias Owner = (
+        transportKey: String,
+        attachmentKey: RemotePTYAttachmentKey,
+        commitLease: RemotePTYLifecycleCommitLease
+    )
     private var owners: [RemotePTYLifecycleKey: Owner] = [:]
     private var currentByAttachmentStorage: [RemotePTYAttachmentKey: RemotePTYLifecycleKey] = [:]
     private var ended = RemotePTYEndedLifecycleRegistry()
@@ -13,13 +16,25 @@ struct RemotePTYLifecycleOwnershipRegistry {
     ) {
         ended.remove(lifecycleKey)
         ended.removeAll(forAttachmentKey: attachmentKey)
-        owners[lifecycleKey] = Owner(transportKey: transportKey, attachmentKey: attachmentKey)
+        if let replacedOwner = owners[lifecycleKey] {
+            replacedOwner.commitLease.invalidate()
+        }
+        if let displacedLifecycleKey = currentByAttachmentStorage[attachmentKey],
+           let displacedOwner = owners[displacedLifecycleKey] {
+            displacedOwner.commitLease.invalidate()
+        }
+        owners[lifecycleKey] = (
+            transportKey: transportKey,
+            attachmentKey: attachmentKey,
+            commitLease: RemotePTYLifecycleCommitLease()
+        )
         currentByAttachmentStorage[attachmentKey] = lifecycleKey
     }
 
     mutating func acknowledge(_ lifecycleKey: RemotePTYLifecycleKey) {
         ended.remove(lifecycleKey)
         guard let owner = owners.removeValue(forKey: lifecycleKey) else { return }
+        owner.commitLease.invalidate()
         if currentByAttachmentStorage[owner.attachmentKey] == lifecycleKey {
             currentByAttachmentStorage.removeValue(forKey: owner.attachmentKey)
         }
@@ -31,25 +46,85 @@ struct RemotePTYLifecycleOwnershipRegistry {
         attachmentKey: RemotePTYAttachmentKey
     ) {
         guard owners[lifecycleKey]?.transportKey == transportKey else { return }
-        owners.removeValue(forKey: lifecycleKey)
+        let owner = owners.removeValue(forKey: lifecycleKey)
+        owner?.commitLease.invalidate()
         guard currentByAttachmentStorage[attachmentKey] == lifecycleKey else { return }
         currentByAttachmentStorage.removeValue(forKey: attachmentKey)
         ended.record(lifecycleKey, transportKey: transportKey, attachmentKey: attachmentKey)
     }
 
-    mutating func claimAfterWrapperEnd(_ lifecycleKey: RemotePTYLifecycleKey) -> Claim? {
-        if let owner = owners.removeValue(forKey: lifecycleKey) {
+    mutating func claimAfterWrapperEnd(
+        _ lifecycleKey: RemotePTYLifecycleKey,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner? = nil
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        if let owner = owners[lifecycleKey] {
+            guard expectedOwner == nil || expectedOwner == RemotePTYLifecycleWrapperEndOwner(
+                transportKey: owner.transportKey,
+                attachmentID: owner.attachmentKey.attachmentID
+            ) else {
+                return nil
+            }
+            owners.removeValue(forKey: lifecycleKey)
+            owner.commitLease.invalidate()
             let wasCurrent = currentByAttachmentStorage[owner.attachmentKey] == lifecycleKey
             if wasCurrent { currentByAttachmentStorage.removeValue(forKey: owner.attachmentKey) }
             ended.remove(lifecycleKey)
-            return Claim(transportKey: owner.transportKey, wasCurrent: wasCurrent)
+            return RemotePTYLifecycleWrapperEndClaim(
+                transportKey: owner.transportKey,
+                attachmentID: owner.attachmentKey.attachmentID,
+                wasCurrent: wasCurrent
+            )
         }
-        guard let endedEntry = ended.take(lifecycleKey) else { return nil }
+        guard let endedEntry = ended.entry(for: lifecycleKey),
+              expectedOwner == nil || expectedOwner == RemotePTYLifecycleWrapperEndOwner(
+                  transportKey: endedEntry.transportKey,
+                  attachmentID: endedEntry.attachmentKey.attachmentID
+              ) else {
+            return nil
+        }
+        ended.remove(lifecycleKey)
         let wasCurrent = currentByAttachmentStorage[endedEntry.attachmentKey] == nil
-        return Claim(transportKey: endedEntry.transportKey, wasCurrent: wasCurrent)
+        return RemotePTYLifecycleWrapperEndClaim(
+            transportKey: endedEntry.transportKey,
+            attachmentID: endedEntry.attachmentKey.attachmentID,
+            wasCurrent: wasCurrent
+        )
+    }
+
+    func ownerForWrapperEnd(
+        _ lifecycleKey: RemotePTYLifecycleKey
+    ) -> RemotePTYLifecycleWrapperEndOwner? {
+        if let owner = owners[lifecycleKey] {
+            return RemotePTYLifecycleWrapperEndOwner(
+                transportKey: owner.transportKey,
+                attachmentID: owner.attachmentKey.attachmentID
+            )
+        }
+        guard let endedEntry = ended.entry(for: lifecycleKey) else { return nil }
+        return RemotePTYLifecycleWrapperEndOwner(
+            transportKey: endedEntry.transportKey,
+            attachmentID: endedEntry.attachmentKey.attachmentID
+        )
+    }
+
+    func currentOwner(
+        _ lifecycleKey: RemotePTYLifecycleKey
+    ) -> RemotePTYLifecycleOwner? {
+        guard let owner = owners[lifecycleKey],
+              currentByAttachmentStorage[owner.attachmentKey] == lifecycleKey else {
+            return nil
+        }
+        return RemotePTYLifecycleOwner(
+            transportKey: owner.transportKey,
+            attachmentID: owner.attachmentKey.attachmentID,
+            commitLease: owner.commitLease
+        )
     }
 
     mutating func removeAll(forTransportKey transportKey: String) {
+        for owner in owners.values where owner.transportKey == transportKey {
+            owner.commitLease.invalidate()
+        }
         owners = owners.filter { $0.value.transportKey != transportKey }
         currentByAttachmentStorage = currentByAttachmentStorage.filter {
             $0.key.transportKey != transportKey

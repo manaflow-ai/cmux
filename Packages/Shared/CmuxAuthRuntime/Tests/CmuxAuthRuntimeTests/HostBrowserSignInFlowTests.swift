@@ -64,6 +64,43 @@ import Testing
         #expect(calls.first?.refreshToken == "refresh-1")
     }
 
+    @Test func signOutStartsUnconditionalLocalCleanupBeforeServerTeardownFinishes() async {
+        let localCleanupStarted = TestPhaseSignal()
+        let localCleanupBlocker = TestContinuationBlocker()
+        let teardownStarted = TestPhaseSignal()
+        let teardownBlocker = TestContinuationBlocker()
+        let signOutFinished = TestPhaseSignal()
+        let harness = HostBrowserSignInFlowHarness(
+            localSignOut: {
+                await localCleanupStarted.markStarted()
+                await localCleanupBlocker.wait()
+            },
+            onSignedOut: { _, _ in
+                await teardownStarted.markStarted()
+                await teardownBlocker.wait()
+            }
+        )
+        await harness.tokenStore.setTokens(
+            accessToken: "access-1",
+            refreshToken: "refresh-1"
+        )
+
+        let signOut = Task {
+            await harness.flow.signOut()
+            await signOutFinished.markStarted()
+        }
+        await teardownStarted.waitUntilStarted()
+        await localCleanupStarted.waitUntilStarted()
+
+        #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        await teardownBlocker.release()
+        for _ in 0 ..< 20 { await Task.yield() }
+        #expect(!(await signOutFinished.didStart))
+        await localCleanupBlocker.release()
+        await signOut.value
+        #expect(await signOutFinished.didStart)
+    }
+
     @Test func browserCallbackSignsInAndSeedsTokens() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
@@ -101,6 +138,38 @@ import Testing
         #expect(harness.factory.sessions[0].cancelled)
         #expect(harness.flow.isSigningIn == false)
         #expect(harness.coordinator.isAuthenticated == false)
+    }
+
+    @Test func signInDoesNotAskForTheAccountChooserByDefault() async {
+        let harness = HostBrowserSignInFlowHarness()
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+
+        let url = harness.factory.sessions[0].signInURL
+        #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "prompt" } == false)
+    }
+
+    /// Switch Account asks the hosted page to confirm the account, on the
+    /// popup and on the default-browser fallback alike, and the next normal
+    /// attempt goes back to plain sign-in.
+    @Test func selectAccountAttemptCarriesThePromptEverywhere() async {
+        let harness = HostBrowserSignInFlowHarness()
+
+        harness.flow.beginSignIn(selectAccount: true)
+        await harness.waitForSession()
+
+        let prompt = { (url: URL?) in
+            url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "prompt" }?.value }
+        }
+        #expect(prompt(harness.factory.sessions[0].signInURL) == "select_account")
+        #expect(prompt(harness.flow.activeAttemptSignInURL) == "select_account")
+        #expect(harness.factory.sessions[0].signInURL.absoluteString.contains("cmux_auth_state="))
+
+        harness.flow.beginSignIn()
+        await harness.waitForSession(count: 2)
+        #expect(prompt(harness.factory.sessions[1].signInURL) == nil)
+        #expect(harness.factory.sessions[0].cancelled)
     }
 
     @Test func newAttemptCancelsPreviousPopup() async {

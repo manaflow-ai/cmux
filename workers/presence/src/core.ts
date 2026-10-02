@@ -81,6 +81,18 @@ export type PresenceEvent =
    * trip. */
   | { type: "routes"; instance: PresenceInstance };
 
+/** Account-scoped route invalidation.
+ *
+ * This deliberately carries no route material. Clients use `revision` only to
+ * decide whether to reconcile through the authoritative connectivity v2 API.
+ * Missing or reordered frames therefore affect latency, never correctness. */
+export interface ConnectivityInvalidationEvent {
+  type: "connectivity.invalidate";
+  protocolVersion: 1;
+  revision: number;
+  at: number;
+}
+
 export interface HeartbeatResult {
   instance: PresenceInstance;
   /** Events to broadcast to subscribers, in order. A fresh heartbeat on an
@@ -263,6 +275,25 @@ export function checkDeviceOwner(
   if (existingOwner === undefined) return { ok: true, pin: true };
   if (existingOwner === userId) return { ok: true, pin: false };
   return { ok: false, error: "device_owner_mismatch" };
+}
+
+/** Combined WebSocket + SSE presence/sync subscriber cap per team. */
+export const MAX_SUBSCRIBERS_PER_TEAM = 64;
+/** Quiet invalidation sockets are isolated in one DO per verified account. */
+export const MAX_CONNECTIVITY_SUBSCRIBERS_PER_ACCOUNT = 32;
+
+export interface ConnectivitySocketView {
+  accountId: string | null;
+  expiresAt: number;
+}
+
+/** Delivery boundary for the account-scoped connectivity channel. */
+export function shouldDeliverConnectivityInvalidation(
+  socket: ConnectivitySocketView,
+  accountId: string,
+  nowMs: number,
+): boolean {
+  return socket.accountId === accountId && socket.expiresAt > nowMs;
 }
 
 export interface ExpiryResult {

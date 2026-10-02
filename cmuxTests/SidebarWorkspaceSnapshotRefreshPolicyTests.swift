@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNotifications
 import CmuxSidebar
 import CmuxWorkspaces
+@_spi(CmuxHostTransport) import CmuxExtensionKit
 import SwiftUI
 import Testing
 #if canImport(cmux_DEV)
@@ -10,6 +12,62 @@ import Testing
 #endif
 
 @Suite struct SidebarWorkspaceSnapshotRefreshPolicyTests {
+    @Test @MainActor
+    func extensionSnapshotCacheDoesNotInflateSequenceForIdenticalProviderContent() throws {
+        let workspaceID = UUID()
+        let initial = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [CmuxSidebarWorkspace(id: workspaceID, title: "Pi")]
+        )
+        let cache = CMUXSidebarSnapshotCache()
+        _ = cache.replace(with: initial)
+        let unread = SidebarUnreadSnapshot(
+            totalUnreadCount: 1,
+            summaryByWorkspaceId: [
+                workspaceID: SidebarWorkspaceUnreadSummary(
+                    unreadCount: 1,
+                    latestNotificationText: "Done"
+                ),
+            ]
+        )
+        let patched = try #require(cache.applyUnread(unread))
+        let matchingProvider = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Pi",
+                    unreadCount: 1,
+                    latestNotification: "Done"
+                ),
+            ]
+        )
+
+        let firstPoll = cache.replace(with: matchingProvider)
+        let secondPoll = cache.replace(with: matchingProvider)
+
+        #expect(firstPoll.sequence == patched.sequence)
+        #expect(secondPoll.sequence == patched.sequence)
+
+        let changedProvider = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Pi renamed",
+                    unreadCount: 1,
+                    latestNotification: "Done"
+                ),
+            ]
+        )
+        let changedPoll = cache.replace(with: changedProvider)
+        #expect(changedPoll.sequence == patched.sequence + 1)
+        #expect(changedPoll.workspaces.first?.title == "Pi renamed")
+    }
+
     @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
         let current = Self.snapshot(
             title: "lmao",
@@ -103,6 +161,32 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
+    @Test func contextMenuCompactStatusGlyphUpdatesImmediately() {
+        let current = Self.snapshot(
+            latestConversationMessage: "old message",
+            activeCodingAgentCount: 1,
+            compactStatusGlyph: SidebarCompactStatusGlyph.resolve(.init(hasActiveAgent: true))
+        )
+        // The agent went idle: the idle dot must show even with the menu open.
+        let idle = SidebarCompactStatusGlyph.resolve(.init(lifecycleStates: [.idle]))
+        let next = Self.snapshot(
+            latestConversationMessage: "new message",
+            activeCodingAgentCount: 0,
+            compactStatusGlyph: idle
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        #expect(decision.workspaceSnapshotStorage?.activeCodingAgentCount == 0)
+        #expect(decision.workspaceSnapshotStorage?.compactStatusGlyph == idle)
+        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+    }
+
     @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
@@ -130,14 +214,17 @@ import Testing
         listeningPorts: [Int] = [],
         finderDirectoryPath: String? = nil,
         mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
-        activeCodingAgentCount: Int = 0
+        activeCodingAgentCount: Int = 0,
+        compactStatusGlyph: SidebarCompactStatusGlyph? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
+            isMuted: false,
             customColorHex: customColorHex,
+            cloudWorkspaceLabel: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",
@@ -164,7 +251,8 @@ import Testing
             checklistItems: [],
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
-            checklistFirstUncheckedText: nil
+            checklistFirstUncheckedText: nil,
+            compactStatusGlyph: compactStatusGlyph
         )
     }
 

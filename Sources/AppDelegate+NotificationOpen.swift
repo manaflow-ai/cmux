@@ -1,8 +1,50 @@
 import AppKit
+import CmuxNotifications
 import Foundation
 
 @MainActor
 extension AppDelegate {
+    /// Focuses a terminal surface through the same sidebar/window/tab path used by notification opens.
+    @discardableResult
+    func focusTerminal(
+        tabId: UUID,
+        surfaceId: UUID?,
+        while effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool = { true }
+    ) -> Bool {
+        guard effectIsCurrent() else { return false }
+        if let context = contextContainingTabId(tabId) {
+            let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
+            let window = context.window
+                ?? NSApp.windows.first { $0.identifier?.rawValue == expectedIdentifier }
+            guard let window else { return false }
+            return focusTerminal(
+                tabManager: context.tabManager,
+                sidebarSelectionState: context.sidebarSelectionState,
+                window: window,
+                tabId: tabId,
+                surfaceId: surfaceId,
+                while: effectIsCurrent
+            )
+        }
+
+        guard
+            let tabManager,
+            tabManager.tabs.contains(where: { $0.id == tabId }),
+            let window = NSApp.keyWindow ?? NSApp.windows.first(where: { isMainTerminalWindow($0) })
+        else {
+            return false
+        }
+        return focusTerminal(
+            tabManager: tabManager,
+            sidebarSelectionState: sidebarSelectionState,
+            window: window,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            while: effectIsCurrent
+        )
+    }
+
     @discardableResult
     func openNotification(
         tabId: UUID,
@@ -19,15 +61,27 @@ extension AppDelegate {
         var surfaceId = surfaceId
         var panelId = panelId
         var scrollPosition = scrollPosition
-        if let liveSurfaceId = panelId ?? surfaceId,
-           let owner = workspaceContainingPanel(panelId: liveSurfaceId, preferredWorkspaceId: tabId),
-           owner.workspace.id != tabId {
-            if retargetsToLiveSurfaceOwner {
-                tabId = owner.workspace.id
-            } else {
+        let liveOwner = surfaceId.flatMap {
+            notificationSurfaceOwner(surfaceID: $0, preferredTabID: tabId)
+        } ?? panelId.flatMap {
+            notificationSurfaceOwner(surfaceID: $0, preferredTabID: tabId)
+        }
+        if let owner = liveOwner {
+            if owner.tabID != tabId, !retargetsToLiveSurfaceOwner {
                 surfaceId = nil
                 panelId = nil
                 scrollPosition = nil
+            } else {
+                tabId = owner.tabID
+                surfaceId = owner.surfaceID
+                if let dock = owner.windowDock {
+                    return openNotificationInWindowDock(
+                        dock,
+                        surfaceId: owner.surfaceID,
+                        notificationId: notificationId,
+                        scrollPosition: scrollPosition
+                    )
+                }
             }
         }
 #if DEBUG
@@ -81,6 +135,41 @@ extension AppDelegate {
         )
     }
 
+    private func openNotificationInWindowDock(
+        _ dock: DockSplitStore,
+        surfaceId: UUID,
+        notificationId: UUID?,
+        scrollPosition: TerminalNotificationScrollPosition?
+    ) -> Bool {
+        let target = WindowDockUnreadTarget(
+            windowId: dock.workspaceId,
+            surfaceId: surfaceId
+        )
+        guard openWindowDockUnread(target) else { return false }
+
+        // Match direct workspace/Dock interaction: revealing a surface clears
+        // every unread indicator attached to that exact destination. The id
+        // clear also covers a trusted notification whose surface moved before
+        // its namespace was rebound.
+        notificationStore?.markRead(
+            forTabId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+        notificationStore?.clearFocusedReadIndicator(
+            forTabId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+        if let notificationId {
+            notificationStore?.markRead(id: notificationId)
+        }
+        restoreWindowDockNotificationScrollPosition(
+            scrollPosition,
+            dock: dock,
+            panelId: target.surfaceId
+        )
+        return true
+    }
+
     func openNotificationInContext(
         _ context: MainWindowContext,
         tabId: UUID,
@@ -105,8 +194,20 @@ extension AppDelegate {
 
         context.sidebarSelectionState.selection = .tabs
         bringToFront(window)
-        let focusSurfaceId = panelId ?? surfaceId
-        guard context.tabManager.focusTabFromNotification(tabId, surfaceId: focusSurfaceId) else {
+        let focusSurfaceId = surfaceId ?? panelId
+        let completion = notificationOpenCompletion(
+            tabManager: context.tabManager,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollPosition: scrollPosition
+        )
+        guard context.tabManager.focusTabFromNotification(
+            tabId,
+            surfaceId: focusSurfaceId,
+            completion: completion
+        ) else {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(
                 tabId: tabId,
@@ -128,17 +229,6 @@ extension AppDelegate {
             expectedSurfaceId: focusSurfaceId
         )
 #endif
-
-        if let notificationId, let store = notificationStore {
-            store.markRead(id: notificationId)
-        }
-        restoreNotificationScrollPosition(
-            scrollPosition,
-            tabId: tabId,
-            surfaceId: surfaceId,
-            panelId: panelId,
-            workspace: context.tabManager.tabs.first(where: { $0.id == tabId })
-        )
 
 #if DEBUG
         recordMultiWindowNotificationFocusIfNeeded(
@@ -188,8 +278,20 @@ extension AppDelegate {
 
         sidebarSelectionState?.selection = .tabs
         bringToFront(window)
-        let focusSurfaceId = panelId ?? surfaceId
-        guard tabManager.focusTabFromNotification(tabId, surfaceId: focusSurfaceId) else {
+        let focusSurfaceId = surfaceId ?? panelId
+        let completion = notificationOpenCompletion(
+            tabManager: tabManager,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            notificationId: notificationId,
+            scrollPosition: scrollPosition
+        )
+        guard tabManager.focusTabFromNotification(
+            tabId,
+            surfaceId: focusSurfaceId,
+            completion: completion
+        ) else {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
                 writeJumpUnreadTestData([
@@ -209,21 +311,54 @@ extension AppDelegate {
         )
 #endif
 
-        if let notificationId, let store = notificationStore {
-            store.markRead(id: notificationId)
-        }
-        restoreNotificationScrollPosition(
-            scrollPosition,
-            tabId: tabId,
-            surfaceId: surfaceId,
-            panelId: panelId,
-            workspace: tabManager.tabs.first(where: { $0.id == tabId })
-        )
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData(["jumpUnreadOpenInFallback": "1", "jumpUnreadOpenResult": "1"])
         }
 #endif
         return true
+    }
+
+    private func focusTerminal(
+        tabManager: TabManager,
+        sidebarSelectionState: SidebarSelectionState?,
+        window: NSWindow,
+        tabId: UUID,
+        surfaceId: UUID?,
+        while effectIsCurrent:
+            @escaping @MainActor @Sendable () -> Bool
+    ) -> Bool {
+        guard effectIsCurrent() else { return false }
+        sidebarSelectionState?.selection = .tabs
+        bringToFront(window)
+        guard effectIsCurrent() else { return false }
+        return tabManager.focusTabFromNotification(
+            tabId,
+            surfaceId: surfaceId,
+            effectIsCurrent: effectIsCurrent
+        )
+    }
+
+    private func notificationOpenCompletion(
+        tabManager: TabManager,
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?,
+        notificationId: UUID?,
+        scrollPosition: TerminalNotificationScrollPosition?
+    ) -> (Bool) -> Void {
+        { [weak self, weak tabManager] confirmed in
+            guard confirmed, let self, let tabManager else { return }
+            if let notificationId, let store = self.notificationStore {
+                store.markRead(id: notificationId)
+            }
+            self.restoreNotificationScrollPosition(
+                scrollPosition,
+                tabId: tabId,
+                surfaceId: surfaceId,
+                panelId: panelId,
+                workspace: tabManager.tabs.first(where: { $0.id == tabId })
+            )
+        }
     }
 }

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+import CMUXMobileCore
 @testable import CmuxMobileAnalytics
 
 private struct FixedConsent: AnalyticsConsentProviding {
@@ -26,21 +27,6 @@ private final class MutableConsent: AnalyticsConsentProviding, @unchecked Sendab
 }
 
 @Suite struct AnalyticsEmitterTests {
-    @Test func userDefaultsConsentDefaultsOffUntilEnabled() {
-        let suiteName = "cmux.analytics-consent.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let consent = UserDefaultsAnalyticsConsentProvider(defaults: defaults)
-        #expect(!consent.isTelemetryEnabled)
-
-        defaults.set(true, forKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)
-        #expect(consent.isTelemetryEnabled)
-
-        defaults.set(false, forKey: UserDefaultsAnalyticsConsentProvider.telemetryKey)
-        #expect(!consent.isTelemetryEnabled)
-    }
-
     private func makeEmitter(
         uploader: any AnalyticsUploading,
         consent: (any AnalyticsConsentProviding)? = nil,
