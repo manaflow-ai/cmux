@@ -116,10 +116,14 @@ enum BrowserHandlers {
                 let entry = try context.page(invocation)
                 guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: LinkHintStrings.engine) }
                 let services = context.services
-                let window = services.windowController(showing: pane)?.window
+                let controller = services.windowController(showing: pane)
+                let tabKey = services.cache.key(of: tab)
                 // Links stay in the page's browser profile.
-                let profile = services.cache.key(of: tab).flatMap(services.cache.tabModel).map(services.browserProfiles.profileID(ofTab:))
-                services.linkHints.start(mode, tab: tab, window: window, openInSplit: { url in
+                let profile = tabKey.flatMap(services.cache.tabModel).map(services.browserProfiles.profileID(ofTab:))
+                services.linkHints.start(mode, tab: tab, window: controller?.window, isFocused: { [weak controller] in
+                    guard let controller, case .browserPage(_, let shown) = controller.focus.state.resolved else { return false }
+                    return shown == tabKey && KeyRouter.allows(.content, focus: controller.focus.state)
+                }, openInSplit: { url in
                     try? splitBrowser(from: pane, direction: .right, url: url, profile: profile, context: context)
                 }, notice: { [weak chrome = entry.chrome] text in chrome?.showNotice(text) })
             })

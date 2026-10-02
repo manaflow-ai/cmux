@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+@testable import CmuxNextBrowser
+import Foundation
 import Testing
 
 /// Link hints are bare keys (`f`, `F`): they run only after a Chromium page
@@ -39,5 +41,45 @@ struct LinkHintKeyTests {
         #expect(services.registry.resolve(Shortcut("f", modifiers: []))?.id != "browserLinkHints")
         #expect(services.registry.resolve(Shortcut("f", modifiers: [.shift]))?.id != "browserLinkHintsNewSplit")
         #expect(!services.linkHints.isActive)
+    }
+
+    private static func tab() -> CEFTab {
+        let runtime = CEFRuntime.shared
+        let host = runtime.host(for: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default))
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(tab)
+        return tab
+    }
+
+    private static func window() -> NSWindow {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        return window
+    }
+
+    /// Labels show, then a click moves the keyboard to a terminal or a field
+    /// in the same window: the next letter is typing, not a hint.
+    @Test func aSessionEndsOnceThePageLosesTheKeyboard() throws {
+        let hints = LinkHintController()
+        let tab = Self.tab()
+        let window = Self.window()
+        var focused = true
+        hints.start(.follow, tab: tab, window: window, isFocused: { focused }, openInSplit: { _ in }, notice: { _ in })
+        let letter = try K.key("s", keyCode: 1, [])
+        #expect(hints.interceptKeyDown(letter, in: window))
+        focused = false
+        #expect(!hints.interceptKeyDown(letter, in: window))
+        #expect(!hints.isActive)
+    }
+
+    /// A session without a window (its window closed) never takes keys
+    /// from another window.
+    @Test func aSessionWithoutAWindowTakesNoKeys() throws {
+        let hints = LinkHintController()
+        hints.start(.follow, tab: Self.tab(), window: nil, isFocused: { true }, openInSplit: { _ in }, notice: { _ in })
+        #expect(!hints.interceptKeyDown(try K.key("s", keyCode: 1, []), in: Self.window()))
+        #expect(!hints.isActive)
     }
 }

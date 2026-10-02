@@ -255,7 +255,11 @@ final class AppServices {
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
-        (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in self?.notifications.noteMouseDown(in: window) }
+        (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in
+            self?.notifications.noteMouseDown(in: window)
+            // A click anywhere ends link hints (it may move the keyboard).
+            self?.linkHints.cancel()
+        }
     }
 
     // MARK: Lookup

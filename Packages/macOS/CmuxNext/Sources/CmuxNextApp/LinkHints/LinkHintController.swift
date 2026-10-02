@@ -14,6 +14,8 @@ final class LinkHintController {
         var keys: LinkHintSession
         weak var tab: CEFTab?
         weak var window: NSWindow?
+        /// Whether this tab's page still has the keyboard in its window.
+        let isFocused: () -> Bool
         let openInSplit: (URL) -> Void
         let notice: (String) -> Void
     }
@@ -24,10 +26,11 @@ final class LinkHintController {
 
     var isActive: Bool { session != nil }
 
-    func start(_ mode: LinkHintSession.Mode, tab: CEFTab, window: NSWindow?,
+    func start(_ mode: LinkHintSession.Mode, tab: CEFTab, window: NSWindow?, isFocused: @escaping () -> Bool,
                openInSplit: @escaping (URL) -> Void, notice: @escaping (String) -> Void) {
         cancel()
-        session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, openInSplit: openInSplit, notice: notice)
+        session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, isFocused: isFocused,
+                          openInSplit: openInSplit, notice: notice)
         work = Task { [weak self] in
             let value = try? await tab.evaluate(LinkHintSession.collectScript, world: .isolated)
             guard !Task.isCancelled else { return }
@@ -37,10 +40,11 @@ final class LinkHintController {
 
     /// Every key-down while labels show (``KeyRouter`` asks first). Returns
     /// whether the key was consumed; a key that ends the session without
-    /// being a hint key goes on.
+    /// being a hint key goes on, and so does every key once the page no
+    /// longer has the keyboard (a terminal, a field, another window).
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard var current = session, let tab = current.tab,
-              window === current.window || window?.parent === current.window else {
+        guard var current = session, let tab = current.tab, let home = current.window,
+              window === home || window?.parent === home, current.isFocused() else {
             cancel()
             return false
         }
@@ -100,6 +104,8 @@ final class LinkHintController {
             cancel()
         case .narrow(let prefix):
             guard current.keys.hints != nil else { return }
+            // A newer prefix wins over a draw or narrow still in flight.
+            work?.cancel()
             work = Task { [weak self] in
                 let shown = try? await tab.evaluate(LinkHintSession.narrowScript(prefix), world: .isolated)
                 guard !Task.isCancelled, shown != .bool(true) else { return }
