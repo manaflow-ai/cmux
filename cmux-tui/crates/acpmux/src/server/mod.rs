@@ -439,6 +439,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             | "imported"
             | "permission_request"
             | "permission_decision"
+            | "permission_group"
+            | "permission_chat_allowance"
             | "mode"
             | "model"
             | "config"

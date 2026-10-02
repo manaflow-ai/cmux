@@ -16,7 +16,9 @@ mod stream;
 pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
 pub use paging::{EventFilter, EventPage};
 mod peers;
+mod permission_groups;
 mod permissions;
+pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
 mod turns;
@@ -148,8 +150,8 @@ pub struct Session {
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
     pub(super) stream: StdMutex<StreamState>,
-    pub(super) pending_permissions: StdMutex<HashMap<String, PendingPermission>>,
-    /// Bumped (under the `pending_permissions` lock) whenever pending
+    permissions: StdMutex<permission_groups::PermissionState>,
+    /// Bumped (under the `permissions` lock) whenever pending
     /// permissions are cancelled; a request that started before the bump
     /// is answered `cancelled` instead of being registered.
     pub(super) permission_epoch: AtomicU64,
@@ -189,9 +191,10 @@ impl Session {
         self.queue.lock().unwrap().clone()
     }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
-        self.pending_permissions
+        self.permissions
             .lock()
             .unwrap()
+            .pending
             .iter()
             .map(|(k, v)| (k.clone(), v.request.clone()))
             .collect()
@@ -412,7 +415,7 @@ impl Hub {
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
-            pending_permissions: StdMutex::new(HashMap::new()),
+            permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
             rehydrate: AtomicBool::new(false),
             inbound_tx,
@@ -488,6 +491,8 @@ impl Hub {
                 | "permission_request"
                 | "permission_decision"
                 | "permission_auto"
+                | "permission_group"
+                | "permission_chat_allowance"
                 | "turn_started"
                 | "turn_result"
                 | "turn_end"
@@ -564,10 +569,7 @@ impl Hub {
     }
 
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
-        {
-            let mut m = session.meta.lock().unwrap();
-            m.permission_rules = rules.clone();
-        }
+        self.permission_policy_changed(session, |m| m.permission_rules = rules.clone());
         self.save_meta(session);
         self.append(session, "mux", "rules", json!({"rules": rules}));
     }

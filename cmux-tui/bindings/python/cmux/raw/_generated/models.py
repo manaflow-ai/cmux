@@ -2383,6 +2383,7 @@ class NewConversationTabRequest:
     conversation: str
     owner: str
     pane: Union[Id, None, MissingType] = field(default=MISSING)
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)

@@ -84,13 +84,7 @@ impl Hub {
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
         v["forkSeq"] = json!(m.fork_seq);
         v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
-        v["pending"] = Value::Array(
-            session
-                .pending_permissions()
-                .into_iter()
-                .map(|(id, req)| json!({"permissionId": id, "request": req}))
-                .collect(),
-        );
+        v["pending"] = Value::Array(session.permissions.lock().unwrap().pending_records());
         v
     }
 

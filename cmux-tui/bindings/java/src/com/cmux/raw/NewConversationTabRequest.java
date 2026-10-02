@@ -19,6 +19,7 @@ public final class NewConversationTabRequest implements WireValue {
     private final String owner;
     private final Field<UInt64> pane;
     private final Field<Integer> rows;
+    private final Field<UInt64> workspace;
 
     private NewConversationTabRequest(Builder builder) {
         this.cols = builder.cols;
@@ -30,6 +31,7 @@ public final class NewConversationTabRequest implements WireValue {
         this.owner = Wire.nonNull(builder.owner, "owner");
         this.pane = builder.pane;
         this.rows = builder.rows;
+        this.workspace = builder.workspace;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -41,6 +43,7 @@ public final class NewConversationTabRequest implements WireValue {
     public String owner() { return owner; }
     public Field<UInt64> pane() { return pane; }
     public Field<Integer> rows() { return rows; }
+    public Field<UInt64> workspace() { return workspace; }
 
     public static NewConversationTabRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewConversationTabRequest");
@@ -69,6 +72,10 @@ public final class NewConversationTabRequest implements WireValue {
         if (!Wire.isMissing(rawRows)) {
             builder.rows(rawRows == null ? null : Wire.uint16(rawRows, "NewConversationTabRequest.rows"));
         }
+        Object rawWorkspace = Wire.optional(object, "workspace");
+        if (!Wire.isMissing(rawWorkspace)) {
+            builder.workspace(rawWorkspace == null ? null : Wire.uint64(rawWorkspace, "NewConversationTabRequest.workspace"));
+        }
         return builder.build();
     }
 
@@ -82,17 +89,18 @@ public final class NewConversationTabRequest implements WireValue {
         Wire.put(object, "owner", owner);
         Wire.put(object, "pane", pane);
         Wire.put(object, "rows", rows);
+        Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewConversationTabRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(conversation, that.conversation) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows);
+        return Objects.equals(cols, that.cols) && Objects.equals(conversation, that.conversation) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(owner, that.owner) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, conversation, mutationId, origin, owner, pane, rows); }
+    public int hashCode() { return Objects.hash(cols, conversation, mutationId, origin, owner, pane, rows, workspace); }
 
     @Override
     public String toString() { return "NewConversationTabRequest" + toWire(); }
@@ -107,6 +115,7 @@ public final class NewConversationTabRequest implements WireValue {
         private boolean ownerSet;
         private Field<UInt64> pane = Field.omitted();
         private Field<Integer> rows = Field.omitted();
+        private Field<UInt64> workspace = Field.omitted();
 
         public Builder cols(Integer value) {
             this.cols = Field.ofNullable(value);
@@ -136,6 +145,10 @@ public final class NewConversationTabRequest implements WireValue {
         }
         public Builder rows(Integer value) {
             this.rows = Field.ofNullable(value);
+            return this;
+        }
+        public Builder workspace(UInt64 value) {
+            this.workspace = Field.ofNullable(value);
             return this;
         }
         public NewConversationTabRequest build() { return new NewConversationTabRequest(this); }

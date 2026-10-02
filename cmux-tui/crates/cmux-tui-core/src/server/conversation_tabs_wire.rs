@@ -13,7 +13,8 @@ use std::sync::atomic::Ordering;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{BudgetedText, MessageWriter, Mux, PaneId, paired_surface_size};
+use super::{BudgetedText, MessageWriter, Mux, PaneId, WorkspaceId, paired_surface_size};
+use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::{
     CONVERSATION_KIND, CONVERSATION_TABS_CAPABILITY, ConversationTabRecord,
     conversation_tabs_present, downgrade_conversation_tabs,
@@ -27,6 +28,9 @@ use crate::workspace_registry::WorkspaceMutation;
 pub(super) struct NewConversationTabParams {
     #[serde(default)]
     pane: Option<PaneId>,
+    /// A workspace to put the tab in (its first pane when it is empty).
+    #[serde(default)]
+    workspace: Option<WorkspaceId>,
     conversation: String,
     owner: String,
     #[serde(default)]
@@ -43,8 +47,21 @@ pub(super) fn new_conversation_tab(
     mux: &Arc<Mux>,
     params: NewConversationTabParams,
 ) -> anyhow::Result<Value> {
-    let NewConversationTabParams { pane, conversation, owner, origin, mutation_id, cols, rows } =
-        params;
+    let NewConversationTabParams {
+        pane,
+        workspace,
+        conversation,
+        owner,
+        origin,
+        mutation_id,
+        cols,
+        rows,
+    } = params;
+    let target = match (pane, workspace) {
+        (_, None) => ConversationTabTarget::Pane(pane),
+        (None, Some(workspace)) => ConversationTabTarget::Workspace(workspace),
+        (Some(_), Some(_)) => anyhow::bail!("bad request: send pane or workspace, not both"),
+    };
     let mutation = match (origin, mutation_id) {
         (Some(origin), Some(id)) => Some(WorkspaceMutation::new(id, origin)?),
         (None, None) => None,
@@ -52,7 +69,7 @@ pub(super) fn new_conversation_tab(
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
     let record = ConversationTabRecord { conversation, owner };
-    let outcome = mux.new_conversation_tab(pane, record.clone(), mutation.as_ref(), size)?;
+    let outcome = mux.new_conversation_tab(target, record.clone(), mutation.as_ref(), size)?;
     let identity = outcome.surface.resource_identity();
     Ok(json!({
         "surface": outcome.surface.id,

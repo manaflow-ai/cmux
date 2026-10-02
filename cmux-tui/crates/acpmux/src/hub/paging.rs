@@ -18,6 +18,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "permission_request",
     "permission_auto",
     "permission_decision",
+    "permission_group",
+    "permission_chat_allowance",
     "message_superseded",
     "failover",
     "forked",

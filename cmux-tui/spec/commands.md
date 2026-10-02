@@ -1514,7 +1514,9 @@ Example:
 | since | protocol 12 additive extension; capability `conversation-tabs-v1` |
 
 Creates a tab that shows one conversation (`conversation`, a `conv_` id) of
-the `local` or `cloud` conversation owner, in `pane` or the focused pane. The
+the `local` or `cloud` conversation owner, in `pane`, in `workspace` (its
+active pane, or a first pane when the workspace is empty, as the home
+workspace is), or in the focused pane. The
 store records the conversation and the owner with the tab's frontend record
 in one commit and never reads conversation content. With `origin` and
 `mutation_id` (sent together) a retry returns the tab the first request
@@ -1529,7 +1531,7 @@ API tab snapshots carry `content_kind:"conversation"` and
 {capabilities}`) reads `browser` in both places. Every browser command and
 browser operation refuses the tab.
 
-Params: `conversation`, `owner` (required); `pane`, `origin`, `mutation_id`,
+Params: `conversation`, `owner` (required); `pane` or `workspace`, `origin`, `mutation_id`,
 `cols`, `rows` (optional).
 
 Result: `object{surface, tab_resource_id, content_resource_id, conversation:{conversation, owner}, replayed}`

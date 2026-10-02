@@ -260,7 +260,9 @@ pub struct PresentationSnapshot {
     pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
     /// `conversation-tabs-v1` records keyed by public browser id.
     pub conversation_tabs: HashMap<String, ConversationTabRecord>,
-    /// Tab groups of every pane.
+    /// Key of the store's home workspace (`workspace-kind-v1`), if any.
+    pub home_workspace: Option<String>,
+    /// Tab groups of every pane, rendered with Chrome-style colors.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
     pub saved_tab_groups: Vec<SavedTabGroupRecord>,
@@ -970,12 +972,14 @@ impl WorkspaceRegistry {
         let saved_screen_groups = super::screen_store::read_saved_screen_groups(&self.connection)?;
         let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection)?;
         let conversation_tabs = read_conversation_tabs(&self.connection)?;
+        let home_workspace = crate::state::home_store::live_home(&self.connection)?.map(|h| h.1);
         Ok(PresentationSnapshot {
             groups,
             workspaces,
             pinned_tabs,
             frontend_browsers,
             conversation_tabs,
+            home_workspace,
             tab_groups,
             saved_tab_groups,
             screens,
@@ -1272,15 +1276,6 @@ impl WorkspaceRegistry {
         )?;
         tx.commit()?;
         Ok((record, true))
-    }
-
-    /// Forget a frontend browser whose tab creation failed.
-    pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
-        validate_browser_public_id(browser_id)?;
-        let tx = self.connection.transaction()?;
-        tx.execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
-        crate::state::conversation_tabs_store::delete_conversation_tab(&tx, browser_id)?;
-        Ok(tx.commit()?)
     }
 
     /// Notification ids acknowledged as read on the shared console. A

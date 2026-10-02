@@ -339,8 +339,8 @@ class GeneratedClientMixin:
     def new_browser_tab(self, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-browser-tab', NewBrowserTabRequest(url=url, pane=pane, cols=cols, rows=rows))
 
-    def new_conversation_tab(self, conversation: str, owner: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('new-conversation-tab', NewConversationTabRequest(conversation=conversation, owner=owner, pane=pane, cols=cols, mutation_id=mutation_id, origin=origin, rows=rows))
+    def new_conversation_tab(self, conversation: str, owner: str, *, pane: Union[Id, None, MissingType] = MISSING, workspace: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('new-conversation-tab', NewConversationTabRequest(conversation=conversation, owner=owner, pane=pane, workspace=workspace, cols=cols, mutation_id=mutation_id, origin=origin, rows=rows))
 
     def new_frontend_browser_tab(self, engine: str, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, favicon_url: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, profile_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('new-frontend-browser-tab', NewFrontendBrowserTabRequest(engine=engine, url=url, pane=pane, cols=cols, favicon_url=favicon_url, owner=owner, profile_id=profile_id, rows=rows, title=title))

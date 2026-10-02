@@ -99,6 +99,7 @@ mod browser_profiles;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
+mod home;
 mod launch_snapshot;
 mod personal;
 mod raw_tab;
@@ -11151,8 +11152,7 @@ fn send_bad_request(writer: &MessageWriter, message: &str, error: &serde_json::E
     send_request_error(writer, undecodable_request_id(message), &format!("bad request: {error}"))
 }
 
-/// The `id` member of a request line that failed to decode, if the line is a
-/// JSON object.
+/// The `id` member of a request line that failed to decode, if the line is a JSON object.
 fn undecodable_request_id(message: &str) -> Option<Value> {
     match serde_json::from_str::<Value>(message) {
         Ok(Value::Object(mut object)) => object.remove("id"),
@@ -11743,6 +11743,7 @@ fn workspace_json(
         "title": presentation.and_then(|presentation| presentation.title.as_deref()),
         "pinned": presentation.is_some_and(|presentation| presentation.pinned),
         "marked_unread": presentation.is_some_and(|presentation| presentation.marked_unread),
+        "kind": home::raw_workspace_kind(&notifications.presentation, &workspace.key),
         "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {

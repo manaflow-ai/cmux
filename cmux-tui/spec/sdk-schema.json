@@ -13197,6 +13197,15 @@
       "nullable": true,
       "default": null
      },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -13242,7 +13251,7 @@
    },
    "stream": null,
    "constraints": [
-    "owner is local or cloud; conversation is a conv_ id. origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true. See spec/commands.md for the result object."
+    "owner is local or cloud; pane and workspace are exclusive (workspace: its active pane, or its first pane when empty); conversation is a conv_ id. origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true. See spec/commands.md for the result object."
    ]
   },
   "new-frontend-browser-tab": {

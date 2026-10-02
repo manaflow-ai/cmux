@@ -19,6 +19,15 @@ use crate::state::conversation_tabs_store::{
 use crate::state::prelude::*;
 use crate::workspace_registry::FrontendBrowserRecord;
 
+/// Where a new conversation tab goes: a pane (or the focused pane), or a
+/// workspace, which gets its first screen and pane when it has none (the
+/// home workspace starts empty).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ConversationTabTarget {
+    Pane(Option<PaneId>),
+    Workspace(WorkspaceId),
+}
+
 /// A created or replayed conversation tab.
 pub(crate) struct ConversationTabOutcome {
     pub(crate) surface: Arc<Surface>,
@@ -28,7 +37,7 @@ pub(crate) struct ConversationTabOutcome {
 impl Mux {
     pub(crate) fn new_conversation_tab(
         self: &Arc<Self>,
-        pane: Option<PaneId>,
+        target: ConversationTabTarget,
         record: ConversationTabRecord,
         mutation: Option<&WorkspaceMutation>,
         size: Option<(u16, u16)>,
@@ -80,8 +89,18 @@ impl Mux {
             "frontend_browser_id".to_string(),
             Value::String(browser_id.as_str().to_string()),
         )]);
-        match self.new_browser_tab_with_fields(CONVERSATION_TAB_URL.to_string(), pane, size, fields)
-        {
+        let created = match target {
+            ConversationTabTarget::Pane(pane) => self.new_browser_tab_with_fields(
+                CONVERSATION_TAB_URL.to_string(),
+                pane,
+                size,
+                fields,
+            ),
+            ConversationTabTarget::Workspace(workspace) => {
+                self.new_conversation_tab_in(workspace, fields)
+            }
+        };
+        match created {
             Ok(surface) => {
                 self.publish_journal_event();
                 Ok(ConversationTabOutcome { surface, replayed: false })
@@ -97,6 +116,23 @@ impl Mux {
                 Err(error)
             }
         }
+    }
+
+    /// A conversation tab in `workspace`'s active pane, or in a new first
+    /// pane of an empty workspace.
+    fn new_conversation_tab_in(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        mut fields: Map<String, Value>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let selectors = self
+            .ordinary_workspace_selectors(workspace)
+            .with_context(|| format!("unknown workspace {workspace}"))?;
+        fields.insert("url".into(), Value::String(CONVERSATION_TAB_URL.to_string()));
+        let operation = crate::resource::ResourceOperation::TabCreateBrowser;
+        let commit = self.commit_ordinary_topology_operation(operation, selectors, fields)?;
+        self.emit_resource_topology_legacy_events(operation, &commit);
+        self.ordinary_created_surface(&commit)
     }
 
     /// The conversation record of a tab surface, if it is a conversation tab.
