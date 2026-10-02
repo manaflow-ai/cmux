@@ -19,6 +19,11 @@ extension ConversationViewController: ConversationComposerViewDelegate {
     }
 
     func composerDidTapSend(_ composer: ConversationComposerView) {
+        if let messageID = editingMessageID {
+            store.edit(messageID: messageID, text: composer.text)
+            exitEditMode()
+            return
+        }
         let text = composer.text
         let attachments = composer.attachments
         let fieldFrame = composer.fieldFrame(in: view)
@@ -137,6 +142,26 @@ extension ConversationViewController {
 
     func landAllFlights() {
         for rowID in Array(activeFlights.keys) { landFlight(rowID: rowID) }
+    }
+}
+
+extension ConversationViewController {
+    /// Messages-style edit: the message's text moves into the composer and
+    /// the send button becomes a checkmark; X cancels.
+    func enterEditMode(for message: ConversationMessage) {
+        if replyTarget != nil { exitReplyMode() }
+        editingMessageID = message.id
+        composer.isEditMode = true
+        composer.text = message.text
+        header.setTrailingMode(.close, animated: true)
+        composer.textView.becomeFirstResponder()
+    }
+
+    func exitEditMode() {
+        editingMessageID = nil
+        composer.isEditMode = false
+        composer.clearAfterSend()
+        header.setTrailingMode(isSelecting || replyTarget != nil ? .close : .action, animated: true)
     }
 }
 

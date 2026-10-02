@@ -338,6 +338,11 @@ extension ConversationViewController {
                 self?.setSelecting(true, initial: model.rowID)
             },
         ]
+        if store.canEdit(message) {
+            items.insert(.init(title: String(localized: "conversation.menu.edit", defaultValue: "Edit", bundle: .module), symbol: "pencil") { [weak self] in
+                self?.enterEditMode(for: message)
+            }, at: 1)
+        }
         if model.message.delivery?.isFailed == true {
             items.insert(.init(title: String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), symbol: "arrow.clockwise") { [weak self] in
                 self?.store.retry(rowID: model.rowID)

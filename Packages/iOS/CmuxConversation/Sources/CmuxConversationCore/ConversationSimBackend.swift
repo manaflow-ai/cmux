@@ -40,6 +40,12 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
         return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
     }
 
+    public func edit(messageID: String, text: String) async throws -> ConversationMessage {
+        let params: [String: Any] = ["messageId": messageID, "text": text]
+        let result = try await core.request("edit", params: JSONBox(params), timeout: .seconds(15)).value
+        return try await core.decodeMessage(JSONBox(result["message"] as? [String: Any] ?? [:]))
+    }
+
     public func setTyping(_ isTyping: Bool) async {
         _ = try? await core.request("typing", params: JSONBox(["isTyping": isTyping]), timeout: .seconds(5))
     }

@@ -455,6 +455,35 @@ public final class ConversationStore {
         }
     }
 
+    /// Messages lets you edit your own message for 15 minutes after sending.
+    public static let editWindow: TimeInterval = 15 * 60
+
+    public func canEdit(_ message: ConversationMessage, now: Date = Date()) -> Bool {
+        message.senderID == meID && message.seq != nil && message.attachments.isEmpty
+            && now.timeIntervalSince(message.sentAt) < Self.editWindow
+    }
+
+    /// Applies the edit at once; reverts if the backend refuses it.
+    public func edit(messageID: String, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = indexByID[messageID], messages[index].text != trimmed else { return }
+        let original = messages[index]
+        messages[index].text = trimmed
+        messages[index].editedAt = Date()
+        onChange?(.live(insertedRowIDs: [], sentByMe: true))
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let updated = try await self.backend.edit(messageID: messageID, text: trimmed)
+                self.upsert(updated)
+            } catch {
+                guard let index = self.indexByID[messageID] else { return }
+                self.messages[index] = original
+            }
+            self.onChange?(.live(insertedRowIDs: [], sentByMe: true))
+        }
+    }
+
     /// Composer text changed. Typing stays on while edits keep coming.
     public func composerTextChanged(isEmpty: Bool) {
         setLocalTyping(!isEmpty)

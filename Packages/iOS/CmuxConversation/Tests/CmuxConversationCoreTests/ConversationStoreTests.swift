@@ -236,6 +236,13 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         throw ConversationBackendError(code: -1, message: "unsupported")
     }
 
+    func edit(messageID: String, text: String) async throws -> ConversationMessage {
+        var message = makeMessage(seq: Int(messageID.dropFirst()) ?? 0, sender: "me")
+        message.text = text
+        message.editedAt = Date()
+        return message
+    }
+
     func setTyping(_ isTyping: Bool) async {}
     func markRead(upToSeq: Int) async {}
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
@@ -314,5 +321,24 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         store.loadOlder()
         try await waitUntil { store.messages.count == 60 }
         #expect(store.messages.compactMap(\.seq) == Array(41...100))
+    }
+}
+
+@MainActor
+@Suite struct ConversationStoreEditTests {
+    @Test func editingMyRecentMessageAppliesAtOnceAndMarksEdited() async throws {
+        let backend = ScriptedBackend(total: 6)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        var mine = backend.makeMessage(seq: 7, sender: "me")
+        mine.sentAt = Date()
+        store.apply(.message(mine, eventSeq: 1))
+        #expect(store.canEdit(mine))
+        store.edit(messageID: "m7", text: "fixed typo")
+        #expect(store.message(id: "m7")?.text == "fixed typo")
+        #expect(store.message(id: "m7")?.editedAt != nil)
+        let old = backend.makeMessage(seq: 3, sender: "me")
+        #expect(!store.canEdit(old))
     }
 }

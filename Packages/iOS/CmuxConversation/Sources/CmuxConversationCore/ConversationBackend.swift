@@ -36,6 +36,8 @@ public protocol ConversationBackend: AnyObject, Sendable {
     /// Idempotent on `draft.clientMessageID`.
     func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage
     func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage
+    /// Replaces the text of one of my messages.
+    func edit(messageID: String, text: String) async throws -> ConversationMessage
     func setTyping(_ isTyping: Bool) async
     func markRead(upToSeq: Int) async
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment

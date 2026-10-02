@@ -42,6 +42,16 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     }
     var replyPlaceholderText = String(localized: "conversation.composer.reply", defaultValue: "Reply", bundle: .module)
     var isReplyMode = false { didSet { updatePlaceholder() } }
+    /// Editing one of my messages: the send button becomes a checkmark.
+    var isEditMode = false {
+        didSet {
+            let symbol = isEditMode ? "checkmark" : "arrow.up"
+            sendButton.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .bold)), for: .normal)
+            sendButton.accessibilityLabel = isEditMode
+                ? String(localized: "conversation.composer.saveEdit", defaultValue: "Save Edit", bundle: .module)
+                : String(localized: "conversation.composer.send", defaultValue: "Send", bundle: .module)
+        }
+    }
 
     private(set) var fieldHeight: CGFloat = ConversationTheme.composerMinHeight
     private let attachmentHeight: CGFloat = 120

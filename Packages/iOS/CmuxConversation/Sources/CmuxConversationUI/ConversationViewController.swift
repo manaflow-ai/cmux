@@ -67,6 +67,7 @@ public final class ConversationViewController: UIViewController {
     var replyDragOffset: CGFloat = 0
     var replyHapticFired = false
     var replyTarget: ConversationMessage?
+    var editingMessageID: String?
     var isSelecting = false
     var selectedRowIDs: Set<String> = []
     var photoDrawer: ConversationPhotoGridView?
@@ -427,7 +428,9 @@ public final class ConversationViewController: UIViewController {
     }
 
     private func handleHeaderTrailing() {
-        if isSelecting {
+        if editingMessageID != nil {
+            exitEditMode()
+        } else if isSelecting {
             setSelecting(false)
         } else if replyTarget != nil {
             exitReplyMode()
