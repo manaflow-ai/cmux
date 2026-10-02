@@ -67,6 +67,11 @@ class Pool:
     def available(self) -> int:
         return max(0, self.capacity - self.running if self.free is None else self.free)
 
+    @property
+    def unreserved_available(self) -> int:
+        """Slots a new run can use without delaying queued release/nightly jobs."""
+        return max(0, self.available - self.reserved)
+
 
 @dataclasses.dataclass(frozen=True)
 class State:
@@ -104,7 +109,7 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
         return Choice(state.fallback, "no macOS jobs")
 
     def fits(pool: Pool) -> bool:
-        return pool.reserved == 0 and pool.available >= state.jobs
+        return pool.unreserved_available >= state.jobs
 
     blacksmith = _pick_blacksmith(state)
     if state.owned_enabled and not state.fork:
@@ -124,15 +129,15 @@ def _pick_blacksmith(state: State) -> Choice:
     if not state.overflow_enabled:
         return Choice(state.fallback, "Blacksmith overflow disabled")
     pools = {pool.label: pool for pool in state.blacksmith}
-    eligible = [pools[label] for label in BLACKSMITH if label in pools and pools[label].reserved == 0]
+    eligible = [pools[label] for label in BLACKSMITH if label in pools]
     for pool in eligible:
-        if pool.capacity - pool.running >= state.jobs:
+        if pool.unreserved_available >= state.jobs:
             return Choice(pool.label, "first Blacksmith label with enough free slots", pool.xcode_app)
     if eligible:
         winner = min(eligible, key=lambda pool: ((pool.queued + pool.running) / max(1, pool.capacity),
                                                   BLACKSMITH.index(pool.label)))
         return Choice(winner.label, "lowest (queued + running) / per-label cap", winner.xcode_app)
-    return Choice(state.fallback, "every pool protects a queued release or nightly job", blocked=True)
+    return Choice(state.fallback, "no Blacksmith pool in the snapshot", blocked=True)
 
 
 def _pool(item: Pool | Mapping[str, Any]) -> Pool:
