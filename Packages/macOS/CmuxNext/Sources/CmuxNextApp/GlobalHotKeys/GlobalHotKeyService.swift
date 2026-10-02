@@ -17,7 +17,7 @@ final class GlobalHotKeyService {
     private(set) var conflicts: Set<ActionID> = []
     @ObservationIgnored private let registry: ActionRegistry
     @ObservationIgnored private let registrar: any GlobalHotKeyRegistrar
-    @ObservationIgnored private let layout: () -> KeyCodeLayout
+    @ObservationIgnored private let layout: @MainActor () -> KeyCodeLayout
     @ObservationIgnored private var registered: [ActionID: Registration] = [:]
     @ObservationIgnored private var nextNumber: UInt32 = 1
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
@@ -32,7 +32,7 @@ final class GlobalHotKeyService {
     init(
         registry: ActionRegistry,
         registrar: any GlobalHotKeyRegistrar = CarbonHotKeyRegistrar(),
-        layout: @escaping () -> KeyCodeLayout = KeyCodeLayout.current
+        layout: @escaping @MainActor () -> KeyCodeLayout = KeyCodeLayout.current
     ) {
         self.registry = registry
         self.registrar = registrar
