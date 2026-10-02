@@ -74,7 +74,7 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 | --- | --- |
 | `input.mouse` | `{ targetId, type: "move"\|"down"\|"up"\|"wheel", x, y, button: "left"\|"right"\|"middle", clickCount, modifiers, deltaX?, deltaY? }` |
 | `input.key` | `{ targetId, type: "down"\|"up", key, code, text?, location?, modifiers, autoRepeat? }` |
-| `input.insertText` | `{ targetId, text }` (IME-style commit into the focused element) |
+| `input.insertText` | `{ targetId, text }` (IME commit into the focused element: on WebKit marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted; text with a line break or tab, a password field, or focus in an unreadable frame inserts without a composition) |
 | `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers }` (native drag session so HTML5 drag and drop fires) |
 
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
@@ -120,7 +120,7 @@ Every event carries `targetId`.
 | Method | Params |
 | --- | --- |
 | `cookies.get` / `cookies.set` / `cookies.clear` | `{ urls? }`, `{ cookies }`, `{}` |
-| `clipboard.read` / `clipboard.write` | per-tab virtual clipboard `{ items: [{ type, base64 }] }` |
+| `clipboard.read` / `clipboard.write` | per-tab virtual clipboard `{ items: [{ type, base64 }] }`. Meta+C, Meta+X and Meta+V run the engine's own Copy, Cut and Paste against it, so the page gets trusted `copy`, `cut` and `paste` events with `clipboardData` (every type), and the system clipboard is neither read nor written. On WebKit the general pasteboard lookup is redirected to a private pasteboard for the length of one command |
 
 ## Capabilities
 

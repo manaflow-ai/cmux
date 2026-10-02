@@ -1251,11 +1251,36 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return nil
     }
 
-    /// Runs the Cocoa editing action behind a Command shortcut. Clipboard
-    /// actions use the tab's virtual clipboard, never the system pasteboard.
+    /// Whether the page has a non-empty selection to copy. Focus inside a
+    /// frame counts as one, since the frame's selection is not visible here.
     @MainActor
-    private func performEditingCommand(_ command: String, panel: BrowserPanel, webView: CmuxWebView) async throws {
-        let attachment = attachment(panel)
+    private static func hasSelection(_ webView: WKWebView) async -> Bool {
+        let result = try? await webView.callAsyncJavaScript(
+            """
+            const el = document.activeElement;
+            if (el && (el.tagName === "IFRAME" || el.tagName === "FRAME")) return true;
+            if (el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.selectionStart !== null) {
+              return el.selectionEnd > el.selectionStart;
+            }
+            const selection = getSelection();
+            return !!selection && !selection.isCollapsed;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: BrowserReplAgentWorld.world
+        )
+        return (result as? Bool) ?? true
+    }
+
+    /// Clipboard shortcuts when WebKit's editing-command SPI is missing: the
+    /// selection is read by script and a paste inserts the text, with no
+    /// clipboard events.
+    @MainActor
+    private func performClipboardCommandWithoutWebKit(
+        _ command: String,
+        attachment: BrowserReplTabAttachment,
+        webView: CmuxWebView
+    ) async throws {
         switch command {
         case "copy:", "cut:":
             let selection = try? await webView.callAsyncJavaScript(
@@ -1275,14 +1300,53 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             if command == "cut:", !text.isEmpty {
                 NSApp.sendAction(NSSelectorFromString("delete:"), to: webView, from: nil)
             }
-        case "paste:":
+        default:
             let text = attachment.clipboardItems
                 .first { ($0["type"] as? String) == "text/plain" }
                 .flatMap { ($0["base64"] as? String).flatMap { Data(base64Encoded: $0) } }
                 .map { String(decoding: $0, as: UTF8.self) }
             if let text, !text.isEmpty {
-                BrowserReplNativeInput.insertText(text, into: webView)
+                await BrowserReplNativeInput.insertText(text, into: webView)
             }
+        }
+    }
+
+    /// Runs the Cocoa editing action behind a Command shortcut. Clipboard
+    /// actions use the tab's virtual clipboard, never the system pasteboard:
+    /// WebKit's own Copy, Cut and Paste run against a private pasteboard that
+    /// holds the tab's clipboard, so the page gets trusted `copy`, `cut` and
+    /// `paste` events with `clipboardData`, as a person's shortcut gives it.
+    @MainActor
+    private func performEditingCommand(_ command: String, panel: BrowserPanel, webView: CmuxWebView) async throws {
+        let attachment = attachment(panel)
+        switch command {
+        case "copy:", "cut:", "paste:":
+            let pasteboard = NSPasteboard.withUniqueName()
+            defer { pasteboard.releaseGlobally() }
+            let isPaste = command == "paste:"
+            // WebKit beeps on Copy or Cut with nothing selected; that case
+            // keeps the script path, which empties the tab's clipboard.
+            if !isPaste, await !Self.hasSelection(webView) {
+                try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
+                return
+            }
+            if isPaste {
+                BrowserReplPasteboardRedirect.write(attachment.clipboardItems, to: pasteboard)
+            } else {
+                pasteboard.clearContents()
+            }
+            let name = isPaste ? "Paste" : (command == "copy:" ? "Copy" : "Cut")
+            if await BrowserReplPasteboardRedirect.perform(name, in: webView, pasteboard: pasteboard) {
+                if !isPaste {
+                    let items = BrowserReplPasteboardRedirect.read(pasteboard)
+                    // Copying nothing leaves an empty clipboard, as before.
+                    attachment.clipboardItems = items.isEmpty
+                        ? [["type": "text/plain", "base64": ""]]
+                        : items
+                }
+                return
+            }
+            try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
         case "bold", "italic", "underline":
             // Chrome's editor formats the selection of an editable element on
             // Command+B/I/U; the page sees its usual beforeinput and input.
@@ -1307,7 +1371,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let text = params["text"] as? String ?? ""
         guard !text.isEmpty else { return nil }
         try await withWindow(panel) { webView, _ in
-            BrowserReplNativeInput.insertText(text, into: webView)
+            await BrowserReplNativeInput.insertText(text, into: webView)
             await BrowserReplNativeInput.roundTrip(webView)
         }
         return nil

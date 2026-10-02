@@ -1,5 +1,7 @@
 import AppKit
 import CmuxBrowser
+import ObjectiveC
+import UniformTypeIdentifiers
 import WebKit
 
 /// Builds the AppKit events the REPL driver sends to WebKit.
@@ -122,10 +124,93 @@ enum BrowserReplNativeInput {
         return make(global) ?? first
     }
 
-    /// Commits `text` through the text input client, as an IME would.
-    static func insertText(_ text: String, into webView: WKWebView) {
+    /// Commits `text` through the text input client the way an input method
+    /// does: as marked text that is then confirmed, so the page sees
+    /// `compositionstart`, `beforeinput`/`input` and `compositionend`, all
+    /// trusted. Editors that start an edit only on a keydown or a composition
+    /// (Google Sheets' cell editor in WebKit) take the text; a plain
+    /// `insertText:` with no composition reaches the DOM but not their model.
+    ///
+    /// Text inserts directly, as before, when it holds a line break or a tab
+    /// (editing commands, not composed text), when focus is in a password
+    /// field or a frame the agent cannot inspect (WebKit allows no
+    /// composition in a password field and would insert the text twice), or
+    /// when WebKit's editor state, which gates marked text, is not current
+    /// within `stateTimeout`.
+    static func insertText(
+        _ text: String,
+        into webView: WKWebView,
+        stateTimeout: Duration = .milliseconds(500)
+    ) async {
         guard let client = webView as? any NSTextInputClient else { return }
-        client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+        let noReplacement = NSRange(location: NSNotFound, length: 0)
+        let composable = !text.contains { $0.isNewline || $0 == "\t" }
+        if composable,
+           !client.hasMarkedText(),
+           await focusAcceptsComposition(webView),
+           await afterPresentationUpdate(webView, timeout: stateTimeout) {
+            let length = (text as NSString).length
+            client.setMarkedText(
+                text,
+                selectedRange: NSRange(location: length, length: 0),
+                replacementRange: noReplacement
+            )
+        }
+        client.insertText(text, replacementRange: noReplacement)
+    }
+
+    /// Whether the focused element, followed through same-origin frames and
+    /// shadow roots, may take a composition: not a password field and not
+    /// inside a frame the agent world cannot read.
+    private static func focusAcceptsComposition(_ webView: WKWebView) async -> Bool {
+        let result = try? await webView.callAsyncJavaScript(
+            """
+            let doc = document;
+            let el = doc.activeElement;
+            for (let depth = 0; el && depth < 32; depth++) {
+              if (el.tagName === "IFRAME" || el.tagName === "FRAME") {
+                let inner = null;
+                try { inner = el.contentDocument; } catch (e) { inner = null; }
+                if (!inner) return false;
+                doc = inner;
+                el = doc.activeElement;
+              } else if (el.shadowRoot && el.shadowRoot.activeElement) {
+                el = el.shadowRoot.activeElement;
+              } else {
+                break;
+              }
+            }
+            return !(el && el.tagName === "INPUT" && String(el.type).toLowerCase() === "password");
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: BrowserReplAgentWorld.world
+        )
+        return (result as? Bool) ?? false
+    }
+
+    /// Waits until the web process has committed its next presentation
+    /// update, which carries the editor state, or `timeout` passes. Returns
+    /// whether the update arrived. Without the SPI, one JavaScript round trip.
+    static func afterPresentationUpdate(_ webView: WKWebView, timeout: Duration) async -> Bool {
+        let selector = NSSelectorFromString("_doAfterNextPresentationUpdate:")
+        guard webView.responds(to: selector) else {
+            await roundTrip(webView)
+            return true
+        }
+        let gate = BrowserReplOnce()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            gate.continuation = continuation
+            typealias Action = @convention(block) () -> Void
+            typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
+            let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
+            let action: Action = { MainActor.assumeIsolated { gate.finish(true) } }
+            function(webView, selector, action)
+            gate.timer = Task { @MainActor in
+                try? await ContinuousClock().sleep(for: timeout)
+                gate.finish(false)
+            }
+        }
     }
 
     /// Waits until WebKit has dispatched every queued mouse event to the page.
@@ -192,5 +277,167 @@ enum BrowserReplNativeInput {
         if flags.contains(.option) { result.insert(.maskAlternate) }
         if flags.contains(.shift) { result.insert(.maskShift) }
         return result
+    }
+}
+
+/// Resumes a continuation exactly once, from whichever of a callback or a
+/// timeout comes first.
+@MainActor
+final class BrowserReplOnce {
+    var continuation: CheckedContinuation<Bool, Never>?
+    var timer: Task<Void, Never>?
+
+    func finish(_ value: Bool) {
+        timer?.cancel()
+        timer = nil
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(returning: value)
+    }
+}
+
+/// Runs WebKit's own Copy, Cut and Paste editing commands against a REPL
+/// tab's private pasteboard instead of the system clipboard.
+///
+/// WebKit's UI process reads and writes the general pasteboard by name
+/// (`+[NSPasteboard pasteboardWithName:]`, from `PlatformPasteboard`) when an
+/// editing command runs. While one command runs, that lookup returns the
+/// tab's pasteboard, so the page gets a trusted `paste` event whose
+/// `clipboardData` holds the tab's clipboard, or a trusted `copy` whose data
+/// lands on it. The system pasteboard is never read or written. Commands run
+/// one at a time; the redirect ends when WebKit reports the command done or
+/// after `timeout`, whichever is first. Residual risk: anything else in the
+/// process that looks up the general pasteboard during that window (a user
+/// paste in a terminal in the same few milliseconds) sees the tab's clipboard.
+@MainActor
+enum BrowserReplPasteboardRedirect {
+    nonisolated(unsafe) private static var target: NSPasteboard?
+    nonisolated private static let lock = NSLock()
+    private static var installed = false
+    private static var tail: Task<Void, Never>?
+
+    /// Runs `command` (`Copy`, `Cut` or `Paste`) in `webView` with `pasteboard`
+    /// standing in for the general pasteboard. Returns `false` when WebKit's
+    /// editing-command SPI is missing, so the caller can fall back.
+    static func perform(
+        _ command: String,
+        in webView: WKWebView,
+        pasteboard: NSPasteboard,
+        timeout: Duration = .seconds(5)
+    ) async -> Bool {
+        let selector = NSSelectorFromString("_executeEditCommand:argument:completion:")
+        guard webView.responds(to: selector), installIfNeeded() else { return false }
+        let previous = tail
+        let run = Task { @MainActor in
+            await previous?.value
+            setTarget(pasteboard)
+            defer { setTarget(nil) }
+            let gate = BrowserReplOnce()
+            _ = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                gate.continuation = continuation
+                typealias Completion = @convention(block) (Bool) -> Void
+                typealias Function = @convention(c) (AnyObject, Selector, NSString, NSString?, Completion) -> Void
+                let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
+                let completion: Completion = { _ in MainActor.assumeIsolated { gate.finish(true) } }
+                function(webView, selector, command as NSString, "" as NSString, completion)
+                gate.timer = Task { @MainActor in
+                    try? await ContinuousClock().sleep(for: timeout)
+                    gate.finish(false)
+                }
+            }
+        }
+        tail = run
+        await run.value
+        return true
+    }
+
+    nonisolated private static func setTarget(_ pasteboard: NSPasteboard?) {
+        lock.lock()
+        target = pasteboard
+        lock.unlock()
+    }
+
+    nonisolated fileprivate static func redirected(_ name: NSString) -> NSPasteboard? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let target, name as String == NSPasteboard.Name.general.rawValue else { return nil }
+        return target
+    }
+
+    private static func installIfNeeded() -> Bool {
+        if installed { return true }
+        let selector = NSSelectorFromString("pasteboardWithName:")
+        guard let method = class_getClassMethod(NSPasteboard.self, selector) else { return false }
+        typealias Lookup = @convention(c) (AnyObject, Selector, NSString) -> NSPasteboard
+        let original = unsafeBitCast(method_getImplementation(method), to: Lookup.self)
+        let replacement: @convention(block) @Sendable (AnyObject, NSString) -> NSPasteboard = { cls, name in
+            redirected(name) ?? original(cls, selector, name)
+        }
+        method_setImplementation(method, imp_implementationWithBlock(replacement))
+        installed = true
+        return true
+    }
+
+    // MARK: - Tab clipboard items
+
+    /// Writes the tab's clipboard items (`{ type, base64 }`, MIME types or
+    /// raw pasteboard types) to `pasteboard` as one item.
+    static func write(_ items: [[String: Any]], to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        for entry in items {
+            guard let type = entry["type"] as? String,
+                  let base64 = entry["base64"] as? String,
+                  let data = Data(base64Encoded: base64) else { continue }
+            item.setData(data, forType: pasteboardType(forMIME: type))
+        }
+        if !(item.types.isEmpty) { pasteboard.writeObjects([item]) }
+    }
+
+    /// Reads `pasteboard`'s first item back as tab clipboard items. Types
+    /// with a MIME type use it; WebKit's custom web data keeps its pasteboard
+    /// type so a later paste in a page restores it.
+    static func read(_ pasteboard: NSPasteboard) -> [[String: Any]] {
+        guard let item = pasteboard.pasteboardItems?.first else { return [] }
+        var result: [[String: Any]] = []
+        var seen = Set<String>()
+        for type in item.types {
+            guard let mime = mimeType(for: type), !seen.contains(mime), let data = item.data(forType: type) else { continue }
+            seen.insert(mime)
+            result.append(["type": mime, "base64": data.base64EncodedString()])
+        }
+        return result
+    }
+
+    private static let customWebData = "com.apple.WebKit.custom-pasteboard-data"
+
+    private static func pasteboardType(forMIME mime: String) -> NSPasteboard.PasteboardType {
+        switch mime.lowercased() {
+        case "text/plain": return .string
+        case "text/html": return .html
+        case "text/rtf", "application/rtf": return .rtf
+        case "text/uri-list": return .URL
+        case "image/png": return .png
+        case "image/tiff": return .tiff
+        default:
+            if !mime.contains("/") { return NSPasteboard.PasteboardType(mime) }
+            if let type = UTType(mimeType: mime), !type.isDynamic { return NSPasteboard.PasteboardType(type.identifier) }
+            return NSPasteboard.PasteboardType(mime)
+        }
+    }
+
+    private static func mimeType(for type: NSPasteboard.PasteboardType) -> String? {
+        switch type {
+        case .string: return "text/plain"
+        case .html: return "text/html"
+        case .rtf: return "text/rtf"
+        case .URL: return "text/uri-list"
+        case .png: return "image/png"
+        case .tiff: return "image/tiff"
+        default:
+            if type.rawValue == customWebData { return customWebData }
+            guard let uti = UTType(type.rawValue), !uti.isDynamic else { return nil }
+            return uti.preferredMIMEType
+        }
     }
 }
