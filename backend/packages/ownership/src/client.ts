@@ -113,7 +113,8 @@ export class ProjectionClient<S, P = unknown> {
         now: Date.now(),
         tx: i.idempotency_key,
         newId: (prefix) => `${prefix}_pending`,
-        rows
+        rows,
+        idempotencyKey: i.idempotency_key
       })
       if (r.ok) {
         s = r.state

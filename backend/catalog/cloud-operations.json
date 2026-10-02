@@ -3388,6 +3388,13 @@
             }
           }
         },
+        "email_verified": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
         "display_name": {
           "required": true,
           "type": {
@@ -15578,6 +15585,9 @@
                   }
                 ]
               },
+              "email_verified": {
+                "type": "boolean"
+              },
               "display_name": {
                 "type": "string"
               },
@@ -23416,6 +23426,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "email_verified": {
+                "type": "boolean"
               },
               "display_name": {
                 "type": "string"

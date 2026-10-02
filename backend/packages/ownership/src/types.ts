@@ -21,6 +21,12 @@ export interface Principal {
   readonly kind?: "session" | "install" | "agent" | "system"
   readonly stack_user_id?: string
   readonly email?: string | null
+  /**
+   * True only when the identity provider asserted the email as verified (Stack claim
+   * `email_verified === true`). Owners must check it before trusting `email` for binding or
+   * access decisions (invite binding, unsuppress, email-domain rules).
+   */
+  readonly email_verified?: boolean
   readonly display_name?: string
   /** The install's registered kind (mac, ios, web, cli, daemon, vm), resolved by UserDO with the grant. */
   readonly install_kind?: string
@@ -157,6 +163,13 @@ export interface ReduceContext {
    * JSON-only domains); hand-built test contexts for JSON domains may omit it.
    */
   readonly rows?: RowReader
+  /**
+   * The request's idempotency key: present on the owner and in a client's preview of its own
+   * intent; absent when a mirror replays a committed event (events hide keys behind `tx`).
+   * A reducer may require it (for example message.send needs client_msg_id === key) only
+   * when it is present.
+   */
+  readonly idempotencyKey?: string
 }
 
 export type ReduceResult<S> =
