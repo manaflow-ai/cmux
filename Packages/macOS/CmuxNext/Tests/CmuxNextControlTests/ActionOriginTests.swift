@@ -73,6 +73,33 @@ import Testing
         #expect(registry.descriptor(for: "password.importCSV")?.isPersonOnly == true)
     }
 
+    @Test func toolPermissionActionsRequireAPersonInTheApp() async {
+        let registry = ActionRegistry.standard()
+        registry.context = [.agentPaneFocused]
+        let ids: [ActionID] = ["allowOnce", "allowChat", "deny", "expand", "retry", "revoke", "refresh"]
+            .map { ActionID(rawValue: "agentPane.permission.\($0)") }
+        var ran: [ActionID] = []
+        for id in ids { registry.bind(id, invoke: { _ in ran.append(id) }) }
+        let bridge = RegistryControlBridge(registry: registry)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+
+        for id in ids {
+            for origin: JSONValue in ["user", "cli", "mcp", "script", .null] {
+                let result = await router.handle(ControlRequest(method: "action.run", params: [
+                    "action": .string(id.rawValue), "origin": origin, "target": "pane:test",
+                ]))
+                #expect(result.failure?.code == "unavailable", "\(id) from \(origin)")
+                #expect(result.failure?.data?["reason"] == .string(ControlStrings.text(
+                    "control.error.personOnly", "Only a person in cmux can run this action"
+                )))
+            }
+        }
+        #expect(ran.isEmpty)
+        for id in ids { #expect(registry.perform(id)) }
+        #expect(ran == ids)
+    }
+
     @Test func inAppRunsAreTheUsers() {
         #expect(ActionInvocation().origin == .user)
         #expect(ActionInvocation().allowsViewChange)
