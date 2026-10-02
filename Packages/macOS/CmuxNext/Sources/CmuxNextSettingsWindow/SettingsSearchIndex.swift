@@ -35,34 +35,42 @@ public struct SettingsSearchResultSection: Identifiable, Sendable {
     public var id: String { section.rawValue }
 }
 
-/// Everything Settings search indexes, in page order, and the anchor a
-/// deep link (`openSettings setting:`) names.
-public enum SettingsSearchIndex {
-    /// Every entry: per section, the schema rows, then the cards, then the
-    /// action buttons the registry knows.
-    public static func entries(registry: ActionRegistry) -> [SettingsSearchEntry] {
-        SettingsSection.allCases.flatMap { entries(in: $0, registry: registry) }
+/// Everything Settings search indexes, in page order: the schema rows,
+/// cards and the action buttons `registry` knows.
+public struct SettingsSearchIndex {
+    public let registry: ActionRegistry
+
+    public init(registry: ActionRegistry) {
+        self.registry = registry
     }
 
-    public static func entries(in section: SettingsSection, registry: ActionRegistry) -> [SettingsSearchEntry] {
-        let rows = SettingsSchema.settings(in: section).map { entry(for: $0) }
-        let cards = SettingsCardID.allCases.filter { $0.section == section }.map { entry(for: $0) }
+    /// Every entry: per section, the schema rows, then the cards, then the
+    /// action buttons the registry knows.
+    public func entries() -> [SettingsSearchEntry] {
+        SettingsSection.allCases.flatMap { entries(in: $0) }
+    }
+
+    public func entries(in section: SettingsSection) -> [SettingsSearchEntry] {
+        let rows = SettingsSchema.settings(in: section).map { SettingsSearchEntry(setting: $0) }
+        let cards = SettingsCardID.allCases.filter { $0.section == section }.map { SettingsSearchEntry(card: $0) }
         let actions = SettingsSchema.actions(in: section).compactMap { id in
-            registry.descriptor(for: id).map { entry(for: $0, in: section) }
+            registry.descriptor(for: id).map { SettingsSearchEntry(action: $0, in: section) }
         }
         return rows + cards + actions
     }
+}
 
+extension [SettingsSearchEntry] {
     /// The entries whose text holds every word, in their order.
-    public static func matching(_ words: [String], in entries: [SettingsSearchEntry]) -> [SettingsSearchEntry] {
+    public func matching(_ words: [String]) -> [SettingsSearchEntry] {
         guard !words.isEmpty else { return [] }
-        return entries.filter { entry in words.allSatisfy { entry.haystack.localizedStandardContains($0) } }
+        return filter { entry in words.allSatisfy { entry.haystack.localizedStandardContains($0) } }
     }
 
     /// The entry Return opens: a title that starts with the query, then a
     /// title holding every word, then the rest, each in page order.
-    public static func best(_ words: [String], in entries: [SettingsSearchEntry]) -> SettingsSearchEntry? {
-        let matches = matching(words, in: entries)
+    public func best(_ words: [String]) -> SettingsSearchEntry? {
+        let matches = matching(words)
         let phrase = words.joined(separator: " ")
         func rank(_ entry: SettingsSearchEntry) -> Int {
             if entry.title.range(of: phrase, options: [.anchored, .caseInsensitive, .diacriticInsensitive]) != nil { return 0 }
@@ -70,41 +78,56 @@ public enum SettingsSearchIndex {
         }
         return matches.enumerated().min { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }?.element
     }
+}
 
-    /// The anchor `key` names: a cmux.json key path (`tabs.newTabKind`), a
-    /// card (`theme` or `card.theme`), a section header (`section.keyboard`),
-    /// or an action button (`importFromBrowser`, or its anchor id). Nil when
-    /// Settings shows no such thing.
-    public static func anchor(for key: String) -> SettingsAnchor? {
+extension SettingsAnchor {
+    /// The anchor `key` names (the deep link `openSettings setting:`): a
+    /// cmux.json key path (`tabs.newTabKind`), a card (`theme` or
+    /// `card.theme`), a section header (`section.keyboard`), or an action
+    /// button (`importFromBrowser`, or its anchor id). Nil when Settings
+    /// shows no such thing.
+    public init?(key: String) {
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return nil }
         let path = key.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
-        if let descriptor = SettingsSchema.descriptor(for: path) { return .setting(descriptor) }
-        if let card = SettingsCardID.allCases.first(where: { $0.anchorID == key || $0.rawValue == key }) { return .card(card) }
+        if let descriptor = SettingsSchema.descriptor(for: path) {
+            self = .setting(descriptor)
+            return
+        }
+        if let card = SettingsCardID.allCases.first(where: { $0.anchorID == key || $0.rawValue == key }) {
+            self = .card(card)
+            return
+        }
         for section in SettingsSection.allCases {
-            if key == SettingsAnchor.header(section).id { return .header(section) }
+            if key == SettingsAnchor.header(section).id {
+                self = .header(section)
+                return
+            }
             for action in SettingsSchema.actions(in: section)
             where key == action.rawValue || key == SettingsAnchor.action(action, in: section).id {
-                return .action(action, in: section)
+                self = .action(action, in: section)
+                return
             }
         }
         return nil
     }
+}
 
-    static func entry(for descriptor: SettingDescriptor) -> SettingsSearchEntry {
+extension SettingsSearchEntry {
+    init(setting descriptor: SettingDescriptor) {
         let text = [descriptor.title, descriptor.help ?? "", descriptor.group, descriptor.section.title, descriptor.id] + descriptor.keywords
-        return SettingsSearchEntry(kind: .setting(descriptor), anchor: .setting(descriptor), title: descriptor.title,
-                                   haystack: text.joined(separator: " "))
+        self.init(kind: .setting(descriptor), anchor: .setting(descriptor), title: descriptor.title,
+                  haystack: text.joined(separator: " "))
     }
 
-    static func entry(for card: SettingsCardID) -> SettingsSearchEntry {
+    init(card: SettingsCardID) {
         let text = [card.title, card.section.title] + card.keywords
-        return SettingsSearchEntry(kind: .card(card), anchor: .card(card), title: card.title, haystack: text.joined(separator: " "))
+        self.init(kind: .card(card), anchor: .card(card), title: card.title, haystack: text.joined(separator: " "))
     }
 
-    static func entry(for action: ActionDescriptor, in section: SettingsSection) -> SettingsSearchEntry {
+    init(action: ActionDescriptor, in section: SettingsSection) {
         let text = [action.title, action.id.rawValue, section.title] + action.keywords
-        return SettingsSearchEntry(kind: .action(action.id), anchor: .action(action.id, in: section), title: action.title,
-                                   haystack: text.joined(separator: " "))
+        self.init(kind: .action(action.id), anchor: .action(action.id, in: section), title: action.title,
+                  haystack: text.joined(separator: " "))
     }
 }

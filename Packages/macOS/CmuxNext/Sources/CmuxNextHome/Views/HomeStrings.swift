@@ -31,9 +31,8 @@ enum HomeStrings {
 
 }
 
-/// Labels the App passes into the Home types (localized by this module).
-@MainActor
-public enum HomeLabels {
+/// Owner labels the App passes into the Home types (localized by this module).
+extension HomeConversationSummary {
     /// The owner label of a conversation stored only on this Mac.
-    public static var thisMacOnly: String { HomeStrings.thisMacOnly }
+    @MainActor public static var thisMacOnlyOwnerLabel: String { HomeStrings.thisMacOnly }
 }

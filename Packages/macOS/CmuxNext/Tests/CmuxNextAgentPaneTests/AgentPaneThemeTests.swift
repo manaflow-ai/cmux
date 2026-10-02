@@ -7,7 +7,19 @@ import Testing
         let keys = Set(AgentPaneTheme.values(.fallback).keys)
         #expect(keys == ["isDark", "pageBackground", "surfaceBackground", "surfaceElevatedBackground", "inputBackground", "border",
                          "borderStrong", "text", "mutedText", "softText", "accent", "accentSoft", "accentText", "danger", "warning", "highlight", "highlightText",
-                         "shadow", "palette", "borders"])
+                         "shadow", "palette", "borders", "motion"])
+    }
+
+    /// The page's fades follow the chrome's MotionFade tokens: `normal` is 1.5 times
+    /// `fast`, and `off` sends 0 so every hover applies at once.
+    @Test func sendsTheMotionDurations() {
+        func motion(_ speed: MotionSpeed) -> [String: Double]? {
+            AgentPaneTheme.values(.fallback, motion: MotionPolicy(speed: speed, reduceMotion: false))["motion"] as? [String: Double]
+        }
+        #expect(motion(.fast)?["hover"] == MotionFade.hover.baseDuration)
+        #expect(motion(.fast)?["fadeIn"] == MotionFade.fadeIn.baseDuration)
+        #expect(motion(.normal)?["hover"] == MotionFade.hover.baseDuration * 1.5)
+        #expect(motion(.off) == ["hover": 0, "focus": 0, "fadeIn": 0, "fadeOut": 0])
     }
 
     /// appearance.borders reaches the page as its mode, beside the transparent

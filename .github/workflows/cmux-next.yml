@@ -304,6 +304,7 @@ jobs:
         run: scripts/cmux-next/prefix-ghosttykit-archives.sh GhosttyKit.xcframework
 
       - name: Build package and tests
+        id: build-tests
         working-directory: Packages/macOS/CmuxNext
         run: swift build --build-tests
 
@@ -339,12 +340,12 @@ jobs:
         timeout-minutes: 5
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
-      - name: Run package tests (excluding control deadline and WebKit driver tests)
+      - name: Run package tests (excluding control deadline, WebKit driver and attach stress tests)
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests
 
       - name: Run control package tests
         timeout-minutes: 20
@@ -354,8 +355,8 @@ jobs:
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests
 
       # The WebKit driver tests drive real WKWebViews against wall-clock load
-      # deadlines through main-actor navigation callbacks. They run last, in a
-      # process of their own: the package's other main-actor tests do not delay
+      # deadlines through main-actor navigation callbacks. They run after the
+      # control tests, in a process of their own: the package's other main-actor tests do not delay
       # those callbacks, and a WebKit failure does not skip the control tests.
       - name: Run WebKit driver package tests
         timeout-minutes: 10
@@ -363,6 +364,20 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "420"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextBrowserAutomationTests
+
+      # The attach driver stress tests run 80 seeded cases at once, each with
+      # its own typist, overflow and main-actor layout tasks. In the shared
+      # process they queued behind every other main-actor suite (and slowed
+      # them) past the time limits on loaded runners; alone, the run is bounded
+      # by its fixed work. Runs whenever the build succeeded, even after a failed
+      # test step.
+      - name: Run attach driver stress tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
+        timeout-minutes: 10
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "420"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter TerminalAttachDriverStressTests
 
   release-compile:
     needs: macos-placement
