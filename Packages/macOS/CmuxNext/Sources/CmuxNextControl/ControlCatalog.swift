@@ -88,6 +88,11 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// reaches the executor even out of context, which re-reads the live
     /// reason and reports it before the context check.
     public var unavailableReason: String?
+    /// Surface decisions (`ActionDescriptor.surfacePlan`): `palette`, `cli`,
+    /// `context_menu`, `mcp` map to `offered` or an exemption reason.
+    public var surfaces: [String: String] = [:]
+    /// The right-click menus that show the action (`ActionMenuContext`).
+    public var contextMenus: [String] = []
     /// Destructive: `action.run` requires `confirm: true`
     /// (`ActionDescriptor.isDestructive`).
     public var isDestructive = false
@@ -147,6 +152,11 @@ public struct ControlActionInfo: Sendable, Hashable {
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }
         if let unavailableReason { members["unavailable_reason"] = .string(unavailableReason) }
+        if !surfaces.isEmpty {
+            var surfaceMembers = surfaces.mapValues(JSONValue.string)
+            surfaceMembers["context_menus"] = .array(contextMenus.map(JSONValue.string))
+            members["surfaces"] = .object(surfaceMembers)
+        }
         return .object(members)
     }
 
