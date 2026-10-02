@@ -67,6 +67,35 @@ async fn an_idle_tunnel_stops_waking() {
     server.shutdown().await;
 }
 
+/// The hub keeps connections open for hours. Their TCP keepalives (every
+/// 15 s) and the ACKs they draw are not activity: they must not keep the
+/// WireGuard timers ticking four times a second.
+#[tokio::test(start_paused = true)]
+async fn an_open_idle_connection_wakes_only_for_its_keepalives() {
+    let sim = SimNet::new();
+    let (client, server, configs) = pair(&sim, None);
+    let mut listener = server.listen(10).await.unwrap();
+    let target = SocketAddr::new(configs.server_v4, 10);
+    let mut dialed = client.connect(target).await.unwrap();
+    let mut accepted = listener.accept().await.unwrap();
+    dialed.write_all(b"ping").await.unwrap();
+    let mut ping = [0u8; 4];
+    accepted.read_exact(&mut ping).await.unwrap();
+
+    tokio::time::sleep(Duration::from_secs(600)).await;
+    let settled = (client.wakeups(), server.wakeups());
+    tokio::time::sleep(Duration::from_secs(3600)).await;
+    let hour = (client.wakeups() - settled.0, server.wakeups() - settled.1);
+    eprintln!("open idle connection: {hour:?} wakeups in an hour (client, server)");
+    // 240 keepalive rounds an hour; four wakeups a second would be 14,400.
+    assert!(hour.0 < 1_500 && hour.1 < 1_500, "{hour:?} wakeups in an idle hour");
+
+    // The connection survived the idle hour.
+    accepted.write_all(b"pong").await.unwrap();
+    dialed.read_exact(&mut ping).await.unwrap();
+    assert_eq!(&ping, b"pong");
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_persistent_keepalive_keeps_a_slow_tick() {
     let sim = SimNet::new();

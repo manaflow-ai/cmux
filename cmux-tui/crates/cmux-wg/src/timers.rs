@@ -68,6 +68,11 @@ impl TimerSchedule {
         now < self.last_activity + ACTIVE_WINDOW
     }
 
+    /// Whether a tick or more has passed since `update_timers` last ran.
+    pub(crate) fn overdue(&self, now: Instant) -> bool {
+        now >= self.last_tick + TIMER_TICK
+    }
+
     /// `update_timers` ran at `now`.
     pub(crate) fn on_tick(&mut self, now: Instant) {
         self.last_tick = now;

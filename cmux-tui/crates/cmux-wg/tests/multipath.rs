@@ -332,7 +332,7 @@ impl World {
 
 /// No harness: the engine's probes inside the session find the direct path
 /// when it comes up and leave it when it goes down, mid-transfer.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn probes_move_one_session_between_paths_by_themselves() {
     let probes = ProbeConfig {
         current_interval: Duration::from_millis(20),
@@ -348,7 +348,7 @@ async fn probes_move_one_session_between_paths_by_themselves() {
     world.finish().await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn one_session_survives_a_path_switch_a_cut_path_and_a_rebind() {
     let mut world = world(None).await;
     world.run_until(2 * MIB, MIB).await;

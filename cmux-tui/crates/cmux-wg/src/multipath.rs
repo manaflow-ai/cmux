@@ -114,6 +114,17 @@ fn lock(shared: &Mutex<Shared>) -> MutexGuard<'_, Shared> {
     shared.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Release the lock, then wake the driver so it re-polls the path set: a
+/// path it waited on may be gone, or the backlog that held data may now
+/// belong to a path no longer in use.
+fn wake_driver(mut shared: MutexGuard<'_, Shared>) {
+    let waker = shared.waker.take();
+    drop(shared);
+    if let Some(waker) = waker {
+        waker.wake();
+    }
+}
+
 impl Multipath {
     /// Paths whose selector the endpoint drives with
     /// [`MultipathControl::on_probe`].
@@ -168,6 +179,7 @@ impl MultipathControl {
         let switch = shared.selector.remove_path(id)?;
         shared.slots.retain(|slot| slot.id != id);
         shared.publish();
+        wake_driver(shared);
         Ok(switch)
     }
 
@@ -179,6 +191,9 @@ impl MultipathControl {
         let mut shared = lock(&self.shared);
         let switch = shared.selector.on_probe(id, outcome);
         shared.publish();
+        if matches!(switch, Ok(Some(_))) {
+            wake_driver(shared);
+        }
         switch
     }
 
@@ -186,6 +201,7 @@ impl MultipathControl {
         let mut shared = lock(&self.shared);
         let switch = shared.selector.on_network_change();
         shared.publish();
+        wake_driver(shared);
         switch
     }
 

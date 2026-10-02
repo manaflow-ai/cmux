@@ -40,7 +40,7 @@ pub use crate::error::WgError;
 use crate::pacing::Pacer;
 use crate::probing;
 use crate::stream::{Outbound, WgStream};
-use crate::timers::{SESSION_FRESH, TimerSchedule};
+use crate::timers::TimerSchedule;
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
 use crate::wire::{ip_address, packet_source, socket_addr};
 
@@ -531,72 +531,6 @@ impl Driver {
         }
     }
 
-    fn initiate_handshake(&mut self) {
-        if !self.underlay.has_peer() {
-            return;
-        }
-        if let TunnResult::WriteToNetwork(packet) =
-            self.tunn.format_handshake_initiation(&mut self.scratch, false)
-        {
-            self.underlay.send(packet);
-            self.schedule.on_activity(Instant::now());
-        }
-    }
-
-    /// After a network change or a wake: drop expired sessions, then send
-    /// a keepalive on a fresh session so the peer roams, or a new handshake
-    /// initiation at once. A plain `encapsulate(&[])` would wait for the
-    /// 5 s retry whenever a lost initiation is still "in progress".
-    fn reassert(&mut self) {
-        self.schedule.on_tick(Instant::now());
-        self.update_timers();
-        let fresh = self.tunn.time_since_last_handshake().is_some_and(|age| age < SESSION_FRESH);
-        let result = if fresh {
-            self.tunn.encapsulate(&[], &mut self.scratch)
-        } else {
-            self.tunn.format_handshake_initiation(&mut self.scratch, true)
-        };
-        if let TunnResult::WriteToNetwork(packet) = result {
-            self.underlay.send(packet);
-        }
-        self.schedule.on_activity(Instant::now());
-    }
-
-    /// Send due path probes while the session carries traffic; an idle
-    /// session probes nothing.
-    fn run_probes(&mut self) {
-        let now = Instant::now();
-        self.probe_deadline = if self.schedule.is_active(now) {
-            let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
-            probing::send_due(tunn, &mut *self.underlay, scratch, self.probe_route, now)
-        } else {
-            None
-        };
-    }
-
-    /// Run boringtun's timers whenever a tick is due, including before any
-    /// other event after an idle period or a stopped process, so an expired
-    /// session is dropped before anything is encrypted with it.
-    fn catch_up_timers(&mut self) {
-        let now = Instant::now();
-        if self.schedule.next_tick().is_some_and(|due| due <= now) {
-            self.schedule.on_tick(now);
-            self.update_timers();
-        }
-    }
-
-    fn update_timers(&mut self) {
-        if let TunnResult::WriteToNetwork(packet) = self.tunn.update_timers(&mut self.scratch) {
-            // A handshake retry keeps the timers running until boringtun
-            // gives up; a keepalive alone does not.
-            let retry = classify(packet) == DatagramClass::WireGuardInitiation;
-            self.underlay.send(packet);
-            if retry {
-                self.schedule.on_activity(Instant::now());
-            }
-        }
-    }
-
     fn handle_datagram(&mut self, datagram: &[u8], origin: Origin) {
         let mut input = datagram;
         let source = origin.addr.map(|addr| addr.ip());
@@ -615,10 +549,13 @@ impl Driver {
                 TunnResult::WriteToNetwork(packet) => {
                     // Authenticated traffic from a new address moves the peer
                     // (WireGuard roaming); this is also how the answering side
-                    // learns its peer in the first place.
-                    self.underlay.authenticated(origin);
+                    // learns its peer in the first place. A cookie reply (the
+                    // rate limiter's answer) proves only the public key.
+                    if classify(packet) != DatagramClass::WireGuardCookieReply {
+                        self.underlay.authenticated(origin);
+                        self.schedule.on_activity(Instant::now());
+                    }
                     self.underlay.send(packet);
-                    self.schedule.on_activity(Instant::now());
                     input = &[];
                 }
                 TunnResult::WriteToTunnelV4(packet, _) | TunnResult::WriteToTunnelV6(packet, _) => {
@@ -630,8 +567,10 @@ impl Driver {
                         let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
                         probing::receive(tunn, &mut *self.underlay, scratch, probe, origin.path);
                     } else if allowed {
-                        self.schedule.on_activity(Instant::now());
-                        self.pacer.received(packet, Instant::now());
+                        // TCP keepalives and their ACKs are not activity.
+                        if self.pacer.received(packet, Instant::now()) {
+                            self.schedule.on_activity(Instant::now());
+                        }
                         self.device.push_rx(packet.to_vec());
                     }
                     break;
@@ -646,14 +585,19 @@ impl Driver {
     /// refuses smoltcp more, so TCP waits instead of losing segments.
     fn flush_tx(&mut self) {
         let now = Instant::now();
+        let mut fresh = false;
         while self.pacer.has_room()
             && let Some(packet) = self.device.pop_tx()
         {
-            self.pacer.push(packet, now);
+            fresh |= self.pacer.push(packet, now);
         }
-        let mut sent = false;
         self.pace_deadline = None;
-        while !self.underlay.backlogged() {
+        // Without a session boringtun would hold the segment through the
+        // handshake, and the pacer would time that wait as a round trip.
+        if self.tunn.time_since_last_handshake().is_none() && self.pacer.has_queued() {
+            self.initiate_handshake();
+        }
+        while !self.underlay.backlogged() && self.tunn.time_since_last_handshake().is_some() {
             let packet = match self.pacer.pop(now) {
                 Ok(Some(packet)) => packet,
                 Ok(None) => break,
@@ -666,11 +610,10 @@ impl Driver {
                 self.tunn.encapsulate(&packet, &mut self.scratch)
             {
                 self.underlay.send(encrypted);
-                sent = true;
             }
         }
-        if sent {
-            self.schedule.on_activity(Instant::now());
+        if fresh {
+            self.schedule.on_activity(now);
         }
     }
 
@@ -691,6 +634,7 @@ impl Driver {
         }
     }
 
+    /// Reset every connection and send what is left, unpaced.
     fn shutdown(&mut self) {
         for conn in &self.conns {
             self.sockets.get_mut::<tcp::Socket>(conn.handle).abort();
@@ -702,7 +646,18 @@ impl Driver {
         }
         let now = self.now();
         self.iface.poll(now, &mut self.device, &mut self.sockets);
-        self.flush_tx();
+        // Last words leave unpaced: the resets must not wait behind data.
+        while let Some(packet) = self.device.pop_tx() {
+            self.pacer.push(packet, Instant::now());
+        }
+        for packet in self.pacer.drain() {
+            if let TunnResult::WriteToNetwork(encrypted) =
+                self.tunn.encapsulate(&packet, &mut self.scratch)
+            {
+                self.underlay.send(encrypted);
+            }
+        }
+        self.underlay.flush();
         self.conns.clear();
         self.listeners.clear();
     }
@@ -1050,6 +1005,9 @@ impl Driver {
         progressed
     }
 }
+
+#[path = "net_timers.rs"]
+mod timer_ops;
 
 #[cfg(test)]
 #[path = "net_tests.rs"]

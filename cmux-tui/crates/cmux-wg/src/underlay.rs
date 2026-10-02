@@ -32,6 +32,10 @@ const SEND_QUEUE_DEPTH: usize = 1024;
 /// signal the retry; a short timer does, doubling while refusals repeat.
 const INTERFACE_RETRY_MIN: Duration = Duration::from_millis(1);
 const INTERFACE_RETRY_MAX: Duration = Duration::from_millis(50);
+/// Refusals in a row (about 3 s of retries) after which the interface is
+/// taken as gone: the oldest datagram is dropped so newer ones (a handshake,
+/// a keepalive) are not stuck behind it forever. TCP retransmits.
+const INTERFACE_RETRY_LIMIT: u32 = 64;
 
 /// Why a send was refused without being an error to drop on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,6 +196,7 @@ pub struct SocketPath<S> {
     /// Armed after the interface refused a datagram.
     retry: Option<Pin<Box<Sleep>>>,
     retry_after: Duration,
+    refusals: u32,
 }
 
 /// The default underlay: one UDP socket, one peer address.
@@ -205,6 +210,7 @@ impl<S: DatagramSocket> SocketPath<S> {
             pending: VecDeque::new(),
             retry: None,
             retry_after: INTERFACE_RETRY_MIN,
+            refusals: 0,
         }
     }
 
@@ -241,6 +247,11 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
     }
 
     fn flush(&mut self) {
+        // A carrier not in use is flushed only here: an expired retry must
+        // not keep it waiting for a poll_flush that never comes.
+        if self.retry.as_ref().is_some_and(|retry| retry.deadline() <= Instant::now()) {
+            self.retry = None;
+        }
         while self.retry.is_none()
             && let Some((datagram, peer)) = self.pending.front()
         {
@@ -282,11 +293,18 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
                 Ok(_) => {
                     self.pending.pop_front();
                     self.retry_after = INTERFACE_RETRY_MIN;
+                    self.refusals = 0;
                 }
                 Err(error) => match refusal(&error) {
                     // Readiness was stale; the next poll registers interest.
                     Some(Refusal::SocketFull) => {}
                     Some(Refusal::InterfaceFull) => {
+                        self.refusals += 1;
+                        if self.refusals >= INTERFACE_RETRY_LIMIT {
+                            eprintln!("wireguard UDP send to {peer} dropped: {error} for 3 s");
+                            self.pending.pop_front();
+                            self.refusals = 0;
+                        }
                         self.retry = Some(Box::pin(tokio::time::sleep(self.retry_after)));
                         self.retry_after = (self.retry_after * 2).min(INTERFACE_RETRY_MAX);
                     }

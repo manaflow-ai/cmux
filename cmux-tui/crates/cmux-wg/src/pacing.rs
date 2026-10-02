@@ -108,6 +108,8 @@ struct Connection {
     snd_emitted: Option<u32>,
     snd_max: Option<u32>,
     snd_una: Option<u32>,
+    /// Highest sequence end received from the peer.
+    rcv_max: Option<u32>,
     timed: Option<(u32, Instant)>,
     srtt: Option<Duration>,
     last_seen: Instant,
@@ -121,6 +123,7 @@ impl Connection {
             snd_emitted: None,
             snd_max: None,
             snd_una: None,
+            rcv_max: None,
             timed: None,
             srtt: None,
             last_seen: now,
@@ -137,11 +140,15 @@ impl Connection {
         Some(GAIN * f64::from(flight.max(MIN_FLIGHT)) / srtt)
     }
 
-    fn emitted(&mut self, segment: &Segment) {
+    /// Record a segment the stack emitted; true when it carries sequence
+    /// space never emitted before (not a retransmission or a keepalive).
+    fn emitted(&mut self, segment: &Segment) -> bool {
         let end = segment.seq.wrapping_add(segment.len);
-        if segment.len > 0 && self.snd_emitted.is_none_or(|max| after(end, max)) {
+        let fresh = segment.len > 0 && self.snd_emitted.is_none_or(|max| after(end, max));
+        if fresh {
             self.snd_emitted = Some(end);
         }
+        fresh
     }
 
     fn sent(&mut self, segment: &Segment, len: usize, now: Instant) {
@@ -195,12 +202,28 @@ impl Pacer {
         self.queued < MAX_QUEUED
     }
 
-    /// Queue one packet the stack wants sent.
-    pub(crate) fn push(&mut self, packet: Vec<u8>, now: Instant) {
+    pub(crate) fn has_queued(&self) -> bool {
+        self.queued > 0
+    }
+
+    /// Everything queued, unpaced and in order per connection (shutdown).
+    pub(crate) fn drain(&mut self) -> Vec<Vec<u8>> {
+        self.queued = 0;
+        let mut packets: Vec<Vec<u8>> = self.other.drain(..).collect();
+        for connection in self.connections.values_mut() {
+            packets.extend(connection.queue.drain(..));
+        }
+        packets
+    }
+
+    /// Queue one packet the stack wants sent. True when it is new traffic
+    /// (new sequence space, or not TCP), which keeps the session's timers
+    /// running; a pure ACK, retransmission or keepalive is not.
+    pub(crate) fn push(&mut self, packet: Vec<u8>, now: Instant) -> bool {
         self.queued += 1;
         let Some(segment) = segment(&packet) else {
             self.other.push_back(packet);
-            return;
+            return true;
         };
         let flow =
             (segment.source.0, segment.source.1, segment.destination.0, segment.destination.1);
@@ -210,19 +233,30 @@ impl Pacer {
             });
         }
         let connection = self.connections.entry(flow).or_insert_with(|| Connection::new(now));
-        connection.emitted(&segment);
+        let fresh = connection.emitted(&segment);
         connection.queue.push_back(packet);
+        fresh
     }
 
     /// A packet the stack received: its ACK feeds the sending connection.
-    pub(crate) fn received(&mut self, packet: &[u8], now: Instant) {
-        let Some(segment) = segment(packet) else { return };
-        let Some(ack) = segment.ack else { return };
+    /// True when it is new traffic (new sequence space from the peer, or not
+    /// TCP); a keepalive probe or a pure ACK is not.
+    pub(crate) fn received(&mut self, packet: &[u8], now: Instant) -> bool {
+        let Some(segment) = segment(packet) else { return true };
         let flow =
             (segment.destination.0, segment.destination.1, segment.source.0, segment.source.1);
-        if let Some(connection) = self.connections.get_mut(&flow) {
+        let Some(connection) = self.connections.get_mut(&flow) else {
+            return segment.len > 0;
+        };
+        if let Some(ack) = segment.ack {
             connection.acked(ack, now);
         }
+        let end = segment.seq.wrapping_add(segment.len);
+        let fresh = segment.len > 0 && connection.rcv_max.is_none_or(|max| after(end, max));
+        if fresh {
+            connection.rcv_max = Some(end);
+        }
+        fresh
     }
 
     /// The next packet allowed to leave at `now`: anything that is not TCP,
