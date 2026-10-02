@@ -260,7 +260,7 @@ final class TerminalTabOverviewViewController: UIViewController {
 
         configureCircleButton(
             layoutButton,
-            imageName: "line.3.horizontal",
+            imageName: "line.3.horizontal.decrease",
             accessibilityLabel: L10n.string("mobile.terminal.overview.layout", defaultValue: "Tab Layout"),
             accessibilityIdentifier: "MobileTerminalOverviewLayout"
         )
