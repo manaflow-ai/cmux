@@ -39,9 +39,8 @@ nonisolated enum FeedWireEncode {
         }
     }
 
-    /// `(op, params)` for one intent. `markAllRead` reads every unread item the
-    /// client listed at or before the cut-off (the owner's `all` would also read
-    /// items posted after the user's click).
+    /// `(op, params)` for one intent. `markAllRead` sends the owner's `all`
+    /// (it also reads an item posted between the click and the commit).
     static func op(_ intent: FeedIntent, unreadBefore: (Date) -> [String]) -> (op: String, params: [String: Any])? {
         switch intent.kind {
         case let .answer(item, value): return (intent.op, ["item": item, "answer": answer(value)])
@@ -50,8 +49,8 @@ nonisolated enum FeedWireEncode {
         case let .archive(items): return items.isEmpty ? nil : (intent.op, ["items": Array(items.prefix(256))])
         case let .snooze(items, until): return items.isEmpty ? nil : (intent.op, ["items": Array(items.prefix(256)), "until": ms(until)])
         case let .markAllRead(before):
-            let ids = unreadBefore(before)
-            return ids.isEmpty ? nil : (intent.op, ["items": Array(ids.prefix(256))])
+            // The owner reads every unread item at commit (no 256-id cap, no stale id refusing the whole op).
+            return unreadBefore(before).isEmpty ? nil : (intent.op, ["all": true])
         }
     }
 

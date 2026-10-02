@@ -1,9 +1,9 @@
-import CmuxNextFeed
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextApps
 import CmuxNextDesign
+import CmuxNextFeed
 import CmuxNextLayout
 import CmuxNextPalette
 import CmuxNextServer

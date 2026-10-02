@@ -7,9 +7,6 @@ import { isUserClient, prunableAt, pushEligible, RETENTION_MS } from "./domains/
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 
-/** How long a Mac's `active` presence counts for the push rule (feed.md 7.3). */
-const MAC_ACTIVE_WINDOW_MS = 120_000
-
 interface Presence {
   readonly active: boolean
   readonly client: string
@@ -94,10 +91,11 @@ export class FeedDO extends OwnerDO<FeedState> {
     return true
   }
 
-  private macActive(now: number): boolean {
+  private macActive(): boolean {
     return this.ctx.getWebSockets().some((ws) => {
       const p = (ws.deserializeAttachment() as { presence?: Presence } | null)?.presence
-      return Boolean(p && p.client === "mac" && p.active && now - p.at < MAC_ACTIVE_WINDOW_MS)
+      // Active until the client says otherwise (app resigns, screen sleeps or locks) or the socket closes.
+      return Boolean(p && p.client === "mac" && p.active)
     })
   }
 
@@ -118,7 +116,7 @@ export class FeedDO extends OwnerDO<FeedState> {
     const state = engine.currentState
     const pushDue = Object.values(state.items).filter((i) => i.push_due_at !== null && i.push_due_at <= now)
     if (pushDue.length > 0) {
-      const quiet = state.prefs.push_skip_when_mac_active && this.macActive(now)
+      const quiet = state.prefs.push_skip_when_mac_active && this.macActive()
       const send = pushDue.filter((i) => pushEligible(i) && (!quiet || i.priority === "urgent")).map((i) => i.id)
       const skip = pushDue.map((i) => i.id).filter((id) => !send.includes(id))
       const r = this.submitSystem("feed.push_due", { at: now, send, skip }, `push:${now}`)
