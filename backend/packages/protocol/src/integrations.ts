@@ -230,6 +230,24 @@ export const SlackPostAsBot = providerOp(
   "Post a message to a Slack channel as the cmux bot."
 )
 
+export const LinearTeamsList = def({
+  name: "linear.teams.list",
+  owner: "cloud:ConnectionDO",
+  class: "read",
+  risk: "read",
+  target: "connection",
+  principals: ["session", "install"],
+  params: Schema.Struct({ connection: ConnectionId }),
+  result: Schema.Struct({ teams: Schema.Array(Schema.Struct({ id: Schema.String, key: Schema.String, name: Schema.String })) }),
+  errors: ["auth.unauthenticated", "auth.forbidden", "selector.not_found", "integration.unavailable", "provider.error"],
+  docs: "List the Linear teams this connection can reach (ids for linear.issue.create).",
+  cli: { path: "linear teams", visible: true },
+  mcp: { expose: "default", group: "linear" }
+})
+
+/** Provider reads: no idempotency key, no effect; answered by the gateway with the stored token. */
+export const providerReadOpNames: ReadonlySet<string> = new Set([LinearTeamsList.name])
+
 export const integrationOps = [
   IntegrationConnect,
   IntegrationComplete,
@@ -239,6 +257,7 @@ export const integrationOps = [
   IntegrationPolicySet,
   GitHubIssueComment,
   LinearIssueCreate,
+  LinearTeamsList,
   SlackPostAsBot
 ] as const
 export const providerOpNames: ReadonlySet<string> = new Set([GitHubIssueComment.name, LinearIssueCreate.name, SlackPostAsBot.name])

@@ -10,6 +10,7 @@ import {
   Forbidden,
   OwnerUnreachable,
   providerOpNames,
+  providerReadOpNames,
   Unauthenticated,
   type Connection,
   type CurrentPrincipalShape
@@ -215,6 +216,18 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         // Reads honor the op's principal kinds too (automation.webhook.get is session-only: its secret starts runs).
         if (!def.principals.includes(principal.kind === "session" ? "session" : "install")) return yield* new Forbidden({ code: "auth.forbidden", message: `${payload.op} is not allowed for ${principal.kind} principals` })
         const reader = yield* principalFor(def.owner, principal)
+        if (providerReadOpNames.has(payload.op)) {
+          const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(reader.team!))
+          const pr = yield* Effect.tryPromise({
+            try: () => rpc<{ ok: true; value: unknown } | { ok: false; code: string; message: string }>(stub.providerRead(reader.team!, reader, payload.op, payload.params)),
+            catch: unreachable
+          })
+          if (!pr.ok) {
+            if (pr.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: pr.message })
+            return yield* new BadRequest({ code: pr.code === "selector.not_found" ? "selector.not_found" : "validation.invalid", message: `${pr.code}: ${pr.message}` })
+          }
+          return { op: payload.op, value: pr.value, stream: `connections:${reader.team}`, revision: "0" }
+        }
         const route = ownerRoute(def.owner, reader)
         const r = yield* Effect.tryPromise({ try: () => rpc<ReadResult>(route.stub.readOp(route.entity, reader, payload.op, payload.params)), catch: unreachable })
         if (!r.ok) {

@@ -262,6 +262,10 @@ export const linear: ProviderImpl = {
   },
   call: async (_env, http, credential, op, params) => {
     if (credential.kind !== "oauth") throw new ProviderError("provider.error", "wrong credential kind")
+    if (op === "linear.teams.list") {
+      const data = await linearGraphql(http, credential.access_token, "{ teams(first: 100) { nodes { id key name } } }")
+      return { value: { teams: ((data.teams?.nodes ?? []) as Array<{ id: string; key: string; name: string }>).map((t) => ({ id: t.id, key: t.key, name: t.name })) } }
+    }
     if (op !== "linear.issue.create") throw new ProviderError("provider.error", `linear cannot run ${op}`)
     const data = await linearGraphql(
       http,

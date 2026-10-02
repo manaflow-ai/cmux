@@ -252,6 +252,7 @@ describe("connections end to end (workerd)", () => {
       "https://api.linear.app/graphql": async (req) => {
         const q = (await req.json()) as { query: string }
         if (q.query.includes("viewer")) return ok({ data: { viewer: { organization: { id: "8f6e1c2a-5b7d-4e3f-9a1b-2c3d4e5f6a7b", name: "Acme", urlKey: "acme" } } } })
+        if (q.query.includes("teams")) return ok({ data: { teams: { nodes: [{ id: "team-uuid-1", key: "ENG", name: "Engineering" }] } } })
         if (graphqlStatus !== 200) return new Response("oops", { status: graphqlStatus })
         return ok({ data: { issueCreate: { success: true, issue: { id: "i1", identifier: "ENG-1", url: "https://linear.app/acme/issue/ENG-1" } } } })
       }
@@ -263,10 +264,13 @@ describe("connections end to end (workerd)", () => {
     const done = await op(token, "integration.complete", { state, code: "lin-code" })
     expect(done.json).toMatchObject({ ok: true, value: { status: "active", account: { key: "linear:org:8f6e1c2a-5b7d-4e3f-9a1b-2c3d4e5f6a7b" } } })
 
+    // A provider read: no idempotency key, answered with the stored token.
+    const teams = await read(token, "linear.teams.list", { connection: conn })
+    expect(teams.json.value).toEqual({ teams: [{ id: "team-uuid-1", key: "ENG", name: "Engineering" }] })
     const params = { connection: conn, team_id: "team-1", title: "From cmux" }
     const [a, b] = await Promise.all([op(token, "linear.issue.create", params), op(token, "linear.issue.create", { ...params, title: "Second" })])
     expect(a.json.ok && b.json.ok).toBe(true)
-    expect(refreshes).toBe(1)
+    expect(refreshes).toBe(1) // the teams read above refreshed once; the two concurrent creates reuse it
 
     graphqlStatus = 502
     const flaky = await op(token, "linear.issue.create", params, "lin-5xx")

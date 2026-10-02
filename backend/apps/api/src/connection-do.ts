@@ -239,6 +239,23 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     }
   }
 
+  /** A provider read (no effect, no ledger): same authorization, policy and token path as provider ops. */
+  async providerRead(entity: string, principal: Principal, op: string, params: unknown): Promise<{ ok: true; value: unknown } | { ok: false; code: string; message: string }> {
+    const engine = this.bind(entity)
+    const denied = connectionsDomain.authorize!(engine.currentState, op, params, principal)
+    if (denied) return { ok: false, code: denied.code, message: denied.message }
+    const def = cloudOpByName.get(op)
+    if (!def) return { ok: false, code: "validation.invalid", message: `unknown op ${op}` }
+    const decoded = decodeParams<Record<string, unknown>>(def, params)
+    if (!decoded.ok) return { ok: false, code: decoded.code, message: decoded.message }
+    try {
+      return { ok: true, value: JSON.parse(JSON.stringify((await this.callProvider(principal, op, decoded.value)) ?? null)) as unknown }
+    } catch (e) {
+      if (e instanceof ProviderError) return { ok: false, code: e.code === "needs_reauth" ? "integration.unavailable" : e.code, message: e.message }
+      return { ok: false, code: "operation.failed", message: "the operation failed" }
+    }
+  }
+
   private async callProvider(principal: Principal, op: string, params: Record<string, unknown>): Promise<unknown> {
     const provider = providerForOp(op)
     const c = this.boundEngine!.currentState.connections[String(params.connection)]
