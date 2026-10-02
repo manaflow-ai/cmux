@@ -34,7 +34,6 @@ enum AgentPaneTheme {
         ]
     }
 
-    /// `rgba(r, g, b, a)` with 0-255 channels.
     /// The color WebKit shows behind and around the page: clear for a
     /// translucent theme, where it would stack under the page's own fill (as
     /// `WebKitTab` does).
@@ -42,6 +41,7 @@ enum AgentPaneTheme {
         tokens.contentBackground.alpha < 1 ? tokens.contentBackground.withAlpha(0) : tokens.contentBackground
     }
 
+    /// `rgba(r, g, b, a)` with 0-255 channels.
     static func css(_ color: ThemeRGB) -> String {
         func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
         let alpha = (color.alpha * 1000).rounded() / 1000
