@@ -18,6 +18,7 @@ xcrun simctl install "$udid" "$app"
 shot() { xcrun simctl io "$udid" screenshot --type=png "$out/$1.png" >/dev/null; }
 settle() { sleep "${1:-4}"; }  # capture script only: wait for launch animations
 
+if [[ "${SIM_GALLERY_ONLY:-}" != terminal ]]; then
 xcrun simctl ui "$udid" appearance light
 xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
 settle 6; shot signin-light
@@ -27,6 +28,14 @@ settle 5; shot home-preview-light
 xcrun simctl ui "$udid" appearance dark
 settle 2; shot home-preview-dark
 xcrun simctl ui "$udid" appearance light
+fi
+
+SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_TERMINAL_PREVIEW=1 \
+  xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
+settle 6; shot terminal-mock-dark
+tc="$(xcrun simctl get_app_container "$udid" "$bundle" data)"
+cp "$tc/Library/Caches/cmux-gallery/terminal.json" "$out/" 2>/dev/null || true
+[[ "${SIM_GALLERY_ONLY:-}" == terminal ]] && { ls -1 "$out"; exit 0; }
 
 SIMCTL_CHILD_CMUX_IOS_HOME_PREVIEW=1 SIMCTL_CHILD_CMUX_IOS_GALLERY=1 \
   xcrun simctl launch --terminate-running-process "$udid" "$bundle" >/dev/null
