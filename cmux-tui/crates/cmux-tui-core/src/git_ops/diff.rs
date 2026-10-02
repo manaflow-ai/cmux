@@ -126,7 +126,7 @@ pub(super) fn read(
     if wants_patch && files.iter().any(ChangedFile::has_patch) {
         let batches = if files_omitted == 0 {
             // Every file is returned: the request's own paths select them.
-            vec![paths.clone()]
+            vec![paths]
         } else {
             returned_paths(&files).chunks(PATCH_BATCH).map(<[String]>::to_vec).collect()
         };
