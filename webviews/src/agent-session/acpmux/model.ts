@@ -69,24 +69,24 @@ export type ConversationLayout = {
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`).
-const MEASURE_FONT = '13px "Helvetica Neue"';
-const MESSAGE_LINE_HEIGHT = 21;
+const MEASURE_FONT = "14px system-ui";
+const MESSAGE_LINE_HEIGHT = 22.75;
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
-const USER_BUBBLE_PADDING = 18.5;
+const USER_BUBBLE_PADDING = 20;
 const chromeHeight = (row: AcpmuxRow) => row.kind === "user" ? USER_BUBBLE_PADDING : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
-const USER_BUBBLE_SIDES = 28;
+const USER_BUBBLE_SIDES = 32;
 /// Space between a row's markdown blocks, the list indent and the quote's bar and padding.
-const BLOCK_GAP = 13;
+const BLOCK_GAP = 14;
 const LIST_INDENT = 28;
 const QUOTE_INDENT = 21;
-/// Code cards: a 42px header over 12px monospace on 20px lines that never wraps, 12px inset.
+/// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset.
 const CODE_LINE_HEIGHT = 20;
-const CODE_CHROME = 54;
+const CODE_CHROME = 58.5;
 const CODE_PADDING = 13;
-/// Table rows: 21px lines with 17px of padding.
-const TABLE_ROW_HEIGHT = 38;
+/// Table rows: 23px lines with 17px of padding.
+const TABLE_ROW_HEIGHT = 40;
 const CODE_CHAR_WIDTH = 7.3;
 const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
