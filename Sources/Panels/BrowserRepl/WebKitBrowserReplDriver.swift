@@ -71,6 +71,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let sessionID = self.sessionID
         Task { @MainActor in
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
+            // The compiled domain-policy list must not outlive the session
+            // in WebKit's persistent rule list store.
+            if let ruleLists = self.ruleLists {
+                Task { @MainActor in _ = try? await ruleLists.update(rules: nil) }
+            }
             self.clearSessionLabels()
             self.closeOpenedTabs()
             self.releaseDownloadWaiters()
@@ -283,9 +288,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return ["proxy": proxyDataStore != nil]
     }
 
+    /// Compiles the session's rule list; empty or `null` rules remove the
+    /// stored one.
     @MainActor
     private func compileRuleList(_ rules: Any?) async throws -> WKContentRuleList? {
-        guard let rules = rules as? [Any], !rules.isEmpty else { return nil }
+        if ruleLists == nil, (rules as? [Any])?.isEmpty ?? true { return nil }
         return try await contentRuleLists().update(rules: rules)
     }
 
