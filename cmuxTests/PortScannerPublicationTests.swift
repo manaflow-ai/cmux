@@ -371,15 +371,27 @@ struct PortScannerAgentPublicationIntegrationTests {
             startSeconds: 10,
             startMicroseconds: 0
         )
+        let childIdentity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 11,
+            startMicroseconds: 0
+        )
         let root = AgentPortRootIdentity(pid: 100, processIdentity: identity)
         let processTable = SuspendedPortProcessTable()
-        // The first scan reports 4200, every later one 5173.
+        // The agent root's own listeners are not badged, so the listener is
+        // the root's child. The first scan reports 4200, every later one 5173.
         let portLookupCount = OSAllocatedUnfairLock(initialState: 0)
         let scanner = PortScanner(
             processTable: processTable,
-            processIdentityProvider: { pid in pid == identity.pid ? identity : nil },
+            processIdentityProvider: { pid in
+                switch pid {
+                case identity.pid: identity
+                case childIdentity.pid: childIdentity
+                default: nil
+                }
+            },
             listeningPortsProvider: { pid in
-                guard pid == identity.pid else { return .ports([]) }
+                guard pid == childIdentity.pid else { return .ports([]) }
                 let count = portLookupCount.withLock { count -> Int in
                     count += 1
                     return count
@@ -654,7 +666,7 @@ private actor SuspendedPortProcessTable: PortProcessTableReading {
 
     func parentsByPID() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
         await suspendUntilReleased()
-        return ([100: 1], .complete)
+        return ([100: 1, 101: 100], .complete)
     }
 
     func waitUntilProcessScanStarted() async {

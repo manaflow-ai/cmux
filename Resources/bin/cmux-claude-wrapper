@@ -1405,6 +1405,12 @@ cmux_computer_use_config() {
     local client state_dir default_session cua_socket runtime_scope runtime_uid auth_token
     client="$(cmux_computer_use_resolve_client)" || return 1
     auth_token="$(cmux_computer_use_auth_token)" || return 1
+    # Claude's MCP configuration is passed on its command line. Keep the
+    # socket credential in the inherited environment instead of serializing it
+    # into that argv-visible JSON (same-user processes can inspect argv with
+    # ps). The bundled cmux-cua client inherits this environment when Claude
+    # starts the MCP server.
+    export CMUX_CUA_SOCKET_AUTH_TOKEN="$auth_token"
     runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
     runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
@@ -1416,10 +1422,9 @@ cmux_computer_use_config() {
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     # The helper owns external onboarding. Mark that contract explicitly so
     # protected calls also wait for cmux's post-verification readiness signal.
-    printf '{"mcpServers":{"cmux-cua":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CMUX_CUA_MCP_FORCE_PROXY":"1","CMUX_CUA_EXTERNAL_PERMISSION_FLOW":"1","CMUX_CUA_SOCKET_AUTH_TOKEN":"%s","CMUX_CUA_DEFAULT_SESSION":"%s","CMUX_CUA_STATE_OWNER_PID":"%s","CMUX_CUA_TELEMETRY_ENABLED":"false","CMUX_CUA_UPDATE_CHECK":"false","CMUX_CUA_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CMUX_CUA_CURSOR_BLOOM":"#2d8cff","CMUX_CUA_CURSOR_LABEL":"cmux","CMUX_CUA_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+    printf '{"mcpServers":{"cmux-cua":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CMUX_CUA_MCP_FORCE_PROXY":"1","CMUX_CUA_EXTERNAL_PERMISSION_FLOW":"1","CMUX_CUA_DEFAULT_SESSION":"%s","CMUX_CUA_STATE_OWNER_PID":"%s","CMUX_CUA_TELEMETRY_ENABLED":"false","CMUX_CUA_UPDATE_CHECK":"false","CMUX_CUA_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CMUX_CUA_CURSOR_BLOOM":"#2d8cff","CMUX_CUA_CURSOR_LABEL":"cmux","CMUX_CUA_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
         "$(cmux_computer_use_json_escape "$client")" \
         "$(cmux_computer_use_json_escape "$cua_socket")" \
-        "$(cmux_computer_use_json_escape "$auth_token")" \
         "$(cmux_computer_use_json_escape "$default_session")" \
         "$(cmux_computer_use_json_escape "${CMUX_CLAUDE_PID:-$$}")" \
         "$(cmux_computer_use_json_escape "$state_dir")"

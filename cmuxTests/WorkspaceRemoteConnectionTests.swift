@@ -2714,12 +2714,16 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 .last
         )
         let uploadedRemotePath = try XCTUnwrap(firstSCPDestination.split(separator: ":", maxSplits: 1).last)
+        let uploadedFileName = try XCTUnwrap(uploadedRemotePath.split(separator: "/").last)
+        // The first ssh call prepares the private paste directory; cleanup runs
+        // after the failed copy and addresses the file through "$HOME/...".
         let cleanupInvocation = try XCTUnwrap(
-            invocations.first(where: { $0.executable == "/usr/bin/ssh" })
+            invocations.last(where: { $0.executable == "/usr/bin/ssh" })
         )
         let cleanupCommand = cleanupInvocation.arguments.joined(separator: " ")
 
-        XCTAssertTrue(cleanupCommand.contains(String(uploadedRemotePath)))
+        XCTAssertTrue(cleanupCommand.contains("rm -f --"), cleanupCommand)
+        XCTAssertTrue(cleanupCommand.contains(String(uploadedFileName)), cleanupCommand)
     }
 
     func testDetectsForegroundSSHSessionForTTY() {
@@ -2836,6 +2840,104 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 sshOptions: []
             )
         )
+    }
+
+    func testRejectsUnknownEternalTerminalLongOptionWithEqualsValue() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "--definitely-unknown=value",
+                    "example.com",
+                ],
+            ]
+        )
+
+        XCTAssertNil(session)
+    }
+
+    func testDetectsRecognizedEternalTerminalLongOptions() {
+        let valueSession = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: ["et", "--username=lawrence", "example.com"],
+            ]
+        )
+        XCTAssertEqual(valueSession?.destination, "lawrence@example.com")
+
+        let flagSession = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: ["et", "--help", "example.com"],
+            ]
+        )
+        XCTAssertEqual(flagSession?.destination, "example.com")
+    }
+
+    func testDetectsDocumentedEternalTerminalSSHConfigOptions() {
+        let valueSession = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: ["et", "--ssh-config=/tmp/et.conf", "example.com"],
+            ]
+        )
+        XCTAssertEqual(valueSession?.destination, "example.com")
+        XCTAssertEqual(valueSession?.configFile, "/tmp/et.conf")
+        let valueSCP = valueSession?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop.png"
+        ) ?? []
+        XCTAssertTrue(valueSCP.contains("-F"))
+        XCTAssertTrue(valueSCP.contains("/tmp/et.conf"))
+
+        let noConfigSession = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: ["et", "--no-ssh-config", "example.com"],
+            ]
+        )
+        XCTAssertEqual(noConfigSession?.destination, "example.com")
+        XCTAssertEqual(noConfigSession?.configFile, "/dev/null")
+        let noConfigSCP = noConfigSession?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop.png"
+        ) ?? []
+        XCTAssertTrue(noConfigSCP.contains("-F"))
+        XCTAssertTrue(noConfigSCP.contains("/dev/null"))
+    }
+
+    func testRejectsValuesAttachedToEternalTerminalNoArgumentOptions() {
+        let cases = [
+            ["et", "--help=value", "example.com"],
+            ["et", "--forward-ssh-agent=value", "example.com"],
+        ]
+
+        for arguments in cases {
+            let session = TerminalSSHSessionDetector.detectForTesting(
+                ttyName: "/dev/ttys004",
+                processes: [
+                    .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+                ],
+                argumentsByPID: [2145: arguments]
+            )
+            XCTAssertNil(session)
+        }
     }
 
     func testDetectsEternalTerminalSessionWithoutTreatingETPortAsSSHPort() {

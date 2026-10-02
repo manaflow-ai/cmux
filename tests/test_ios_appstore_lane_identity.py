@@ -30,6 +30,8 @@ APPSTORE_BUNDLE_ID = "com.cmux.app"
 APPSTORE_APP_ID = f"{TEAM_ID}.{APPSTORE_BUNDLE_ID}"
 APPSTORE_EXTENSION_BUNDLE_ID = f"{APPSTORE_BUNDLE_ID}.NotificationService"
 APPSTORE_EXTENSION_PROFILE_NAME = "cmux App Store Notification Service Distribution"
+APPSTORE_CLOUD_VPN_BUNDLE_ID = f"{APPSTORE_BUNDLE_ID}.CloudVPN"
+APPSTORE_CLOUD_VPN_PROFILE_NAME = "cmux App Store CloudVPN Distribution"
 BETA_BUNDLE_ID = "dev.cmux.app.beta"
 BETA_APP_ID = f"{TEAM_ID}.{BETA_BUNDLE_ID}"
 ASC_APP_ID = "6783338052"
@@ -110,6 +112,23 @@ def _extension_profile_plist() -> dict[str, object]:
     return profile
 
 
+def _cloud_vpn_profile_plist() -> dict[str, object]:
+    profile = _profile_plist(
+        APPSTORE_CLOUD_VPN_BUNDLE_ID,
+        APPSTORE_CLOUD_VPN_PROFILE_NAME,
+        "00000000-0000-0000-0000-000000000005",
+    )
+    entitlements = profile["Entitlements"]
+    assert isinstance(entitlements, dict)
+    entitlements.pop("aps-environment", None)
+    entitlements.pop("com.apple.developer.usernotifications.time-sensitive", None)
+    entitlements["com.apple.developer.networking.networkextension"] = [
+        "app-proxy-provider",
+        "packet-tunnel-provider",
+    ]
+    return profile
+
+
 def _write_executable(path: Path, body: str) -> None:
     path.write_text(body, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
@@ -128,6 +147,8 @@ APPSTORE_APP_ID = {APPSTORE_APP_ID!r}
 APPSTORE_EXTENSION_BUNDLE_ID = {APPSTORE_EXTENSION_BUNDLE_ID!r}
 APPSTORE_EXTENSION_APP_ID = TEAM_ID + "." + APPSTORE_EXTENSION_BUNDLE_ID
 APPSTORE_EXTENSION_PROFILE_NAME = {APPSTORE_EXTENSION_PROFILE_NAME!r}
+APPSTORE_CLOUD_VPN_BUNDLE_ID = {APPSTORE_CLOUD_VPN_BUNDLE_ID!r}
+APPSTORE_CLOUD_VPN_PROFILE_NAME = {APPSTORE_CLOUD_VPN_PROFILE_NAME!r}
 BETA_BUNDLE_ID = {BETA_BUNDLE_ID!r}
 BETA_APP_ID = {BETA_APP_ID!r}
 IDENTITY = {IDENTITY!r}
@@ -142,6 +163,7 @@ def write_plist(path, value):
 APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
 BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
 EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_extension_profile_plist())!r})
+APPSTORE_CLOUD_VPN_PROFILE = plistlib.loads({_plist_bytes(_cloud_vpn_profile_plist())!r})
 BETA_EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID + ".NotificationServiceV2", "cmux Beta Notification Service Distribution", "00000000-0000-0000-0000-000000000004"))!r})
 BETA_EXTENSION_PROFILE["Entitlements"]["keychain-access-groups"] = [TEAM_ID + ".*"]
 FIXTURE_CERTIFICATE = {ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER)!r}
@@ -153,6 +175,8 @@ def profile_for_bundle(bundle_id):
         source = BETA_EXTENSION_PROFILE
     elif bundle_id == APPSTORE_EXTENSION_BUNDLE_ID:
         source = EXTENSION_PROFILE
+    elif bundle_id == APPSTORE_CLOUD_VPN_BUNDLE_ID:
+        source = APPSTORE_CLOUD_VPN_PROFILE
     else:
         source = APPSTORE_PROFILE
     if os.environ.get("CMUX_FAKE_PROFILE_MISSING_TIME_SENSITIVE") != "1":
@@ -181,6 +205,8 @@ def entitlements_for_bundle(bundle_id):
             "get-task-allow": False,
         }}
     entitlements = dict(profile_for_bundle(bundle_id)["Entitlements"])
+    if bundle_id == APPSTORE_CLOUD_VPN_BUNDLE_ID:
+        entitlements["com.apple.developer.networking.networkextension"] = ["packet-tunnel-provider"]
     override_group = os.environ.get("CMUX_FAKE_SIGNED_KEYCHAIN_GROUP")
     if override_group:
         entitlements["keychain-access-groups"] = [override_group]
@@ -448,6 +474,13 @@ if "archive" in args:
             "CMUXKeychainAccessGroup": bundle_id,
         }},
     )
+    cloud_vpn = app / "PlugIns" / "CloudVPN.appex"
+    write_plist(
+        cloud_vpn / "Info.plist",
+        {{
+            "CFBundleIdentifier": f"{{bundle_id}}.CloudVPN",
+        }},
+    )
     # upload-testflight.sh refuses archives without dSYM bundles.
     (archive / "dSYMs" / "cmux.app.dSYM" / "Contents").mkdir(parents=True, exist_ok=True)
     sys.exit(0)
@@ -472,6 +505,13 @@ if "-exportArchive" in args:
             "CMUXKeychainAccessGroup": bundle_id,
         }},
     )
+    cloud_vpn = app / "PlugIns" / "CloudVPN.appex"
+    write_plist(
+        cloud_vpn / "Info.plist",
+        {{
+            "CFBundleIdentifier": f"{{bundle_id}}.CloudVPN",
+        }},
+    )
     if os.environ.get("CMUX_FAKE_EMBED_INVALID_FRAMEWORK_SHELL") == "1":
         write_plist(
             app / "Frameworks" / "Iroh.framework" / "Info.plist",
@@ -492,6 +532,8 @@ if "-exportArchive" in args:
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
     (extension / "embedded.mobileprovision").write_text("extension profile", encoding="utf-8")
+    (cloud_vpn / "embedded.mobileprovision").write_text("cloud vpn profile", encoding="utf-8")
+    write_plist(cloud_vpn / "FakeSignedEntitlements.plist", entitlements_for_bundle(f"{{bundle_id}}.CloudVPN"))
     # upload-testflight.sh refuses IPAs without Symbols/*.symbols.
     symbols_root = export_path / "Symbols"
     symbols_root.mkdir(parents=True, exist_ok=True)
@@ -575,6 +617,17 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
             elif b"beta extension profile" in body:
                 profile = BETA_EXTENSION_PROFILE
+            elif b"cloud vpn profile" in body:
+                profile = copy.deepcopy(APPSTORE_CLOUD_VPN_PROFILE)
+                try:
+                    cloud_vpn_info = source.parent / "Info.plist"
+                    cloud_vpn_bundle_id = plistlib.loads(cloud_vpn_info.read_bytes()).get(
+                        "CFBundleIdentifier", ""
+                    )
+                    profile["Entitlements"] = dict(profile["Entitlements"])
+                    profile["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.{{cloud_vpn_bundle_id}}"
+                except (OSError, plistlib.InvalidFileException):
+                    pass
             elif b"extension profile" in body:
                 profile = copy.deepcopy(EXTENSION_PROFILE)
                 try:
@@ -650,6 +703,9 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     # profile (#12935); the lane refuses to export without the name.
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = APPSTORE_EXTENSION_PROFILE_NAME
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
+    env["IOS_APPSTORE_ENABLE_CLOUD_VPN"] = "1"
+    env["IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME"] = APPSTORE_CLOUD_VPN_PROFILE_NAME
+    env["IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"cloud vpn profile").decode()
     env["IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux Beta Notification Service Distribution"
     # Profile expiry is validated against this fixed instant, not the real clock.
     env["IOS_APPSTORE_PROFILE_VALIDATION_TIME"] = PROFILE_VALIDATION_TIME
@@ -806,6 +862,7 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
         "ios/scripts/notification-service-bundle-id.sh",
         "ios/Config/Shared.xcconfig",
         "ios/Config/cmux-release.entitlements",
+        "ios/Config/CloudVPN.entitlements",
         "ios/Config/NotificationService.entitlements",
         "scripts/lib/verify-ios-release-origins.sh",
     ):
@@ -1294,6 +1351,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         profiles.get(APPSTORE_EXTENSION_BUNDLE_ID) == APPSTORE_EXTENSION_PROFILE_NAME,
         "export options map the notification extension to its App Store profile",
     )
+    _check(
+        profiles.get(APPSTORE_CLOUD_VPN_BUNDLE_ID) == APPSTORE_CLOUD_VPN_PROFILE_NAME,
+        "export options map CloudVPN to its packet-tunnel App Store profile",
+    )
     _check("com.cmuxterm.app" not in profiles, "export options do not include the retired app id")
 
     ipa_line = next(line for line in result.stdout.splitlines() if line.startswith("IPA_PATH="))
@@ -1314,6 +1375,9 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
             in zf.namelist()
             else {}
         )
+        cloud_vpn_entitlements = plistlib.loads(
+            zf.read("Payload/cmux.app/PlugIns/CloudVPN.appex/FakeSignedEntitlements.plist")
+        )
     _check(info.get("CFBundleIdentifier") == APPSTORE_BUNDLE_ID, "final signed IPA Info.plist is com.cmux.app")
     _check(
         info.get("CMUXKeychainAccessGroup") == APPSTORE_APP_ID,
@@ -1326,6 +1390,16 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     _check(
         extension_entitlements.get("keychain-access-groups") == [APPSTORE_APP_ID],
         "notification extension signature carries the exact App Store keychain group",
+    )
+    _check(
+        cloud_vpn_entitlements.get("application-identifier")
+        == f"{TEAM_ID}.{APPSTORE_CLOUD_VPN_BUNDLE_ID}",
+        "CloudVPN signature carries its exact App Store application identifier",
+    )
+    _check(
+        cloud_vpn_entitlements.get("com.apple.developer.networking.networkextension")
+        == ["packet-tunnel-provider"],
+        "CloudVPN signature carries the packet-tunnel-provider entitlement",
     )
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
@@ -1367,6 +1441,7 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
     env = _asc_upload_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
     env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
+    env["CMUX_TESTFLIGHT_NOTES_REQUEST_FILE"] = str(tmp / "testflight-notes-request.json")
     result = _run(
         [
             "bash",
@@ -1428,8 +1503,12 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
         "profile installer exports a separate NotificationService profile name",
     )
     _check(
-        len(list((Path(env["HOME"]) / "Library/MobileDevice/Provisioning Profiles").glob("*.mobileprovision"))) == 2,
-        "profile installer keeps distinct app and extension profile files",
+        f"IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME={APPSTORE_CLOUD_VPN_PROFILE_NAME}" in github_env,
+        "profile installer exports a separate CloudVPN profile name",
+    )
+    _check(
+        len(list((Path(env["HOME"]) / "Library/MobileDevice/Provisioning Profiles").glob("*.mobileprovision"))) == 3,
+        "profile installer keeps distinct app, notification, and CloudVPN profile files",
     )
 
 

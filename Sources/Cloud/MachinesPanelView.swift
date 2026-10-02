@@ -224,7 +224,16 @@ struct MachinesPanelView: View {
         } else if isTeamChangePending {
             teamScopeLoading
         } else {
-            content
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer(minLength: 0)
+                    cloudAgentMenu
+                }
+                .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+                .padding(.vertical, 2)
+                .accessibilityIdentifier("CloudMachinesAgentActionsRow")
+                content
+            }
         }
     }
 
@@ -537,6 +546,7 @@ struct MachinesPanelView: View {
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
+            cloudFleetListIsCurrent: viewModel.listProblem == nil && !viewModel.isNetworkOffline,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest ?? selectionReveal,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
