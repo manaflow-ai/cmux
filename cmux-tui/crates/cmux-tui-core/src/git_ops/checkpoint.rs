@@ -164,11 +164,7 @@ fn create(
         }
         refs::sweep(store, &git, &target.repository_id, &target.worktree_id);
         let stored = capture(store, &git, &target, &arguments)?;
-        let pending = Pending {
-            idempotency_key: key.clone(),
-            fingerprint: fingerprint.clone(),
-            draft: stored.clone(),
-        };
+        let pending = Pending { idempotency_key: key.clone(), fingerprint, draft: stored.clone() };
         // Journal the intent first: a retry after a crash finds the ref.
         store.journal(&pending).map_err(|error| io_failed(OPERATION, &error))?;
         refs::publish(&git, &stored, OPERATION)?;
