@@ -1,7 +1,7 @@
 // ChatGPT for Chrome side of the differential harness. Started by run.mjs
 // under ChatGPT's bundled node; drives the installed reference runtime through
 // the user's reference client (cmux-browser-cli/scripts/cua-reference-client.ts)
-// exactly as compare/chatgpt-live.ts does:
+// within these limits:
 //
 // - approval covers one temporary origin (ORIGINS.primary, 127.0.0.1) and the
 //   disposable parity-upload.txt; every other origin a case touches is denied

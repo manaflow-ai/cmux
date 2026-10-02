@@ -46,7 +46,7 @@ scenario (`key` its golden value), `unit:` a `node --test` file.
 
 ## DOM representation (`dom/`)
 
-[representation-comparison.md](representation-comparison.md) compares the formats in detail.
+The format studies and the representation comparison live in the private repository `manaflow-ai/cmux-browser-parity-private`.
 
 | browser-use | cmux | Proof | Verdict |
 | --- | --- | --- | --- |

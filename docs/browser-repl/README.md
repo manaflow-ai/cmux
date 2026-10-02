@@ -366,8 +366,7 @@ agent -> cmux browser repl -> control socket -> REPL session (JavaScriptCore)
   per-frame script in an isolated content world, `repl-host.js`). Locators use
   Playwright's injected script (Apache-2.0).
 - Driver contract: [driver-protocol.md](driver-protocol.md).
-- Reference studies kept for the record: [aside-snapshot-spec.md](aside-snapshot-spec.md),
-  [chatgpt-ax-spec.md](chatgpt-ax-spec.md).
+- The format studies and the representation comparison live in the private repository `manaflow-ai/cmux-browser-parity-private`.
 
 ## Tests
 

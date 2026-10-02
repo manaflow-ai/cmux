@@ -10,8 +10,7 @@
 //             CMUX_SOCKET_PATH, as run.mjs --backend cmux.
 //   aside     `aside repl`, one one-shot call per page (never `aside exec`).
 //   chrome    headless Google Chrome with a throwaway profile: Playwright's
-//             `_snapshotForAI()` (Playwright MCP's snapshot) and the ChatGPT
-//             for Chrome AX renderer from git history (compare/adapters.mjs).
+//             `_snapshotForAI()` (Playwright MCP's snapshot).
 //
 // Every page gets one program: navigate, take `runs` full snapshots, change
 // one element and take one more (the diff), resolve a ref, and for cmux read
@@ -24,7 +23,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 import { createDevBrowser, createNodeHost, createDevRepl, loadRuntime } from "../lib/dev-driver.mjs";
-import { tokens } from "../compare/metrics.mjs";
+import { tokens, TOKENIZER } from "./tokens.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MARK = "@@PERF@@";
@@ -333,8 +332,8 @@ console.log(${JSON.stringify(MARK)} + JSON.stringify(__out));`;
   };
 }
 
-// Headless Chrome: Playwright's AI snapshot (Playwright MCP) and the ChatGPT
-// for Chrome AX renderer, each timed in this process.
+// Headless Chrome: Playwright's AI snapshot (Playwright MCP), timed in this
+// process.
 async function chromeBackend() {
   const { createChromeReferences } = await import("./chrome-refs.mjs");
   return createChromeReferences({ runs, mutate: MUTATE });
@@ -369,7 +368,7 @@ async function main() {
   if (!make) throw new Error(`unknown backend ${backend}`);
   const b = await make();
   const pages = selectPages(servers.origins);
-  const results = { backend, label, runs, date: new Date().toISOString(), host: os.hostname(), pages: {} };
+  const results = { backend, label, runs, tokenizer: TOKENIZER, date: new Date().toISOString(), host: os.hostname(), pages: {} };
   const outFile = path.join(here, "results", `${label}-${backend}.json`);
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   const save = () => {

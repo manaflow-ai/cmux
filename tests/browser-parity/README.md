@@ -74,10 +74,14 @@ Verdicts use the app's result for a case when there is one.
   built by script so the same query gives the same DOM. Scenario `30-stress`
   checks Playwright behavior on them against the oracle and the print budget.
 - `perf/`: `bench.mjs` times snapshots, diffs and ref resolution per page for
-  cmux (dev driver or a tagged app), Aside, Playwright MCP and ChatGPT's AX
-  renderer; `report.mjs` renders `perf/results/*.json` as the tables in
-  [performance.md](../../docs/browser-repl/performance.md).
+  cmux (dev driver or a tagged app), Aside and Playwright MCP; `report.mjs`
+  renders `perf/results/*.json` as the tables in
+  [performance.md](../../docs/browser-repl/performance.md), including the
+  ChatGPT AX columns recorded earlier.
 - `reference/`: API surfaces captured from Aside and ChatGPT for Chrome.
+
+The format studies and the representation comparison live in the private
+repository `manaflow-ai/cmux-browser-parity-private`.
 - `unit/`: `node --test` tests for the runtime and for capabilities.json,
   including `budget.test.mjs` (print budget, diff bounds, output spill) and
   `perf.test.mjs` (scaling and bounded-output guards on the stress pages).

@@ -7,7 +7,7 @@ the frozen corpus, synthetic stress pages and four live pages.
 
 ```sh
 node tests/browser-parity/perf/bench.mjs --backend cmux-dev --pages all --label after
-node tests/browser-parity/perf/bench.mjs --backend chrome   --pages all --label ref   # Playwright MCP, ChatGPT AX
+node tests/browser-parity/perf/bench.mjs --backend chrome   --pages all --label ref   # Playwright MCP
 node tests/browser-parity/perf/bench.mjs --backend aside    --pages all --label ref   # aside repl, one call per page
 PARITY_CMUX_CLI=<tagged cmux CLI> CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock \
   node tests/browser-parity/perf/bench.mjs --backend cmux --pages all --label after
@@ -68,9 +68,10 @@ by 2,000 every ten snapshots before (14,800 after 100).
 Aside timings include its CLI and extension round trips; its `cards-200k`
 run failed after 52 s with `fetch failed: other side closed`. Playwright MCP
 (`_snapshotForAI()`) timed out after 30 s on `cards-200k`. ChatGPT AX times
-are from the offline reference renderer (ChatGPT for Chrome's own WASM
-renderer fed by CDP from Node), not ChatGPT's production path; its sizes are
-exact. Amazon served Playwright WebKit a bot page in the final dev run
+were recorded once from an offline reference renderer (ChatGPT for Chrome's
+own WASM renderer fed by CDP from Node), not ChatGPT's production path; its
+sizes are exact. That renderer is no longer in this repository, so new
+`--backend chrome` runs record Playwright MCP only. Amazon served Playwright WebKit a bot page in the final dev run
 (401 characters); the app and the other tools got the results page. The
 live GitHub page was logged out everywhere except, possibly, Aside's own
 browser profile, which was not inspected; Aside's 80 KB there reflects a
