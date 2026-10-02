@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { toLines, wake } from "@mux/brain";
 import type { FileMemoryStore } from "./file-store.ts";
+import { EVENT_PREFIX } from "./supervisor.ts";
 
 /** The Claude Code hook input fields mux reads. */
 export interface HookInput {
@@ -87,7 +88,11 @@ export async function userPromptSubmit(
   const news = (await store.read(from, length))
     .map((line, i) => ({ line, index: from + i }))
     .filter(({ line }) => !line.includes(mine));
-  const lines = toLines(`${stamp(ctx.now)} ${mine} user: ${input.prompt ?? ""}`).slice(
+  // Supervisor prompts (agent events) are logged as events, not as the user's words.
+  const prompt = input.prompt ?? "";
+  const event = prompt.startsWith(EVENT_PREFIX);
+  const body = event ? prompt.slice(EVENT_PREFIX.length).trim() : prompt;
+  const lines = toLines(`${stamp(ctx.now)} ${mine} ${event ? "event" : "user"}: ${body}`).slice(
     0,
     MAX_PROMPT_LINES,
   );

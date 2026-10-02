@@ -112,3 +112,19 @@ test("only one compactor holds the lock; a dead owner's lock is taken over", () 
   again?.();
   void ctx;
 });
+
+test("hook commands carry the mux's own home, whatever environment claude runs them in", async () => {
+  const { hookSettings } = await import("../src/up.ts");
+  const settings = hookSettings(["/opt/bun", "/x/main.ts"], { MUX_HOME: "/tmp/mux home" }) as {
+    hooks: Record<string, { hooks: { command: string }[] }[]>;
+  };
+  expect(settings.hooks.Stop[0].hooks[0].command).toBe(
+    "env MUX_HOME='/tmp/mux home' /opt/bun /x/main.ts hook stop",
+  );
+  expect(Object.keys(settings.hooks)).toEqual([
+    "SessionStart",
+    "UserPromptSubmit",
+    "Stop",
+    "PreCompact",
+  ]);
+});

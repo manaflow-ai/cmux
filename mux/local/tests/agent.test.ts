@@ -18,7 +18,7 @@ test("an agent that closed while starting is retried; other errors are not", asy
       throw new Error('acpmux ensure failed (1): {"message":"agent process closed"}');
     return "ok";
   };
-  expect(await retryAgentStart(flaky)).toBe("ok");
+  expect(await retryAgentStart(flaky, 3, 0)).toBe("ok");
   expect(calls).toBe(3);
 
   calls = 0;
@@ -26,7 +26,7 @@ test("an agent that closed while starting is retried; other errors are not", asy
     calls++;
     throw new Error("acpmux send failed (4): no session matches");
   };
-  expect(await rejection(retryAgentStart(broken))).toContain("no session");
+  expect(await rejection(retryAgentStart(broken, 3, 0))).toContain("no session");
   expect(calls).toBe(1);
 
   calls = 0;
@@ -34,7 +34,7 @@ test("an agent that closed while starting is retried; other errors are not", asy
     calls++;
     throw new Error("agent process closed");
   };
-  expect(await rejection(retryAgentStart(alwaysClosed))).toContain("closed");
+  expect(await rejection(retryAgentStart(alwaysClosed, 3, 0))).toContain("closed");
   expect(calls).toBe(3);
 });
 

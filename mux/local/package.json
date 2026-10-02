@@ -9,6 +9,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@mux/acpmux": "workspace:*",
     "@mux/brain": "workspace:*",
     "@mux/protocol": "workspace:*"
   },

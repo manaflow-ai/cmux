@@ -181,3 +181,29 @@ that. Chats live in SQLite and memory in a git repo (LOG.txt) under
 in the local form yet. Because the agent can run commands, the server refuses
 any Host other than its loopback name and any foreign Origin. Staging and
 Stack sign-in stay reachable with `CMUX_NEXT_MUX_URL`.
+
+## The mux on this Mac: an acpmux session plus a supervisor (user 2026-10-01)
+
+- `mux` (mux/cli, TypeScript on Bun) runs `mux up` and attaches the acpmux TUI
+  to the session `mux`. `mux up` writes `~/.cmux/mux/session/` (CLAUDE.md = the
+  mux prompt, .claude/settings.json = the memory hooks), creates the session on
+  `claude-sr` (acpmux's own stdio Claude backend through the subrouter; never
+  the old `claude-acp` adapter) and starts one `mux supervise`.
+- The supervisor holds a JSON-RPC connection to `~/.acpmux/acpmux.sock`
+  (@mux/acpmux) with `_acpmux/watch`. Agents the mux starts with
+  `mux agents spawn` carry the tag `mux.parent=mux`; when one ends a turn or
+  asks for a permission, the supervisor queues a `[mux-event]` prompt on the
+  mux. Nothing polls.
+- Memory hooks: SessionStart injects the wake view (also after Claude Code's
+  own compaction); UserPromptSubmit logs the prompt (events as `event:`) and
+  injects lines other sessions added; Stop logs the reply and starts the
+  compactor (a temporary `claude/haiku` acpmux session) in the background;
+  PreCompact runs it first. Hook commands carry MUX_HOME, because hooks run in
+  the claude process's environment, not the caller's.
+- `mux claude [args]` is the one-off form: plain `claude` with the same prompt
+  and hooks.
+- mux/link (Rust) is only for the cloud form: it lets a Durable Object mux drive
+  acpmux on a Mac behind NAT. The local form talks to the socket directly.
+- Agent starts through `claude-sr` can fail when the machine is loaded (the
+  launcher's `tailscale status` check is killed); every start retries with
+  backoff. The launcher's own limit belongs in the subrouter repo.

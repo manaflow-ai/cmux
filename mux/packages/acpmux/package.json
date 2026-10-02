@@ -1,17 +1,13 @@
 {
-  "name": "@mux/cli",
+  "name": "@mux/acpmux",
   "version": "0.0.0",
   "private": true,
-  "bin": {
-    "mux": "src/main.ts"
-  },
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "test": "bun test"
-  },
-  "dependencies": {
-    "@mux/acpmux": "workspace:*",
-    "@mux/brain": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "1.4.2"

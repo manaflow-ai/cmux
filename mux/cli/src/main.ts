@@ -1,10 +1,13 @@
 #!/usr/bin/env bun
-// mux: Claude Code as the user's long-lived orchestrator. `mux [claude args]`
-// runs claude with the mux system prompt and memory hooks; the subcommands
-// below are those hooks and the memory tools.
+// mux: the user's long-lived orchestrator, a Claude Code session in acpmux
+// (claude-sr: our stdio backend through the subrouter) with the mux prompt and
+// memory hooks, plus a supervisor that reports its agents' events back to it.
 
 import { spawn } from "node:child_process";
-import { zoom } from "@mux/brain";
+import { join } from "node:path";
+import { AcpmuxClient } from "@mux/acpmux";
+import { toLines, zoom } from "@mux/brain";
+import { acpmuxCli, lastReply, listAgents, MUX_SESSION, spawnAgent } from "./agents.ts";
 import { acpmuxSummarizer, compactUntilDone, takeLock } from "./compactor.ts";
 import { FileMemoryStore } from "./file-store.ts";
 import {
@@ -17,25 +20,54 @@ import {
 } from "./hooks.ts";
 import { muxPaths } from "./paths.ts";
 import { MUX_SYSTEM_PROMPT } from "./prompt.ts";
+import { Supervisor } from "./supervisor.ts";
+import { ensureMuxSession, ensureSupervisor, hookSettings, writeSessionDir } from "./up.ts";
+
+const USAGE = `mux                            start (or reattach to) your mux in acpmux
+mux up                         set up the mux session and supervisor without attaching
+mux install                    put a \`mux\` launcher in ~/.local/bin (the mux's own tools need it)
+mux claude [args...]           a one-off Claude Code with the mux prompt and memory hooks
+mux agents spawn --cwd DIR [--name N] [--harness H] [--policy P] <prompt>
+mux agents list | prompt NAME <text> | allow NAME [OPTION] | deny NAME
+mux memory recall <regex> [n] | zoom <lo-hi> | note <text> | wake [budget] | path
+mux compact                    build missing memory summaries now
+Env: MUX_HOME (~/.cmux/mux), MUX_HARNESS (claude-sr), MUX_POLICY (approve-all),
+     MUX_WAKE_BUDGET (96), MUX_COMPACT_HARNESS (claude/haiku)`;
 
 const paths = muxPaths();
 const budget = Number(process.env.MUX_WAKE_BUDGET ?? 96);
 const self = [process.execPath, import.meta.path];
+const sessionDir = join(paths.home, "session");
 const store = () => new FileMemoryStore(paths.memory);
 const hookContext = (): HookContext => ({ store: store(), sessionsDir: paths.sessions, budget });
-
-const USAGE = `mux [claude args...]          Claude Code as mux (system prompt + memory hooks)
-mux memory recall <regex> [n]  exact log lines, newest first
-mux memory zoom <lo-hi>        what a summary was made of
-mux memory note <text>         record a fact
-mux memory wake [budget]       the memory view injected at session start
-mux memory path                where memory lives
-mux compact                    build missing summaries now (cheap acpmux agent)
-Env: MUX_HOME (~/.cmux/mux), MUX_WAKE_BUDGET (96), MUX_COMPACT_HARNESS (claude/haiku)`;
-
 const [command, ...rest] = process.argv.slice(2);
 
 switch (command) {
+  case undefined:
+    await up();
+    await run("acpmux", ["attach", MUX_SESSION]);
+    break;
+  case "up":
+    await up();
+    break;
+  case "install":
+    install();
+    break;
+  case "claude":
+    await run("claude", [
+      "--append-system-prompt",
+      MUX_SYSTEM_PROMPT,
+      "--settings",
+      JSON.stringify(hookSettings(self, { MUX_HOME: paths.home })),
+      ...rest,
+    ]);
+    break;
+  case "supervise":
+    await supervise();
+    break;
+  case "agents":
+    await runAgents(rest);
+    break;
   case "hook":
     await runHook(rest[0]);
     break;
@@ -45,38 +77,100 @@ switch (command) {
   case "compact":
     await runCompact();
     break;
-  case "--mux-help":
-    console.log(USAGE);
-    break;
   default:
-    await runClaude(process.argv.slice(2));
+    console.log(USAGE);
+    process.exit(command === "--help" || command === "help" ? 0 : 2);
 }
 
-async function runClaude(args: string[]): Promise<never> {
-  const hook = (event: string, timeout: number) => ({
-    hooks: [
-      { type: "command", command: [...self, "hook", event].map(shellQuote).join(" "), timeout },
-    ],
-  });
-  const settings = {
-    hooks: {
-      SessionStart: [hook("session-start", 30)],
-      UserPromptSubmit: [hook("user-prompt-submit", 30)],
-      Stop: [hook("stop", 30)],
-      PreCompact: [hook("pre-compact", 600)],
-    },
-  };
-  const child = spawn(
-    "claude",
-    ["--append-system-prompt", MUX_SYSTEM_PROMPT, "--settings", JSON.stringify(settings), ...args],
-    {
-      stdio: "inherit",
-    },
+async function up(): Promise<void> {
+  writeSessionDir(sessionDir, self, { MUX_HOME: paths.home, MUX_SESSION_NAME: MUX_SESSION });
+  const state = await ensureMuxSession(
+    sessionDir,
+    process.env.MUX_HARNESS ?? "claude-sr",
+    process.env.MUX_POLICY ?? "approve-all",
   );
+  const pid = ensureSupervisor(paths, self);
+  console.error(
+    `mux: session ${MUX_SESSION} ${state}; supervisor ${pid ? `started (${pid})` : "running"}`,
+  );
+}
+
+/** A launcher on PATH, so the mux (and you) can run `mux ...` from any shell. */
+function install(): void {
+  const { mkdirSync, writeFileSync, chmodSync } = require("node:fs") as typeof import("node:fs");
+  const { homedir } = require("node:os") as typeof import("node:os");
+  const dir = join(homedir(), ".local", "bin");
+  mkdirSync(dir, { recursive: true });
+  const target = join(dir, "mux");
+  writeFileSync(target, `#!/bin/sh\nexec ${self.map((s) => `'${s}'`).join(" ")} "$@"\n`);
+  chmodSync(target, 0o755);
+  console.log(`installed ${target} -> ${self[1]}`);
+}
+
+async function run(binary: string, args: string[]): Promise<never> {
+  const child = spawn(binary, args, { stdio: "inherit" });
   const code = await new Promise<number>((resolve) =>
     child.on("exit", (c, signal) => resolve(c ?? (signal ? 130 : 1))),
   );
   process.exit(code);
+}
+
+/** Runs until the daemon connection closes; `mux up` starts it again. */
+async function supervise(): Promise<void> {
+  const client = await AcpmuxClient.connect(undefined, "mux-supervisor");
+  const log = (line: string) => console.log(`${new Date().toISOString()} ${line}`);
+  const closed = new Promise<void>((resolve) => client.onClose(resolve));
+  await new Supervisor(client, lastReply, log).start();
+  log("watching acpmux");
+  await closed;
+  log("acpmux connection closed");
+}
+
+async function runAgents([verb, ...args]: string[]): Promise<void> {
+  switch (verb) {
+    case "spawn": {
+      const flags: Record<string, string> = {};
+      const words: string[] = [];
+      for (let i = 0; i < args.length; i++) {
+        if (args[i].startsWith("--") && i + 1 < args.length) flags[args[i].slice(2)] = args[++i];
+        else words.push(args[i]);
+      }
+      if (!flags.cwd || words.length === 0)
+        throw new Error(
+          "usage: mux agents spawn --cwd DIR [--name N] [--harness H] [--policy P] <prompt>",
+        );
+      const agent = await spawnAgent({
+        cwd: flags.cwd,
+        prompt: words.join(" "),
+        name: flags.name,
+        harness: flags.harness,
+        policy: flags.policy,
+      });
+      console.log(
+        `started ${agent.name} (${agent.sessionId}) in ${agent.cwd}; its result will come back as a [mux-event]`,
+      );
+      return;
+    }
+    case "list":
+      for (const a of await listAgents())
+        console.log(
+          `${a.name}\t${a.status}\t${a.harness}\t${a.cwd}${a.pendingPermissions ? `\t${a.pendingPermissions} pending permission(s)` : ""}`,
+        );
+      return;
+    case "prompt":
+      process.stdout.write(
+        await acpmuxCli(["send", args[0], "--no-wait", args.slice(1).join(" ")]),
+      );
+      return;
+    case "allow":
+      process.stdout.write(await acpmuxCli(["session", "allow", ...args.slice(0, 2)]));
+      return;
+    case "deny":
+      process.stdout.write(await acpmuxCli(["session", "deny", args[0]]));
+      return;
+    default:
+      console.log(USAGE);
+  }
 }
 
 async function runHook(event: string | undefined): Promise<void> {
@@ -127,12 +221,10 @@ async function runCompact(): Promise<void> {
 async function runMemory([verb, ...args]: string[]): Promise<void> {
   const memory = store();
   switch (verb) {
-    case "recall": {
-      const limit = Number(args[1] ?? 20);
-      for (const hit of await memory.recall(args[0] ?? ".", limit))
+    case "recall":
+      for (const hit of await memory.recall(args[0] ?? ".", Number(args[1] ?? 20)))
         console.log(`#${hit.index} ${hit.line}`);
       return;
-    }
     case "zoom": {
       const [lo, hi] = (args[0] ?? "").split("-").map(Number);
       if (!Number.isInteger(lo) || !Number.isInteger(hi))
@@ -141,7 +233,6 @@ async function runMemory([verb, ...args]: string[]): Promise<void> {
       return;
     }
     case "note": {
-      const { toLines } = await import("@mux/brain");
       const length = await memory.append(
         toLines(`${new Date().toISOString().slice(0, 16)} note: ${args.join(" ")}`),
       );
@@ -162,8 +253,4 @@ async function runMemory([verb, ...args]: string[]): Promise<void> {
 
 function print(output: unknown): void {
   if (output !== undefined) process.stdout.write(JSON.stringify(output));
-}
-
-function shellQuote(value: string): string {
-  return /^[A-Za-z0-9_./:@-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
 }

@@ -14,12 +14,13 @@ Memory
 - <mux-memory-update> blocks show what other sessions added since you last looked.
 
 Agents (acpmux)
-- Start: \`acpmux new -m claude --cwd DIR -n NAME -d "prompt"\` (returns at once).
-- Steer: \`acpmux send NAME --no-wait "text"\`; read: \`acpmux last NAME\`, \`acpmux ls\`.
-- Wait without polling: \`acpmux wait NAME --until ready|permission\`.
-- Permissions: \`acpmux pending\` lists requests; answer with
-  \`acpmux session allow NAME [OPTION]\` or \`acpmux session deny NAME\`. Ask the
-  user first for anything destructive or outward-facing.
+- Start: \`mux agents spawn --cwd DIR --name NAME [--harness claude-sr|codex] "prompt"\`.
+  It returns once the agent runs. When its turn ends, or when it asks for a
+  permission, you get a "[mux-event]" message. Do not wait or poll for it.
+- Steer: \`mux agents prompt NAME "text"\`. See yours: \`mux agents list\`.
+- Permissions: \`mux agents allow NAME OPTION_ID\` or \`mux agents deny NAME\`.
+  Ask the user first for anything destructive or outward-facing.
+- Anything else: the \`acpmux\` CLI (\`acpmux last NAME\`, \`acpmux history NAME\`).
 
 cmux
 - Show an agent to the user in its own workspace:

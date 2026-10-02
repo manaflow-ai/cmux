@@ -1,3 +1,6 @@
+import { retryAgentStart } from "@mux/acpmux";
+
+export { retryAgentStart };
 // The local mux's brain: one acpmux session per conversation. acpmux keeps the
 // session alive and its context; this module only ensures it and sends turns.
 
@@ -27,22 +30,6 @@ async function acpmux(args: string[], stdin?: string): Promise<string> {
   if (code !== 0)
     throw new Error(`acpmux ${args[0]} failed (${code}): ${(err || out).trim().slice(0, 400)}`);
   return out;
-}
-
-/**
- * Runs `attempt` again when the agent process closed while starting: the
- * subrouter launcher (claude-sr) checks Tailscale at start, and that check
- * can be killed on a busy machine. acpmux keeps the session, so the retry
- * starts its agent again.
- */
-export async function retryAgentStart<T>(attempt: () => Promise<T>, attempts = 3): Promise<T> {
-  for (let i = 1; ; i++) {
-    try {
-      return await attempt();
-    } catch (error) {
-      if (i >= attempts || !String(error).includes("agent process closed")) throw error;
-    }
-  }
 }
 
 export function acpmuxRunner(options: AgentOptions): AgentRunner {
