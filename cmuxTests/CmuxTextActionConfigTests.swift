@@ -218,6 +218,16 @@ struct CmuxTextActionTrustGateTests {
     @MainActor @Test(arguments: [false, true])
     func untrustedProjectSnippetKeepsItsImageIconLocked(submit: Bool) throws {
         let paths = configPaths()
+        let projectDirectory = URL(fileURLWithPath: paths.project).deletingLastPathComponent()
+        let iconsDirectory = projectDirectory.appendingPathComponent("icons", isDirectory: true)
+        try FileManager.default.createDirectory(at: iconsDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: projectDirectory.deletingLastPathComponent()) }
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" fill="#000"/>
+        </svg>
+        """
+        try Data(svg.utf8).write(to: iconsDirectory.appendingPathComponent("safe.svg"))
         let payload = try #require(CmuxTextActionPayload(text: "echo snippet-ran", submit: submit))
         let button = CmuxSurfaceTabBarButton(
             id: "probe",
