@@ -114,6 +114,30 @@ struct BrowserReplSessionLifecycleTests {
         #expect(next?.lines.map(\.text) == ["21"], "\(String(describing: next))")
     }
 
+    @Test("A cell terminated with a tab update pending leaves later calls on that tab usable")
+    func terminatedCellLeavesTabUsable() async throws {
+        let driver = ScriptedPageDriver()
+        let session = makeSession(driver: driver, bundle: try browserReplRepositoryBundle())
+        defer { session.close() }
+
+        let opened = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: "await page.goto('https://example.com/login')", timeout: .seconds(10))
+        }
+        #expect(opened?.error == nil)
+        // Inside a microtask drain, adding a dialog listener queues a
+        // tab.handleEvents update; terminating the loop drops that job.
+        let hung = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: "await 0; page.on('dialog', () => {}); for (;;) {}", timeout: .milliseconds(300))
+        }
+        #expect(hung?.error?.contains("timed out") == true)
+
+        let next = await browserReplWithDeadline(seconds: 40) {
+            await session.evaluate(code: "await page.title()", timeout: .seconds(15))
+        }
+        #expect(next?.error == nil, "\(String(describing: next?.error))")
+        #expect(next?.lines.map(\.text) == ["Login"])
+    }
+
     @Test("close() cancels in-flight driver calls and the evaluation returns")
     func closeCancelsInFlightDriverCalls() async {
         let driver = GatedReplDriver()

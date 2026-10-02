@@ -228,6 +228,33 @@ test("rewrite: bindings persist across cells, including closures", async () => {
   assert.equal(err.error, "TypeError: boom");
 });
 
+test("cancel: a cancel for an earlier cell id never ends the cell running now", async () => {
+  const host = { setTimeout, clearTimeout, now: Date.now };
+  const repl = createReplSession({ host, globals: [] });
+  const first = repl.evaluate("await new Promise(() => {})", { id: 1 });
+  assert.equal(repl.cancel("timed out", 1), true);
+  assert.equal((await first).ok, false);
+  // A late cancel for cell 1 arrives while cell 2 runs.
+  const second = repl.evaluate("await new Promise((r) => setTimeout(() => r(42), 50))", { id: 2 });
+  repl.cancel("timed out", 1);
+  const r = await second;
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.value, 42);
+});
+
+test("cancel: output a cancelled cell prints later does not reach the next cell", async () => {
+  const printed = [];
+  const host = { setTimeout, clearTimeout, now: Date.now };
+  const console = { log: (...a) => printed.push(a.join(" ")) };
+  const repl = createReplSession({ host, globals: [{ console, setTimeout }] });
+  const hung = repl.evaluate("setTimeout(() => console.log('late from cell 1'), 30); await new Promise(() => {})", { id: 1 });
+  repl.cancel("timed out", 1);
+  await hung;
+  const next = await repl.evaluate("await new Promise((r) => setTimeout(r, 80)); console.log('cell 2')", { id: 2 });
+  assert.equal(next.ok, true, next.error);
+  assert.deepEqual(printed, ["cell 2"]);
+});
+
 test("inspect: Node-like formatting; strings print raw at the top level", () => {
   assert.equal(inspect("plain"), "plain");
   assert.equal(inspect({ a: 1, b: ["s", null], c: { d: true } }), "{ a: 1, b: [ 's', null ], c: { d: true } }");

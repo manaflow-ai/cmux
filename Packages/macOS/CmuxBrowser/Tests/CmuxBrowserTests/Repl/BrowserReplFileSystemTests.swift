@@ -210,6 +210,21 @@ struct BrowserReplFileSystemTests {
         #expect(contents(secret) == "secret")
         #expect(contents(scratch.root + "/mine.txt") == "mine")
     }
+
+    @Test("rename refuses to move or replace the working directory and the temporary root")
+    func renameRefusesRoots() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        try fileManager.createDirectory(atPath: scratch.base + "/tmp", withIntermediateDirectories: true)
+        let fs = makeFileSystem(scratch)
+        try write("mine", to: scratch.root + "/mine.txt")
+        try fileManager.createDirectory(atPath: scratch.root + "/sub", withIntermediateDirectories: true)
+        #expect(fs.perform("rename", arguments: ["from": scratch.root, "to": scratch.base + "/tmp/moved"]).failure?.code == "EACCES")
+        #expect(fs.perform("rename", arguments: ["from": scratch.base + "/tmp", "to": scratch.root + "/sub/tmp"]).failure?.code == "EACCES")
+        #expect(fs.perform("rename", arguments: ["from": "sub", "to": scratch.base + "/tmp"]).failure?.code == "EACCES")
+        #expect(fileManager.fileExists(atPath: scratch.root + "/mine.txt"))
+        #expect(fileManager.fileExists(atPath: scratch.base + "/tmp"))
+    }
 }
 
 private extension Result where Success == Any, Failure == BrowserReplFileSystemError {
