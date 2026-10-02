@@ -27,17 +27,25 @@ secrets="$(mktemp "${TMPDIR:-/tmp}/cmux-api-secrets.XXXXXX")"
 trap 'rm -f "$secrets"' EXIT
 secret_file="$HOME/.secrets/cmux-next-api-${env_name}.env"
 case "$target" in preview-*) secret_file="$HOME/.secrets/cmux-next-api-preview.env" ;; esac
-if [ -n "${JWT_PRIVATE_JWK:-}" ]; then
-  printf '{"JWT_PRIVATE_JWK":%s}\n' "$(python3 -c 'import json,os;print(json.dumps(os.environ["JWT_PRIVATE_JWK"]))')" > "$secrets"
-elif [ -f "$secret_file" ]; then
-  python3 - "$secret_file" > "$secrets" <<'PY'
-import json, sys
-vals = dict(l.split("=", 1) for l in open(sys.argv[1]).read().splitlines() if "=" in l)
-print(json.dumps({"JWT_PRIVATE_JWK": vals["JWT_PRIVATE_JWK"]}))
-PY
-else
+# Secrets: JWT_PRIVATE_JWK (required) and FREESTYLE_API_KEY (optional; the network reconciler
+# records "not configured" without it) from the environment (CI) or the local secrets file.
+if [ -z "${JWT_PRIVATE_JWK:-}" ] && [ ! -f "$secret_file" ]; then
   echo "no JWT_PRIVATE_JWK for $env_name" >&2; exit 1
 fi
+python3 - "$secret_file" > "$secrets" <<'PY'
+import json, os, sys
+vals = {}
+if os.path.exists(sys.argv[1]):
+    vals = dict(l.split("=", 1) for l in open(sys.argv[1]).read().splitlines() if "=" in l)
+out = {}
+for name in ("JWT_PRIVATE_JWK", "FREESTYLE_API_KEY"):
+    v = os.environ.get(name) or vals.get(name)
+    if v:
+        out[name] = v
+if "JWT_PRIVATE_JWK" not in out:
+    sys.exit("no JWT_PRIVATE_JWK")
+print(json.dumps(out))
+PY
 # Merging deploys: code ships only onto a schema that already has every migration.
 if [ "$env_name" = staging ] || [ "$env_name" = production ]; then
   (cd ../../db && bun migrate.ts --env "$env_name" --verify)

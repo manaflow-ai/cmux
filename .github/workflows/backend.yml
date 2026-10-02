@@ -84,6 +84,9 @@ jobs:
         env:
           OWNERSHIP_SEEDS: "1500"
         run: bun run test
+      - name: Network policy (parser, compiler, reconciler)
+        working-directory: backend/packages/network-policy
+        run: bun run test
       - name: API Worker tests (workerd)
         working-directory: backend/apps/api
         run: bun run test
@@ -173,6 +176,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
           JWT_PRIVATE_JWK: ${{ secrets.JWT_PRIVATE_JWK }}
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
         run: bash scripts/deploy-worker.sh staging
       - name: Deploy dashboard (console-staging.cmux.dev)
         working-directory: backend/apps/dashboard
@@ -207,6 +211,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
           JWT_PRIVATE_JWK: ${{ secrets.JWT_PRIVATE_JWK }}
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           CMUX_NEXT_DEPLOY_PRODUCTION: "1"
         run: bash scripts/deploy-worker.sh production
       - name: Deploy dashboard (console.cmux.dev)
