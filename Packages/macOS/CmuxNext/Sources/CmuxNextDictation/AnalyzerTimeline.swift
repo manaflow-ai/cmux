@@ -10,6 +10,20 @@ import Speech
 struct AnalyzerTimeline {
     /// Where the previous buffer ended.
     private var end: CMTime?
+    /// How far captured audio sits after the lead-in on the analyzer's clock.
+    private var offset = CMTime.zero
+
+    /// `silence` as the analyzer's first input, at time zero. SpeechAnalyzer
+    /// runs its first chunk (about a second) on whatever audio it has when
+    /// it starts and never revisits the rest of that chunk, so speech in the
+    /// first second of capture was lost. Heard all at once, the lead-in fills
+    /// that chunk; captured audio follows it.
+    mutating func leadIn(_ silence: AVAudioPCMBuffer) -> AnalyzerInput {
+        let rate = CMTimeScale(min(silence.format.sampleRate.rounded(), Double(Int32.max)))
+        offset = CMTime(value: CMTimeValue(silence.frameLength), timescale: rate)
+        end = offset
+        return AnalyzerInput(buffer: silence, bufferStartTime: .zero)
+    }
 
     /// The start time to give a buffer of `frames` frames at `sampleRate`
     /// that was captured at `time`. A buffer without a time keeps none: the
@@ -27,7 +41,7 @@ struct AnalyzerTimeline {
             end = end.map { CMTimeAdd($0, length) }
             return nil
         }
-        var start = time
+        var start = CMTimeAdd(time, offset)
         if let end, CMTimeCompare(start, end) < 0 { start = end }
         end = CMTimeAdd(start, length)
         return start
@@ -37,5 +51,18 @@ struct AnalyzerTimeline {
     mutating func input(_ buffer: AVAudioPCMBuffer, capturedAt time: CMTime?) -> AnalyzerInput {
         let start = start(at: time, frames: buffer.frameLength, sampleRate: buffer.format.sampleRate)
         return AnalyzerInput(buffer: buffer, bufferStartTime: start)
+    }
+}
+
+extension AVAudioPCMBuffer {
+    /// `seconds` of silence in `format`, for ``AnalyzerTimeline/leadIn(_:)``.
+    static func silence(_ format: AVAudioFormat, seconds: Double) -> AVAudioPCMBuffer? {
+        let frames = AVAudioFrameCount((format.sampleRate * seconds).rounded())
+        guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return nil }
+        buffer.frameLength = frames
+        for channel in UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList) {
+            if let data = channel.mData { memset(data, 0, Int(channel.mDataByteSize)) }
+        }
+        return buffer
     }
 }

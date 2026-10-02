@@ -61,4 +61,21 @@ import Testing
         let next = timeline.input(buffer, capturedAt: CMTime(value: 4_096, timescale: 22_050))
         #expect(CMTimeCompare(next.bufferStartTime ?? .invalid, CMTime(value: 2_973, timescale: 16_000)) == 0)
     }
+
+    /// The analyzer runs its first chunk on whatever audio it has when it
+    /// starts, so it hears a lead-in of silence first; captured audio
+    /// follows the lead-in on the analyzer's clock.
+    @Test func capturedAudioFollowsTheLeadIn() throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: false))
+        let silence = try #require(AVAudioPCMBuffer.silence(format, seconds: 1.5))
+        #expect(silence.frameLength == 24_000)
+        #expect(silence.int16ChannelData.map { (0..<24_000).allSatisfy { i in $0[0][i] == 0 } } == true)
+        var timeline = AnalyzerTimeline()
+        let lead = timeline.leadIn(silence)
+        #expect(CMTimeCompare(lead.bufferStartTime ?? .invalid, .zero) == 0)
+        let first = timeline.start(at: CMTime(value: 0, timescale: 16_000), frames: 1_600, sampleRate: 16_000)
+        #expect(CMTimeCompare(first ?? .invalid, CMTime(value: 24_000, timescale: 16_000)) == 0)
+        let next = timeline.start(at: CMTime(value: 1_600, timescale: 16_000), frames: 1_600, sampleRate: 16_000)
+        #expect(CMTimeCompare(next ?? .invalid, CMTime(value: 25_600, timescale: 16_000)) == 0)
+    }
 }

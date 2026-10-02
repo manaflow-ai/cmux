@@ -38,6 +38,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     /// oldest lets the analyzer catch up after a model stall without an unbounded recording.
     private static let inputBufferCapacity = 8
 
+    /// Silence the analyzer hears before capture, longer than its first chunk.
+    private static let leadInSeconds = 1.5
+
     /// Bounds callbacks when insertion stalls; a dropped event fails the session, never loses a final.
     private static let eventBufferCapacity = 32
 
@@ -150,6 +153,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             try await analyzer.prepareToAnalyze(in: analyzerFormat)
             dictationTrace.error("TRACE prepare done")
             guard !isFinishing else { throw CancellationError() }
+            if let silence = AVAudioPCMBuffer.silence(analyzerFormat, seconds: Self.leadInSeconds) {
+                inputContinuation.yield(timeline.leadIn(silence))
+            }
             do {
                 try startAudioEngine()
             } catch let error where !(error is CancellationError) {
