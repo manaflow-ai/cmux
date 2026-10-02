@@ -106,6 +106,32 @@ impl Mux {
         self.presentation_snapshot().conversation_tabs.get(id.as_str()).cloned()
     }
 
+    /// Drop conversation contents from a `browser.list` result.
+    pub(crate) fn retain_browser_pages(&self, browsers: &mut Value) {
+        let presentation = self.presentation_snapshot();
+        if let Some(items) = browsers.as_array_mut() {
+            items.retain(|item| {
+                item["id"]
+                    .as_str()
+                    .is_none_or(|id| !presentation.conversation_tabs.contains_key(id))
+            });
+        }
+    }
+
+    /// `browser.get` of a conversation content is refused (`validation.invalid`).
+    pub(crate) fn refuse_conversation_content(&self, browser: &Value) -> Result<(), ResourceError> {
+        let conversation = browser["id"]
+            .as_str()
+            .is_some_and(|id| self.presentation_snapshot().conversation_tabs.contains_key(id));
+        if conversation {
+            return Err(ResourceError::validation_invalid(
+                Some("browser"),
+                "a conversation tab is not a browser page",
+            ));
+        }
+        Ok(())
+    }
+
     /// v2 browser operations refuse a conversation tab (`validation.invalid`).
     pub(crate) fn refuse_conversation_browser(
         &self,

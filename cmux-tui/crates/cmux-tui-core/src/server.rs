@@ -99,6 +99,7 @@ mod browser_profiles;
 mod conversation_tabs_wire;
 mod launch_snapshot;
 mod personal;
+mod raw_tab;
 mod screen_json;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
@@ -11625,7 +11626,7 @@ fn pane_json(
                 .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
                 .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()))
                 .map(|kept| json!({"cwd": kept.cwd}));
-            json!({
+            let mut tab = json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
                 "group": group_of(sid),
@@ -11641,27 +11642,6 @@ fn pane_json(
                     .as_ref()
                     .map(|identity| &identity.incarnation),
                 "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
-                "kind": conversation_tabs_wire::raw_tab_kind(
-                    surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
-                    conversation.is_some(),
-                ),
-                "conversation": conversation.map(|record| record.wire()),
-                "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
-                "browser_status": surface
-                    .filter(|_| frontend_browser.is_none())
-                    .and_then(|s| s.browser_status().map(|status| status.as_str())),
-                "browser_error": surface
-                    .filter(|_| frontend_browser.is_none())
-                    .and_then(|s| s.browser_status().and_then(|status| status.error())),
-                "browser_renderer": surface
-                    .filter(|surface| surface.kind() == SurfaceKind::Browser)
-                    .map(|_| if frontend_browser.is_some() { "frontend" } else { "daemon" }),
-                "browser_engine": frontend_browser.map(|record| record.engine.as_str()),
-                "favicon_url": frontend_browser.and_then(|record| record.favicon_url.as_deref()),
-                "browser_profile_id": frontend_browser.and_then(|record| record.profile_id.as_deref()),
-                "browser_owner": frontend_browser.and_then(|record| record.owner.as_deref()),
-                "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
-                "url": surface.and_then(|s| s.browser_url()),
                 "supports_clear_history_key_fallback": surface
                     .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
                 "notification": notifications.get(sid).copied().map(|n| {
@@ -11679,7 +11659,9 @@ fn pane_json(
                     json!({"cols": c, "rows": r})
                 }),
                 "dead": surface.map(|s| s.is_dead()).unwrap_or(true),
-            })
+            });
+            raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation);
+            tab
         }).collect::<Vec<_>>(),
     })
 }

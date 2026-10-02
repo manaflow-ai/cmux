@@ -154,3 +154,35 @@ fn conversation_tab_capability_is_accepted_by_set_client_info() {
 fn test_mux_for_conversation_tabs() -> Arc<Mux> {
     Mux::new_for_test("conversation-tabs", crate::SurfaceOptions::default())
 }
+
+fn resource(mux: &Arc<Mux>, operation: &str, params: Value) -> Value {
+    let mut params = params;
+    params["machine"] = json!("current");
+    params["session"] = json!("current");
+    let envelope = json!({"protocol":"cmux.protocol/2","type":"request","id":operation,
+                          "operation":operation,"params":params});
+    crate::resource_router::handle_resource_message(mux, &envelope.to_string()).unwrap()
+}
+
+/// A conversation tab's content is no browser: `browser.list` omits it,
+/// `browser.get` and `update-frontend-browser-tab` refuse it.
+#[test]
+fn conversation_tab_is_not_listed_or_updated_as_a_browser() {
+    let mux = test_mux_for_conversation_tabs();
+    let pane = pane_with_terminal(&mux);
+    let created = create(&mux, pane, "tab-3", "conv_01HOME").unwrap();
+    let surface = created["surface"].as_u64().unwrap();
+    let browser = created["content_resource_id"].as_str().unwrap().to_string();
+
+    let listed = resource(&mux, "browser.list", json!({}));
+    assert_eq!(listed["ok"], true, "{listed}");
+    assert!(listed["result"].as_array().unwrap().iter().all(|item| item["id"] != browser.as_str()));
+    let got = resource(&mux, "browser.get", json!({"browser":browser}));
+    assert_eq!(got["error"]["code"], "validation.invalid", "{got}");
+
+    let update = json!({"cmd":"update-frontend-browser-tab","surface":surface,
+                        "url":"https://example.com"});
+    let error = run(&mux, update).expect_err("a conversation tab never gets a page");
+    assert!(error.to_string().contains("conversation tab"), "{error}");
+    mux.shutdown();
+}

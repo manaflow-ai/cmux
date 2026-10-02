@@ -8,9 +8,6 @@
 //! [`MuxEvent`]s and read surface state; they never own terminal state
 //! themselves, which is what makes the backend attachable.
 
-// The raw tree's tab object is one `json!` literal with more than 40 fields.
-#![recursion_limit = "256"]
-
 mod agent_hooks;
 pub mod backoff;
 mod browser;
