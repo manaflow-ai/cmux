@@ -134,11 +134,11 @@ class CmuxNextWiring(unittest.TestCase):
         return yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text(encoding="utf-8"))
 
     def context(self, attempt: str = "1", fallback_jobs: str | None = "", fork: bool = False,
-                triggering_actor: str = "teamleaderleo") -> dict:
+                triggering_actor: str = "teamleaderleo", head_repo: str | None = None) -> dict:
         context = github_context("pull_request", ref="refs/pull/1/merge", CI_PR_POOL_OWNED="1",
                                  CI_SIDE_LANE_RUNNER=SIDE)
         context["vars"].pop("MACOS_RUNNER_PR")
-        head = "someone/cmux" if fork else "manaflow-ai/cmux"
+        head = head_repo or ("someone/cmux" if fork else "manaflow-ai/cmux")
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
                                  triggering_actor=triggering_actor,
                                  event={"pull_request": {"head": {"repo": {"full_name": head}}}})
@@ -181,6 +181,14 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context("3", fallback_jobs=f" {name} ",
                                                                  triggering_actor="github-actions[bot]")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True)), FALLBACK)
+
+    def test_trusted_teamleaderleo_head_uses_minis_and_survives_a_skipped_placement(self):
+        jobs = self.workflow()["jobs"]
+        context = self.context(head_repo="teamleaderleo/cmux")
+        self.assertTrue(evaluate(jobs[self.PLACEMENT]["if"], context))
+        for name in JOBS:
+            with self.subTest(job=name):
+                self.assertEqual(evaluate(jobs[name]["runs-on"], dict(context, needs={})), SIDE)
 
     def test_placement_starts_only_where_attempt_1_may_take_the_side_label(self):
         # A fork, another owner, owned pools off or a re-run starts no Linux runner before the Mac jobs.
