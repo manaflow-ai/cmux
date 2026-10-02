@@ -128,6 +128,9 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
                     attempt = 0
                     await receiver.value
                 } catch {
+                    #if DEBUG
+                    NSLog("conversation-sim dial failed: %@", String(describing: error))
+                    #endif
                     receiver.cancel()
                     socket.cancel(with: .abnormalClosure, reason: nil)
                 }
@@ -229,6 +232,9 @@ public final class ConversationSimBackend: ConversationBackend, @unchecked Senda
                 pending[id] = waiter
                 socket.send(.string(String(decoding: data, as: UTF8.self))) { error in
                     guard let error else { return }
+                    #if DEBUG
+                    NSLog("conversation-sim send failed: %@", String(describing: error))
+                    #endif
                     Task { await self.fail(id, error) }
                 }
             }
