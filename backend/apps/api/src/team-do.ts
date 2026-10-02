@@ -3,7 +3,7 @@ import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.
 import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
-import { devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
+import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
 import { integrationSyncPending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
 
@@ -47,6 +47,10 @@ export class TeamDO extends OwnerDO<TeamState> {
           value: { team: state.team?.id, tokens: Object.values(state.enrollment_tokens ?? {}).map(publicToken), devices: Object.values(state.managed_devices ?? {}) },
           revision: ""
         }
+      }
+      case "team.device.compliance": {
+        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may read device compliance" }
+        return { ok: true, value: { team: state.team?.id, ...complianceFor(state) }, revision: "" }
       }
       case "team.device.policy": {
         const d = devicePolicyFor(state, principal.install)

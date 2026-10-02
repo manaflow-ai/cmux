@@ -146,4 +146,61 @@ export const DevicePolicy = def({
   mcp: { expose: "never", group: "team" }
 })
 
-export const enrollmentOps = [EnrollmentTokenCreate, EnrollmentTokenRevoke, EnrollmentTokenList, DeviceEnroll, DeviceRelease, DevicePolicy] as const
+const KeyName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
+
+export const DeviceStatus = Schema.Struct({
+  install: InstallId,
+  user: Schema.String,
+  /** The team policy version the install applied (from team.device.policy). */
+  policy_version: Schema.Int,
+  app_version: Schema.String.check(Schema.isMaxLength(64)),
+  /** Managed preference keys the device's MDM profile sets (names only, never values). */
+  mdm_keys: Schema.Array(KeyName).check(Schema.isMaxLength(200)),
+  /** Keys where the MDM profile overrode the team policy (decision E2). */
+  conflicts: Schema.Array(KeyName).check(Schema.isMaxLength(200)),
+  reported_at: Schema.Int
+}).annotate({ identifier: "DeviceStatus" })
+
+export const DeviceReportStatus = def({
+  name: "team.device.report_status",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "install",
+  principals: ["install"],
+  params: Schema.Struct({
+    policy_version: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+    app_version: Schema.String.check(Schema.isMaxLength(64)),
+    mdm_keys: Schema.Array(KeyName).check(Schema.isMaxLength(200)),
+    conflicts: Schema.Array(KeyName).check(Schema.isMaxLength(200))
+  }),
+  result: DeviceStatus,
+  errors: mutationErrors,
+  docs: "Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one.",
+  cli: { path: "team device report-status", visible: false },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const DeviceCompliance = def({
+  name: "team.device.compliance",
+  owner: "cloud:TeamDO",
+  class: "read",
+  risk: "read",
+  target: "team",
+  principals: ["session", "install"],
+  params: Schema.Struct({}),
+  result: Schema.Struct({
+    team: TeamId,
+    policy_version: Schema.Int,
+    devices: Schema.Array(
+      Schema.Struct({ device: ManagedDevice, status: Schema.NullOr(DeviceStatus), compliant: Schema.Boolean, reasons: Schema.Array(Schema.String) })
+    ),
+    revision: Schema.String
+  }),
+  errors: ["auth.unauthenticated", "auth.forbidden"],
+  docs: "Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token.",
+  cli: { path: "team device compliance", visible: true },
+  mcp: { expose: "opt_in", group: "team" }
+})
+
+export const enrollmentOps = [DeviceReportStatus, DeviceCompliance, EnrollmentTokenCreate, EnrollmentTokenRevoke, EnrollmentTokenList, DeviceEnroll, DeviceRelease, DevicePolicy] as const

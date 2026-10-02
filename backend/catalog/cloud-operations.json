@@ -531,6 +531,71 @@
       "pattern": "^dev_[a-z0-9]{20}$",
       "description": "A device (hardware) that groups installs."
     },
+    "DeviceStatus": {
+      "kind": "object",
+      "fields": {
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallId"
+          }
+        },
+        "user": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "policy_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "app_version": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 64
+          }
+        },
+        "mdm_keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 200
+            }
+          }
+        },
+        "conflicts": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 200
+            }
+          }
+        },
+        "reported_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
     "EnrollmentToken": {
       "kind": "object",
       "fields": {
@@ -18530,6 +18595,287 @@
         "$defs": {}
       }
     },
+    "team.device.compliance": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "policy_version": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "devices": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "device": {
+                    "required": true,
+                    "type": {
+                      "kind": "ref",
+                      "name": "ManagedDevice"
+                    }
+                  },
+                  "status": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "ref",
+                        "name": "DeviceStatus"
+                      }
+                    }
+                  },
+                  "compliant": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "boolean"
+                    }
+                  },
+                  "reasons": {
+                    "required": true,
+                    "type": {
+                      "kind": "array",
+                      "items": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team device compliance",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "team"
+      },
+      "docs": "Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "policy_version": {
+            "type": "integer"
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "device": {
+                  "$ref": "#/$defs/ManagedDevice"
+                },
+                "status": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DeviceStatus"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "compliant": {
+                  "type": "boolean"
+                },
+                "reasons": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "device",
+                "status",
+                "compliant",
+                "reasons"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "policy_version",
+          "devices",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "EnrollmentTokenId": {
+            "type": "string",
+            "pattern": "^enr_[a-z0-9]{20}$"
+          },
+          "ManagedDevice": {
+            "type": "object",
+            "properties": {
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "user": {
+                "type": "string"
+              },
+              "via": {
+                "type": "string",
+                "enum": [
+                  "token",
+                  "accept"
+                ]
+              },
+              "token": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/EnrollmentTokenId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "install",
+              "user",
+              "via",
+              "token",
+              "at"
+            ],
+            "additionalProperties": true
+          },
+          "DeviceStatus": {
+            "type": "object",
+            "properties": {
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "user": {
+                "type": "string"
+              },
+              "policy_version": {
+                "type": "integer"
+              },
+              "app_version": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "mdm_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "maxItems": 200
+              },
+              "conflicts": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "maxItems": 200
+              },
+              "reported_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "install",
+              "user",
+              "policy_version",
+              "app_version",
+              "mdm_keys",
+              "conflicts",
+              "reported_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "team.device.enroll": {
       "class": "mutation",
       "idempotency": "required",
@@ -18939,6 +19285,206 @@
             "type": "string",
             "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
+          }
+        }
+      }
+    },
+    "team.device.report_status": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "install",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "policy_version": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "app_version": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 64
+            }
+          },
+          "mdm_keys": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 200
+              }
+            }
+          },
+          "conflicts": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 200
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "DeviceStatus"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team device report-status",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "policy_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "app_version": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "mdm_keys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "maxItems": 200
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "policy_version",
+          "app_version",
+          "mdm_keys",
+          "conflicts"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/DeviceStatus",
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "DeviceStatus": {
+            "type": "object",
+            "properties": {
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "user": {
+                "type": "string"
+              },
+              "policy_version": {
+                "type": "integer"
+              },
+              "app_version": {
+                "type": "string",
+                "maxLength": 64
+              },
+              "mdm_keys": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "maxItems": 200
+              },
+              "conflicts": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "maxItems": 200
+              },
+              "reported_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "install",
+              "user",
+              "policy_version",
+              "app_version",
+              "mdm_keys",
+              "conflicts",
+              "reported_at"
+            ],
+            "additionalProperties": true
           }
         }
       }

@@ -2,7 +2,7 @@ import type { Domain } from "@cmux/ownership"
 import { HostEnroll, HostRemove, type Host, type TeamMember } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
-import { reduceDeviceEnroll, reduceDeviceRelease, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
+import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationSeed, reduceIntegrationSynced, type IntegrationSyncState } from "./team-integration-sync.ts"
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
 
@@ -121,6 +121,11 @@ export const teamDomain: Domain<TeamState> = {
         if (!state.team) return reject("validation.invalid", "team not initialized")
         if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot enroll devices")
         return withAudit(reduceDeviceEnroll(state, params, ctx, p.email), state.team.id, ctx, op)
+      }
+      case "team.device.report_status": {
+        if (!state.team) return reject("validation.invalid", "team not initialized")
+        if (p.kind === "agent" || p.agent) return reject("auth.forbidden", "agents cannot report device status")
+        return reduceReportStatus(state, params, ctx)
       }
       case "team.device.release": {
         if (!state.team) return reject("validation.invalid", "team not initialized")
