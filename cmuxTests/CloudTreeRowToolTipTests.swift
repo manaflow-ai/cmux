@@ -129,14 +129,15 @@ struct CloudTreeRowToolTipTests {
         #expect(toolTip.contains(":1"))
     }
 
-    @Test("A port row explains its in-app action without suggesting a directly reachable private URL")
+    @Test("A port row names its process on hover without suggesting a directly reachable private URL")
     func portRowHasToolTip() throws {
         let node = Self.portNode()
         let cell = Self.cell(presence: [])
         cell.configure(node: node, machineActions: Self.machineActions(), nodeActions: Self.nodeActions())
         let toolTip = try #require(cell.toolTip)
-        #expect(toolTip == "Open in cmux. No VPN setup needed.")
-        #expect(cell.accessibilityLabel()?.contains("Port 3000") == true)
+        #expect(toolTip == "vite")
+        #expect(!toolTip.contains("://"))
+        #expect(cell.accessibilityLabel() == "Port 3000, vite")
     }
 
     @Test("An untitled browser row is still labelled for assistive technology")
@@ -287,16 +288,16 @@ struct CloudTreeRowToolTipTests {
         #expect(cell.accessibilityLabel()?.isEmpty == false)
     }
 
-    @Test("A port without a process name still explains that no VPN setup is needed")
-    func barePortRowExplainsOpenAction() {
+    @Test("A port without a process name has no hover text and is labelled by its number")
+    func barePortRowIsLabelledByNumber() {
         let cell = Self.cell(presence: [])
         cell.configure(
             node: Self.barePortNode(),
             machineActions: Self.machineActions(),
             nodeActions: Self.nodeActions()
         )
-        #expect(cell.toolTip == "Open in cmux. No VPN setup needed.")
-        #expect(cell.accessibilityLabel() == "Port 3000, Open in cmux")
+        #expect(cell.toolTip == nil)
+        #expect(cell.accessibilityLabel() == "Port 3000")
     }
 
     // MARK: - Fixtures
