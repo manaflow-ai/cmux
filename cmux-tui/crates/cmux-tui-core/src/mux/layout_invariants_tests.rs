@@ -144,6 +144,59 @@ fn own_position_moves_are_no_ops_or_rejections() {
     assert_eq!(mux.with_state(fingerprint), before);
 }
 
+/// The terminal registry move (`move-terminal`) carries a terminal's view
+/// into the destination workspace. The resource topology must follow in the
+/// same step: a stale durable placement reverts the move on restore, and
+/// later moves plan their durable patch from it.
+#[test]
+fn terminal_registry_move_keeps_durable_topology_in_step() {
+    let mux = test_mux("layout-invariants-terminal-move");
+    let first = mux.new_workspace(None, None).unwrap().id;
+    let origin = pane_of(&mux, first);
+    let moved = mux.new_tab(Some(origin), None, None).unwrap().id;
+    let torn = mux.move_tab_to_new_workspace(moved, None, None).unwrap();
+    assert_ne!(pane_of(&mux, moved), origin);
+    assert_durable_matches_memory(&mux);
+
+    let (tab_id, home_key) = mux.with_state(|state| {
+        (state.resource_indexes.tab_ids[&moved].clone(), state.workspaces[0].key.clone())
+    });
+    let host = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .resource_topology_snapshot()
+        .unwrap()
+        .tabs
+        .into_iter()
+        .find(|tab| tab.public_id == tab_id)
+        .and_then(|tab| tab.terminal_id)
+        .unwrap();
+    let before = mux.with_state(Clone::clone);
+    mux.move_terminal_with_mutation(
+        &host,
+        &home_key,
+        None,
+        None,
+        None,
+        &WorkspaceMutation::local("layout-invariants-test"),
+    )
+    .unwrap();
+    // The view followed its terminal home, and the torn-off workspace's
+    // emptied pane collapsed.
+    assert_eq!(pane_of(&mux, moved), origin);
+    assert!(mux.with_state(|state| {
+        state.workspace_by_id(torn).is_none_or(|workspace| workspace.screens.is_empty())
+    }));
+    let after = mux.with_state(Clone::clone);
+    assert!(transition_problems(&project(&before), None, &after).is_empty());
+    assert_durable_matches_memory(&mux);
+
+    // A later move of the same tab plans from the durable topology.
+    assert!(mux.move_tab(moved, origin, 0));
+    assert_durable_matches_memory(&mux);
+}
+
 /// Everything observable about the layout, for "unchanged" assertions.
 fn fingerprint(state: &State) -> String {
     let workspaces = state
@@ -278,6 +331,12 @@ enum Op {
         pane: usize,
         index: usize,
     },
+    /// The terminal registry move: the terminal's view follows its new
+    /// workspace.
+    TerminalToWorkspace {
+        tab: usize,
+        workspace: usize,
+    },
     /// `tab.move` sent twice with one idempotency key (invariant 5).
     ReplayedMove {
         tab: usize,
@@ -359,6 +418,8 @@ fn op() -> impl Strategy<Value = Op> {
             .prop_map(|(workspace, index)| Op::MoveWorkspace { workspace, index }),
         2 => (pick.clone(), pick.clone(), insertion_index())
             .prop_map(|(tab, pane, index)| Op::TerminalToPane { tab, pane, index }),
+        1 => (pick.clone(), pick.clone())
+            .prop_map(|(tab, workspace)| Op::TerminalToWorkspace { tab, workspace }),
         2 => (pick.clone(), pick.clone(), insertion_index())
             .prop_map(|(tab, pane, index)| Op::ReplayedMove { tab, pane, index }),
         1 => pick.prop_map(|tab| Op::Close { tab }),
@@ -581,6 +642,39 @@ fn run(
                 None,
                 &WorkspaceMutation::local("layout-invariants-test"),
             ))
+        }
+        Op::TerminalToWorkspace { tab: t, workspace } => {
+            let surface = tab(t);
+            let workspace = pick(&live.workspaces, workspace).unwrap();
+            let (host, key) = mux.with_state(|state| {
+                let tab_id = state.resource_indexes.tab_ids[&surface].clone();
+                let key = state.workspace_by_id(workspace).unwrap().key.clone();
+                (tab_id, key)
+            });
+            let topology =
+                mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+            let Some(host) = topology
+                .tabs
+                .iter()
+                .find(|record| record.public_id == host)
+                .and_then(|record| record.terminal_id.clone())
+            else {
+                return Outcome::Skipped;
+            };
+            let before = mux.with_state(fingerprint);
+            match mux.move_terminal_with_mutation(
+                &host,
+                &key,
+                None,
+                None,
+                None,
+                &WorkspaceMutation::local("layout-invariants-test"),
+            ) {
+                // An unchanged move answers Ok without a layout change.
+                Ok(_) if mux.with_state(fingerprint) == before => Outcome::Rejected,
+                Ok(_) => Outcome::Accepted,
+                Err(_) => Outcome::Rejected,
+            }
         }
         Op::ReplayedMove { tab: t, pane, index } => {
             let surface = tab(t);
