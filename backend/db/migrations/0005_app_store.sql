@@ -1,7 +1,8 @@
 -- phase: expand
 -- App store (spec app-platform.md section 11, D46): read projections of AppDO
 -- (apps, app_versions) and of UserDO/TeamDO installs (app_installs, counts and
--- versions only, never granted scopes). Each row has exactly one writer stream,
+-- versions only, never granted scopes). First-party apps installed by default
+-- have no rows until a user installs them explicitly. Each row has exactly one writer stream,
 -- guarded by source_stream/source_seq like 0001. Search is a generated
 -- tsvector with a GIN index and word-prefix tsquery (no trigram index).
 
@@ -75,6 +76,8 @@ CREATE TABLE app_installs (
   version        text NOT NULL,
   installed_at   timestamptz NOT NULL,
   removed_at     timestamptz,
+  -- Hidden by the user (still running; clients drop its entries). Not disable, not remove.
+  hidden         boolean NOT NULL DEFAULT false,
   source_stream  text NOT NULL,
   source_seq     bigint NOT NULL,
   updated_at     timestamptz NOT NULL DEFAULT now(),

@@ -46,6 +46,8 @@ export interface Env {
   readonly APP_DO: DurableObjectNamespace<AppDO>
   /** Comma-separated user ids of cmux staff for the app store (claim any id, yank, set tiers). */
   readonly APP_STORE_STAFF?: string
+  /** Comma-separated first-party app ids installed for every user by default (nothing is recorded until a user changes one). */
+  readonly APP_STORE_DEFAULT_APPS?: string
   /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
   readonly HYPERDRIVE?: Hyperdrive
   /**

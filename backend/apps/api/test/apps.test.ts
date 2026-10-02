@@ -1,6 +1,6 @@
 import { env, exports } from "cloudflare:workers"
 import { importJWK, SignJWT, type JWK } from "jose"
-import { describe, expect, it } from "vitest"
+import { beforeAll, describe, expect, it } from "vitest"
 
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -53,6 +53,11 @@ const submit = (token: string, id: string, version: string) =>
   })
 
 describe("app store over the API (workerd)", { timeout: 60_000 }, () => {
+  // The first request in a test file loads the Worker (about 12 s alone, longer under a parallel suite); keep it out of the test budgets.
+  beforeAll(async () => {
+    await (await worker.fetch("https://api.test/v1/health")).text()
+  }, 180_000)
+
   it("publish, info, install with idempotent replay, list, yank, agent approval, team policy", async () => {
     const tok = await sessionToken(`apps-${crypto.randomUUID()}`)
     expect((await op(tok, "user.ensure", {})).json.ok).toBe(true)
@@ -143,6 +148,28 @@ describe("app store over the API (workerd)", { timeout: 60_000 }, () => {
     expect(replies.get("k-install")).toMatchObject({ t: "result" })
     expect(replies.get("k-grant")).toMatchObject({ t: "result", value: { scopes_granted: ["notification:post", "workspace:read"] } })
     ws.close()
+  })
+
+  it("first-party default apps: listed as installed with nothing recorded, hidden, shown, removed", async () => {
+    const staff = await sessionToken("apps-staff")
+    await op(staff, "user.ensure", {})
+    const welcome = "manaflow-ai/welcome"
+    const pub = await submit(staff, welcome, "1.0.0")
+    expect(pub.json.value.tier).toBe("first-party")
+    const tok = await sessionToken(`apps-${crypto.randomUUID()}`)
+    await op(tok, "user.ensure", {})
+    const listed = async () => ((await read(tok, "app.list", { scope: "user" })).json.value.installs as Array<any>).filter((i) => i.app === welcome)
+    expect(await listed()).toMatchObject([{ app: welcome, by_default: true, hidden: false, version: "1.0.0", scopes_granted: ["workspace:read"] }])
+    expect((await read(tok, "app.list", {})).json.value).not.toHaveProperty("default_prefs")
+    // Hiding grants nothing: any origin (here the CLI) may do it, and it is idempotent.
+    expect((await op(tok, "app.hide", { app: welcome })).json.value).toEqual({ app: welcome, hidden: true })
+    expect((await op(tok, "app.hide", { app: welcome })).json).toMatchObject({ ok: true, sequence: 0 })
+    expect((await listed())[0].hidden).toBe(true)
+    expect((await op(tok, "app.unhide", { app: welcome }, { origin: "mcp" })).json.value.hidden).toBe(false)
+    expect((await op(tok, "app.remove", { app: welcome })).json.value).toEqual({ app: welcome, removed: true })
+    expect(await listed()).toEqual([])
+    expect((await op(tok, "app.hide", { app: welcome })).json.error.code).toBe("selector.not_found")
+    expect((await op(tok, "app.hide", { app: "acme/never-installed" })).json.error.code).toBe("selector.not_found")
   })
 
   it("search answers owner.unreachable without the read-only Hyperdrive binding, and validates params", async () => {

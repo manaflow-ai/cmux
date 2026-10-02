@@ -6,6 +6,14 @@ import { listingView, makeAppDomain, resolveRelease, type AppConfig, type AppSta
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 
+/**
+ * First-party apps installed for every user by default (APP_STORE_DEFAULT_APPS,
+ * comma-separated ids; deployment config). Each counts only while AppDO lists
+ * it as first-party with a live version. Samples are never defaults: users opt in.
+ */
+export const defaultApps = (env: Env): ReadonlySet<string> =>
+  new Set((env.APP_STORE_DEFAULT_APPS ?? "").split(",").map((s) => s.trim()).filter((s) => APP_ID_PATTERN.test(s)))
+
 /** Deployment facts the AppDO reducer depends on (never request data). */
 export const appConfig = (env: Env): AppConfig => ({
   environment: env.ENVIRONMENT,
@@ -72,8 +80,13 @@ export class AppDO extends OwnerDO<AppState> {
  * null for every app op that names no resolvable release, so a client can
  * never pass its own `resolved` through; undefined for other ops.
  */
-export const resolveAppRelease = async (env: Env, slice: AppsSlice | undefined, op: string, params: unknown): Promise<ResolvedRelease | null | undefined> => {
+export const resolveAppRelease = async (env: Env, scope: "user" | "team", slice: AppsSlice | undefined, op: string, params: unknown): Promise<ResolvedRelease | { default: boolean } | null | undefined> => {
   if (!op.startsWith("app.")) return undefined
+  // Personal hide, unhide and remove need to know whether the app is installed for everyone by default.
+  if (scope === "user" && (op === "app.hide" || op === "app.unhide" || op === "app.remove")) {
+    const app = (params as { app?: unknown } | null)?.app
+    return { default: typeof app === "string" && defaultApps(env).has(app) }
+  }
   const sel = releaseSelector(slice, op, params)
   if (!sel || !APP_ID_PATTERN.test(sel.app)) return null
   const stub = env.APP_DO.get(env.APP_DO.idFromName(sel.app))

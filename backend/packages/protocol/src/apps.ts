@@ -120,7 +120,14 @@ export const AppInstall = Schema.Struct({
   app_revision: Schema.String,
   installed_by: Schema.String,
   installed_at: Schema.Int,
-  updated_at: Schema.Int
+  updated_at: Schema.Int,
+  /**
+   * Hidden by the user: the app still runs and answers granted calls; clients
+   * drop its sidebar, palette and menu entries. Not disable, not remove.
+   */
+  hidden: Schema.Boolean,
+  /** A first-party app installed for everyone by default (nothing is recorded until the user changes it). */
+  by_default: Schema.optionalKey(Schema.Boolean)
 }).annotate({ identifier: "AppInstall" })
 export type AppInstall = typeof AppInstall.Type
 

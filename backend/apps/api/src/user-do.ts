@@ -32,7 +32,7 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** Installs, updates and approvals decide against the release AppDO resolves now. */
   protected override resolve(_entity: string, state: UserState, op: string, params: unknown): Promise<unknown> {
-    return resolveAppRelease(this.env, state.apps, op, params)
+    return resolveAppRelease(this.env, "user", state.apps, op, params)
   }
 
   protected maySubscribe(state: UserState, principal: Principal): boolean {

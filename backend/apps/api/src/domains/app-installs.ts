@@ -2,6 +2,7 @@ import type { OutboxItem, Principal, ReduceContext, ReduceResult } from "@cmux/o
 import {
   AppApprovalDecide,
   AppGrantSet,
+  AppHide,
   AppInstallOp,
   AppPolicySet,
   AppRemove,
@@ -34,6 +35,17 @@ export interface AppsSlice {
   readonly approvals: Readonly<Record<string, AppApproval>>
   /** Team owners only. */
   readonly policy?: AppPolicy
+  /**
+   * User owners only: the user's changes to first-party apps installed by
+   * default (removed, hidden). Nothing is recorded for a default app the user
+   * never touched.
+   */
+  readonly defaults?: Readonly<Record<string, DefaultPref>>
+}
+
+export interface DefaultPref {
+  readonly removed_at: number | null
+  readonly hidden: boolean
 }
 
 export const emptyApps: AppsSlice = { installs: {}, approvals: {} }
@@ -82,6 +94,14 @@ export const releaseSelector = (slice: AppsSlice | undefined, op: string, params
   }
 }
 
+/**
+ * For app.hide, app.unhide, app.remove and app.install on a user owner: is the
+ * app one of the deployment's default first-party apps? The owner answers
+ * (`resolved.default`), never the client.
+ */
+const isDefaultApp = (params: unknown, owner: InstallsOwner): boolean =>
+  owner.scope === "user" && (params as { resolved?: { default?: unknown } } | null)?.resolved?.default === true
+
 const resolvedOf = (params: unknown): ResolvedRelease | null | "invalid" => {
   const r = (params as { resolved?: unknown } | null)?.resolved
   if (r === null || r === undefined) return null
@@ -126,7 +146,7 @@ const installOutbox = (owner: InstallsOwner, i: AppInstall, removedAt: number | 
   kind: "app_install.upsert",
   entity: `${i.app}:${owner.scope}:${owner.scopeId}`,
   // Counts, not contents: the projection never sees granted scopes.
-  payload: { app: i.app, scope_kind: owner.scope, scope_id: owner.scopeId, version: i.version, installed_at: i.installed_at, removed_at: removedAt }
+  payload: { app: i.app, scope_kind: owner.scope, scope_id: owner.scopeId, version: i.version, installed_at: i.installed_at, removed_at: removedAt, hidden: i.hidden ?? false }
 })
 
 const makeInstall = (owner: InstallsOwner, r: ResolvedRelease, scopes: ReadonlyArray<string>, range: string, prev: AppInstall | undefined, by: string, now: number): AppInstall => ({
@@ -143,7 +163,8 @@ const makeInstall = (owner: InstallsOwner, r: ResolvedRelease, scopes: ReadonlyA
   app_revision: r.app_revision,
   installed_by: prev?.installed_by ?? by,
   installed_at: prev?.installed_at ?? now,
-  updated_at: now
+  updated_at: now,
+  hidden: prev?.hidden ?? false
 })
 
 /** Keeps every unexpired pending approval and the newest finished ones. */
@@ -240,7 +261,11 @@ export const reduceApps = (slice: AppsSlice, op: string, params: unknown, ctx: R
       }
       // Unreachable behind userOnly; reopens with the actor stamp.
       if (agent) return requestApproval(slice, owner, ctx, "install", r, v.scopes, v.scopes.filter((s) => !(cur?.scopes_granted ?? []).includes(s)), range)
-      return applyInstall(slice, owner, makeInstall(owner, r, v.scopes, range, cur, p.identity, ctx.now))
+      // Installing a removed default app again clears its tombstone; the explicit install now rules.
+      const pref = slice.defaults?.[r.app]
+      const defaults = pref ? { ...slice.defaults, [r.app]: { removed_at: null, hidden: pref.hidden } } : undefined
+      const install: AppInstall = { ...makeInstall(owner, r, v.scopes, range, cur, p.identity, ctx.now), hidden: cur?.hidden ?? pref?.hidden ?? false }
+      return applyInstall(slice, owner, install, defaults ? { defaults } : {})
     }
     case "app.update": {
       const d = decodeParams<typeof AppUpdate.params.Type>(AppUpdate, params)
@@ -277,10 +302,39 @@ export const reduceApps = (slice: AppsSlice, op: string, params: unknown, ctx: R
     case "app.remove": {
       const d = decodeParams<typeof AppRemove.params.Type>(AppRemove, params)
       if (!d.ok) return d
-      const cur = slice.installs[d.value.app]
-      if (!cur) return { ok: true, state: slice, value: { app: d.value.app, removed: false }, changed: false }
-      const { [cur.app]: _gone, ...rest } = slice.installs
-      return { ok: true, state: { ...slice, installs: rest }, value: { app: cur.app, removed: true }, outbox: [installOutbox(owner, cur, ctx.now)] }
+      const app = d.value.app
+      const cur = slice.installs[app]
+      // A default first-party app stays removed (a tombstone), also after removing an explicit install of it.
+      const pref = slice.defaults?.[app]
+      const tombstone = isDefaultApp(params, owner) && (pref?.removed_at ?? null) === null
+      const defaults = tombstone ? { ...slice.defaults, [app]: { removed_at: ctx.now, hidden: pref?.hidden ?? false } } : slice.defaults
+      if (!cur && !tombstone) return { ok: true, state: slice, value: { app, removed: false }, changed: false }
+      const { [app]: _gone, ...rest } = slice.installs
+      return {
+        ok: true,
+        state: { ...slice, installs: rest, ...(defaults ? { defaults } : {}) },
+        value: { app, removed: true },
+        outbox: cur ? [installOutbox(owner, cur, ctx.now)] : []
+      }
+    }
+    case "app.hide":
+    case "app.unhide": {
+      // Hiding grants nothing: any origin, agents included.
+      const d = decodeParams<typeof AppHide.params.Type>(AppHide, params)
+      if (!d.ok) return d
+      if (owner.scope !== "user") return reject("validation.invalid", `${op} is for personal installs`)
+      const want = op === "app.hide"
+      const app = d.value.app
+      const cur = slice.installs[app]
+      if (cur) {
+        if ((cur.hidden ?? false) === want) return { ok: true, state: slice, value: { app, hidden: want }, changed: false }
+        const next: AppInstall = { ...cur, hidden: want, updated_at: ctx.now }
+        return { ok: true, state: { ...slice, installs: { ...slice.installs, [app]: next } }, value: { app, hidden: want }, outbox: [installOutbox(owner, next, null)] }
+      }
+      const pref = slice.defaults?.[app] ?? { removed_at: null, hidden: false }
+      if (!isDefaultApp(params, owner) || pref.removed_at !== null) return reject("selector.not_found", `${app} is not installed`)
+      if (pref.hidden === want) return { ok: true, state: slice, value: { app, hidden: want }, changed: false }
+      return { ok: true, state: { ...slice, defaults: { ...slice.defaults, [app]: { ...pref, hidden: want } } }, value: { app, hidden: want } }
     }
     case "app.grant.set": {
       const d = decodeParams<typeof AppGrantSet.params.Type>(AppGrantSet, params)
@@ -356,10 +410,15 @@ export const reduceApps = (slice: AppsSlice, op: string, params: unknown, ctx: R
 export const appsView = (slice: AppsSlice | undefined, now: number, scope: "user" | "team") => {
   const s = slice ?? emptyApps
   return {
-    installs: Object.values(s.installs).sort((a, b) => a.app.localeCompare(b.app)),
+    // Records written before `hidden` existed read as not hidden.
+    installs: Object.values(s.installs)
+      .map((i) => ({ ...i, hidden: i.hidden ?? false }))
+      .sort((a, b) => a.app.localeCompare(b.app)),
     approvals: Object.values(s.approvals)
       .filter((a) => a.status === "pending" && a.expires_at > now)
       .sort((a, b) => a.created_at - b.created_at),
-    policy: scope === "team" ? (s.policy ?? defaultPolicy) : null
+    policy: scope === "team" ? (s.policy ?? defaultPolicy) : null,
+    /** Internal: the Worker merges default apps with it and drops it from the answer. */
+    ...(scope === "user" ? { default_prefs: s.defaults ?? {} } : {})
   }
 }

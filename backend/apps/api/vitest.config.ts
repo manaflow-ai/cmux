@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers"
 import { exportJWK, exportPKCS8, generateKeyPair } from "jose"
 import { defineConfig } from "vitest/config"
@@ -10,6 +11,8 @@ const stackPublic = { ...(await exportJWK(stack.publicKey)), kid: "stack-test", 
 const stackPrivate = { ...(await exportJWK(stack.privateKey)), kid: "stack-test" }
 const apiPrivate = { ...(await exportJWK(api.privateKey)), kid: "api-test" }
 const githubApp = await generateKeyPair("RS256", { extractable: true })
+// App store staff for the tests: the user id of Stack user "apps-staff" in the wrangler.jsonc project (userIdFor in domains/user.ts).
+const appsStaff = `user_${createHash("sha256").update("stack:454ecd03-1db2-4050-845e-4ce5b0cd9895:apps-staff").digest("hex").slice(0, 20)}`
 const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
 
 export default defineConfig({
@@ -24,6 +27,8 @@ export default defineConfig({
           JWT_PRIVATE_JWK: JSON.stringify(apiPrivate),
           // Integration test secrets: provider HTTP is faked in the tests, these only make providers "configured".
           INTEGRATIONS_KEK: kek,
+          APP_STORE_STAFF: appsStaff,
+          APP_STORE_DEFAULT_APPS: "manaflow-ai/welcome",
           GITHUB_APP_SLUG: "cmux-test",
           GITHUB_APP_CLIENT_ID: "Iv1.test",
           GITHUB_APP_CLIENT_SECRET: "gh-client-secret",

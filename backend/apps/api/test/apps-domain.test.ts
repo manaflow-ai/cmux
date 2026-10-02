@@ -1,6 +1,6 @@
 import { idFactory, type Origin, type Principal, type ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
-import { emptyApps, reduceApps, releaseSelector, requestApproval, type AppsSlice, type InstallsOwner } from "../src/domains/app-installs.ts"
+import { appsView, emptyApps, reduceApps, releaseSelector, requestApproval, type AppsSlice, type InstallsOwner } from "../src/domains/app-installs.ts"
 import { latestOf, makeAppDomain, parseGithubRepo, resolveRelease, type AppState } from "../src/domains/app.ts"
 import { compareVersions, maxSatisfying, satisfies } from "../src/domains/semver.ts"
 import { prefixTsQuery } from "../src/app-store.ts"
@@ -200,7 +200,7 @@ describe("installs and grants", () => {
   it("installs with granted scopes inside the version's scopes and writes one projection row", () => {
     const r = apply(emptyApps, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() })
     expect(r.value).toMatchObject({ status: "installed", install: { app: APP, version: "1.0.0", scopes_granted: ["workspace:read"], app_revision: "4" } })
-    expect(r.outbox).toEqual([{ kind: "app_install.upsert", entity: `${APP}:user:${alice.user}`, payload: { app: APP, scope_kind: "user", scope_id: alice.user, version: "1.0.0", installed_at: T0, removed_at: null } }])
+    expect(r.outbox).toEqual([{ kind: "app_install.upsert", entity: `${APP}:user:${alice.user}`, payload: { app: APP, scope_kind: "user", scope_id: alice.user, version: "1.0.0", installed_at: T0, removed_at: null, hidden: false } }])
     // Same install again changes nothing (no event, no row).
     expect(apply(r.state, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }).changed).toBe(false)
   })
@@ -259,6 +259,52 @@ const ask = (s: AppsSlice, kind: "install" | "update", rel: ReturnType<typeof re
   if (!r.ok) throw Object.assign(new Error(r.message), { code: r.code })
   return { state: r.state, id: (r.value as { approval: { id: string } }).approval.id, value: r.value as any, changed: r.changed }
 }
+
+describe("hide and unhide", () => {
+  const isDefault = { resolved: { default: true } }
+  it("hides and shows an installed app idempotently; the projection row carries hidden; updates keep it", () => {
+    const s = apply(emptyApps, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }).state
+    const h = apply(s, aliceInstall, "app.hide", { app: APP, resolved: { default: false } }, { origin: "mcp" })
+    expect(h.value).toEqual({ app: APP, hidden: true })
+    expect(h.state.installs[APP]!.hidden).toBe(true)
+    expect((h.outbox![0]!.payload as { hidden: boolean }).hidden).toBe(true)
+    expect(apply(h.state, alice, "app.hide", { app: APP }).changed).toBe(false)
+    expect(apply(h.state, alice, "app.update", { app: APP, resolved: release("1.0.1") }).state.installs[APP]!.hidden).toBe(true)
+    const u = apply(h.state, alice, "app.unhide", { app: APP })
+    expect(u.state.installs[APP]!.hidden).toBe(false)
+    expect(apply(u.state, alice, "app.unhide", { app: APP }).changed).toBe(false)
+  })
+
+  it("a default first-party app is hidden, removed and installed again without an install record until then", () => {
+    expect(code(() => apply(emptyApps, alice, "app.hide", { app: APP, resolved: { default: false } }))).toBe("selector.not_found")
+    // A client cannot claim an app is a default one: only the owner's resolved answer counts, and only for user owners.
+    expect(code(() => apply(emptyApps, alice, "app.hide", { app: APP, resolved: { default: true } }, { owner: team }))).toBe("validation.invalid")
+    const h = apply(emptyApps, alice, "app.hide", { app: APP, ...isDefault })
+    expect(h.state.defaults).toEqual({ [APP]: { removed_at: null, hidden: true } })
+    expect(h.state.installs).toEqual({})
+    expect(h.outbox ?? []).toEqual([])
+    expect(apply(h.state, alice, "app.hide", { app: APP, ...isDefault }).changed).toBe(false)
+    const r = apply(h.state, alice, "app.remove", { app: APP, ...isDefault }, { now: T0 + 9 })
+    expect(r.value).toEqual({ app: APP, removed: true })
+    expect(r.state.defaults![APP]).toEqual({ removed_at: T0 + 9, hidden: true })
+    expect(apply(r.state, alice, "app.remove", { app: APP, ...isDefault }).changed).toBe(false)
+    expect(code(() => apply(r.state, alice, "app.unhide", { app: APP, ...isDefault }))).toBe("selector.not_found")
+    const again = apply(r.state, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release("1.0.0", { tier: "first-party" }) })
+    expect(again.state.defaults![APP]!.removed_at).toBeNull()
+    expect(again.state.installs[APP]!.hidden).toBe(true)
+    // Removing the explicit install of a default app leaves it removed, not back as a default.
+    expect(apply(again.state, alice, "app.remove", { app: APP, ...isDefault }).state.defaults![APP]!.removed_at).not.toBeNull()
+  })
+
+  it("app.list shows hidden (records from before hidden read as false) and keeps default prefs internal to user owners", () => {
+    const s = apply(emptyApps, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }).state
+    const { hidden: _h, ...old } = s.installs[APP]!
+    const legacy: AppsSlice = { ...s, installs: { [APP]: old as never } }
+    expect(appsView(legacy, T0, "user").installs[0]!.hidden).toBe(false)
+    expect(appsView(apply(s, alice, "app.hide", { app: APP }).state, T0, "user").installs[0]!.hidden).toBe(true)
+    expect(appsView(s, T0, "team")).not.toHaveProperty("default_prefs")
+  })
+})
 
 describe("phase 1: installs only from the user's own client (app.install.user_only)", () => {
   const install = { app: APP, scopes: ["workspace:read"], resolved: release() }

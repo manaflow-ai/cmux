@@ -60,21 +60,11 @@ const listings = [
   }
 ]
 let installs: Array<Record<string, Json>> = [
-  { app: "tools/cpu-status", scope: "user", version: "2.0.0", tier: "verified", scopes_granted: ["terminal:read"], installed_at: now - 2 * day }
+  { app: "manaflow-ai/github-prs", scope: "user", version: "1.2.0", tier: "first-party", scopes_granted: ["workspace:read", "net:api.github.com", "integration:github"], installed_at: 0, hidden: false, by_default: true },
+  { app: "tools/cpu-status", scope: "user", version: "2.0.0", tier: "verified", scopes_granted: ["terminal:read"], installed_at: now - 2 * day, hidden: true }
 ]
-let approvals: Array<Record<string, Json>> = [
-  {
-    id: "appr_mock0000000000000001",
-    kind: "install",
-    app: "acme/todo-list",
-    scope: "user",
-    version: "0.4.1",
-    scopes: ["net:todo.example.com", "workspace:write"],
-    added: ["net:todo.example.com", "workspace:write"],
-    requested_by: { identity: "inst_mockagent00000000000", origin: "mcp" },
-    expires_at: now + 8 * 60_000
-  }
-]
+// Phase 1: agents cannot request installs, so no approvals wait.
+let approvals: Array<Record<string, Json>> = []
 
 const listingOnly = ({ versions: _v, ...l }: (typeof listings)[number]) => l
 
@@ -104,9 +94,13 @@ const ok = (op: string, key: string, value: Json): { status: number; body: OpRes
 export const mockAppsMutate = (op: string, params: Record<string, unknown>, key: string) => {
   if (op === "app.install") {
     const l = listings.find((x) => x.id === params.app)!
-    const install = { app: l.id, scope: "user", version: l.latest_version, tier: l.tier, scopes_granted: params.scopes as Json, installed_at: Date.now() }
+    const install = { app: l.id, scope: "user", version: l.latest_version, tier: l.tier, scopes_granted: params.scopes as Json, installed_at: Date.now(), hidden: false }
     installs = [...installs.filter((i) => i.app !== l.id), install]
     return ok(op, key, { status: "installed", install })
+  }
+  if (op === "app.hide" || op === "app.unhide") {
+    installs = installs.map((i) => (i.app === params.app ? { ...i, hidden: op === "app.hide" } : i))
+    return ok(op, key, { app: String(params.app), hidden: op === "app.hide" })
   }
   if (op === "app.remove") {
     installs = installs.filter((i) => i.app !== params.app)
@@ -115,7 +109,7 @@ export const mockAppsMutate = (op: string, params: Record<string, unknown>, key:
   if (op === "app.approval.decide") {
     const a = approvals.find((x) => x.id === params.approval)
     approvals = approvals.filter((x) => x.id !== params.approval)
-    if (a && params.decision === "approve") installs = [...installs, { app: a.app!, scope: a.scope!, version: a.version!, tier: "verified", scopes_granted: a.scopes!, installed_at: Date.now() }]
+    if (a && params.decision === "approve") installs = [...installs, { app: a.app!, scope: a.scope!, version: a.version!, tier: "verified", scopes_granted: a.scopes!, installed_at: Date.now(), hidden: false }]
     return ok(op, key, { approval: a ?? null, install: null })
   }
   return { status: 400, body: { ok: false, op, error: { code: "validation.invalid", message: `mock: ${op}`, retryable: false }, transaction: "", idempotency_key: key, replayed: false, stream: "", sequence: 0 } }

@@ -118,12 +118,12 @@ export const projectionStatements: Record<string, (p: Record<string, unknown>, s
     ]
   ],
   "app_install.upsert": (p, stream, seq) => [
-    `INSERT INTO app_installs (app_id, scope_kind, scope_id, version, installed_at, removed_at, source_stream, source_seq, updated_at)
-     VALUES ($1, $2, $3, $4, to_timestamp($5 / 1000.0), CASE WHEN $6::bigint IS NULL THEN NULL ELSE to_timestamp($6 / 1000.0) END, $7, $8, now())
+    `INSERT INTO app_installs (app_id, scope_kind, scope_id, version, installed_at, removed_at, hidden, source_stream, source_seq, updated_at)
+     VALUES ($1, $2, $3, $4, to_timestamp($5 / 1000.0), CASE WHEN $6::bigint IS NULL THEN NULL ELSE to_timestamp($6 / 1000.0) END, $9, $7, $8, now())
      ON CONFLICT (app_id, scope_kind, scope_id) DO UPDATE SET version = excluded.version, installed_at = excluded.installed_at, removed_at = excluded.removed_at,
-       source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
+       hidden = excluded.hidden, source_stream = excluded.source_stream, source_seq = excluded.source_seq, updated_at = now()
      WHERE app_installs.source_seq < excluded.source_seq`,
-    [p.app, p.scope_kind, p.scope_id, p.version, p.installed_at, p.removed_at ?? null, stream, seq]
+    [p.app, p.scope_kind, p.scope_id, p.version, p.installed_at, p.removed_at ?? null, stream, seq, p.hidden === true]
   ],
   "host.delete": (p, stream, seq) => [
     `UPDATE hosts SET deleted_at = now(), source_stream = $2, source_seq = $3, updated_at = now() WHERE id = $1 AND source_seq < $3`,

@@ -29,7 +29,7 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** Team installs, updates and approvals decide against the release AppDO resolves now. */
   protected override resolve(_entity: string, state: TeamState, op: string, params: unknown): Promise<unknown> {
-    return resolveAppRelease(this.env, state.apps, op, params)
+    return resolveAppRelease(this.env, "team", state.apps, op, params)
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {

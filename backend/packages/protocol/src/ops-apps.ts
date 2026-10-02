@@ -93,7 +93,7 @@ export const AppList = def({
   params: Schema.Struct({ scope: Schema.optionalKey(Schema.Literals(["user", "team", "all"])) }),
   result: InstallsView,
   errors: ["auth.unauthenticated", "auth.forbidden"],
-  docs: "List installed apps and pending approvals: the caller's (user), the team's (team, with the team app policy) or both (all, default).",
+  docs: "List installed apps (with `hidden`; first-party apps installed by default carry `by_default`) and pending approvals: the caller's (user), the team's (team, with the team app policy) or both (all, default).",
   cli: { path: "apps list", visible: true },
   mcp: { expose: "default", group: "app" }
 })
@@ -155,10 +155,34 @@ export const AppRemove = def({
   params: Schema.Struct({ app: AppId, scope: ScopeParam }),
   result: Schema.Struct({ app: AppId, removed: Schema.Boolean }),
   errors: [...mutationErrors, "selector.not_found"],
-  docs: "Remove an installed app and its grant.",
+  docs: "Remove an installed app and its grant. A first-party app installed by default stays removed until installed again.",
   cli: { path: "apps remove", visible: true },
   mcp: { expose: "opt_in", group: "app" }
 })
+
+const hideOp = (name: "app.hide" | "app.unhide", verb: "hide" | "unhide", docs: string) =>
+  def({
+    name,
+    owner: "cloud:UserDO",
+    class: "mutation",
+    risk: "mutate-own",
+    target: "app",
+    principals: ["session", "install"],
+    params: Schema.Struct({ app: AppId }),
+    result: Schema.Struct({ app: AppId, hidden: Schema.Boolean }),
+    errors: [...mutationErrors, "selector.not_found"],
+    docs,
+    cli: { path: `apps ${verb}`, visible: true },
+    mcp: { expose: "opt_in", group: "app" }
+  })
+
+/** Hiding grants nothing, so any origin may do it (no user-origin requirement). Personal installs only for now. */
+export const AppHide = hideOp(
+  "app.hide",
+  "hide",
+  "Hide an installed app (personal installs, including first-party apps installed by default): it keeps running and answering granted calls, and clients drop its sidebar, palette and menu entries. Idempotent."
+)
+export const AppUnhide = hideOp("app.unhide", "unhide", "Show a hidden app's entries again. Idempotent.")
 
 export const AppGrantSet = def({
   name: "app.grant.set",
@@ -272,6 +296,8 @@ export const appOps = [
   AppInstallOp,
   AppUpdate,
   AppRemove,
+  AppHide,
+  AppUnhide,
   AppGrantSet,
   AppApprovalDecide,
   AppPolicySet,

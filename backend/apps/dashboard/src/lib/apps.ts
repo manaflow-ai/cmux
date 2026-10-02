@@ -36,6 +36,8 @@ export interface Install {
   tier: Tier
   scopes_granted: Array<string>
   installed_at: number
+  hidden: boolean
+  by_default?: boolean
 }
 
 export interface Approval {

@@ -298,6 +298,20 @@
             "kind": "primitive",
             "name": "int64"
           }
+        },
+        "hidden": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "by_default": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       }
     },
@@ -2776,6 +2790,12 @@
               },
               "updated_at": {
                 "type": "integer"
+              },
+              "hidden": {
+                "type": "boolean"
+              },
+              "by_default": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -2792,7 +2812,8 @@
               "app_revision",
               "installed_by",
               "installed_at",
-              "updated_at"
+              "updated_at",
+              "hidden"
             ],
             "additionalProperties": true
           }
@@ -3023,6 +3044,12 @@
               },
               "updated_at": {
                 "type": "integer"
+              },
+              "hidden": {
+                "type": "boolean"
+              },
+              "by_default": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -3039,9 +3066,139 @@
               "app_revision",
               "installed_by",
               "installed_at",
-              "updated_at"
+              "updated_at",
+              "hidden"
             ],
             "additionalProperties": true
+          }
+        }
+      }
+    },
+    "app.hide": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "app",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "app": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "AppId"
+                }
+              },
+              "hidden": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "apps hide",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "app"
+      },
+      "docs": "Hide an installed app (personal installs, including first-party apps installed by default): it keeps running and answering granted calls, and clients drop its sidebar, palette and menu entries. Idempotent.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          }
+        },
+        "required": [
+          "app"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          },
+          "hidden": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "app",
+          "hidden"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
           }
         }
       }
@@ -3609,6 +3766,12 @@
               },
               "updated_at": {
                 "type": "integer"
+              },
+              "hidden": {
+                "type": "boolean"
+              },
+              "by_default": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -3625,7 +3788,8 @@
               "app_revision",
               "installed_by",
               "installed_at",
-              "updated_at"
+              "updated_at",
+              "hidden"
             ],
             "additionalProperties": true
           },
@@ -3878,7 +4042,7 @@
         "expose": "default",
         "group": "app"
       },
-      "docs": "List installed apps and pending approvals: the caller's (user), the team's (team, with the team app policy) or both (all, default).",
+      "docs": "List installed apps (with `hidden`; first-party apps installed by default carry `by_default`) and pending approvals: the caller's (user), the team's (team, with the team app policy) or both (all, default).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -3983,6 +4147,12 @@
               },
               "updated_at": {
                 "type": "integer"
+              },
+              "hidden": {
+                "type": "boolean"
+              },
+              "by_default": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -3999,7 +4169,8 @@
               "app_revision",
               "installed_by",
               "installed_at",
-              "updated_at"
+              "updated_at",
+              "hidden"
             ],
             "additionalProperties": true
           },
@@ -4886,7 +5057,7 @@
         "expose": "opt_in",
         "group": "app"
       },
-      "docs": "Remove an installed app and its grant.",
+      "docs": "Remove an installed app and its grant. A first-party app installed by default stays removed until installed again.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -5326,6 +5497,135 @@
         }
       }
     },
+    "app.unhide": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "app",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AppId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "app": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "AppId"
+                }
+              },
+              "hidden": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "apps unhide",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "app"
+      },
+      "docs": "Show a hidden app's entries again. Idempotent.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          }
+        },
+        "required": [
+          "app"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/AppId"
+          },
+          "hidden": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "app",
+          "hidden"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AppId": {
+            "type": "string",
+            "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))\\/[a-z0-9][a-z0-9-]{0,63}$",
+            "description": "Stable app id `<publisher>/<name>` (publisher = GitHub owner of the repository)."
+          }
+        }
+      }
+    },
     "app.update": {
       "class": "mutation",
       "idempotency": "required",
@@ -5571,6 +5871,12 @@
               },
               "updated_at": {
                 "type": "integer"
+              },
+              "hidden": {
+                "type": "boolean"
+              },
+              "by_default": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -5587,7 +5893,8 @@
               "app_revision",
               "installed_by",
               "installed_at",
-              "updated_at"
+              "updated_at",
+              "hidden"
             ],
             "additionalProperties": true
           },

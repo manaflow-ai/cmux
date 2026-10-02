@@ -77,12 +77,18 @@ function InstalledApps() {
                   </Link>{" "}
                   <TierBadge tier={i.tier} />
                   <div className="muted">
-                    {i.scope === "team" ? "Team" : "Only you"} · since {formatDate(i.installed_at)}
+                    {i.scope === "team" ? "Team" : "Only you"} · {i.by_default ? "installed for everyone" : `since ${formatDate(i.installed_at)}`}
+                    {i.hidden ? " · hidden" : ""}
                   </div>
                 </td>
                 <td className="mono">{i.version}</td>
                 <td className="mono muted">{i.scopes_granted.join(" ")}</td>
-                <td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  {i.scope === "user" ? (
+                    <button title="Hidden apps keep running; their sidebar, palette and menu entries go away." onClick={() => void act(i.hidden ? "app.unhide" : "app.hide", { app: i.app })}>
+                      {i.hidden ? "Show" : "Hide"}
+                    </button>
+                  ) : null}{" "}
                   <button className="danger" onClick={() => void act("app.remove", { app: i.app, scope: i.scope })}>
                     Remove
                   </button>
