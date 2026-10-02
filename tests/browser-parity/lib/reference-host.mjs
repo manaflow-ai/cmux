@@ -113,8 +113,9 @@ export function totp(secretBase32, timeMs, { digits = 6, period = 30 } = {}) {
 
 // ---- WebKit content rules for a policy -------------------------------------------
 // Content-blocker regular expressions have no alternation, so each pattern
-// becomes its own rule. Main-frame documents are left to the navigation
-// checks, which report the block; iframes and subresources are blocked here.
+// becomes its own rule. Documents are blocked in every frame (no
+// load-context), so an off-policy main-frame navigation never sends its
+// request; the driver reports it as tab.navigationBlocked.
 
 const SUBRESOURCES = ["image", "style-sheet", "script", "font", "raw", "svg-document", "media", "ping", "fetch", "websocket", "other"];
 const cbEscape = (s) => s.replace(/[.+?^${}()|[\]\\*]/g, "\\$&");
@@ -137,7 +138,7 @@ export function policyContentRules({ allowLists, prohibited, blockIPs }) {
   const rules = [];
   const add = (filter, type) => {
     rules.push({ trigger: { "url-filter": filter, "resource-type": SUBRESOURCES }, action: { type } });
-    rules.push({ trigger: { "url-filter": filter, "resource-type": ["document"], "load-context": ["child-frame"] }, action: { type } });
+    rules.push({ trigger: { "url-filter": filter, "resource-type": ["document"] }, action: { type } });
   };
   // Content rules cannot express an intersection, so the allow list is the
   // pairwise intersection of the user's and the agent's lists.
@@ -347,6 +348,10 @@ export function createReferenceHost(ns, { host, driver }) {
     if (main && main.frameId !== p.frameId) return;
     host.print("warn", maskText(`# navigation to ${p.url} was blocked: ${reason}; the tab now shows about:blank`));
     blockPage(p.targetId, p.url, reason);
+  });
+  driver.on("tab.navigationBlocked", (p) => {
+    const reason = p && p.url && urlReason(p.url);
+    if (reason) record(p.url, reason, "before", p.targetId);
   });
   driver.on("tab.created", (p) => {
     const reason = p && p.url && urlReason(p.url);

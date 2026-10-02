@@ -257,11 +257,11 @@
       "blocked"
     ],
     "policy-after-link": [
-      "about:blank",
+      "PRIMARY/agent-tools.html?peer=PEER",
       [
         "before PEER/aria.html",
         "before PEER/api/data",
-        "after PEER/aria.html?linked"
+        "before PEER/aria.html?linked"
       ]
     ],
     "policy-prohibited": "page.goto: PEER/aria.html is blocked: prohibited by http://127.0.0.1 (session.prohibitedDomains)",

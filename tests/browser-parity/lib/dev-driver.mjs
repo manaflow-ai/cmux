@@ -371,8 +371,10 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   }
 
   // WebKit content-blocker rules applied with request routing: the last
-  // matching block or ignore-previous-rules rule decides. Main-frame
-  // documents are not routed, as in the app.
+  // matching block or ignore-previous-rules rule decides. A document rule
+  // with load-context child-frame covers iframes only; one without
+  // load-context covers the main frame too. A blocked main-frame document is
+  // reported as tab.navigationBlocked (the request never reaches the server).
   const RESOURCE_TYPES = { image: "image", stylesheet: "style-sheet", script: "script", font: "font", media: "media", fetch: "fetch", xhr: "fetch", websocket: "websocket", ping: "ping", other: "other" };
   let contentRules = [];
   let routed = false;
@@ -382,14 +384,24 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     routed = true;
     await context.route("**/*", (route, request) => {
       const isDocument = request.resourceType() === "document";
-      if (isDocument && request.frame().parentFrame() === null) return route.fallback();
+      let isMain = false;
+      try {
+        isMain = isDocument && request.frame().parentFrame() === null;
+      } catch {}
       const type = isDocument ? "document" : RESOURCE_TYPES[request.resourceType()] || "other";
       let blocked = false;
       for (const r of contentRules) {
         if (!r.re.test(request.url())) continue;
         if (r.types && !r.types.includes(type)) continue;
-        if (isDocument && !r.child) continue;
+        if (isMain && r.child) continue;
         blocked = r.type === "block";
+      }
+      if (blocked && isMain) {
+        let tab = null;
+        try {
+          tab = tabOf.get(request.frame().page());
+        } catch {}
+        if (tab) emit("tab.navigationBlocked", { targetId: tab.targetId, url: request.url() });
       }
       return blocked ? route.abort("blockedbyclient") : route.fallback();
     });
