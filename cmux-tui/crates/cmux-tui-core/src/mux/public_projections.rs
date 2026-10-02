@@ -39,13 +39,14 @@ pub(super) fn restore_public_projections(
         let level = notification_level(&notification.level)?;
         // Durable notifications outlive their terminal. The registry removes
         // tombstoned terminal references; keep their history without a badge.
-        if notification.unread && surface.is_some() {
-            if let Some(terminal_id) = notification.terminal_id.clone() {
-                terminal_notifications.insert(
-                    terminal_id,
-                    SurfaceNotification { notification: numeric_id, level, unread: true },
-                );
-            }
+        if notification.unread
+            && surface.is_some()
+            && let Some(terminal_id) = notification.terminal_id.clone()
+        {
+            terminal_notifications.insert(
+                terminal_id,
+                SurfaceNotification { notification: numeric_id, level, unread: true },
+            );
         }
         if !notification.read_by.is_empty() {
             notification_reads.insert(
