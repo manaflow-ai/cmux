@@ -228,8 +228,7 @@ extension CmuxTuiSurfaceProvider {
         // pane opens first. Each accepted pane then submits its bound destination via
         // the catalog's shared placement lane.
         let key = socketPath + "\u{0}" + terminalID
-        if let task = remoteTerminalProjectionTasks[key] { return try await task.value }
-        let task = Task<SurfaceRemotePlacement, Error> { @MainActor [weak self] in
+        let shared = remoteTerminalProjectionRegistry.task(for: key) { @MainActor [weak self] in
             guard let self else { throw ProviderError.terminalNotCreated(terminalID) }
             let snapshot = try await link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: socketPath))
             guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: preferredWorkspaceID) else {
@@ -240,9 +239,7 @@ extension CmuxTuiSurfaceProvider {
                 preferringRemoteWorkspace: destination.target.workspaceID
             )
         }
-        remoteTerminalProjectionTasks[key] = task
-        defer { remoteTerminalProjectionTasks[key] = nil }
-        return try await task.value
+        return try await remoteTerminalProjectionRegistry.awaitValue(shared)
     }
 
     /// Refreshes attachment identities and repairs a backing placement that

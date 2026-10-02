@@ -925,6 +925,94 @@ import Testing
         #expect(await registry.refresh(force: true) == false)
     }
 
+    @Test("A canceled projection waiter leaves the shared operation reusable until shutdown", .timeLimit(.minutes(1)))
+    @MainActor
+    func canceledProjectionWaiterDoesNotEvictSharedTask() async throws {
+        let registry = CloudTerminalProjectionRegistry()
+        let key = "socket\u{0}terminal"
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        var operationCount = 0
+        let shared = registry.task(for: key) {
+            operationCount += 1
+            started.resolve(true)
+            _ = await release.result
+            try Task.checkCancellation()
+            return SurfaceRemotePlacement(workspaceID: "workspace", tabID: "tab")
+        }
+
+        let creatorWaiting = CloudLinkFirstValue<Bool>()
+        let creator = Task {
+            creatorWaiting.resolve(true)
+            return try await registry.awaitValue(shared)
+        }
+        #expect(await started.result == true)
+        #expect(await creatorWaiting.result == true)
+        #expect(shared.completion.waiterCount == 1)
+        creator.cancel()
+        await #expect(throws: CancellationError.self) { try await creator.value }
+
+        #expect(shared.completion.waiterCount == 0)
+        #expect(registry.tasks[key]?.token == shared.token)
+        let reused = registry.task(for: key) {
+            Issue.record("A second caller must reuse the in-flight projection")
+            return SurfaceRemotePlacement(workspaceID: "unexpected", tabID: "unexpected")
+        }
+        #expect(reused.token == shared.token)
+
+        let survivorWaiting = CloudLinkFirstValue<Bool>()
+        let survivingWaiter = Task {
+            survivorWaiting.resolve(true)
+            return try await registry.awaitValue(reused)
+        }
+        #expect(await survivorWaiting.result == true)
+        #expect(shared.completion.waiterCount == 1)
+        registry.cancelAll()
+        await #expect(throws: CancellationError.self) { try await survivingWaiter.value }
+        #expect(registry.tasks[key] == nil)
+        #expect(shared.completion.waiterCount == 0)
+
+        release.resolve(true)
+        await #expect(throws: CancellationError.self) { try await shared.task.value }
+        #expect(operationCount == 1)
+    }
+
+    @Test("A stale projection completion cannot evict a newer retry", .timeLimit(.minutes(1)))
+    @MainActor
+    func staleProjectionCompletionPreservesNewGeneration() async throws {
+        let registry = CloudTerminalProjectionRegistry()
+        let key = "same-terminal"
+        let oldStarted = CloudLinkFirstValue<Bool>()
+        let oldRelease = CloudLinkFirstValue<Bool>()
+        let old = registry.task(for: key) {
+            oldStarted.resolve(true)
+            _ = await oldRelease.result
+            // Model an RPC that completes despite transport cancellation.
+            return SurfaceRemotePlacement(workspaceID: "old", tabID: "old")
+        }
+        #expect(await oldStarted.result == true)
+        registry.cancelAll()
+
+        let newStarted = CloudLinkFirstValue<Bool>()
+        let newRelease = CloudLinkFirstValue<Bool>()
+        let replacement = registry.task(for: key) {
+            newStarted.resolve(true)
+            _ = await newRelease.result
+            return SurfaceRemotePlacement(workspaceID: "new", tabID: "new")
+        }
+        #expect(await newStarted.result == true)
+        #expect(replacement.token != old.token)
+        oldRelease.resolve(true)
+        _ = try await old.task.value
+        #expect(registry.tasks[key]?.token == replacement.token)
+        await #expect(throws: CancellationError.self) { try await registry.awaitValue(old) }
+
+        newRelease.resolve(true)
+        let placement = try await registry.awaitValue(replacement)
+        #expect(placement.workspaceID == "new")
+        #expect(registry.tasks[key] == nil)
+    }
+
     @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
         // Verified live against a machine: `write --text` types as-is (no newline),
         // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.
