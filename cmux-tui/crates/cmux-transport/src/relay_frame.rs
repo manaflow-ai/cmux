@@ -100,7 +100,8 @@ impl RelayFrame {
     pub fn datagrams(peer: PeerId, datagrams: &[&[u8]]) -> Result<Self, RelayFrameError> {
         let mut payload = Vec::new();
         for datagram in datagrams {
-            let len = u16::try_from(datagram.len()).map_err(|_| RelayFrameError::TooLarge(datagram.len()))?;
+            let len = u16::try_from(datagram.len())
+                .map_err(|_| RelayFrameError::TooLarge(datagram.len()))?;
             if len == 0 {
                 return Err(RelayFrameError::BadBatch);
             }
