@@ -6,7 +6,8 @@ import Foundation
 /// pane matches the terminal and chrome. No blue accent (REWRITE.md visual
 /// rules): the accent is the foreground and its soft form the selection fill;
 /// labels on it take the background, opaque so a translucent window's
-/// backdrop doesn't thin them.
+/// backdrop doesn't thin them. The one hue is `highlight`, the theme's own
+/// ANSI blue, for the primary action.
 enum AgentPaneTheme {
     static func values(_ tokens: ThemeTokens) -> [String: any Sendable] {
         let page = tokens.contentBackground
@@ -28,6 +29,8 @@ enum AgentPaneTheme {
             "accentText": css(opaquePage),
             "danger": css(tokens.danger),
             "warning": css(tokens.attention),
+            "highlight": css(tokens.highlight),
+            "highlightText": css(tokens.highlightText),
             "shadow": css(tokens.shadow),
         ]
     }

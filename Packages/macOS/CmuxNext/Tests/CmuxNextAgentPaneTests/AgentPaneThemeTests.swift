@@ -6,7 +6,7 @@ import Testing
     @Test func coversEveryKeyThePageMapsToACSSVariable() {
         let keys = Set(AgentPaneTheme.values(.fallback).keys)
         #expect(keys == ["isDark", "pageBackground", "surfaceBackground", "surfaceElevatedBackground", "inputBackground", "border",
-                         "borderStrong", "text", "mutedText", "softText", "accent", "accentSoft", "accentText", "danger", "warning", "shadow"])
+                         "borderStrong", "text", "mutedText", "softText", "accent", "accentSoft", "accentText", "danger", "warning", "highlight", "highlightText", "shadow"])
     }
 
     /// The composer's full-access chip needs a caution color that is not
