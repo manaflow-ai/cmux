@@ -67,10 +67,32 @@ import Testing
             endpoint: .url("webrtc://100.71.210.41:56577?token=listener-token"),
             priority: -20_000
         )
+        let webRTCRelayRoute = try CmxAttachRoute(
+            id: CmxAttachTransportKind.webrtc.rawValue,
+            kind: .webrtc,
+            endpoint: .url(
+                "webrtc://relay?relay=https%3A%2F%2Fpresence.example%2Fv1%2Fwebrtc%2Fsignal&token=listener-token"
+            ),
+            priority: -20_000
+        )
         let webRTCRouteWithoutToken = try CmxAttachRoute(
             id: "webrtc-invalid",
             kind: .webrtc,
             endpoint: .url("webrtc://100.71.210.41:56577"),
+            priority: -20_000
+        )
+        let webRTCRelayRouteWithoutEndpoint = try CmxAttachRoute(
+            id: "webrtc-relay-invalid",
+            kind: .webrtc,
+            endpoint: .url("webrtc://relay?token=listener-token"),
+            priority: -20_000
+        )
+        let webRTCRelayRouteWithInsecureEndpoint = try CmxAttachRoute(
+            id: "webrtc-relay-insecure",
+            kind: .webrtc,
+            endpoint: .url(
+                "webrtc://relay?relay=http%3A%2F%2Fpresence.example%2Fsignal&token=listener-token"
+            ),
             priority: -20_000
         )
         let irohPeer = try CmxAttachRoute(
@@ -106,7 +128,10 @@ import Testing
         // The experimental WebRTC route is DTLS protected and bound to the
         // listener's signaling token; an unbound URL remains fail-closed.
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(webRTCRoute))
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(webRTCRelayRoute))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(webRTCRouteWithoutToken))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(webRTCRelayRouteWithoutEndpoint))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(webRTCRelayRouteWithInsecureEndpoint))
 
         // A numeric Tailscale address and an anonymous utun path do not prove
         // which VPN owns that path or which peer accepted plaintext TCP.

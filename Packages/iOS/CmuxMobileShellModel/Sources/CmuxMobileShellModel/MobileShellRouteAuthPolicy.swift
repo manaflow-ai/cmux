@@ -93,12 +93,25 @@ public struct MobileShellRouteAuthPolicy {
         case let (.webrtc, .url(value)):
             guard let components = URLComponents(string: value),
                   components.scheme?.lowercased() == "webrtc",
-                  let host = components.host,
-                  !host.isEmpty,
-                  let port = components.port,
-                  (1...65535).contains(port),
                   let token = components.queryItems?.first(where: { $0.name == "token" })?.value,
                   !token.isEmpty else {
+                return false
+            }
+            if components.host?.lowercased() == "relay" {
+                guard components.port == nil,
+                      let relay = components.queryItems?.first(where: { $0.name == "relay" })?.value,
+                      let relayURL = URLComponents(string: relay),
+                      let relayScheme = relayURL.scheme?.lowercased(),
+                      relayScheme == "https" || relayScheme == "wss",
+                      relayURL.host?.isEmpty == false else {
+                    return false
+                }
+                return true
+            }
+            guard let host = components.host,
+                  !host.isEmpty,
+                  let port = components.port,
+                  (1...65535).contains(port) else {
                 return false
             }
             return true
