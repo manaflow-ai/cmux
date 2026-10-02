@@ -6,7 +6,7 @@ import CmuxNextDesign
 /// (what System Settings' lists accept).
 final class HelperAppTile: NSView, NSDraggingSource {
     private let appURL: URL
-    private(set) lazy var hover = OnboardingHover(self)
+    private(set) lazy var hover = ChromeHover(self)
 
     init(appURL: URL) {
         self.appURL = appURL

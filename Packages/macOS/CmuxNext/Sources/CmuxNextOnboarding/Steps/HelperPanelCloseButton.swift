@@ -1,10 +1,11 @@
 import AppKit
 import CmuxNextDesign
 
-/// The drag panel's close button: an xmark that takes the first click, since the panel sits over System Settings while
-/// cmux is in the background.
+/// The drag panel's close button: an xmark with the shared hover fill that
+/// takes the first click. The panel sits over System Settings while cmux is
+/// in the background, so its hover tracks in any window, not only the key one.
 final class HelperPanelCloseButton: NSButton {
-    private(set) lazy var hover = OnboardingHover(self, outset: NSSize(width: 4, height: 4))
+    private(set) lazy var hover = ChromeHover(self, outset: NSSize(width: 4, height: 4))
 
     convenience init(target: AnyObject?, action: Selector?) {
         let image = NSImage(systemSymbolName: "xmark", accessibilityDescription: OnboardingStrings.computerUseHelperClose) ?? NSImage()
