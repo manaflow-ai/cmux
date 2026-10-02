@@ -548,3 +548,73 @@ between two existing org members creates their relationship only when both send 
   (`invhash`, whose row keys are hashes: keep its writes out of subscriber effects). The accept
   op takes `proof = sha256(secret)` and invites store `token_hash = sha256(proof)`, so no event
   carries a value that can accept.
+
+## 18. First contact over text (decisions, 2026-10-02)
+
+- Contact card name: "cmux" now; "Chief · cmux" once texting Chief works (section 19).
+- Sequence for the first text to a number (AddressDO `first_text`): 1. the cmux contact card
+  (vCard 3.0, `FN:cmux`, the sending line, `URL:https://cmux.com`, embedded JPEG photo of the
+  app icon; `renderVCard`), hosted as a `.vcf` and sent as media; 2. only after the card's
+  provider status is SENT or DELIVERED (status callback), the invite text with the invite card
+  image attached (`media_url = <accept origin>/og/invite/<code>.png`, `inviteImageUrl`) and the
+  link alone on the last line. Later invites to the same number: the text with the image, no
+  card. Builder: `textSendPlan` (home-core); the adapter (AddressDO, backend lead) runs the
+  steps and waits on the callback between them.
+- Why the image is attached: message apps may show "Tap to Load Preview" for links from a
+  sender that is not a saved contact; an attached image always shows. Preview behavior is
+  measured later with real users (the 13:41Z test showed the card with the icon; previews
+  appeared at once for one link and needed a tap for another).
+- Invite card image: `/og/invite/<code>.png`, 1200x630 PNG, public cache 1 day when
+  personalized (first name and avatar or initial only), 5 min generic. Three designs
+  (conversation default, terminal, minimal) in `invite-card-variants.tsx`; Lawrence picks.
+  Privacy: personalization by the code alone is acceptable because invite codes are
+  unguessable (group ids carry 80 random bits; address DMs are keyed HMACs); strongest
+  objection: anyone who sees a forwarded link learns the inviter's first name and avatar,
+  which is also what the link's recipient sees. `/v1/invites/card/<code>` must answer only for
+  codes with an open invite and never for user-to-user DMs.
+
+## 19. Text Chief over the phone (proposal)
+
+Goal: a person texts the cmux line and talks to their Chief; Chief replies in the same thread.
+
+- Inbound: `POST /v1/hooks/sendblue` in the Worker. The provider sends the shared secret in a
+  header (no signature, no timestamp), so: constant-time secret check, accept only messages to
+  our own lines, refuse `date_sent` older than 10 minutes, dedupe by `message_handle` in the
+  AddressDO ledger (`inbound:<handle>`, 7 days), 2xx at once and process from the AddressDO
+  outbox. Inbound media URLs expire after 30 days at the provider; copy to R2 only when kept.
+- Phone binding (we have none today): recommended flow is reverse verification. The app shows
+  "Text LINK 482913 to <cmux number>"; the inbound webhook matches the one-time code (6 digits,
+  10 minutes, 5 tries) and binds the number. This proves possession, records consent to texts,
+  and needs no outbound send. Alternative: an outbound one-time code (costs a send, no consent
+  signal). Owners: AddressDO owns `linked_user` for its number (single writer); UserDO keeps a
+  projection of the user's phones. Unbind: the user, STOP, or an admin. Number recycling: a
+  binding expires after 180 days without inbound use, and the first inbound after 90 silent
+  days needs a fresh code before any op beyond read and reply.
+- Routing: an inbound text from a bound number becomes a `message.send` in the user's chief
+  conversation, authored by the user with `origin: remote` and part metadata `via: sms`; MuxDO
+  wakes the Chief; the Chief's reply in that conversation goes back out through AddressDO.
+  Unbound numbers get one reply per day: "This number is not linked to cmux. Open cmux to link
+  it: <link>".
+- Group threads: a provider `group_id` maps to one group conversation (Chief plus the bound
+  members; unbound members appear as `addr_` participants that cannot act). The Chief answers in
+  a group only when named or replied to (existing wake rules and turn budget).
+- Limits: inbound 30 per minute and 500 per day per number; Chief replies 200 per day per user;
+  the conversation turn budget applies; the line's provider limits are global.
+- STOP, HELP, START: STOP suppresses the address and pauses texting (the account stays); HELP
+  returns a fixed text; START resumes. Keywords are answered before any routing.
+- Privacy: texts are Home messages with the chief thread's retention; nothing else is stored
+  beyond the dedupe key and delivery state.
+- What the Chief may do from a text: the user's grant narrowed to `read` and `mutate-own` plus
+  `execute` with confirmation. `send-external`, `money` and `destructive` need an explicit reply
+  with a one-time code bound to that action ("Reply YES 4821 to delete the VM"), or the app.
+  Never from a text: grant changes, install or account changes, billing. Never in a text:
+  secrets, tokens, passwords, invite secrets of others; approvals that touch secrets open the
+  app instead.
+
+Questions (recommendations):
+- T1. Verification direction: reverse (user texts a code to us), because it proves possession
+  and consent without an outbound send. RECOMMEND reverse.
+- T2. Which conversation receives texts: the user's main chief conversation, or a separate
+  "Texts" conversation with the Chief? RECOMMEND the main chief conversation, marked `via: sms`.
+- T3. Confirmation for risky ops: one-time code reply, or always deep-link to the app?
+  RECOMMEND a code reply for `execute`, the app for `money` and `destructive`.
