@@ -14897,6 +14897,434 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "list-bookmarks": {
+   "authority": "control",
+   "since": 12,
+   "capability": "bookmarks-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "browser_profile_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "create-bookmark": {
+   "authority": "control",
+   "since": 12,
+   "capability": "bookmarks-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "browser_profile_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "parent": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "kind": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "title": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "index": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "favicon_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "source_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "created_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "bookmark": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "mutation_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "update-bookmark": {
+   "authority": "control",
+   "since": 12,
+   "capability": "bookmarks-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "bookmark": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "title": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "favicon_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "last_used_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "mutation_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "move-bookmark": {
+   "authority": "control",
+   "since": 12,
+   "capability": "bookmarks-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "bookmark": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "parent": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "index": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "mutation_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "delete-bookmark": {
+   "authority": "control",
+   "since": 12,
+   "capability": "bookmarks-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "bookmark": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "mutation_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "import-bookmarks": {
+   "authority": "control",
+   "since": 12,
+   "capability": "bookmarks-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "browser_profile_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "parent": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "index": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "source_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "replace": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     },
+     "nodes": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "JsonValue"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "mutation_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "create-profile": {
    "authority": "control",
    "since": 12,
@@ -18978,6 +19406,44 @@
       "nullable": false
      },
      "personal_revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "bookmarks-changed": {
+   "since": 12,
+   "capability": "bookmarks-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "bookmarks-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "browser_profile_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "bookmarks_revision": {
       "type": {
        "kind": "scalar",
        "name": "uint64"

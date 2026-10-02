@@ -44,4 +44,11 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case newProfile
     /// Move a profile to an insertion index (dot drag).
     case reorderProfile(ProfileKey, index: Int)
+    /// Run an item of a sticky section (a built-in's action, a pinned
+    /// workspace). plans/cmux-next/sidebar-sections.md
+    case activateItem(LayoutItemID)
+    /// Change the section layout; the App sends it to the workspace store.
+    case layout(SidebarLayoutOp)
+    /// Collapse or expand a titled section (client view state).
+    case toggleLayoutSection(LayoutSectionID)
 }

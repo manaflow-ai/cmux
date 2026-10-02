@@ -23,6 +23,14 @@ public final class SidebarModel {
     public var profiles: [SidebarProfile] = []
     /// The profile this window shows.
     public var activeProfileID: ProfileKey?
+    /// The section layout to draw (plans/cmux-next/sidebar-sections.md):
+    /// the App fills it with the store's document plus pending intents.
+    public var layout: SidebarLayoutDocument = .defaults
+    /// How layout items draw, by item id. Built-ins without an entry draw
+    /// their own title and symbol.
+    public var itemInfo: [LayoutItemID: SidebarItemInfo] = [:]
+    /// Collapsed titled sections: client view state, saved with the window.
+    public var collapsedLayoutSections: Set<LayoutSectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
     /// Machine sections list loose workspaces before groups (a daemon-backed
@@ -112,6 +120,12 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
+        case .activateItem:
+            break
+        case let .layout(op):
+            if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
+        case let .toggleLayoutSection(id):
+            if collapsedLayoutSections.remove(id) == nil { collapsedLayoutSections.insert(id) }
         case let .reorderProfile(id, index):
             guard let from = profiles.firstIndex(where: { $0.id == id }),
                   let to = ProfileBarLogic.finalIndex(from: from, insertion: index, count: profiles.count) else { return }

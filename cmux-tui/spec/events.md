@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `bookmarks-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -38,6 +38,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `workspace-changed` | subscribe (`deltas`) | `workspace` | protocol 12 additive extension; capability `workspace-metadata-v1` |
 | `frontend-projection-changed` | subscribe | projection subject | protocol 7 |
 | `personal-changed` | subscribe | session | protocol 12; capability `profiles-v1` |
+| `bookmarks-changed` | subscribe | `browser_profile_id` | protocol 12; capability `bookmarks-v1` |
 | `screen-added` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-closed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-renamed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
@@ -368,6 +369,22 @@ the commands after it) commits a change. The payload is
 `{event:"personal-changed", personal_revision:uint64}`; interested frontends
 refetch `list-personal`. An unchanged retry publishes nothing. Personal state
 does not advance `workspace_revision`.
+
+### bookmarks-changed
+
+| Field | Value |
+| --- | --- |
+| event | `bookmarks-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Published after a bookmark command (commands.md, `list-bookmarks` and the
+commands after it) or a `delete-browser-profile` that deleted bookmarks
+commits a change. The payload is
+`{event:"bookmarks-changed", browser_profile_id:string, bookmarks_revision:uint64}`;
+interested frontends refetch `list-bookmarks` for that browser profile. An
+unchanged retry publishes nothing. Bookmarks advance neither
+`personal_revision` nor `workspace_revision`.
 
 ### terminal-registry-changed
 
