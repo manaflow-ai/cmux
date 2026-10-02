@@ -1733,12 +1733,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isRunningUnderXCTest {
             startSudoApprovalCoordinator()
         }
-        // Prewarm the shared restorable-agent index off the main thread so the first
-        // tab/workspace/window close after launch reads a warm cache instead of paying a
-        // synchronous RestorableAgentSessionIndex.load() on the main thread. See
-        // closedPanelHistoryEntry.
+        // Prewarm the restorable-agent index (see closedPanelHistoryEntry) and the agent
+        // message journal off the main thread, so the first close or command palette open
+        // after launch doesn't load either synchronously on main.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+            AgentMessageCenter.warmStoreOffMain()
         }
 
         claimAuthCallbackURLSchemes()
@@ -2627,6 +2627,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() }
         )
         TerminalController.shared.cloudTunnel = cloudTunnel
+        // Warms the New Machine sheet's plan and network catalog per signed-in
+        // account so Cmd+Y never waits on the network.
+        NewMachineSheetDataCache.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         TeamsClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
