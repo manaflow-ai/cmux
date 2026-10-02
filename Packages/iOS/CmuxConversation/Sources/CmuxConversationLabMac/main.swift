@@ -16,9 +16,9 @@ if arguments.count > 2 {
     app.appearance = NSAppearance(named: arguments[2] == "light" ? .aqua : .darkAqua)
 }
 let controller = MainActor.assumeIsolated { MacConversationLab.open(endpoint: endpoint) }
-// Driven runs open on the display named by CMUX_LAB_DISPLAY (default "LG HDR 4K"),
+// The lab opens on the display named by CMUX_LAB_DISPLAY (default "LG HDR 4K"),
 // never on the person's main working display.
-if driven {
+do {
     MainActor.assumeIsolated {
         let name = ProcessInfo.processInfo.environment["CMUX_LAB_DISPLAY"] ?? "LG HDR 4K"
         if let screen = NSScreen.screens.first(where: { $0.localizedName.localizedCaseInsensitiveContains(name) }),
