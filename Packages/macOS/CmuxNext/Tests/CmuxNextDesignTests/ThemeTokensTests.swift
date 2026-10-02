@@ -27,6 +27,23 @@ import Testing
         #expect(t.textTertiary.contrast(with: t.stripBackground.withAlpha(1)) >= 3.0, "\(name) tertiary")
     }
 
+    /// The sidebar and strip steps are translucent layers over the
+    /// window's one backdrop. Over the opaque background the strip step
+    /// gives exactly the strip color, and the sidebar step gives the
+    /// background lifted 4% toward the foreground (the agent pane's step).
+    @Test(arguments: ThemeFixtures.all.map(\.0))
+    func theStepsCompositeToTheChromeSurfaces(_ name: String) {
+        let input = theme(name)
+        let t = ThemeTokens.derive(from: input)
+        let bg = input.background.withAlpha(1)
+        func close(_ a: ThemeRGB, _ b: ThemeRGB) -> Bool {
+            abs(a.red - b.red) < 0.002 && abs(a.green - b.green) < 0.002 && abs(a.blue - b.blue) < 0.002
+        }
+        #expect(t.stripStep.alpha < 1 && t.sidebarStep.alpha < 1, "\(name)")
+        #expect(close(t.stripStep.composited(over: bg), t.stripBackground.withAlpha(1)), "\(name) strip")
+        #expect(close(t.sidebarStep.composited(over: bg), bg.mixed(toward: input.foreground, 0.04)), "\(name) sidebar")
+    }
+
     @Test func lightnessFollowsTheBackground() {
         #expect(ThemeTokens.derive(from: ThemeFixtures.monokaiClassic).isDark)
         #expect(ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha).isDark)
