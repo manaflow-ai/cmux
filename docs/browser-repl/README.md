@@ -56,7 +56,7 @@ reference ([parity-report.md](parity-report.md)).
 | `page.dialog()` | The open JavaScript dialog or `null`: `{ type, message, defaultValue, accept(text?), dismiss() }`. | ChatGPT `getJsDialog()` |
 | `page.fileChooser()` | The open file chooser or `null`: `{ multiple, setFiles(files), cancel() }`. | ChatGPT chooser flow |
 | `page.consoleMessages({ level, filter, limit })`, `page.errors()` | Console history and uncaught errors since the tab opened. | ChatGPT `dev.logs()` |
-| `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard. Meta+V fires a trusted `paste` event whose `clipboardData` holds it; Meta+C and Meta+X fill it from a trusted `copy`/`cut`. The system clipboard is not touched. | ChatGPT `clipboard` |
+| `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard. Meta+V fires a trusted `paste` event whose `clipboardData` holds it; Meta+C and Meta+X fill it from a trusted `copy`/`cut`. The system clipboard is not touched, and other code (the terminal) keeps the system clipboard while a shortcut runs; one that WebKit does not finish within 5 s throws a timeout and still never reaches the system clipboard. | ChatGPT `clipboard` |
 | `page.elementAt(x, y)` | `{ ref, role, name, box }` for the topmost element at a viewport point. | ChatGPT `elementInfo()` |
 | `page.keep()` | Keep this tab open after a one-shot run. | ChatGPT `markDeliverable()` |
 | `page.exportContent(options)` | Write the page as Markdown, a Google Docs/Sheets/Slides tab in an export format (`{ format }`), or a YouTube watch page's captions (`{ transcript: true }`) to a file; returns the path. | ChatGPT `content.export*` |

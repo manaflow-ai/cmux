@@ -1436,8 +1436,6 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let attachment = attachment(panel)
         switch command {
         case "copy:", "cut:", "paste:":
-            let pasteboard = NSPasteboard.withUniqueName()
-            defer { pasteboard.releaseGlobally() }
             let isPaste = command == "paste:"
             // WebKit beeps on Copy or Cut with nothing selected; that case
             // keeps the script path, which empties the tab's clipboard.
@@ -1445,23 +1443,35 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
                 return
             }
+            let pasteboard = NSPasteboard.withUniqueName()
             if isPaste {
-                BrowserReplPasteboardRedirect.write(attachment.clipboardItems, to: pasteboard)
+                BrowserReplClipboardItems.write(attachment.clipboardItems, to: pasteboard)
             } else {
                 pasteboard.clearContents()
             }
             let name = isPaste ? "Paste" : (command == "copy:" ? "Copy" : "Cut")
-            if await BrowserReplPasteboardRedirect.perform(name, in: webView, pasteboard: pasteboard) {
+            switch await BrowserReplPasteboardRedirect.perform(name, in: webView, pasteboard: pasteboard) {
+            case .completed:
                 if !isPaste {
-                    let items = BrowserReplPasteboardRedirect.read(pasteboard)
+                    let items = BrowserReplClipboardItems.read(pasteboard)
                     // Copying nothing leaves an empty clipboard, as before.
                     attachment.clipboardItems = items.isEmpty
                         ? [["type": "text/plain", "base64": ""]]
                         : items
                 }
-                return
+                pasteboard.releaseGlobally()
+            case .timedOut:
+                // The redirect keeps the pasteboard until WebKit finishes,
+                // so the command never reaches the system clipboard, and
+                // releases it then.
+                throw Self.error("timeout", "\(name) did not finish within 5 s; WebKit may still finish it, against the tab's clipboard, never the system clipboard")
+            case .busy:
+                pasteboard.releaseGlobally()
+                throw Self.error("timeout", "\(name) did not start: an earlier Copy, Cut or Paste has not finished")
+            case .unavailable:
+                pasteboard.releaseGlobally()
+                try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
             }
-            try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
         case "bold", "italic", "underline":
             // Chrome's editor formats the selection of an editable element on
             // Command+B/I/U; the page sees its usual beforeinput and input.

@@ -1,4 +1,5 @@
 import AppKit
+import WebKit
 import Testing
 
 @testable import CmuxBrowser
@@ -76,5 +77,47 @@ struct BrowserReplPasteboardRedirectTests {
         }
         #expect(thirdOutcome == .completed)
         #expect(secondStarted)
+    }
+}
+
+/// WebKit's real Paste, end to end: its pasteboard reads arrive through IPC
+/// after the command starts, from WebCore, and must get the tab's pasteboard.
+@MainActor
+@Suite("Browser REPL pasteboard redirect in WebKit", .serialized)
+struct BrowserReplPasteboardRedirectWebKitTests {
+    private final class Loaded: NSObject, WKNavigationDelegate {
+        var continuation: CheckedContinuation<Void, Never>?
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
+    @Test func webKitsPasteReadsTheTabPasteboard() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let loaded = Loaded()
+        webView.navigationDelegate = loaded
+        await withCheckedContinuation { continuation in
+            loaded.continuation = continuation
+            webView.loadHTMLString(
+                "<input id=i><script>addEventListener('paste', e => { window.pasted = e.isTrusted + ':' + e.clipboardData.getData('text/plain'); });</script>",
+                baseURL: URL(string: "https://example.com/")
+            )
+        }
+        _ = try await webView.evaluateJavaScript("document.getElementById('i').focus(); true")
+        let tab = NSPasteboard.withUniqueName()
+        defer { tab.releaseGlobally() }
+        tab.clearContents()
+        tab.setString("tab text", forType: .string)
+
+        let outcome = await BrowserReplPasteboardRedirect.perform("Paste", in: webView, pasteboard: tab, timeout: .seconds(10))
+        #expect(outcome == .completed)
+        // Compared, never printed: a broken redirect would have pasted the
+        // user's clipboard.
+        let value = try await webView.evaluateJavaScript("document.getElementById('i').value") as? String
+        let event = try await webView.evaluateJavaScript("window.pasted || ''") as? String
+        #expect(value == "tab text", "WebKit's paste did not read the tab's pasteboard")
+        #expect(event == "true:tab text", "the page did not get a trusted paste event with the tab's data")
+        #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: NSPasteboard.Name.general.rawValue, fromWebKit: true) == nil)
     }
 }

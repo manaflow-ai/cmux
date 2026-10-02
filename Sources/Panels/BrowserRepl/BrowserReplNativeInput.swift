@@ -1,6 +1,5 @@
 import AppKit
 import CmuxBrowser
-import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
@@ -298,90 +297,12 @@ final class BrowserReplOnce {
     }
 }
 
-/// Runs WebKit's own Copy, Cut and Paste editing commands against a REPL
-/// tab's private pasteboard instead of the system clipboard.
-///
-/// WebKit's UI process reads and writes the general pasteboard by name
-/// (`+[NSPasteboard pasteboardWithName:]`, from `PlatformPasteboard`) when an
-/// editing command runs. While one command runs, that lookup returns the
-/// tab's pasteboard, so the page gets a trusted `paste` event whose
-/// `clipboardData` holds the tab's clipboard, or a trusted `copy` whose data
-/// lands on it. The system pasteboard is never read or written. Commands run
-/// one at a time; the redirect ends when WebKit reports the command done or
-/// after `timeout`, whichever is first. Residual risk: anything else in the
-/// process that looks up the general pasteboard during that window (a user
-/// paste in a terminal in the same few milliseconds) sees the tab's clipboard.
+/// Converts a REPL tab's virtual clipboard (`clipboard.read` /
+/// `clipboard.write` items) to and from the private pasteboard that
+/// `BrowserReplPasteboardRedirect` (CmuxBrowser) runs WebKit's Copy, Cut and
+/// Paste against.
 @MainActor
-enum BrowserReplPasteboardRedirect {
-    nonisolated(unsafe) private static var target: NSPasteboard?
-    nonisolated private static let lock = NSLock()
-    private static var installed = false
-    private static var tail: Task<Void, Never>?
-
-    /// Runs `command` (`Copy`, `Cut` or `Paste`) in `webView` with `pasteboard`
-    /// standing in for the general pasteboard. Returns `false` when WebKit's
-    /// editing-command SPI is missing, so the caller can fall back.
-    static func perform(
-        _ command: String,
-        in webView: WKWebView,
-        pasteboard: NSPasteboard,
-        timeout: Duration = .seconds(5)
-    ) async -> Bool {
-        let selector = NSSelectorFromString("_executeEditCommand:argument:completion:")
-        guard webView.responds(to: selector), installIfNeeded() else { return false }
-        let previous = tail
-        let run = Task { @MainActor in
-            await previous?.value
-            setTarget(pasteboard)
-            defer { setTarget(nil) }
-            let gate = BrowserReplOnce()
-            _ = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                gate.continuation = continuation
-                typealias Completion = @convention(block) (Bool) -> Void
-                typealias Function = @convention(c) (AnyObject, Selector, NSString, NSString?, Completion) -> Void
-                let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
-                let completion: Completion = { _ in MainActor.assumeIsolated { gate.finish(true) } }
-                function(webView, selector, command as NSString, "" as NSString, completion)
-                gate.timer = Task { @MainActor in
-                    try? await ContinuousClock().sleep(for: timeout)
-                    gate.finish(false)
-                }
-            }
-        }
-        tail = run
-        await run.value
-        return true
-    }
-
-    nonisolated private static func setTarget(_ pasteboard: NSPasteboard?) {
-        lock.lock()
-        target = pasteboard
-        lock.unlock()
-    }
-
-    nonisolated fileprivate static func redirected(_ name: NSString) -> NSPasteboard? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let target, name as String == NSPasteboard.Name.general.rawValue else { return nil }
-        return target
-    }
-
-    private static func installIfNeeded() -> Bool {
-        if installed { return true }
-        let selector = NSSelectorFromString("pasteboardWithName:")
-        guard let method = class_getClassMethod(NSPasteboard.self, selector) else { return false }
-        typealias Lookup = @convention(c) (AnyObject, Selector, NSString) -> NSPasteboard
-        let original = unsafeBitCast(method_getImplementation(method), to: Lookup.self)
-        let replacement: @convention(block) @Sendable (AnyObject, NSString) -> NSPasteboard = { cls, name in
-            redirected(name) ?? original(cls, selector, name)
-        }
-        method_setImplementation(method, imp_implementationWithBlock(replacement))
-        installed = true
-        return true
-    }
-
-    // MARK: - Tab clipboard items
-
+enum BrowserReplClipboardItems {
     /// Writes the tab's clipboard items (`{ type, base64 }`, MIME types or
     /// raw pasteboard types) to `pasteboard` as one item.
     static func write(_ items: [[String: Any]], to pasteboard: NSPasteboard) {
