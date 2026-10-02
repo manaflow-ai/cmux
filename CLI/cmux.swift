@@ -31792,16 +31792,7 @@ struct CMUXCLI {
     }
 
     static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
-        guard let forkParent = environment[CodexForkSessionWatcher.parentSessionEnvironmentKey],
-              !forkParent.isEmpty else { return [] }
-        var arguments = ["--fork-parent", forkParent]
-        if let launchID = environment[CodexForkSessionWatcher.launchIDEnvironmentKey], !launchID.isEmpty {
-            arguments += ["--fork-launch-id", launchID]
-        }
-        if let ownerPID = environment["CMUX_CODEX_PID"], !ownerPID.isEmpty {
-            arguments += ["--fork-owner-pid", ownerPID]
-        }
-        return arguments
+        CmuxTuiRemoteRouting.codexForkMonitorArguments(environment: environment)
     }
 
     /// Watches the Codex rollout until the turn settles.
