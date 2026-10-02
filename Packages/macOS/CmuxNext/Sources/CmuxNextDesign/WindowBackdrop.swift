@@ -36,6 +36,8 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// tint (`ghostty_set_window_background_blur`): frosted sets it,
     /// see-through clears it (radius 0). Glass blurs in its own view.
     public var setsWindowBlurRadius: Bool { material == .frosted || material == .translucent }
+    /// The behind-window blur radius the window takes for this backdrop.
+    public var windowBlurRadius: Int { 0 }
 
     /// The backdrop for one resolved opacity and blur.
     ///

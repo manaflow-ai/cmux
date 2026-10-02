@@ -25,7 +25,7 @@ struct WindowRootMaterialTests {
         let root = WindowRootView(sidebar: SidebarContainerView(model: model),
                                   rail: WindowRailView(model: model, registry: ActionBindingCoverageTests.boundServices().registry),
                                   reduceTransparency: { reduceTransparency.on },
-                                  applyWindowBlur: { _ in })
+                                  applyWindowBlur: { _, _ in })
         let room = ThemeScope(level: .room)
         room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: input, animated: false)
         room.root(root)

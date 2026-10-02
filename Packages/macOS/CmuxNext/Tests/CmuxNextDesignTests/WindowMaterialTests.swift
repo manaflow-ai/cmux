@@ -44,6 +44,14 @@ struct WindowMaterialTests {
         #expect(backdrop.tintOpacity == (c.material == .opaque ? 1 : c.opacity))
     }
 
+    /// Only frosted puts a radius on the window, its own `background-blur`;
+    /// every other material clears it.
+    @Test(arguments: [(0.8, 20, 20), (0.5, 1, 1), (0.8, 12, 12), (0.8, 0, 0), (0.8, -1, 0), (0.8, -2, 0), (1.0, 20, 0), (1.0, 0, 0)])
+    func onlyFrostedSetsAWindowBlurRadius(opacity: Double, blur: Int, radius: Int) {
+        #expect(WindowBackdrop(backgroundOpacity: opacity, backgroundBlur: blur).windowBlurRadius == radius)
+        #expect(WindowBackdrop(backgroundOpacity: opacity, backgroundBlur: blur, reduceTransparency: true).windowBlurRadius == 0)
+    }
+
     @Test func theTokensInitReadsTheResolvedValues() {
         var input = ThemeFixtures.catppuccinMocha
         input.backgroundOpacity = 0.75
