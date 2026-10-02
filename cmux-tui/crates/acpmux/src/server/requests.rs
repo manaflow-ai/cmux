@@ -133,8 +133,8 @@ pub(super) async fn handle_request(
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
-                ], "operations": crate::hub::HANDOFF_OPERATIONS, "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText"]}}
+                ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups"]}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -347,6 +347,7 @@ pub(super) async fn handle_request(
                 .map_err(RpcError::invalid_params)?;
             let mut cfg = hub.config.write().await;
             cfg.permission_policy = policy;
+            hub.permission_defaults_changed();
             cfg.save().map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
             Ok(json!({"policy":policy.to_string()}))
         }
@@ -726,6 +727,18 @@ pub(super) async fn handle_request(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             hub.kill(&s, purge).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
+        }
+        method::MUX_PERMISSION_GROUPS => {
+            let s = hub.resolve(session_key(&params)?)?;
+            hub.permission_groups(&s, &params)
+        }
+        method::MUX_PERMISSION_GROUP_RESPOND => {
+            let s = hub.resolve(session_key(&params)?)?;
+            hub.respond_permission_group(&s, params).await
+        }
+        method::MUX_PERMISSION_CHAT_REVOKE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            Ok(hub.revoke_permission_chat(&s))
         }
         method::MUX_PERMISSION_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;

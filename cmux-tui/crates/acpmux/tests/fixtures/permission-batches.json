@@ -16,6 +16,9 @@
   "interactive": {
     "items": [{"title":"Question","kind":"other","interactive":true}]
   },
+  "unknown": {
+    "items": [{"title":"Unknown operation","kind":"custom"}]
+  },
   "single": {
     "items": [{"title":"Write a.txt","kind":"edit"}]
   }

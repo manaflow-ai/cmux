@@ -794,13 +794,14 @@ impl Hub {
     }
 
     pub async fn set_policy(&self, session: &Arc<Session>, policy: PermissionPolicy) {
-        session.meta.lock().unwrap().permission_policy = Some(policy.to_string());
+        self.permission_policy_changed(session, |m| m.permission_policy = Some(policy.to_string()));
         self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
         self.save_meta(session);
     }
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = session.child.lock().await.take() {
             if let Some(sid) = session.meta().agent_session_id {
@@ -836,6 +837,7 @@ impl Hub {
 
     /// Stop the child but keep the session resumable.
     pub async fn detach_child(&self, session: &Arc<Session>) {
+        self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = session.child.lock().await.take() {
             child.kill().await;
@@ -854,6 +856,7 @@ impl Hub {
         let sessions = self.sessions();
         let mut children = Vec::new();
         for s in &sessions {
+            self.revoke_permission_chat(s);
             self.cancel_pending_permissions(s);
             if let Ok(mut slot) = tokio::time::timeout(LOCK, s.child.lock()).await
                 && let Some(child) = slot.take()
