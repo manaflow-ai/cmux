@@ -31,7 +31,6 @@ struct TerminalCustomUploadRunner {
         let port: Int?
         let identityFile: String?
         let sshOptions: [String]
-        let remotePastePolicy: RemotePasteFileTransferPolicy
     }
 
     private let runProcess: ProcessRunner
@@ -80,6 +79,7 @@ struct TerminalCustomUploadRunner {
         fileURLs: [URL],
         endpoint: Endpoint,
         command: String,
+        remotePastePolicy: RemotePasteFileTransferPolicy,
         operation: TerminalImageTransferOperation,
         timeout: TimeInterval = 120,
         completion: @escaping (Result<String, Error>) -> Void
@@ -92,6 +92,7 @@ struct TerminalCustomUploadRunner {
                 fileURLs: fileURLs,
                 endpoint: endpoint,
                 command: command,
+                remotePastePolicy: remotePastePolicy,
                 operation: operation,
                 timeout: timeout
             ))
@@ -102,6 +103,7 @@ struct TerminalCustomUploadRunner {
         fileURLs: [URL],
         endpoint: Endpoint,
         command: String,
+        remotePastePolicy: RemotePasteFileTransferPolicy,
         operation: TerminalImageTransferOperation,
         timeout: TimeInterval = 120
     ) -> Result<String, Error> {
@@ -114,7 +116,7 @@ struct TerminalCustomUploadRunner {
                 guard normalizedLocalURL.isFileURL else {
                     throw Self.uploadError("Dropped item is not a local file.")
                 }
-                let remotePath = endpoint.remotePastePolicy.remotePath(for: normalizedLocalURL)
+                let remotePath = remotePastePolicy.remotePath(for: normalizedLocalURL)
                 let env = TerminalUploadCommand.environment(
                     localPath: normalizedLocalURL.path,
                     remotePath: remotePath,
@@ -180,12 +182,17 @@ struct TerminalCustomUploadRunner {
             destination: session.destination,
             port: session.port,
             identityFile: session.identityFile,
-            sshOptions: session.sshOptions,
-            remotePastePolicy: session.remotePastePolicy
+            sshOptions: session.sshOptions
         )
         guard let command = matchedCommand(for: endpoint) else { return false }
 
-        run(fileURLs: fileURLs, endpoint: endpoint, command: command, operation: operation) { result in
+        run(
+            fileURLs: fileURLs,
+            endpoint: endpoint,
+            command: command,
+            remotePastePolicy: session.remotePastePolicy,
+            operation: operation
+        ) { result in
             cleanup(fileURLs)
             DispatchQueue.main.async {
                 // A cancelled/finished operation means the cancel handler already
@@ -198,9 +205,11 @@ struct TerminalCustomUploadRunner {
     }
 
     // MARK: - Process bridge
+
     private static func uploadError(_ message: String) -> NSError {
         NSError(domain: "cmux.upload.command", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
+
     /// Default ``ProcessRunner``: spawns `/bin/sh -c command` as its own process
     /// group and captures its output.
     ///

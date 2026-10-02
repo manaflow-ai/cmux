@@ -283,7 +283,7 @@ import Testing
             destination: "h",
             port: nil,
             identityFile: nil,
-            sshOptions: [], remotePastePolicy: RemotePasteFileTransferPolicy(sessionID: UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")!)
+            sshOptions: []
         )
         #expect(env["CMUX_UPLOAD_PORT"] == nil)
         #expect(env["CMUX_UPLOAD_IDENTITY_FILE"] == nil)
@@ -297,7 +297,7 @@ import Testing
             destination: "me@host.example.com",
             port: nil,
             identityFile: nil,
-            sshOptions: []
+            sshOptions: [], remotePastePolicy: RemotePasteFileTransferPolicy(sessionID: UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")!)
         )
     }
 
