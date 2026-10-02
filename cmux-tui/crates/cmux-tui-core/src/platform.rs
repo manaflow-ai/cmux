@@ -142,7 +142,9 @@ pub mod transport {
 
         use super::Stream;
         use uds_windows::{UnixListener, UnixStream};
-        use windows_sys::Win32::Networking::WinSock::{FD_SET, MSG_PEEK, TIMEVAL, recv, select};
+        use windows_sys::Win32::Networking::WinSock::{
+            POLLERR, POLLHUP, POLLIN, POLLNVAL, WSAPOLLFD, WSAPoll,
+        };
 
         pub(super) struct Listener {
             inner: UnixListener,
@@ -186,20 +188,14 @@ pub mod transport {
 
             fn peer_closed(&self) -> bool {
                 let socket = self.as_raw_socket();
-                let mut read_fds = FD_SET { fd_count: 1, fd_array: [socket; 64] };
-                let timeout = TIMEVAL { tv_sec: 0, tv_usec: 0 };
-                // SAFETY: the socket and fd set are initialized, and the zero
-                // timeout keeps this probe non-blocking. `recv` peeks without
-                // consuming a byte, so the reader still owns the stream data.
-                let ready = unsafe {
-                    select(0, &mut read_fds, std::ptr::null_mut(), std::ptr::null_mut(), &timeout)
-                };
-                if ready <= 0 {
-                    return false;
-                }
-                let mut byte = [0u8; 1];
-                let received = unsafe { recv(socket, byte.as_mut_ptr(), 1, MSG_PEEK) };
-                received == 0
+                let mut descriptor =
+                    WSAPOLLFD { fd: socket, events: POLLIN | POLLHUP | POLLERR, revents: 0 };
+                // SAFETY: descriptor points to one initialized pollfd and the
+                // zero timeout makes this a non-blocking probe. Unlike a
+                // select-then-recv peek, WSAPoll reports hangup directly and
+                // cannot block if the reader consumes queued input first.
+                let ready = unsafe { WSAPoll(&mut descriptor, 1, 0) };
+                ready > 0 && descriptor.revents & (POLLHUP | POLLERR | POLLNVAL) != 0
             }
         }
     }
