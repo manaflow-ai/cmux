@@ -426,13 +426,14 @@ final class TerminalTabOverviewViewController: UIViewController {
         let groupTitle = visibleItems.count == 1 ? workspaceName : "\(visibleItems.count) Tabs"
         groupControl.setTitle(groupTitle, forSegmentAt: 1)
         layoutButton.isHidden = isPrivateMode
-        view.bringSubviewToFront(topBar)
-        // The hint's close affordance sits over the top-right control in the
-        // compact layout. Keep the hint above the chrome for that tap while
-        // passing every other point through to the controls underneath.
+        // Keep the teaching card in the hierarchy before the top chrome. Safari
+        // renders the glass controls above the card when their bounds overlap;
+        // the card's passthrough hit-test still lets those controls receive
+        // taps while exposing its close affordance where it is unobstructed.
         if hintIsVisible && !isPrivateMode {
             view.bringSubviewToFront(hintCard)
         }
+        view.bringSubviewToFront(topBar)
         view.bringSubviewToFront(bottomBar)
         if isPrivateMode {
             view.bringSubviewToFront(privateBrowsingView)
