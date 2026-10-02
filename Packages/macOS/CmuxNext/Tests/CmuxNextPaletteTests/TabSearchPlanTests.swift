@@ -34,6 +34,13 @@ import Testing
         #expect(rows.first?.accessory != nil)
     }
 
+    @Test func aTabClosedThisSecondNeverReadsAsFuture() {
+        let entries = [TabSearchEntry(id: "c", kind: .terminal, title: "x", order: 0, state: .closed(closedAt: now.addingTimeInterval(0.4)))]
+        let accessory = TabSearchPlan.rows(entries, style: .recent, now: now).first?.accessory ?? ""
+        #expect(!accessory.isEmpty)
+        #expect(!accessory.hasPrefix("in "))
+    }
+
     @Test func groupedKeepsLayoutOrderUnderWindowAndWorkspace() {
         let rows = TabSearchPlan.rows(sample, style: .grouped, now: now)
         let open = rows.filter { !$0.entry.isClosed }

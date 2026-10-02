@@ -174,6 +174,8 @@ public nonisolated enum TabSearchPlan {
     static func relative(_ date: Date, now: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
+        // "now" for a tab closed this second, never "in 0s".
+        formatter.dateTimeStyle = .named
         return formatter.localizedString(for: min(date, now), relativeTo: now)
     }
 }
