@@ -14,6 +14,7 @@ workspace = true
 base64.workspace = true
 boringtun.workspace = true
 bytes.workspace = true
+cmux-transport = { path = "../cmux-transport" }
 # Only the `testing` loopback harness needs randomness (fresh keypairs);
 # production callers bring their own keys.
 getrandom.workspace = true

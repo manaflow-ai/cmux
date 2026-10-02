@@ -16,7 +16,8 @@
 //! - `smoltcp` holds the IP interface and its TCP sockets and speaks in IP
 //!   packets.
 //!
-//! The driver moves bytes between the UDP socket, the tunnel, and a virtual
+//! The driver moves bytes between the underlay (one UDP socket, or several
+//! paths to the same peer), the tunnel, and a virtual
 //! device that smoltcp polls. Each TCP connection is bridged to a
 //! [`WgStream`], which implements Tokio's `AsyncRead` and `AsyncWrite` so the
 //! rest of the client cannot tell it apart from a kernel socket.
@@ -27,10 +28,14 @@
 mod config;
 mod device;
 mod net;
+mod stream;
+mod underlay;
 /// Two-peer loopback harness. Test support for this crate and its dependents;
 /// it links no code into a binary that does not call it.
 pub mod testing;
 
 pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};
 pub use ip_network::IpNetwork;
-pub use net::{WgError, WgListener, WgNet, WgStream};
+pub use net::{WgError, WgListener, WgNet};
+pub use stream::WgStream;
+pub use underlay::{DatagramSocket, Origin, Received, SocketPath, UdpUnderlay, Underlay};

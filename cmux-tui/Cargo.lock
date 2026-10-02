@@ -1000,6 +1000,7 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
  "smoltcp",

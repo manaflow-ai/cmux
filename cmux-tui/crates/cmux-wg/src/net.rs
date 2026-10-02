@@ -1,22 +1,19 @@
-//! The driver that joins WireGuard, the TCP stack, and the UDP socket.
+//! The driver that joins WireGuard, the TCP stack, and the underlay.
 //!
 //! One Tokio task owns everything mutable: the [`Tunn`] session, the smoltcp
-//! interface and socket set, the virtual device, and the per-connection
-//! bridges. Callers talk to it through [`WgNet`], which sends commands over a
-//! channel and hands back [`WgStream`]s. A stream is two bounded channels and a
-//! wake signal; the driver copies between them and the smoltcp socket on
-//! every service pass. Nothing here sleeps to synchronize: the loop wakes on a
+//! interface and socket set, the virtual device, the [`Underlay`] that carries
+//! encrypted datagrams, and the per-connection bridges. Callers talk to it
+//! through [`WgNet`], which sends commands over a channel and hands back
+//! [`WgStream`]s. Nothing here sleeps to synchronize: the loop wakes on a
 //! datagram, a command, a stream write, the WireGuard timer tick, or the
 //! deadline smoltcp asks for.
 
-use std::collections::{VecDeque, hash_map::RandomState};
+use std::collections::hash_map::RandomState;
 use std::fmt;
 use std::hash::{BuildHasher, Hasher};
 use std::io;
 use std::net::{IpAddr, SocketAddr};
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
 use boringtun::noise::{Tunn, TunnResult};
@@ -26,7 +23,6 @@ use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::socket::tcp;
 use smoltcp::time::Instant as SmolInstant;
 use smoltcp::wire::{HardwareAddress, IpAddress, IpCidr, IpEndpoint, IpListenEndpoint};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{Notify, mpsc, oneshot};
@@ -36,14 +32,14 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::config::{InterfaceAddress, WgConfig};
 use crate::device::VirtualDevice;
+use crate::stream::{Outbound, WgStream};
+use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
 
 /// Per-socket receive and transmit buffers. Terminal traffic is small; the
 /// bulk lane (screen replay) benefits from a full window.
 const SOCKET_BUFFER_BYTES: usize = 256 * 1024;
 /// Largest chunk moved from a smoltcp socket into a stream at once.
 const INBOUND_CHUNK_BYTES: usize = 16 * 1024;
-/// Largest single write a stream accepts before splitting it.
-const MAX_WRITE_CHUNK_BYTES: usize = 64 * 1024;
 /// Queued chunks per direction per connection before backpressure.
 const STREAM_CHANNEL_DEPTH: usize = 32;
 /// Pending accepted connections a listener holds before refusing more.
@@ -65,10 +61,6 @@ const TCP_TIMEOUT: Duration = Duration::from_secs(60);
 const TCP_KEEP_ALIVE: Duration = Duration::from_secs(15);
 /// Largest datagram or packet buffer: the UDP payload maximum.
 const BUFFER_BYTES: usize = 65_535;
-/// UDP send readiness is edge-triggered by Tokio. Keep datagrams that arrive
-/// while the socket is temporarily unwritable and retry them on the next
-/// driver pass instead of silently losing a handshake.
-const UDP_SEND_QUEUE_DEPTH: usize = 64;
 /// The ephemeral port range (IANA 49152-65535); allocation starts at a random
 /// port inside it and wraps, as a real stack does.
 const FIRST_EPHEMERAL_PORT: u16 = 49_152;
@@ -173,7 +165,7 @@ impl WgNet {
             }
             None => None,
         };
-        Self::start_resolved(config, socket, peer)
+        Self::start_with_underlay(config, SocketPath::new(socket, peer))
     }
 
     /// Start the tunnel on a fresh unbound-port UDP socket whose family matches
@@ -193,19 +185,21 @@ impl WgNet {
         let bind: SocketAddr = if peer.is_ipv4() { "0.0.0.0:0".parse() } else { "[::]:0".parse() }
             .expect("literal bind address");
         let socket = UdpSocket::bind(bind).await?;
-        Self::start_resolved(config, socket, Some(peer))
+        Self::start_with_underlay(config, SocketPath::new(socket, Some(peer)))
     }
 
-    fn start_resolved(
+    /// Start the tunnel on a caller-built underlay, for example a
+    /// [`crate::Multipath`]. The configured endpoint is ignored: the underlay
+    /// owns addressing.
+    pub fn start_with_underlay(
         config: WgConfig,
-        socket: UdpSocket,
-        peer: Option<SocketAddr>,
+        underlay: impl Underlay,
     ) -> Result<Self, WgError> {
         let routes: Arc<[IpNetwork]> = config.allowed_ips.clone().into();
         let addresses: Arc<[InterfaceAddress]> = config.addresses.clone().into();
         let (commands_tx, commands_rx) = mpsc::channel(COMMAND_DEPTH);
         let wake = Arc::new(Notify::new());
-        let driver = Driver::new(config, socket, peer, commands_rx, Arc::clone(&wake))?;
+        let driver = Driver::new(config, Box::new(underlay), commands_rx, Arc::clone(&wake))?;
         let handle = tokio::spawn(driver.run());
         Ok(Self { commands: commands_tx, wake, routes, addresses, driver: Some(handle) })
     }
@@ -325,117 +319,6 @@ enum Command {
     Shutdown,
 }
 
-enum Outbound {
-    Data(Bytes),
-    Shutdown,
-}
-
-/// One TCP connection through the tunnel, usable wherever a `TcpStream` is.
-pub struct WgStream {
-    local: SocketAddr,
-    remote: SocketAddr,
-    inbound: mpsc::Receiver<Bytes>,
-    leftover: Bytes,
-    outbound: PollSender<Outbound>,
-    wake: Arc<Notify>,
-    shutdown_sent: bool,
-}
-
-impl fmt::Debug for WgStream {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("WgStream")
-            .field("local", &self.local)
-            .field("remote", &self.remote)
-            .finish_non_exhaustive()
-    }
-}
-
-impl WgStream {
-    pub fn local_addr(&self) -> SocketAddr {
-        self.local
-    }
-
-    pub fn peer_addr(&self) -> SocketAddr {
-        self.remote
-    }
-}
-
-fn broken_pipe() -> io::Error {
-    io::Error::new(io::ErrorKind::BrokenPipe, "tunnel connection is closed")
-}
-
-impl AsyncRead for WgStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        let this = &mut *self;
-        if this.leftover.is_empty() {
-            match this.inbound.poll_recv(cx) {
-                Poll::Ready(Some(bytes)) => this.leftover = bytes,
-                Poll::Ready(None) => return Poll::Ready(Ok(())),
-                Poll::Pending => return Poll::Pending,
-            }
-        }
-        let count = this.leftover.len().min(buf.remaining());
-        buf.put_slice(&this.leftover.split_to(count));
-        Poll::Ready(Ok(()))
-    }
-}
-
-impl AsyncWrite for WgStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        data: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        let this = &mut *self;
-        if this.shutdown_sent {
-            return Poll::Ready(Err(broken_pipe()));
-        }
-        match this.outbound.poll_reserve(cx) {
-            Poll::Ready(Ok(())) => {
-                let count = data.len().min(MAX_WRITE_CHUNK_BYTES);
-                this.outbound
-                    .send_item(Outbound::Data(Bytes::copy_from_slice(&data[..count])))
-                    .map_err(|_| broken_pipe())?;
-                this.wake.notify_one();
-                Poll::Ready(Ok(count))
-            }
-            Poll::Ready(Err(_)) => Poll::Ready(Err(broken_pipe())),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        // Writes are handed to the driver synchronously; there is no local
-        // buffer left to flush. Delivery is TCP's job.
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let this = &mut *self;
-        if this.shutdown_sent {
-            return Poll::Ready(Ok(()));
-        }
-        match this.outbound.poll_reserve(cx) {
-            Poll::Ready(Ok(())) => {
-                let _ = this.outbound.send_item(Outbound::Shutdown);
-                this.shutdown_sent = true;
-                this.wake.notify_one();
-                Poll::Ready(Ok(()))
-            }
-            Poll::Ready(Err(_)) => {
-                this.shutdown_sent = true;
-                Poll::Ready(Ok(()))
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
 /// How a newly established socket reaches its owner.
 enum Handoff {
     Connect(oneshot::Sender<Result<WgStream, WgError>>),
@@ -467,8 +350,7 @@ struct Listener {
 struct Driver {
     config: WgConfig,
     tunn: Tunn,
-    udp: Arc<UdpSocket>,
-    peer: Option<SocketAddr>,
+    underlay: Box<dyn Underlay>,
     iface: Interface,
     device: VirtualDevice,
     sockets: SocketSet<'static>,
@@ -479,11 +361,10 @@ struct Driver {
     epoch: std::time::Instant,
     next_port: u16,
     scratch: Vec<u8>,
-    pending_udp: VecDeque<(Vec<u8>, SocketAddr)>,
 }
 
 enum Event {
-    Datagram(usize, SocketAddr),
+    Datagram(usize, Origin),
     DatagramError(io::Error),
     Command(Option<Command>),
     Wake,
@@ -494,8 +375,7 @@ enum Event {
 impl Driver {
     fn new(
         config: WgConfig,
-        socket: UdpSocket,
-        peer: Option<SocketAddr>,
+        underlay: Box<dyn Underlay>,
         commands: mpsc::Receiver<Command>,
         wake: Arc<Notify>,
     ) -> Result<Self, WgError> {
@@ -519,9 +399,7 @@ impl Driver {
         iface.update_ip_addrs(|addresses| {
             for entry in &config.addresses {
                 let cidr = IpCidr::new(ip_address(entry.address), entry.prefix);
-                if addresses.push(cidr).is_err() {
-                    overflow = true;
-                }
+                overflow |= addresses.push(cidr).is_err();
             }
         });
         if overflow {
@@ -532,12 +410,8 @@ impl Driver {
         // goes into the tunnel.
         for entry in &config.addresses {
             let result = match entry.address {
-                IpAddr::V4(address) => {
-                    iface.routes_mut().add_default_ipv4_route(address).map(|_| ())
-                }
-                IpAddr::V6(address) => {
-                    iface.routes_mut().add_default_ipv6_route(address).map(|_| ())
-                }
+                IpAddr::V4(address) => iface.routes_mut().add_default_ipv4_route(address),
+                IpAddr::V6(address) => iface.routes_mut().add_default_ipv6_route(address),
             };
             result.map_err(|_| WgError::Stack("route table full".into()))?;
         }
@@ -545,8 +419,7 @@ impl Driver {
         Ok(Self {
             config,
             tunn,
-            udp: Arc::new(socket),
-            peer,
+            underlay,
             iface,
             device,
             sockets: SocketSet::new(Vec::new()),
@@ -557,7 +430,6 @@ impl Driver {
             epoch,
             next_port: random_ephemeral_port(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
-            pending_udp: VecDeque::new(),
         })
     }
 
@@ -568,14 +440,13 @@ impl Driver {
     }
 
     async fn run(mut self) {
-        let udp = Arc::clone(&self.udp);
         let wake = Arc::clone(&self.wake);
         let mut ticks = tokio::time::interval(TIMER_TICK);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut datagram = vec![0u8; BUFFER_BYTES];
 
         self.initiate_handshake();
-        self.flush_pending_udp();
+        self.underlay.flush();
         self.service();
 
         loop {
@@ -589,9 +460,11 @@ impl Driver {
                     None => std::future::pending::<()>().await,
                 }
             };
+            let underlay = &mut self.underlay;
+            let received = std::future::poll_fn(|cx| underlay.poll_recv(cx, &mut datagram));
             let event = tokio::select! {
-                received = udp.recv_from(&mut datagram) => match received {
-                    Ok((count, source)) => Event::Datagram(count, source),
+                received = received => match received {
+                    Ok(received) => Event::Datagram(received.len, received.origin),
                     Err(error) => Event::DatagramError(error),
                 },
                 command = self.commands.recv() => Event::Command(command),
@@ -600,14 +473,9 @@ impl Driver {
                 () = stack_deadline => Event::StackDeadline,
             };
             match event {
-                Event::Datagram(count, source) => self.handle_datagram(&datagram[..count], source),
+                Event::Datagram(count, origin) => self.handle_datagram(&datagram[..count], origin),
                 Event::DatagramError(error) => {
-                    // Transient receive errors (ICMP port unreachable surfaced as
-                    // ECONNREFUSED on some platforms) are not fatal for UDP.
-                    if error.kind() == io::ErrorKind::Interrupted
-                        || error.kind() == io::ErrorKind::ConnectionRefused
-                        || error.kind() == io::ErrorKind::ConnectionReset
-                    {
+                    if is_transient(&error) {
                         continue;
                     }
                     self.shutdown();
@@ -621,79 +489,46 @@ impl Driver {
                 Event::Wake | Event::StackDeadline => {}
                 Event::Tick => self.update_timers(),
             }
-            self.flush_pending_udp();
+            self.underlay.flush();
             self.service();
-            self.flush_pending_udp();
-        }
-    }
-
-    fn send_to_peer(&mut self, packet: &[u8]) {
-        if let Some(peer) = self.peer {
-            match self.udp.try_send_to(packet, peer) {
-                Ok(_) => {}
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    if self.pending_udp.len() < UDP_SEND_QUEUE_DEPTH {
-                        self.pending_udp.push_back((packet.to_vec(), peer));
-                    }
-                }
-                Err(error) => {
-                    eprintln!("wireguard UDP send to {peer} failed: {error}");
-                }
-            }
-        }
-    }
-
-    fn flush_pending_udp(&mut self) {
-        while let Some((packet, peer)) = self.pending_udp.front() {
-            match self.udp.try_send_to(packet, *peer) {
-                Ok(_) => {
-                    self.pending_udp.pop_front();
-                }
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
-                Err(error) => {
-                    eprintln!("wireguard UDP send to {peer} failed: {error}");
-                    self.pending_udp.pop_front();
-                }
-            }
+            self.underlay.flush();
         }
     }
 
     fn initiate_handshake(&mut self) {
-        if self.peer.is_none() {
+        if !self.underlay.has_peer() {
             return;
         }
         if let TunnResult::WriteToNetwork(packet) =
             self.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
-            let packet = packet.to_vec();
-            self.send_to_peer(&packet);
+            self.underlay.send(packet);
         }
     }
 
     fn update_timers(&mut self) {
         if let TunnResult::WriteToNetwork(packet) = self.tunn.update_timers(&mut self.scratch) {
-            let packet = packet.to_vec();
-            self.send_to_peer(&packet);
+            self.underlay.send(packet);
         }
     }
 
-    fn handle_datagram(&mut self, datagram: &[u8], source: SocketAddr) {
+    fn handle_datagram(&mut self, datagram: &[u8], origin: Origin) {
         let mut input = datagram;
+        let source = origin.addr.map(|addr| addr.ip());
         loop {
-            match self.tunn.decapsulate(Some(source.ip()), input, &mut self.scratch) {
+            match self.tunn.decapsulate(source, input, &mut self.scratch) {
                 TunnResult::Done => break,
                 TunnResult::Err(_) => break,
                 TunnResult::WriteToNetwork(packet) => {
-                    let packet = packet.to_vec();
                     // Authenticated traffic from a new address moves the peer
                     // (WireGuard roaming); this is also how the answering side
                     // learns its peer in the first place.
-                    self.peer = Some(source);
-                    self.send_to_peer(&packet);
+                    self.underlay.authenticated(origin);
+                    self.underlay.send(packet);
                     input = &[];
                 }
                 TunnResult::WriteToTunnelV4(packet, _) | TunnResult::WriteToTunnelV6(packet, _) => {
-                    self.peer = Some(source);
+                    self.underlay.authenticated(origin);
                     if let Some(origin) = packet_source(packet)
                         && self.config.routes_contain(origin)
                     {
@@ -710,8 +545,7 @@ impl Driver {
             if let TunnResult::WriteToNetwork(encrypted) =
                 self.tunn.encapsulate(&packet, &mut self.scratch)
             {
-                let encrypted = encrypted.to_vec();
-                self.send_to_peer(&encrypted);
+                self.underlay.send(encrypted);
             }
         }
     }
@@ -1231,14 +1065,11 @@ mod tests {
     async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
         let pair = crate::testing::loopback_pair().await.unwrap();
         let (_commands, receiver) = mpsc::channel(COMMAND_DEPTH);
-        let mut driver = Driver::new(
-            pair.client,
-            pair.client_socket,
-            Some(pair.server_socket.local_addr().unwrap()),
-            receiver,
-            Arc::new(Notify::new()),
-        )
-        .unwrap();
+        let underlay =
+            SocketPath::new(pair.client_socket, Some(pair.server_socket.local_addr().unwrap()));
+        let mut driver =
+            Driver::new(pair.client, Box::new(underlay), receiver, Arc::new(Notify::new()))
+                .unwrap();
         let (reply, pending) = oneshot::channel();
         driver.begin_connect(SocketAddr::new(pair.server_v6, 1337), reply);
         assert_eq!(driver.conns.len(), 1);
