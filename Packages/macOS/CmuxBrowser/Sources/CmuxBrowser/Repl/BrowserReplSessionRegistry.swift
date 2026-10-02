@@ -82,8 +82,12 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
             lock.unlock()
             return
         }
-        // An evaluation longer than the idle timeout keeps the session: its
-        // last use is when it started, so check again later.
+        // The timer was armed by the last `session(named:)` call. `lastUsed`
+        // is when the session last started an evaluation, which is later
+        // when a queued cell started after that call; then re-arm for the
+        // rest of the idle timeout. Otherwise close the session, even while
+        // an evaluation is still running: a cell that runs longer than the
+        // idle timeout does not keep its session alive.
         let idle = ContinuousClock.now - session.lastUsed
         lock.unlock()
         if idle < idleTimeout {
