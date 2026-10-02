@@ -7494,12 +7494,20 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
     }
 
-    func testSidebarBranchDirectoryEntriesStayStableAcrossFocusedSplitChanges() {
+    func testSidebarBranchDirectoryEntriesStayStableAcrossFocusedSplitChanges() throws {
         let workspace = Workspace()
-        let leftLiveDirectory = "/repo/left/live"
-        let rightFocusedDirectory = "/repo/right/focused"
-        let leftFocusedDirectory = "/repo/left/focused"
-        let rightRequestedDirectory = "/repo/right/requested"
+        // New splits resolve local cwds against the filesystem (#16248), so
+        // the inherited directories must exist.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-dirs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let leftLiveDirectory = root.appendingPathComponent("left/live", isDirectory: true).path
+        let rightFocusedDirectory = root.appendingPathComponent("right/focused", isDirectory: true).path
+        let leftFocusedDirectory = root.appendingPathComponent("left/focused", isDirectory: true).path
+        let rightRequestedDirectory = root.appendingPathComponent("right/requested", isDirectory: true).path
+        for directory in [leftLiveDirectory, rightFocusedDirectory, leftFocusedDirectory, rightRequestedDirectory] {
+            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        }
 
         guard let leftPanelId = workspace.focusedPanelId else {
             XCTFail("Expected initial focused panel")
