@@ -735,7 +735,7 @@ describe("hosted Subrouter account routes", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ selectedTeamId: "team-b" });
     expect(updateUser).toHaveBeenCalledWith({ selectedTeamId: "team-b" });
-    expect(listTeamQueries).toEqual(["team-b"]);
+    expect(listTeamQueries).toEqual(["team-b", "team-a"]);
 
     const unauthorized = await teamsRoute.PATCH(
       request("/api/subrouter/teams", {
