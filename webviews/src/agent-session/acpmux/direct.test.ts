@@ -424,4 +424,17 @@ describe("direct client session state", () => {
     expect(texts()).toEqual(["a five", "a six", "a seven", "did not send"]);
     expect(latest().rows.find((row) => row.text === "did not send")?.failed).toBe(true);
   });
+
+  test("a turn summary counts the turn's tool calls and its time", async () => {
+    const update = (seq: number, update: Record<string, unknown>): EventRecord => ({ sessionId: "a", seq, at: seq * 1000, dir: "in", kind: String(update.sessionUpdate), msg: { method: "session/update", params: { sessionId: "a", update } } });
+    const tool = (seq: number, toolCallId: string) => update(seq, { sessionUpdate: "tool_call", toolCallId, title: "Run", status: "completed" });
+    const result = (seq: number): EventRecord => ({ sessionId: "a", seq, at: seq * 1000, dir: "mux", kind: "turn_result", msg: { status: "completed" } });
+    const user = (seq: number, text: string): EventRecord => ({ ...userEvent("a", seq, text), at: seq * 1000 });
+    ScriptedSocket.respond = ({ method }) => method === "_acpmux/attach"
+      ? { session: { sessionId: "a", status: "idle" }, events: [user(1, "one"), tool(2, "t1"), result(3), user(4, "two"), tool(5, "t2"), tool(6, "t3"), tool(7, "t4"), result(10)] }
+      : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    await connect();
+    await settle();
+    expect(latest().rows.filter((row) => row.kind === "turnSummary").map((row) => [row.toolCount, row.durationMs])).toEqual([[1, 2000], [3, 6000]]);
+  });
 });
