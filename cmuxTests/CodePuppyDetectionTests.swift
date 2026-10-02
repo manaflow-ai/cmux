@@ -121,6 +121,37 @@ struct CodePuppyDetectionTests {
         #expect(definition.id == "code-puppy")
     }
 
+    // MARK: - Vault restore detection
+
+    @Test("Vault recognizes Python-hosted Code Puppy entrypoints", arguments: [
+        ["/venv/bin/python3", "/venv/bin/code-puppy", "--resume", "session-id"],
+        ["/venv/bin/python3", "-m", "code_puppy", "--resume", "session-id"],
+    ])
+    func vaultPythonEntrypoints(arguments: [String]) {
+        let process = VaultObservedAgentProcess(
+            processName: "python3",
+            processPath: "/venv/bin/python3",
+            arguments: arguments,
+            environment: [:]
+        )
+        let rule = CmuxVaultAgentRegistration.builtInCodePuppy.detect
+        #expect(rule.matches(process))
+        #expect(rule.alternateLaunchArguments(for: process, defaultExecutable: "code-puppy") == [
+            "code-puppy", "--resume", "session-id",
+        ])
+    }
+
+    @Test("Vault does not classify the unrelated pup HTML tool")
+    func vaultDoesNotMatchHTMLTool() {
+        let process = VaultObservedAgentProcess(
+            processName: "pup",
+            processPath: "/opt/homebrew/bin/pup",
+            arguments: ["pup", "div.title", "text{}"],
+            environment: [:]
+        )
+        #expect(!CmuxVaultAgentRegistration.builtInCodePuppy.detect.matches(process))
+    }
+
     // MARK: - Asset name
 
     @Test("definition carries the CodePuppy brand asset name")
