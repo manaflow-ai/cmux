@@ -114,14 +114,18 @@ struct CloudTreeRowContentView: View {
             CloudTreeMachineResourceRowContent(row: row, style: style)
         case .port(let resource, _, _):
             let presentation = CloudTreePortPresentation(resource: resource)
-            CloudTreeLeafRow(
+            let row = CloudTreeLeafRow(
                 style: style,
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
                 title: presentation.title,
                 detail: presentation.detail
             )
-            .help(presentation.toolTip ?? presentation.title)
+            if let toolTip = presentation.toolTip {
+                row.help(toolTip)
+            } else {
+                row
+            }
         case .placeholder(_, let placeholder):
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
