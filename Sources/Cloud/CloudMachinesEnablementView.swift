@@ -13,6 +13,7 @@ import SwiftUI
 struct CloudMachinesEnablementView: View {
     let coordinator: CloudActivationCoordinator
     let accountFlow: HostAccountFlow?
+    let billingPlanLoaded: Bool
     let chromeBackgroundColor: NSColor
 
     private static let contentMaxWidth: CGFloat = 320
@@ -76,6 +77,7 @@ struct CloudMachinesEnablementView: View {
     }
 
     private var heroSymbol: String {
+        if isProGated { return "lock.circle" }
         switch coordinator.state {
         case .disabled, .cancelled, .enabling, .enabled: return "cloud.fill"
         case .failed(.requiresPro): return "lock.circle"
@@ -86,6 +88,7 @@ struct CloudMachinesEnablementView: View {
     }
 
     private var heroTint: Color {
+        if isProGated { return .secondary }
         switch coordinator.state {
         case .disabled, .cancelled, .enabling, .enabled, .failed(.signInRequired): return .accentColor
         case .failed(.requiresPro): return .secondary
@@ -95,6 +98,9 @@ struct CloudMachinesEnablementView: View {
     }
 
     private var title: String {
+        if isProGated {
+            return String(localized: "cloud.enable.requiresPro.title", defaultValue: "Cloud Machines require cmux Pro")
+        }
         switch coordinator.state {
         case .disabled, .cancelled, .enabled:
             return String(localized: "cloud.enable.title", defaultValue: "Use Cloud Machines")
@@ -112,6 +118,9 @@ struct CloudMachinesEnablementView: View {
     }
 
     private var subtitle: String {
+        if isProGated {
+            return String(localized: "cloud.enable.requiresPro.subtitle", defaultValue: "This account’s plan does not include Cloud machine access.")
+        }
         switch coordinator.state {
         case .disabled, .enabled:
             return String(
@@ -155,20 +164,34 @@ struct CloudMachinesEnablementView: View {
     private var actionContent: some View {
         switch coordinator.state {
         case .disabled, .cancelled:
-            Button {
-                coordinator.enable()
-            } label: {
-                Text(String(localized: "cloud.enable.action", defaultValue: "Enable Cloud"))
-                    .frame(maxWidth: .infinity)
+            if !billingPlanLoaded {
+                Text(String(localized: "cloud.enable.planChecking", defaultValue: "Checking your cmux plan…"))
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.secondary)
+            } else if isProGated {
+                actionButton(
+                    String(localized: "cloud.enable.upgrade", defaultValue: "Upgrade to Pro"),
+                    prominent: true,
+                    identifier: "CloudMachinesEnableUpgradeButton"
+                ) {
+                    ProUpgradePresenter.present(source: .machinesPanelRequiresPro)
+                }
+            } else {
+                Button {
+                    coordinator.enable()
+                } label: {
+                    Text(String(localized: "cloud.enable.action", defaultValue: "Enable Cloud"))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .accessibilityIdentifier("CloudMachinesEnableButton")
+                Text(String(localized: "cloud.enable.planNote", defaultValue: "Requires a paid cmux plan."))
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .accessibilityIdentifier("CloudMachinesEnableButton")
-            Text(String(localized: "cloud.enable.planNote", defaultValue: "Requires a paid cmux plan."))
-                .cmuxFont(size: 11)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
         case .enabling:
             actionButton(
                 String(localized: "cloud.enable.cancel", defaultValue: "Cancel"),
@@ -202,6 +225,10 @@ struct CloudMachinesEnablementView: View {
         case .enabled, .unavailable:
             EmptyView()
         }
+    }
+
+    private var isProGated: Bool {
+        billingPlanLoaded && accountFlow?.isProActive != true
     }
 
     private func retryButton(prominent: Bool) -> some View {

@@ -22,6 +22,7 @@ struct MachinesPanelView: View {
     /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
+    @State private var billingPlanLoaded = false
     @State private var bannerDismissals: CloudBannerDismissalStore
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -131,6 +132,15 @@ struct MachinesPanelView: View {
         }
         .task {
             await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
+        }
+        .task(id: accountFlow?.currentIdentity?.id) {
+            guard let accountFlow, accountFlow.isAuthenticated else {
+                billingPlanLoaded = false
+                return
+            }
+            billingPlanLoaded = false
+            await accountFlow.refreshBillingPlan()
+            billingPlanLoaded = true
         }
         .task(id: devBackend.attempt) {
             await devBackend.observe()
