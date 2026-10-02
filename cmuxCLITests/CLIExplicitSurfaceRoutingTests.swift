@@ -53,13 +53,18 @@ struct CLIExplicitSurfaceRoutingTests {
             ["open-notification", "--id", "n", "--typo"],
             ["clear-notifications", "--workspace", "Work", "--typo"],
         ]
+        // Validation runs before the CLI opens the socket, so no server listens here:
+        // a mock server would wait for a connection that never comes.
         for (index, arguments) in cases.enumerated() {
-            let execution = try runMockCommand(arguments: arguments, socketName: "notify-invalid-\(index)") { line in
-                Self.malformedRequestResponse(raw: line)
-            }
-            #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
-            #expect(execution.result.status != 0, Comment(rawValue: execution.result.stderr + execution.result.stdout))
-            #expect(try execution.state.requestObjects().isEmpty)
+            let result = Self.runProcess(
+                executablePath: try Self.bundledCLIPath(),
+                arguments: arguments,
+                environment: cliEnvironment(socketPath: Self.makeSocketPath("notify-invalid-\(index)")),
+                timeout: Self.processTimeout
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+            #expect(result.stderr.contains("unexpected arguments"), Comment(rawValue: result.stderr))
         }
     }
 
