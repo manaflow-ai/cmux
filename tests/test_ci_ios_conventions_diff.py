@@ -138,6 +138,13 @@ class ConventionsDiffGate(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("C.swift:C", result.stdout)
 
+    def test_an_entry_added_to_the_general_baseline_fails(self):
+        baseline = "scripts/lint-ios-package-conventions-baseline.txt"
+        result = self.run_gate([], [], {baseline: "lock\tA.swift\tNSLock()\n"},
+                               {baseline: "lock\tA.swift\tNSLock()\nlock\tB.swift\tNSLock()\n"})
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("B.swift", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

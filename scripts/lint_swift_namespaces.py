@@ -20,6 +20,8 @@ parser.add_argument('--type-roots', nargs='+', required=True)
 parser.add_argument('--ratchet')
 parser.add_argument('--update-ratchet', action='store_true')
 args = parser.parse_args()
+if args.update_ratchet and not args.ratchet:
+    parser.error('--update-ratchet needs --ratchet')
 baseline_path = args.baseline
 general_baseline_path = args.general_baseline
 roots = args.type_roots
