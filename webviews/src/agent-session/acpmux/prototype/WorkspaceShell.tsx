@@ -35,8 +35,10 @@ import {
   type Rooms,
 } from "./rooms";
 import {
+  newTerminalWorkspace,
   openSessionIds,
   selectTab,
+  terminalFirst,
   workspaceLead,
   type Stack,
   type TabKind,
@@ -67,7 +69,11 @@ const TERMINAL_LINK = {
 };
 
 const params = new URLSearchParams(location.search);
-const initialRooms = switchRoom(seedRooms, params.get("room") ?? seedRooms.activeId);
+/** `?style=terminal`: classic cmux. The chrome takes the terminal's font and a new workspace is a
+ * terminal; agents and browsers stay available but nothing pushes them. Translucency is untouched. */
+const terminalStyle = params.get("style") === "terminal";
+const roomFromURL = switchRoom(seedRooms, params.get("room") ?? seedRooms.activeId);
+const initialRooms = terminalStyle ? withStack(roomFromURL, terminalFirst(activeRoom(roomFromURL).stack)) : roomFromURL;
 
 export function WorkspaceShell() {
   const [rooms, setRooms] = useState<Rooms>(initialRooms);
@@ -148,6 +154,7 @@ export function WorkspaceShell() {
       className="proto-window"
       data-history={historyOpen ? "open" : "closed"}
       style={{ "--room-accent": `var(--proto-${room.color ?? "overlay"})` } as React.CSSProperties}
+      data-style={terminalStyle ? "terminal" : undefined}
     >
       <div className="proto-lights" aria-hidden="true">
         <i />
@@ -168,7 +175,14 @@ export function WorkspaceShell() {
         >
           <HistoryIcon />
         </button>
-        <button type="button" className="proto-rail-button" aria-label="New workspace" title="New workspace">
+        <button
+          type="button"
+          className="proto-rail-button"
+          aria-label="New workspace"
+          title={terminalStyle ? "New workspace (terminal)" : "New workspace"}
+          // Only classic cmux's terminal workspace is modelled; a new chat needs the pane to name its session.
+          onClick={terminalStyle ? () => show(newTerminalWorkspace(stack)) : undefined}
+        >
           <PlusIcon />
         </button>
       </nav>
@@ -331,11 +345,41 @@ function WorkspaceRow({
 function TerminalMock({ tab, onOpenLink }: { tab: WorkspaceTab; onOpenLink: () => void }) {
   return (
     <pre className="proto-terminal">
-      {`~/code/cmux ${tab.title}\n$ bun test src/agent-session\n 281 pass\n 0 fail\n$ bunx wrangler pages deploy dist\n✨ Deployment complete! Take a peek over at\n`}
+      <span className="acpmux-hidden-label">{tab.title}</span>
+      <span className="t-dim">~/code/cmux</span> <span className="t-accent">feat-cmux-next</span>
+      {"\n"}
+      <span className="t-prompt">❯</span> bun test src/agent-session{"\n"}
+      {"bun test v1.3.14\n\n"}
+      <span className="t-dim">src/agent-session/acpmux/sessionList.test.ts:</span>
+      {"\n"}
+      <span className="t-ok">✓</span> sections {">"} one folder on two machines is one project{" "}
+      <span className="t-dim">[0.31ms]</span>
+      {"\n"}
+      <span className="t-ok">✓</span> sections {">"} a search never splits a project{" "}
+      <span className="t-dim">[0.12ms]</span>
+      {"\n"}
+      <span className="t-ok">✓</span> direct client {">"} a background turn marks its session unread{" "}
+      <span className="t-dim">[1.84ms]</span>
+      {"\n\n"}
+      <span className="t-ok"> 291 pass</span>
+      {"\n 0 fail\n 1004 expect() calls\nRan 291 tests across 33 files. "}
+      <span className="t-dim">[3.62s]</span>
+      {"\n\n"}
+      <span className="t-dim">~/code/cmux</span> <span className="t-accent">feat-cmux-next</span>{" "}
+      <span className="t-warn">✚2</span>
+      {"\n"}
+      <span className="t-prompt">❯</span> git status --short{"\n"}
+      <span className="t-warn"> M</span>
+      {" webviews/src/agent-session/acpmux/direct.ts\n"}
+      <span className="t-warn"> M</span>
+      {" webviews/src/agent-session/acpmux/direct.test.ts\n\n"}
+      <span className="t-prompt">❯</span> bunx wrangler pages deploy dist{"\n"}
+      {"✨ Deployment complete! Take a peek over at\n"}
       <button type="button" className="proto-terminal-link" onClick={onOpenLink}>
         {`https://${TERMINAL_LINK.url}`}
       </button>
-      {"\n$ "}
+      {"\n\n"}
+      <span className="t-prompt">❯</span> <span className="t-cursor"> </span>
     </pre>
   );
 }

@@ -25,7 +25,8 @@ import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
-import { Counts, DiffPanel } from "./DiffPanel";
+import { DiffPanel } from "./DiffPanel";
+import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
@@ -957,15 +958,6 @@ function AcpmuxPane() {
           )}
           {diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}
         </div>
-        {snapshot.queue.length > 0 && (
-          <div className="acpmux-queue">
-            {snapshot.queue.map((entry) => (
-              <span className="acpmux-queued" key={entry.id}>
-                Queued: {entry.prompt}
-              </span>
-            ))}
-          </div>
-        )}
         {snapshot.permission?.pending && (
           <div className="acpmux-permission">
             <PermissionCard permission={snapshot.permission} />

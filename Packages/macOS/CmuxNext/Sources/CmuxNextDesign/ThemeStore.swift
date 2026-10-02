@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxTheme
 public import Observation
 import Synchronization
 

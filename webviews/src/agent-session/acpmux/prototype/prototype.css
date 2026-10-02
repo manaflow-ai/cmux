@@ -18,6 +18,8 @@ body {
   --proto-overlay: #9399b2;
   /* A web page is opaque, unlike the terminal beside it. */
   --proto-page: #1e1e2e;
+  /* The terminal's font; classic cmux draws the chrome in it too. */
+  --proto-terminal-font: var(--font-mono, ui-monospace, monospace);
   position: relative;
   display: grid;
   grid-template-columns: 52px 252px 1fr;
@@ -323,7 +325,7 @@ body {
   margin: 0;
   padding: 14px 18px;
   box-sizing: border-box;
-  font: 12.5px/1.5 var(--font-mono, ui-monospace, monospace);
+  font: 12.5px/1.5 var(--proto-terminal-font);
 }
 .proto-browser {
   display: flex;
@@ -572,4 +574,42 @@ body {
 .proto-history .acpmux-sidebar-action,
 .proto-history .acpmux-account {
   display: none;
+}
+
+/* Classic cmux (?style=terminal): the chrome takes the terminal's font and agent sessions are one
+   kind among others, drawn as quietly as terminals and browsers. Translucency is the backdrop
+   slider's alone, so the glass stays. */
+.proto-window[data-style="terminal"] {
+  --proto-chrome-font: var(--proto-terminal-font);
+  font: 12.5px/1.35 var(--proto-chrome-font);
+  letter-spacing: 0;
+}
+.proto-window[data-style="terminal"] .acpmux-shell,
+.proto-window[data-style="terminal"] .proto-history {
+  font-family: var(--proto-chrome-font);
+}
+.proto-window[data-style="terminal"] .proto-workspace.is-agent > svg {
+  color: var(--agent-muted);
+}
+.proto-window[data-style="terminal"] .proto-stack-label {
+  font-weight: 400;
+  text-transform: lowercase;
+}
+.proto-terminal .t-dim {
+  color: var(--agent-muted);
+}
+.proto-terminal .t-accent {
+  color: var(--agent-accent);
+}
+.proto-terminal .t-ok {
+  color: var(--agent-primary, var(--agent-accent));
+}
+.proto-terminal .t-warn {
+  color: var(--agent-warning, var(--agent-accent));
+}
+.proto-terminal .t-prompt {
+  color: var(--agent-primary, var(--agent-accent));
+}
+.proto-terminal .t-cursor {
+  background: var(--agent-text);
 }
