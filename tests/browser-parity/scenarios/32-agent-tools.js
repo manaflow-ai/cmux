@@ -96,11 +96,10 @@ emitCmux("policy-subresources", await page.evaluate(async (peer) => {
   const load = (src) => new Promise((r) => { const s = document.createElement("script"); s.onload = () => r("loaded"); s.onerror = () => r("blocked"); s.src = src; document.head.append(s); });
   return [await load("/log.js?own"), await load(peer + "/log.js?peer")];
 }, PEER));
-// The link's navigation is sent back to about:blank: the click fails when it
-// sees it, else a navigation event or the next read of the tab does.
+// The link's navigation is blocked before its request is sent (a document
+// content rule covers the main frame): the page stays and the host logs it.
 await page.click("#peer-link").catch(() => {});
-await page.waitForURL((u) => !String(u).startsWith(PRIMARY));
-await page.evaluate(() => document.title).catch(() => {});
+for (let i = 0; i < 100 && !session.blockedNavigations().some((b) => b.url.endsWith("?linked")); i++) await sleep(50);
 emitCmux("policy-after-link", [page.url(), [...new Set(session.blockedNavigations().map((b) => `${b.blocked} ${b.url}`))]]);
 session.allowedDomains(null);
 session.prohibitedDomains(["http://127.0.0.1"]);

@@ -89,16 +89,22 @@ extension PaneController {
     /// New terminal tab in this pane. `typing` is sent to the new shell
     /// once the tab exists (config command actions). `keep` makes the
     /// terminal outlive the tab; by default the daemon ends it after the
-    /// reap grace period once its last tab closes.
-    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil) {
+    /// reap grace period once its last tab closes. `fromSelectedTab` (New
+    /// Terminal Tab itself) starts it in a selected agent's cwd (#16620);
+    /// other callers (config commands, account logins) keep the pane's.
+    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil, fromSelectedTab: Bool = false) {
         let handle = pane.handle
+        // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
+        let agent = cwd == nil && fromSelectedTab ? selectedAgentView : nil
         let cwd = cwd ?? selectedTab?.cwd
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()
         services.registry.track(Task {
             do {
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
+                var start = cwd
+                if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep))
                 if let text { try await connection.send(created.surface, text: text) }
                 pendingSelectSurface = created.surface
                 apply(snapshot())
