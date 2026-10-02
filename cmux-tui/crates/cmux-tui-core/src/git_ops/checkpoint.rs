@@ -12,8 +12,6 @@ mod record;
 mod refs;
 mod scan;
 mod store;
-#[cfg(test)]
-mod tests;
 
 /// Test seams for failures a test cannot otherwise time.
 #[cfg(test)]
@@ -390,3 +388,6 @@ fn pin(
         ledger::commit(mux, &key, operation, &fingerprint, &value, false)
     })
 }
+
+#[cfg(test)]
+mod tests;

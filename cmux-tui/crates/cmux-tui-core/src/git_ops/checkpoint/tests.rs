@@ -818,7 +818,7 @@ fn reads_do_not_wait_behind_a_running_capture() {
     });
     holding.recv().unwrap();
     let (done, answered) = mpsc::channel();
-    let (reader_mux, path) = (mux.clone(), repository.clone());
+    let (reader_mux, path) = (mux.clone(), repository);
     let reader = std::thread::spawn(move || {
         let got = read(&reader_mux, "git.checkpoint.get", &path, json!({"checkpoint_id":id}));
         let listed = read(&reader_mux, "git.checkpoint.list", &path, json!({}));
