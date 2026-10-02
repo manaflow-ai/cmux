@@ -361757,6 +361757,12 @@
             "value": "キーでショートカットを探す"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកផ្លូវកាត់តាមគ្រាប់ចុច"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -361874,6 +361880,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "キーを押すと、そのキーを使うショートカットを表示します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចុចគ្រាប់ចុចដើម្បីមើលថាផ្លូវកាត់ណាប្រើវា"
           }
         },
         "ko": {
@@ -361995,6 +362007,12 @@
             "value": "ショートカットを検出"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកឃើញផ្លូវកាត់"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -362112,6 +362130,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "入力待ち…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងស្តាប់…"
           }
         },
         "ko": {
@@ -362233,6 +362257,12 @@
             "value": "検索をクリア"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្អាតការស្វែងរក"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -362352,6 +362382,12 @@
             "value": "一致するショートカットはありません"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមានផ្លូវកាត់ដែលត្រូវគ្នាទេ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -362469,6 +362505,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ショートカットを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកផ្លូវកាត់"
           }
         },
         "ko": {

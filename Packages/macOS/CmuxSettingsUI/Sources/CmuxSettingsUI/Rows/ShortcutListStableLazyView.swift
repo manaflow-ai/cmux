@@ -72,6 +72,7 @@ struct ShortcutListStableLazyView: View {
         .onChange(of: model.latestBindings) { refreshMatchesAfterBindingChange() }
         .onChange(of: model.legacyBindings) { refreshMatchesAfterBindingChange() }
         .onChange(of: model.managedBindingActionIDs) { refreshMatchesAfterBindingChange() }
+        .onChange(of: model.whenOverrideRawStrings) { refreshMatchesAfterBindingChange() }
         .onChange(of: controlActiveState) { _, state in
             // A filter can shrink the list while inactive; drop the held
             // height once the window is active again.
