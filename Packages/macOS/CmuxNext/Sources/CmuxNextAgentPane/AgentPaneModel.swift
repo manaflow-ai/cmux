@@ -44,6 +44,7 @@ public final class AgentPaneModel {
                 if sessionId == nil, let seed = await seed?.take() {
                     handshake.cwd = seed.cwd
                     handshake.draft = seed.draft
+                    handshake.prompt = seed.prompt
                 }
                 lastError = nil
                 return AgentPaneReply.handshake(handshake)

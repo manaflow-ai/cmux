@@ -871,6 +871,84 @@ describe("acpmux host handshake", () => {
     }
   });
 
+  /// Onboarding's first task: the handshake's prompt starts the chat in its cwd without a Send press,
+  /// and the composer stays empty. Swift hands the prompt out once, so it survives a first connect
+  /// that fails (a daemon still starting) and is sent after the retry.
+  test("a seeded prompt creates the chat in its cwd and sends once, even after a failed connect", async () => {
+    const sent: { method: string; params: Record<string, unknown> }[] = [];
+    let readies = 0;
+    class PromptSocket extends FakeSocket {
+      constructor(url: URL) {
+        super(url);
+        // The first daemon connect fails before it opens.
+        if (FakeSocket.made.length === 1) {
+          Object.defineProperty(this, "onopen", { get: () => undefined, set: () => undefined });
+          queueMicrotask(() => this.onerror?.());
+        }
+      }
+      override send(raw: string) {
+        const { id, method, params } = JSON.parse(raw) as {
+          id: number;
+          method: string;
+          params: Record<string, unknown>;
+        };
+        sent.push({ method, params });
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [] }
+            : method === "session/new"
+              ? { sessionId: "s-new" }
+              : method === "_acpmux/attach"
+                ? { session: { sessionId: "s-new", harness: "codex" }, events: [] }
+                : {};
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = PromptSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string }) {
+            if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            readies += 1;
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                newSession: true,
+                cwd: "/tmp/first-task",
+                ...(readies === 1 ? { prompt: "Leave a note on my Desktop" } : {}),
+              },
+            });
+          },
+        },
+      },
+    };
+    const prompts = () => sent.filter((message) => message.method === "session/prompt");
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      for (let tries = 0; tries < 100 && prompts().length === 0; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(readies).toBe(2);
+      expect(sent.find((message) => message.method === "session/new")?.params.cwd).toBe("/tmp/first-task");
+      expect(prompts().map((message) => message.params.sessionId)).toEqual(["s-new"]);
+      expect(prompts()[0]!.params.prompt).toEqual([{ type: "text", text: "Leave a note on my Desktop" }]);
+      expect(dom.window.document.querySelector("textarea")?.value ?? "").toBe("");
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+      FakeSocket.made = [];
+    }
+  });
+
   /// After losing the daemon the page asks Swift again; that retry restarted a daemon the user had stopped.
   test("a page that lost its daemon asks for a handshake that does not start one", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
@@ -1402,7 +1480,7 @@ describe("acpmux turn diff", () => {
       () => Promise.resolve({ scope: "staged", files: [] }),
     ];
     host.cmuxAcpmuxActions = {
-      "git.scope.diff": (params) => {
+      "git.diff": (params) => {
         asked.push(params);
         return answers.shift()!();
       },
@@ -1490,7 +1568,7 @@ describe("acpmux turn diff", () => {
       expect(document.activeElement).toBe(items()[0]);
       // A scope that fails to load says so and offers Retry; Retry asks again and shows its files.
       await click(items()[1]!);
-      expect(asked).toEqual([{ scope: "uncommitted" }]);
+      expect(asked).toEqual([{ scope: "uncommitted", include_patch: true }]);
       expect(items()).toEqual([]);
       expect(document.activeElement).toBe(pill);
       expect(pill.querySelector("strong")?.textContent).toBe("Uncommitted");
@@ -1505,7 +1583,10 @@ describe("acpmux turn diff", () => {
       retryButton.focus();
       expect(document.activeElement).toBe(retryButton);
       await click(retryButton);
-      expect(asked).toEqual([{ scope: "uncommitted" }, { scope: "uncommitted" }]);
+      expect(asked).toEqual([
+        { scope: "uncommitted", include_patch: true },
+        { scope: "uncommitted", include_patch: true },
+      ]);
       // Retry leaves as the load starts; focus moves to the scope pill, not the page.
       expect(document.activeElement).toBe(pill);
       expect(panel.querySelector('[role="alert"]')).toBeNull();
@@ -1532,7 +1613,7 @@ describe("acpmux turn diff", () => {
       expect(document.activeElement?.textContent).toBe("Staged");
       await key(document.activeElement!, "Enter");
       await settle();
-      expect(asked.at(-1)).toEqual({ scope: "staged" });
+      expect(asked.at(-1)).toEqual({ scope: "staged", include_patch: true });
       expect(asked.length).toBe(4);
       expect(panel.querySelector("output strong")?.textContent).toBe("No changes");
       // Last turn is the transcript's own files again, without asking the host.
