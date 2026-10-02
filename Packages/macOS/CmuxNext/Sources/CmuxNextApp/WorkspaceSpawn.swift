@@ -33,6 +33,12 @@ struct WorkspaceSpawn: Sendable {
         self.profile = profile
     }
 
+    /// A workspace opened in `directory` (the Finder service "New cmux
+    /// Workspace Here").
+    init(opening directory: String) {
+        self.init(cwd: directory)
+    }
+
     /// `newTab` arguments: `cwd`, `name`, `command`, `env` (a JSON object of
     /// strings), `keep`. A workspace opened in a `cwd` without a `name`
     /// (`cmux open <dir>`, `cmux <dir>`, `new-workspace --cwd`) is named

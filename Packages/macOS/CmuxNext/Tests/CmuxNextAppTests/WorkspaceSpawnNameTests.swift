@@ -36,4 +36,17 @@ import Testing
         #expect(WorkspaceSpawn.folderName("/Users/someone/src/cmux") == "cmux")
         #expect(WorkspaceSpawn.folderName("/") == nil)
     }
+
+    /// The Finder service "New cmux Workspace Here" names it the same way.
+    @Test func theFinderServiceNamesItAfterTheFolder() {
+        #expect(WorkspaceSpawn(opening: "/Users/someone/src/cmux").name == "cmux")
+        #expect(WorkspaceSpawn(opening: "/Users/someone/src/cmux").cwd == "/Users/someone/src/cmux")
+    }
+
+    /// A folder name of only whitespace is no name; the daemon names it.
+    @Test func whitespaceIsTrimmedFromTheFolderName() {
+        #expect(WorkspaceSpawn.folderName("/tmp/ cmux ") == "cmux")
+        #expect(WorkspaceSpawn.folderName("/tmp/   ") == nil)
+        #expect(spawn(["cwd": .string("/tmp/   ")]).name == nil)
+    }
 }
