@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { renderToReadableStream } from "react-dom/server";
 import { renderSettled } from "./helpers/render-settled";
 import { readInitialMain } from "./helpers/render-stream";
@@ -21,6 +21,7 @@ const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 let stackConfigured = false;
 let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 let appleRows: Array<Record<string, unknown>> = [];
+let subscriptionLookupFails = false;
 function rowsFor(table: unknown): Array<Record<string, unknown>> {
   if (table === stripeSubscriptions) return stripeSubscriptionRows;
   if (table === appleSubscriptions) return appleRows;
@@ -101,11 +102,18 @@ mock.module("../db/client", () => ({
   createAwsRdsIamPool: realCreateAwsRdsIamPool,
   closeCloudDbForTests: realCloseCloudDbForTests,
   cloudDb: () => withAccountMutationLeaseSupport({
-    select: () => ({
+    select: (fields: Record<string, unknown> = {}) => ({
       from: (table: unknown) => ({
         where: () => Object.assign(Promise.resolve(rowsFor(table)), {
           limit: async () => rowsFor(table),
-          orderBy: () => ({ limit: async () => rowsFor(table) }),
+          orderBy: () => ({
+            limit: async () => {
+              // The cancellation-date lookup is the ordered query without `id`;
+              // the plan status query selects it.
+              if (subscriptionLookupFails && !("id" in fields)) throw new Error("db unavailable");
+              return rowsFor(table);
+            },
+          }),
         }),
       }),
     }),
@@ -401,6 +409,23 @@ describe("localized pricing page", () => {
     expect(card).toContain('name="action" value="resume"');
     expect(card).toContain(">Resubscribe<");
     expect(card).not.toContain("Manage billing");
+  });
+
+  test("a failed cancellation lookup still shows the subscriber's plan", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro" }];
+    subscriptionLookupFails = true;
+    const errors = spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+      expect(html).toContain("Current plan");
+      expect(html).toContain("Manage billing");
+      expect(html).not.toContain('data-testid="pricing-resubscribe"');
+    } finally {
+      subscriptionLookupFails = false;
+      stripeSubscriptionRows = [];
+      errors.mockRestore();
+    }
   });
 
   test("an App Store subscriber who also pays Stripe keeps Stripe's Manage billing", async () => {
