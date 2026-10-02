@@ -144,6 +144,7 @@ Apps never keep a second copy of data another owner has (the inbox prototype's o
 
 ### C10. The store follows the model
 
+Layout (Lawrence's pick, 2026-10-02): cards are the default for the store and for app sidebar sections; other layouts stay DEV-only and are deleted once dogfood confirms cards. 
 Listings show implemented interfaces ("Editor for TypeScript, JSON, Markdown"), handles the app will ask for, server presence and where it runs, tier and sandbox profile. Search by interface ("editors", "file providers"). Installing an app that implements an interface the user has no default for asks "Use for .ts files?".
 
 ## 2. Apps Lawrence will likely ask for, and the primitives each needs

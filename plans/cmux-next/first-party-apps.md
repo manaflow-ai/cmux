@@ -92,7 +92,11 @@ Priority: P0 = an app cannot do its core job without it; P1 = the app works but 
 | B10 | `notification.ack` client id for apps | inbox | the host sets `client_id = app:<id>` for app calls so read state is shared across clients through the daemon ledger | session host | P1 |
 | B11 | Spec 6.5 forbids account and credential ops for all apps; the CodeRouter app needs a carve-out for first-party and reviewed apps, through host-owned flows only | coderouter | restricted scopes (section 4) may hold credential flows that take or return secret handles; the raw "never" list stays | spec (coordinator) | P0 for coderouter |
 
-## 3.6 Install defaults and hiding (Lawrence, 2026-10-02)
+## 3.6 Store layout (Lawrence, 2026-10-02)
+
+Cards: the App Store uses cards by default (`apps.store.layout = grid`), and app sidebar sections use the card look by default (`apps.section.look = card`). The list and split store layouts and the native and minimal section looks stay behind the DEV/NIGHTLY switch until they are removed.
+
+## 3.7 Install defaults and hiding (Lawrence, 2026-10-02)
 
 - First-party apps are installed by default; sample apps are opt-in.
 - A user can install an app and hide it: no presence in the sidebar, palette, menus or menu bar, while CLI, MCP and automations can still run it when the user allows that. Hide is distinct from disable and uninstall, per user and synced. State model, ops, surfaces and tests: plans/cmux-next/app-platform-critique.md C7.
