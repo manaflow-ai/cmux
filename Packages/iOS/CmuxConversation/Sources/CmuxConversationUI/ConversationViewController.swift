@@ -378,6 +378,20 @@ public final class ConversationViewController: UIViewController {
             }
         }
 
+        // A typing indicator replaced by the message it announced vanishes at
+        // once: the message grows in its place, so a fading indicator (with its
+        // own avatar) would double the sender for a few frames.
+        let replacesTyping = inserted.contains { indexPath in
+            if case .message = newRows[indexPath.item] { return true } else { return false }
+        }
+        if animateLive, replacesTyping {
+            for indexPath in deleted where indexPath.item < rows.count {
+                if case .typing = rows[indexPath.item], let cell = collectionView.cellForItem(at: indexPath) {
+                    UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
+                }
+            }
+        }
+
         let updates = {
             self.rows = newRows
             self.rowIndex = newIndex
@@ -428,44 +442,51 @@ public final class ConversationViewController: UIViewController {
         popArrivals(scrollShift: scrollShift)
     }
 
-    /// New incoming bubbles (and the typing indicator) appear where they will
-    /// rest and grow from their tail corner, as in Messages. The transcript
-    /// scrolls up by `scrollShift` in the same spring; the arriving cell is
-    /// counter-translated along that spring so it never slides up from behind
-    /// the composer, while the rows above move.
+    /// New incoming bubbles (and the typing indicator) grow from the bottom
+    /// edge of their run of new rows, as in Messages. A run's visible height
+    /// tracks the scroll spring's progress, so the rows above (moving up by
+    /// `scrollShift` on that spring) are never overlapped, whether one message
+    /// arrives or a whole burst; and nothing slides up from behind the composer.
     private func popArrivals(scrollShift: CGFloat) {
         let ids = arrivingRowIDs
         arrivingRowIDs = []
-        for id in ids {
-            guard let indexPath = indexPath(for: id), let cell = collectionView.cellForItem(at: indexPath) else { continue }
-            let target: UIView
-            let pivot: CGPoint
-            if let cell = cell as? MessageCell, let content = cell.cellLayout?.contentFrame {
-                target = cell.shiftable
-                pivot = CGPoint(x: content.minX, y: content.maxY)
-            } else if let cell = cell as? TypingCell {
-                target = cell.indicator
-                pivot = CGPoint(x: 0, y: cell.indicator.bounds.maxY)
+        let items = ids.compactMap { indexPath(for: $0)?.item }.sorted()
+        var runs: [[Int]] = []
+        for item in items {
+            if let last = runs.last?.last, last + 1 == item {
+                runs[runs.count - 1].append(item)
             } else {
-                continue
+                runs.append([item])
             }
-            let center = CGPoint(x: target.bounds.midX, y: target.bounds.midY)
-            let scale: CGFloat = 0.6
-            let start = CGAffineTransform(translationX: (pivot.x - center.x) * (1 - scale), y: (pivot.y - center.y) * (1 - scale)).scaledBy(x: scale, y: scale)
-            UIView.performWithoutAnimation {
-                target.transform = start
-                target.alpha = 0
-                cell.contentView.transform = CGAffineTransform(translationX: 0, y: -scrollShift)
-            }
-            UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-                cell.contentView.transform = .identity
-            }
-            // Measured on Messages: the pop settles in ~0.35 s.
-            UIView.animate(withDuration: 0.75, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
-                target.transform = .identity
-            }
-            UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-                target.alpha = 1
+        }
+        // Near zero, not zero: Core Animation interpolates scale and translation
+        // separately, so scale(p) == progress(p) keeps the run's top on the rows above.
+        let startScale: CGFloat = 0.02
+        for run in runs {
+            let frames = run.compactMap { layout.frame(at: $0) }
+            guard let bottom = frames.map(\.maxY).max() else { continue }
+            for item in run {
+                guard let cell = collectionView.cellForItem(at: IndexPath(item: item, section: 0)),
+                      let frame = layout.frame(at: item) else { continue }
+                var pivotX = frame.minX
+                if let cell = cell as? MessageCell, let content = cell.cellLayout?.contentFrame {
+                    pivotX = frame.minX + content.minX
+                } else if let cell = cell as? TypingCell {
+                    pivotX = frame.minX + cell.indicator.frame.minX
+                }
+                let tx = (1 - startScale) * (pivotX - frame.midX)
+                let ty = (1 - startScale) * (bottom - frame.midY) - scrollShift
+                UIView.performWithoutAnimation {
+                    cell.contentView.transform = CGAffineTransform(translationX: tx, y: ty).scaledBy(x: startScale, y: startScale)
+                    cell.contentView.alpha = 0
+                }
+                // The same spring as the scroll, so growth and scroll share progress.
+                UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
+                    cell.contentView.transform = .identity
+                }
+                UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+                    cell.contentView.alpha = 1
+                }
             }
         }
     }

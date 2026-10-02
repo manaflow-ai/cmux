@@ -93,6 +93,7 @@ final class MessageCell: UICollectionViewCell {
         replyDrag = 0
         contentView.alpha = 1
         shiftable.alpha = 1
+        shiftable.subviews.forEach { $0.alpha = 1 }
         shiftable.layer.removeAllAnimations()
         shiftable.transform = .identity
         contentView.transform = .identity
@@ -319,8 +320,25 @@ final class MessageCell: UICollectionViewCell {
     }
 
     /// Frame of the lifted content in this cell's coordinates.
+    /// Hides only what the lifted preview shows (bubble, badge, quote); the
+    /// sender name and avatar stay put, so nothing pops in when it lands.
+    func setLiftedContentHidden(_ hidden: Bool) {
+        let lifted = liftedContentFrame
+        for view in shiftable.subviews where view !== avatar && view !== senderLabel {
+            if hidden {
+                if view.frame.intersects(lifted) { view.alpha = 0 }
+            } else {
+                view.alpha = 1
+            }
+        }
+    }
+
+    /// The lifted preview includes the tapback badge, which overhangs the
+    /// bubble; cutting it at the bubble bounds left a stray fragment.
     var liftedContentFrame: CGRect {
-        cellLayout?.contentFrame ?? contentView.bounds
+        guard let content = cellLayout?.contentFrame else { return contentView.bounds }
+        guard !reactionBadge.isHidden, reactionBadge.frame.width > 0 else { return content }
+        return content.union(reactionBadge.frame).intersection(contentView.bounds.insetBy(dx: 0, dy: -20))
     }
 
     private func applyShifts() {

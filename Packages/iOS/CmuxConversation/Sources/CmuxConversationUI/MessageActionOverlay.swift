@@ -360,7 +360,10 @@ extension ConversationViewController {
             guard let participant = store.info?.participant(mark.participantID) else { return nil }
             return (participant.isMe ? String(localized: "conversation.reaction.you", defaultValue: "You", bundle: .module) : participant.name, participant.initials, mark.reaction)
         }
+        // Like the keyboard, the Photos drawer gives way to the menu (Messages
+        // closes it); otherwise it would cover the menu's lower rows.
         view.endEditing(true)
+        dismissPhotoDrawer()
         let overlay = MessageActionOverlay(
             frame: view.bounds,
             snapshot: snapshot,
@@ -371,7 +374,7 @@ extension ConversationViewController {
             mode: mode,
             reactors: reactors
         )
-        cell.shiftable.alpha = 0
+        cell.setLiftedContentHidden(true)
         let rowID = model.rowID
         overlay.currentSourceFrame = { [weak self] in
             guard let self, let indexPath = self.indexPath(for: rowID),
@@ -380,10 +383,10 @@ extension ConversationViewController {
             return live.convert(live.liftedContentFrame, to: self.view)
         }
         overlay.onDismiss = { [weak self, weak cell] in
-            cell?.shiftable.alpha = 1
+            cell?.setLiftedContentHidden(false)
             // The row may have been re-dequeued while the overlay was up.
             if let self, let indexPath = self.indexPath(for: rowID) {
-                (self.collectionView.cellForItem(at: indexPath) as? MessageCell)?.shiftable.alpha = 1
+                (self.collectionView.cellForItem(at: indexPath) as? MessageCell)?.setLiftedContentHidden(false)
             }
         }
         overlay.onReaction = { [weak self, weak overlay] reaction in
