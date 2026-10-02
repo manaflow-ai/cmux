@@ -608852,7 +608852,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-              "value": "%#@count@ 작업 공간 탭이 없는 터미널을 %2$@에서 종료"
+              "value": "작업 공간 탭이 없는 %#@count@를 %2$@에서 종료했습니다"
           },
           "substitutions": {
             "count": {
