@@ -1,3 +1,4 @@
+import CmuxRemoteWorkspace
 import Foundation
 
 /// The narrow ControlMaster surface used by the ssh-tmux browser proxy.
