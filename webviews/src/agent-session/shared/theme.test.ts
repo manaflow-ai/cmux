@@ -82,4 +82,15 @@ describe("agent theme", () => {
       expect(rule).not.toMatch(/background:(?!transparent|none)/);
     });
   }
+
+  // A translucent window's page is clear; the composer box and its edge
+  // must be a tint over the page, not mixed toward the opaque base, or the
+  // box is a solid block over the backdrop. On an opaque page the page is
+  // the base, so nothing changes there.
+  test("the composer box is a tint over the page", () => {
+    const acpmux = css("../acpmux/styles.css");
+    for (const name of ["--acpmux-composer-bg", "--acpmux-composer-edge"]) {
+      expect(acpmux).toMatch(new RegExp(`${name}:color-mix\\(in srgb,var\\(--agent-text\\) \\d+%,var\\(--agent-page-bg`));
+    }
+  });
 });
