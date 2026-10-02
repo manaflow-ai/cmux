@@ -487,7 +487,7 @@ fn ids_take_a_unique_prefix_and_a_session_qualifier() {
     assert_eq!(call.plan.params["machine"], "current");
     assert_eq!(call.plan.params["session"], "current");
 
-    for whole in [WORKSPACE, "current", "name:ws_1", "workspace:ws_1a", "prod:ws_backup"] {
+    for whole in [WORKSPACE, "current", "name:ws_1", "workspace:ws_1a"] {
         let call = tool.plan(&object(json!({"workspace": whole}))).expect("plan");
         assert!(call.plan.resolve.is_empty(), "{whole}");
         assert_eq!(call.session, None, "{whole}");

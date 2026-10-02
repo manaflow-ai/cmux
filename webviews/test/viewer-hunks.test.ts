@@ -6,8 +6,22 @@ const items = [
     id: "a.txt",
     fileDiff: {
       hunks: [
-        { additionStart: 3, additionCount: 2, additionLineIndex: 0, deletionStart: 3, deletionCount: 0, deletionLineIndex: 0 },
-        { additionStart: 20, additionCount: 0, additionLineIndex: 2, deletionStart: 18, deletionCount: 4, deletionLineIndex: 0 },
+        {
+          additionStart: 3,
+          additionCount: 2,
+          additionLineIndex: 0,
+          deletionStart: 3,
+          deletionCount: 0,
+          deletionLineIndex: 0,
+        },
+        {
+          additionStart: 20,
+          additionCount: 0,
+          additionLineIndex: 2,
+          deletionStart: 18,
+          deletionCount: 4,
+          deletionLineIndex: 0,
+        },
       ],
     },
   },
@@ -16,7 +30,14 @@ const items = [
     id: "c.txt",
     fileDiff: {
       hunks: [
-        { additionStart: 1, additionCount: 5, additionLineIndex: 0, deletionStart: 1, deletionCount: 1, deletionLineIndex: 0 },
+        {
+          additionStart: 1,
+          additionCount: 5,
+          additionLineIndex: 0,
+          deletionStart: 1,
+          deletionCount: 1,
+          deletionLineIndex: 0,
+        },
       ],
     },
   },

@@ -130,7 +130,13 @@ pub struct Session {
     pub id: String,
     pub(super) meta: StdMutex<SessionMeta>,
     pub(super) child: Mutex<Option<Arc<ChildAgent>>>,
+    /// Held while a child is spawned and initialized, so concurrent
+    /// requests for a stopped session start one agent, not several.
+    pub(super) spawn_lock: Mutex<()>,
     pub(super) seq: AtomicU64,
+    /// Held from sequence allocation until the record is stored and sent,
+    /// so the log and fan-out always see sequences in order.
+    pub(super) append_lock: StdMutex<()>,
     pub(super) loading: AtomicBool,
     pub(super) turn_lock: Mutex<()>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
@@ -138,6 +144,10 @@ pub struct Session {
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) pending_permissions: StdMutex<HashMap<String, PendingPermission>>,
+    /// Bumped (under the `pending_permissions` lock) whenever pending
+    /// permissions are cancelled; a request that started before the bump
+    /// is answered `cancelled` instead of being registered.
+    pub(super) permission_epoch: AtomicU64,
     pub(super) rehydrate: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
@@ -195,8 +205,9 @@ pub struct Hub {
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<HashMap<String, RemoteSession>>,
-    pub(super) peer_notices: mpsc::Sender<(String, crate::peer::PeerNotice)>,
-    pub(super) peer_notices_rx: Mutex<Option<mpsc::Receiver<(String, crate::peer::PeerNotice)>>>,
+    pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
+    pub(super) peer_notices_rx:
+        Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
     /// Models each agent has advertised, keyed by agent profile name. Filled
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
@@ -206,6 +217,8 @@ pub struct Hub {
     /// spawns wait for it; every other request is answered at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
+    /// Session ids an `import` is writing right now.
+    pub(super) importing: StdMutex<std::collections::HashSet<String>>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -258,6 +271,7 @@ impl Hub {
             known_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
+            importing: StdMutex::new(std::collections::HashSet::new()),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -374,6 +388,8 @@ impl Hub {
             seq: AtomicU64::new(meta.last_seq),
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
+            spawn_lock: Mutex::new(()),
+            append_lock: StdMutex::new(()),
             loading: AtomicBool::new(false),
             turn_lock: Mutex::new(()),
             turn: StdMutex::new(None),
@@ -381,6 +397,7 @@ impl Hub {
             queue: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             pending_permissions: StdMutex::new(HashMap::new()),
+            permission_epoch: AtomicU64::new(0),
             rehydrate: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
@@ -434,6 +451,7 @@ impl Hub {
         kind: &str,
         msg: Value,
     ) -> EventRecord {
+        let _order = session.append_lock.lock().unwrap();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let record = EventRecord { seq, at: now_ms(), dir: dir.into(), kind: kind.into(), msg };
         if session.purged.load(Ordering::SeqCst) {
@@ -511,7 +529,7 @@ impl Hub {
     ) {
         {
             let mut m = session.meta.lock().unwrap();
-            let expires_at = ttl_seconds.map(|t| now_ms() + t * 1000);
+            let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));
             if let Some(set) = set {
                 for (k, v) in set {
                     let value = match v {
@@ -636,11 +654,10 @@ impl Hub {
     /// may have run to completion.
     pub(super) fn mark_unknown_outcomes(&self) {
         for session in self.sessions() {
-            let last = session.meta().last_seq;
-            let from = last.saturating_sub(400);
-            let Ok(events) = self.store.events(&session.id, from, 400) else { continue };
+            // Scan the whole log: a long turn can stream far more records
+            // than any fixed tail window after its `turn_started`.
             let mut open: Option<(u64, Value)> = None;
-            for e in &events {
+            let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
                 match e.kind.as_str() {
                     "turn_started" => {
                         open = Some((e.seq, e.msg.get("turnId").cloned().unwrap_or(Value::Null)))
@@ -648,6 +665,10 @@ impl Hub {
                     "turn_result" => open = None,
                     _ => {}
                 }
+                true
+            });
+            if scanned.is_err() {
+                continue;
             }
             if let Some((seq, turn_id)) = open {
                 let error = "the daemon restarted before this turn settled";

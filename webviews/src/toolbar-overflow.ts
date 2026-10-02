@@ -45,9 +45,7 @@ export type ToolbarOverflowResult<Id extends string = string> = {
  * everything, and the caller's CSS `overflow: clip` is the real no-overlap
  * guarantee, so estimation error here can never produce an overlap.
  */
-export function resolveToolbarOverflow<Id extends string>(
-  input: ToolbarOverflowInput<Id>,
-): ToolbarOverflowResult<Id> {
+export function resolveToolbarOverflow<Id extends string>(input: ToolbarOverflowInput<Id>): ToolbarOverflowResult<Id> {
   const budget = (Number.isFinite(input.available) ? input.available : 0) - input.reserved;
   const visible: Id[] = [];
   const overflow: Id[] = [];

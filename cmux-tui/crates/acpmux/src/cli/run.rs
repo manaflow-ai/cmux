@@ -311,7 +311,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             let name =
                 v.pointer("/_meta/acpmux/name").and_then(Value::as_str).unwrap_or(&id).to_owned();
-            let one_shot = !args.prompt.is_empty() && (args.quiet || json_out);
+            let one_shot = !args.prompt.is_empty() && (args.quiet || json_out || args.ephemeral);
             if json_out && !one_shot {
                 let info = client
                     .request(method::MUX_INFO, json!({"sessionId": id}))
@@ -543,7 +543,11 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             let id = resolve_id(&client, &session).await?;
             // As a request, the reply says the daemon handled the cancel.
             client.request(method::SESSION_CANCEL, json!({"sessionId": id})).await?;
-            println!("cancel sent");
+            if json_out {
+                print_json(&json!({"sessionId": id, "cancelSent": true}));
+            } else {
+                println!("cancel sent");
+            }
             Ok(())
         }
         Command::Kill { session, purge } => {
@@ -641,9 +645,14 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         Command::Export { session, dest } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
+            // For a peer's session, --dest is where the fetched bundle lands
+            // here; the peer writes to its own default directory.
+            let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            let remote = info.get("peer").is_some();
+            let dest = dest.map(|d| std::path::absolute(&d)).transpose()?;
             let mut p = json!({"sessionId": id});
-            if let Some(d) = dest {
-                p["dest"] = json!(std::path::absolute(d)?);
+            if let Some(d) = dest.as_ref().filter(|_| !remote) {
+                p["dest"] = json!(d);
             }
             let v = client.request(method::MUX_EXPORT, p).await?;
             // A bundle made on an ssh peer is fetched here with scp.
@@ -665,13 +674,17 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 {
                     let remote_path =
                         v.get("path").and_then(Value::as_str).unwrap_or("").to_owned();
-                    let local = crate::config::home().join("bundles").join(format!(
-                        "{peer}-{}",
-                        std::path::Path::new(&remote_path)
-                            .file_name()
-                            .and_then(|f| f.to_str())
-                            .unwrap_or("bundle")
-                    ));
+                    let file = std::path::Path::new(&remote_path)
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .unwrap_or("bundle")
+                        .to_owned();
+                    let local = match &dest {
+                        Some(d) => d.join(&file),
+                        None => {
+                            crate::config::home().join("bundles").join(format!("{peer}-{file}"))
+                        }
+                    };
                     std::fs::create_dir_all(local.parent().unwrap())?;
                     let status = std::process::Command::new("scp")
                         .args([
@@ -813,6 +826,9 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                         );
                     }
                 }
+                // `daemon start` promised a running daemon: failing to start
+                // one is an error, so callers such as `host setup` see it.
+                Err(e) if matches!(which, Command::DaemonStart) => return Err(e),
                 Err(e) => {
                     if json_out {
                         print_json(&json!({"running": false, "error": e.to_string()}))
@@ -828,7 +844,10 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             let _ = client.request(method::MUX_SHUTDOWN, json!({})).await;
             // The daemon holds its lock until it exits, so a `daemon start`
             // right after this cannot lose the lock to the stopping one.
-            if crate::daemon::wait_for_exit().await {
+            let stopped = crate::daemon::wait_for_exit().await;
+            if json_out {
+                print_json(&json!({"stopped": stopped}));
+            } else if stopped {
                 println!("stopped");
             } else {
                 println!("shutdown requested");
@@ -837,6 +856,16 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         }
         Command::Config => {
             let path = Config::path();
+            if json_out {
+                let (written, config) = match std::fs::read_to_string(&path) {
+                    Ok(s) => (true, serde_json::from_str::<Value>(&s).unwrap_or(Value::String(s))),
+                    Err(_) => (false, serde_json::to_value(Config::load()?)?),
+                };
+                print_json(
+                    &json!({"path": path, "written": written, "config": config, "home": home()}),
+                );
+                return Ok(());
+            }
             println!("# {}", path.display());
             match std::fs::read_to_string(&path) {
                 Ok(s) => println!("{s}"),
@@ -857,6 +886,11 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 .and_then(Value::as_str)
                 .ok_or_else(|| anyhow!("daemon has no web listener"))?
                 .to_owned();
+            if json_out {
+                // JSON mode is for scripts: report the URL, open nothing.
+                print_json(&json!({"url": url}));
+                return Ok(());
+            }
             println!("{url}");
             if !no_open {
                 let _ = std::process::Command::new(if cfg!(target_os = "macos") {

@@ -17,6 +17,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
     /// Gets each settled transcript scroll's frame intervals (milliseconds).
     @ObservationIgnored public var onFramePacing: (([Double]) -> Void)?
+    /// Gets the composer's dictation requests (the pane's mic).
+    @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
 
@@ -48,6 +50,10 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .framePacing(let intervals):
             onFramePacing?(intervals)
+            return AgentPaneReply.success()
+        case .dictation(let command):
+            guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
+            onDictation(command)
             return AgentPaneReply.success()
         case .unsupported(let method):
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")

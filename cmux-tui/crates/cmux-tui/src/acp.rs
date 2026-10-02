@@ -62,9 +62,17 @@ fn open_command(args: &[String], exe: &str) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// The binary started as `acpmux`.
+/// The binary started as `acpmux`. Its daemon is started from
+/// `current_exe`, which resolves an `acpmux` symlink to this binary under
+/// its own name, so that start needs the `acp` prefix (`<cmux> acp daemon
+/// run`). A copy named `acpmux` (as `host setup` installs) needs none.
 pub(crate) fn run_standalone(args: Vec<OsString>) -> i32 {
-    finish(entry::main(args, Invocation::default()))
+    let renamed = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.file_name().map(|name| name != "acpmux"))
+        .unwrap_or(false);
+    let daemon_prefix: Vec<OsString> = if renamed { vec!["acp".into()] } else { Vec::new() };
+    finish(entry::main(args, Invocation { daemon_prefix, ..Invocation::default() }))
 }
 
 fn finish(result: anyhow::Result<()>) -> i32 {

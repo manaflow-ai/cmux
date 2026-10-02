@@ -16,11 +16,11 @@
 //! A saved screen group is a session-wide record (name, color, members'
 //! names, colors, icons and directories) that outlives its screens.
 
-use super::state_screens::ScreenResult;
 use super::tab_strip::StripRequest;
 use super::*;
-use crate::workspace_registry::screen_state_store::ScreenMetaUpdate;
-use crate::workspace_registry::state_store::StateCommit;
+use crate::state::screen_state_store::ScreenMetaUpdate;
+use crate::state::screens::ScreenResult;
+use crate::state::store::StateCommit;
 use crate::workspace_registry::{
     SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationState,
     new_saved_screen_group_id, new_screen_group_id, validate_tab_group_color,
@@ -123,7 +123,7 @@ fn locate_screen(state: &State, screen: ScreenId) -> Option<(usize, usize)> {
     })
 }
 
-pub(super) fn screen_public_id(state: &State, screen: ScreenId) -> anyhow::Result<String> {
+pub(crate) fn screen_public_id(state: &State, screen: ScreenId) -> anyhow::Result<String> {
     let (wi, si) =
         locate_screen(state, screen).with_context(|| format!("unknown screen {screen}"))?;
     Ok(state.workspaces[wi].screens[si].public_id.as_str().to_string())
@@ -144,7 +144,7 @@ fn group_members(state: &State, screens: &ScreenPresentationState, group: &str) 
 
 /// Drop rows of screens that are gone, memberships of pinned screens or of
 /// screens outside their group's workspace, and groups left empty.
-pub(super) fn prune_screen_state(state: &State, screens: &mut ScreenPresentationState) {
+pub(crate) fn prune_screen_state(state: &State, screens: &mut ScreenPresentationState) {
     let live = state
         .workspaces
         .iter()
@@ -175,7 +175,7 @@ pub(super) fn prune_screen_state(state: &State, screens: &mut ScreenPresentation
 
 /// Pinned screens first, then every group gathered at its first member. The
 /// active screen stays active.
-pub(super) fn normalize_screen_order(workspace: &mut Workspace, screens: &ScreenPresentationState) {
+pub(crate) fn normalize_screen_order(workspace: &mut Workspace, screens: &ScreenPresentationState) {
     let active = workspace.screens.get(workspace.active_screen).map(|screen| screen.id);
     let group_of = |screen: &Screen| screens.members.get(screen.public_id.as_str()).cloned();
     let old = std::mem::take(&mut workspace.screens);

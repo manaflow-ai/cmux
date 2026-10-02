@@ -6,7 +6,10 @@
 
 #[cfg(unix)]
 mod app;
+#[cfg(unix)]
+mod coderouter;
 mod command;
+mod federation;
 mod lifecycle;
 #[cfg(unix)]
 mod mcp;
@@ -190,6 +193,8 @@ pub(super) struct GlobalArgs {
     /// `--idempotency-key`: the key a failed mutation printed, reused so a
     /// retry cannot apply the change twice.
     pub idempotency_key: Option<String>,
+    /// `--all-sessions`: a list runs on every local session (cli/federation.rs).
+    pub all_sessions: bool,
     pub output: OutputMode,
 }
 
@@ -231,6 +236,10 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         return code;
     }
     #[cfg(unix)]
+    if let Some(code) = run_coderouter(args) {
+        return code;
+    }
+    #[cfg(unix)]
     if let Some(code) = run_app_scope(args) {
         return code;
     }
@@ -248,6 +257,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
+            CommandPlan::Protocol(request) if global.all_sessions => {
+                federation::run_all_sessions(&global, *request)
+            }
             CommandPlan::Protocol(request) => wire::run(global, *request),
             CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
@@ -301,6 +313,12 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
         return None;
     }
     match app::parse(&command_args) {
+        Ok(Some(_)) if global.all_sessions => Some(app::failure(
+            "usage.invalid",
+            "cmux: --all-sessions applies only to the session list commands",
+            global.output,
+            2,
+        )),
         Ok(Some(command)) => Some(app::run(&global, command)),
         Ok(None) => None,
         Err(error) => Some(wire::print_local_error(
@@ -314,6 +332,18 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
             2,
         )),
     }
+}
+
+/// `cmux coderouter …` and `cmux cr …` (cli/coderouter.rs). `None` for any
+/// other command.
+#[cfg(unix)]
+fn run_coderouter(args: &[String]) -> Option<i32> {
+    let (global, command_args) = parse_globals(args).ok()?;
+    let (word, rest) = coderouter::split(&command_args)?;
+    Some(match coderouter::parse(word, rest, args) {
+        Ok(invocation) => coderouter::run(&global, invocation),
+        Err(error) => app::failure("usage.invalid", &format!("cmux: {error}"), global.output, 2),
+    })
 }
 
 /// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name when
@@ -337,11 +367,12 @@ fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailur
 }
 
 fn parse_command(
-    global: GlobalArgs,
+    mut global: GlobalArgs,
     command_args: Vec<String>,
     surface: Surface,
 ) -> Result<ParsedCommand, UsageError> {
-    let command_args = shorthand::normalize(&command_args)?;
+    let mut command_args = shorthand::normalize(&command_args)?;
+    federation::apply_qualifiers(&mut global, &mut command_args)?;
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
     }
@@ -414,6 +445,12 @@ fn parse_command(
     }
     let mut plan = command::parse(&command_args, surface)?;
     apply_idempotency_key(&mut plan, global.idempotency_key.as_deref())?;
+    if global.all_sessions {
+        match &plan {
+            CommandPlan::Protocol(request) => federation::validate_all_sessions(&global, request)?,
+            _ => return Err(UsageError::new("--all-sessions applies only to list commands")),
+        }
+    }
     Ok(ParsedCommand::Command { global, plan })
 }
 
@@ -538,6 +575,10 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
                     Some(idempotency_key(&key).map_err(|error| (error, global.output))?);
                 index += 2;
             }
+            "--all-sessions" => {
+                global.all_sessions = true;
+                index += 1;
+            }
             "--json" | "--jsonl" | "--quiet" => {
                 let output = match value.as_str() {
                     "--json" => OutputMode::Json,
@@ -572,7 +613,13 @@ fn option_takes_value(value: &str) -> bool {
             && !value.contains('=')
             && !matches!(
                 value,
-                "--help" | "--json" | "--jsonl" | "--quiet" | "--literal" | "--print"
+                "--help"
+                    | "--json"
+                    | "--jsonl"
+                    | "--quiet"
+                    | "--literal"
+                    | "--print"
+                    | "--all-sessions"
             )
             && !command::is_boolean_flag(value.trim_start_matches("--")))
 }
@@ -900,8 +947,8 @@ USAGE
   cmux tab list
   cmux tab <selector> show|rename|move|focus|close
   cmux tab <selector> pin|unpin
-  cmux tab <selector> zoom <0.25..5>|reset
-  cmux tab <selector> update [--zoom <0.25..5>|--clear-zoom] [--back <url,...>] [--forward <url,...>]
+  cmux tab <selector> zoom <0.25..5>|reset|in|out
+  cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
   cmux tab create terminal [--correlation-key <value>] [OPTIONS]
   cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
   cmux tab <selector> terminal|browser ...
@@ -1362,6 +1409,44 @@ mod tests {
             parse(&strings(&["--idempotency-key", "", "workspace", "create"]), Surface::Cmux)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn all_sessions_runs_only_lists_and_never_with_a_named_session() {
+        let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
+            parse(&strings(&["workspace", "list", "--all-sessions"]), Surface::Cmux).unwrap()
+        else {
+            panic!("expected a request")
+        };
+        assert!(global.all_sessions);
+        assert_eq!(request.operation.name().unwrap(), "workspace.list");
+        // Without the flag a list stays on the one session the CLI addresses.
+        let ParsedCommand::Command { global, .. } =
+            parse(&strings(&["workspace", "list"]), Surface::Cmux).unwrap()
+        else {
+            panic!("expected a request")
+        };
+        assert!(!global.all_sessions && global.session.is_none());
+        for refused in [
+            &["--all-sessions", "workspace", "create"][..],
+            &["--all-sessions", "workspace", "current", "show"],
+            &["--all-sessions", "--session", "build", "workspace", "list"],
+        ] {
+            assert!(parse(&strings(refused), Surface::Cmux).is_err(), "{refused:?}");
+        }
+    }
+
+    #[test]
+    fn a_session_qualified_id_routes_the_request_to_that_session() {
+        let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } = parse(
+            &strings(&["workspace", "build-box:ws_00000000000000000000000000000004", "show"]),
+            Surface::Cmux,
+        )
+        .unwrap() else {
+            panic!("expected a request")
+        };
+        assert_eq!(global.session.as_deref(), Some("build-box"));
+        assert_eq!(request.params["workspace"], "ws_00000000000000000000000000000004");
     }
 
     #[test]

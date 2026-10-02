@@ -73,9 +73,12 @@ or any large DOM change, because refs go stale.
 ## Waiting
 
 Waits are not supported yet: there is no command that blocks until a selector,
-text, URL or load state appears. Do not poll with `eval` in a loop. Take a new
-`snapshot` when the page is ready, and if an element is missing, report that
-instead of retrying blindly.
+text, URL or load state appears, and `navigate` returns as soon as the load
+starts. After a scripted `navigate`, the templates mark the old document with
+`eval`, then poll `eval` a bounded number of times until a new document reports
+`document.readyState === "complete"`. Do not poll `eval` in an open-ended loop
+for anything else. Take a new `snapshot` when the page is ready, and if an
+element is missing, report that instead of retrying blindly.
 
 ## What the CLI does not cover yet
 
@@ -90,9 +93,11 @@ Some have UI actions that act on the focused browser and return no data:
 `cmux browser screenshot-page`, `browser screenshot-section`,
 `browser toggle-developer-tools`, `browser show-javascript-console`,
 `browser delete-site-data`, `browser import-data`, `browser new-profile`,
-`browser zoom-in`, `browser zoom-out`, `browser toggle-design-mode`,
-`browser toggle-focus-mode`, `browser toggle-react-grab`. List them with
-`cmux action list --noun browser`.
+`browser toggle-design-mode`, `browser toggle-focus-mode`,
+`browser toggle-react-grab`. List them with `cmux action list --noun browser`.
+Page zoom of an app browser tab is `cmux tab <tab_…> zoom in|out|reset`, which
+runs the app's zoom action on the tab's pane (the tab must be the one its pane
+shows); the CLI never writes the browser tab record.
 
 ## Troubleshooting
 

@@ -140,10 +140,11 @@ extension ControlRouter {
 
     /// The control error for failed action work. A terminal start that
     /// missed its deadline is a `timeout` that says the terminal may still
-    /// appear; anything else is a `daemon_error`.
-    static func workError(_ failure: ActionWorkFailure, action: String, method: String, mayHaveApplied: Bool = false) -> ControlError {
+    /// appear; a command whose reply missed its deadline is a `timeout` that
+    /// says it may still apply; anything else is a `daemon_error`.
+    static func workError(_ failure: ActionWorkFailure, action: String, method: String) -> ControlError {
         guard failure.terminalMayAppear else {
-            guard mayHaveApplied else {
+            guard failure.mayHaveApplied else {
                 return ControlError(code: "daemon_error", message: failure.message, data: ["action": .string(action)])
             }
             // The command's reply missed its deadline: it may still apply.

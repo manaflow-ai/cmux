@@ -138,6 +138,9 @@ public final class DaemonCommandScope: Sendable {
     /// nil when no command reported one.
     public func barrier(machine: String) -> UInt64? { state.withLock { $0.barriers[machine] } }
 
+    /// Every machine's barrier, by machine id.
+    public var barriers: [String: UInt64] { state.withLock { $0.barriers } }
+
     // MARK: - Idempotency
 
     /// The next `mutation_id` for this action: derived from the idempotency

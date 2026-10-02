@@ -105,7 +105,8 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
                 AppError::usage("--match and --regex need at least one session name").into()
             );
         }
-        return wait_match(client, &ids, matcher, opts.timeout, opts.notify, json_out).await;
+        return wait_match(client, &ids, matcher, opts.timeout, opts.all, opts.notify, json_out)
+            .await;
     }
     let params = json!({
         "sessions": ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
@@ -190,13 +191,15 @@ fn session_exit_code(s: &Value) -> i32 {
     }
 }
 
-/// Resolve when a session's transcript contains the text. Existing text
-/// matches at once; then live updates are followed.
+/// Resolve when a session's transcript contains the text (with `all`,
+/// when every session's does). Existing text matches at once; then live
+/// updates are followed.
 async fn wait_match(
     client: Arc<Client>,
     ids: &[(String, String)],
     matcher: &Matcher,
     timeout: Option<u64>,
+    all: bool,
     notify: bool,
     json_out: bool,
 ) -> Result<()> {
@@ -204,19 +207,30 @@ async fn wait_match(
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     let mut transcripts: Vec<(String, String, Transcript)> = Vec::new();
     for (name, id) in ids {
-        let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
+        // The whole history, oldest page first: a match can be old. The
+        // first attach subscribes, so nothing written meanwhile is lost.
         let mut t = Transcript::default();
-        for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
-            t.apply_event(&e);
+        let mut after = 0u64;
+        loop {
+            let page = json!({"sessionId": id, "afterSeq": after, "limit": 5000});
+            let v = client.request(method::MUX_ATTACH, page).await?;
+            let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+            for e in &events {
+                t.apply_event(e);
+            }
+            let last = events.last().and_then(|e| e.get("seq")).and_then(Value::as_u64);
+            match last {
+                Some(seq) if v.get("hasMore") == Some(&json!(true)) && seq > after => after = seq,
+                _ => break,
+            }
         }
         transcripts.push((name.clone(), id.clone(), t));
     }
+    let need = if all { transcripts.len() } else { 1 };
+    let mut matched = vec![false; transcripts.len()];
+    let mut rows: Vec<Value> = Vec::new();
     let report = |name: &str, id: &str, line: &str| {
-        if json_out {
-            print_json(
-                &json!({"sessions": [{"name": name, "sessionId": id, "matched": ["text"], "line": line}], "timedOut": false}),
-            );
-        } else {
+        if !json_out {
             println!("{name:<24} matched: {line}");
         }
         if notify {
@@ -225,15 +239,19 @@ async fn wait_match(
                 &format!("{name}: {}", line.chars().take(80).collect::<String>()),
             );
         }
+        json!({"name": name, "sessionId": id, "matched": ["text"], "line": line})
     };
-    for (name, id, t) in &transcripts {
+    for (i, (name, id, t)) in transcripts.iter().enumerate() {
+        if rows.len() >= need {
+            break;
+        }
         if let Some(line) = matcher.hit(&transcript_text(t)) {
-            report(name, id, &line);
-            return Ok(());
+            matched[i] = true;
+            rows.push(report(name, id, &line));
         }
     }
     let deadline = timeout.map(|s| tokio::time::Instant::now() + std::time::Duration::from_secs(s));
-    loop {
+    while rows.len() < need {
         let next = async { notes.recv().await };
         let m = match deadline {
             Some(d) => match tokio::time::timeout_at(d, next).await {
@@ -252,19 +270,27 @@ async fn wait_match(
         }
         let p = params.unwrap_or(Value::Null);
         let sid = p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
-        let Some((name, id, t)) = transcripts.iter_mut().find(|(_, id, _)| *id == sid) else {
+        let Some(i) = transcripts.iter().position(|(_, id, _)| *id == sid) else {
             continue;
         };
+        if matched[i] {
+            continue;
+        }
+        let (name, id, t) = &mut transcripts[i];
         match m.as_str() {
             method::SESSION_UPDATE => t.apply_update(&p),
             method::MUX_EVENT => t.apply_event(&p),
             _ => continue,
         }
         if let Some(line) = matcher.hit(&transcript_text(t)) {
-            report(name, id, &line);
-            return Ok(());
+            matched[i] = true;
+            rows.push(report(name, id, &line));
         }
     }
+    if json_out {
+        print_json(&json!({"sessions": rows, "timedOut": false}));
+    }
+    Ok(())
 }
 
 /// `acpmux ensure NAME`: the session if it exists, else create it.
@@ -524,7 +550,11 @@ pub(crate) async fn compare(
             )
             .await;
         let row = match created {
-            Err(e) => json!({"harness": spec, "status": "error", "error": e.to_string()}),
+            Err(e) => {
+                let app = crate::cli::errors::classify(&e);
+                worst = worst.max(app.code as i32);
+                json!({"harness": spec, "status": "error", "error": e.to_string()})
+            }
             Ok(v) => {
                 let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
                 let outcome = collect_reply(
@@ -630,13 +660,15 @@ pub(crate) async fn tail(
     let events: Vec<Value> = match since {
         Some(cursor) => {
             let seq = parse_cursor(&cursor, &id)?;
+            // Subscribe before reading from the cursor, so an event written
+            // in between arrives live; the seq check below drops repeats.
+            client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
             let v = client
                 .request(
                     method::MUX_EVENTS,
                     json!({"sessionId": id, "afterSeq": seq, "limit": 100000}),
                 )
                 .await?;
-            client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
             v.get("events").and_then(Value::as_array).cloned().unwrap_or_default()
         }
         None => {
@@ -648,7 +680,10 @@ pub(crate) async fn tail(
     let stdout = std::io::stdout();
     let mut sup = ReadSuppressor::default();
     let filter = |sup: &mut ReadSuppressor, e: Value| if suppress_reads { sup.apply(e) } else { e };
+    // The newest seq printed: a live event at or below it was in the page.
+    let mut printed_seq = 0u64;
     for e in events {
+        printed_seq = printed_seq.max(e.get("seq").and_then(Value::as_u64).unwrap_or(0));
         let mut lock = stdout.lock();
         let _ = writeln!(lock, "{}", with_cursor(&id, filter(&mut sup, e)));
     }
@@ -664,9 +699,19 @@ pub(crate) async fn tail(
             if p.get("sessionId").and_then(Value::as_str) != Some(id.as_str()) {
                 continue;
             }
+            let seq = if m == method::MUX_EVENT {
+                p.get("seq").and_then(Value::as_u64)
+            } else {
+                p.pointer("/_meta/acpmux/seq").and_then(Value::as_u64)
+            };
+            if seq.is_some_and(|s| s <= printed_seq) {
+                continue;
+            }
             let mut lock = stdout.lock();
             let line = if m == method::MUX_EVENT {
                 with_cursor(&id, filter(&mut sup, p))
+            } else if m == method::SESSION_UPDATE && suppress_reads {
+                json!({"method": m, "params": sup.apply_update(p)})
             } else {
                 json!({"method": m, "params": p})
             };
@@ -762,6 +807,14 @@ impl ReadSuppressor {
         }
         e
     }
+
+    /// The same for the params of a live `session/update` notification,
+    /// which carry the update without the event envelope.
+    pub(crate) fn apply_update(&mut self, params: Value) -> Value {
+        let kind = params.pointer("/update/sessionUpdate").cloned().unwrap_or(Value::Null);
+        let mut e = self.apply(json!({"kind": kind, "msg": {"params": params}}));
+        e.pointer_mut("/msg/params").map(Value::take).unwrap_or(Value::Null)
+    }
 }
 
 #[cfg(test)]
@@ -806,6 +859,10 @@ mod tests {
                 .unwrap()
                 .contains("suppressed")
         );
+        let live = json!({"sessionId": "s", "update": {"sessionUpdate": "tool_call_update", "toolCallId": "t1", "rawOutput": "secret"}});
+        let out = sup.apply_update(live);
+        assert_eq!(out.pointer("/update/rawOutput").unwrap(), "[read output suppressed]");
+        assert_eq!(out["sessionId"], "s");
         let exec = json!({"kind": "tool_call_update", "msg": {"params": {"update": {"toolCallId": "t2", "kind": "execute", "rawOutput": "kept"}}}});
         assert_eq!(sup.apply(exec).pointer("/msg/params/update/rawOutput").unwrap(), "kept");
         let raw = json!({"kind": "claude.user", "msg": {"tool_use_result": {"file": {"content": "secret"}}, "message": {"content": [{"type": "tool_result", "content": "secret"}]}}});

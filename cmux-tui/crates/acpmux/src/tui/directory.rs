@@ -13,16 +13,20 @@ pub fn cd_argument(text: &str) -> Option<&str> {
     }
     Some(rest)
 }
-pub fn resolve(base: &Path, value: &str, home: &Path, previous: Option<&str>) -> Result<PathBuf> {
+/// The value without surrounding whitespace and one pair of matching quotes.
+pub fn unquote(value: &str) -> &str {
     let value = value.trim();
-    let value = if value.len() >= 2
+    if value.len() >= 2
         && ((value.starts_with('"') && value.ends_with('"'))
             || (value.starts_with('\'') && value.ends_with('\'')))
     {
         &value[1..value.len() - 1]
     } else {
         value
-    };
+    }
+}
+pub fn resolve(base: &Path, value: &str, home: &Path, previous: Option<&str>) -> Result<PathBuf> {
+    let value = unquote(value);
     let path = match value {
         "-" => PathBuf::from(previous.ok_or_else(|| anyhow::anyhow!("No previous directory yet"))?),
         "~" => home.to_owned(),
@@ -61,14 +65,16 @@ impl App {
             || self.selected_session().and_then(|s| s.get("peer").and_then(Value::as_str)).is_some()
     }
     pub(super) fn resolve_directory(&self, path: &str) -> Result<PathBuf> {
-        if self.remote_directory() && path.starts_with('~') {
+        // Unquote first: `cd '~/x'` must not expand the local home remotely.
+        if self.remote_directory() && unquote(path).starts_with('~') {
             anyhow::bail!("Use an absolute path on the remote host");
         }
+        // `cd -` goes back within this draft, never to another session's path.
         resolve(
             Path::new(&self.current_directory()),
             path,
             &dirs::home_dir().unwrap_or_default(),
-            self.previous_directory.as_deref(),
+            self.draft().and_then(|d| d.previous_cwd.as_deref()),
         )
     }
 }
@@ -89,5 +95,6 @@ mod tests {
         assert_eq!(resolve(base, "~/fun", home, None).unwrap(), home.join("fun"));
         assert_eq!(resolve(base, "-", home, Some("/old")).unwrap(), Path::new("/old"));
         assert!(resolve(base, "-", home, None).is_err());
+        assert_eq!(unquote(" '~/p' "), "~/p");
     }
 }

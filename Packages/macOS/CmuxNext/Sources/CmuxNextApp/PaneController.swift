@@ -30,10 +30,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var isVisible: Bool { presence == .visible }
     /// Tabs closed locally while the daemon confirms (Chrome-speed close).
     var pendingClosed: Set<String> = []
-    /// A tab this app just created here; selected once the daemon reports it.
-    var pendingSelectSurface: SurfaceID?
+    /// A tab this app just created here; selected once the daemon reports it
+    /// (`selectWhenReported`).
+    private(set) var pendingSelectSurface: SurfaceID?
     /// Same, named by tab resource id (a reopened tab's restored view).
-    var pendingSelectTab: String?
+    private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
     private var buttonsObservation: Task<Void, Never>?
 
@@ -58,6 +59,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.previewProvider = services.previews
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
+        view.stripView.hoverCards = services.hoverCards
         view.onResize = { [weak services] in services?.surfaceInvariant.noteChange() }
         observe()
     }
@@ -196,6 +198,23 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         // Focus follows selection; the coordinator re-targets the keyboard.
         workspace?.sendTopology()
+    }
+
+    /// Selects the tab on `surface`, which this app just created here, once
+    /// the daemon reports it, and shows it now when it already does. An
+    /// action run without view-change permission (a CLI, script or agent
+    /// run without `focus: true`) creates the tab in the background.
+    func selectWhenReported(surface: SurfaceID) {
+        guard ViewChangePolicy.allowed() else { return apply(snapshot()) }
+        pendingSelectSurface = surface
+        apply(snapshot())
+    }
+
+    /// Same, for a tab named by its resource id (a reopened tab).
+    func selectWhenReported(tab: String) {
+        guard ViewChangePolicy.allowed() else { return apply(snapshot()) }
+        pendingSelectTab = tab
+        apply(snapshot())
     }
 
     /// Re-pushes daemon truth after a rejection.

@@ -1,12 +1,13 @@
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
 
 /// Browser page operations (`browser.page.*`, `cmux browser tab_…`) on the page a tab shows,
 /// creating the page when the tab was never shown.
 enum AppBrowserPage {
-    static func run(_ operation: BrowserPageOperation, tabID: String, services: AppServices) async throws -> JSONValue {
+    static func run(_ operation: BrowserPageOperation, tabID: String, services: AppServices) async throws -> CmuxNextSettings.JSONValue {
         guard let (tab, _) = services.locateTab(tabID) else {
             throw ControlError(code: "not_found", message: "Surface not found or not a browser")
         }
@@ -17,7 +18,10 @@ enum AppBrowserPage {
         }
         switch operation {
         case .navigate(let raw):
-            guard let target = normalizedURL(raw) else { throw ControlError(code: "invalid_params", message: "Invalid url: \(raw)") }
+            let chromium = tab.browserEngine == BrowserEngineTag.cef.rawValue
+            guard let target = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: raw) else {
+                throw ControlError(code: "invalid_params", message: "Invalid url: \(raw)")
+            }
             page.load(target)
         case .back: page.goBack()
         case .forward: page.goForward()
@@ -27,18 +31,11 @@ enum AppBrowserPage {
         case .evaluate(let script):
             do {
                 let value = try await page.evaluate(script)
-                return ["value": JSONValue(foundation: value.foundationValue) ?? .null]
+                return ["value": CmuxNextSettings.JSONValue(foundation: value.foundationValue) ?? .null]
             } catch {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         }
         return [:]
-    }
-
-    /// URLs with a scheme pass through; bare hosts get https://.
-    static func normalizedURL(_ raw: String) -> URL? {
-        let text = raw.trimmingCharacters(in: .whitespaces)
-        if let url = URL(string: text), url.scheme != nil { return url }
-        return URL(string: "https://" + text)
     }
 }

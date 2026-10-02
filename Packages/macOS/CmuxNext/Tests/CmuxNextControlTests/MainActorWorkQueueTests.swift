@@ -88,8 +88,9 @@ import Testing
     }
 }
 
-/// State the test shares with queued work. The work closures are `sending`,
-/// so they cannot capture a local `Atomic` or `Mutex`; a Sendable class can.
+/// State the test shares with queued work. `MainActorWorkQueue.run` takes
+/// `@escaping @Sendable` work, and an escaping closure cannot capture a
+/// noncopyable local `Atomic` or `Mutex`; a Sendable class that owns one can.
 private final class Shared<Value: Sendable>: Sendable {
     private let mutex: Mutex<Value>
     init(_ value: Value) { mutex = Mutex(value) }

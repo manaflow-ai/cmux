@@ -90,7 +90,8 @@ pub struct SpawnPlan {
 /// knows it before the first turn.
 /// `mode` is pinned with `--permission-mode` so the user's Claude settings
 /// (often `auto`) cannot silently bypass acpmux's permission policy; the
-/// mode chip then always tells the truth.
+/// mode chip then always tells the truth. `model` is the session's chosen
+/// model, passed as `--model` so forks and respawns keep it.
 pub fn spawn_plan(
     profile: &HarnessProfile,
     resume: Option<&str>,
@@ -98,6 +99,7 @@ pub fn spawn_plan(
     fresh_id: Option<&str>,
     effort: Option<&str>,
     mode: &str,
+    model: Option<&str>,
 ) -> SpawnPlan {
     let program = profile.argv.first().cloned().unwrap_or_else(|| "claude".into());
     // Everything after the program in argv comes first: a wrapper such as
@@ -129,6 +131,11 @@ pub fn spawn_plan(
         args.push("--effort".into());
         args.push(e.into());
     }
+    // A later --model wins over one the profile pins in its argv.
+    if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
+        args.push("--model".into());
+        args.push(m.into());
+    }
     if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
         args.push("--permission-mode".into());
         args.push(mode.into());
@@ -152,6 +159,9 @@ pub struct Translator {
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
+    /// Lines for claude's stdin produced while reading its stdout (answers
+    /// to control requests acpmux declines). The reader drains them.
+    stdin_replies: Mutex<Vec<Value>>,
 }
 
 #[derive(Debug, Clone)]
@@ -159,7 +169,15 @@ enum Pending {
     Initialize,
     NewOrLoad,
     Prompt,
-    Control,
+    /// A setting change, applied to the cached value once claude accepts it.
+    Control(Setting, String),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Setting {
+    Mode,
+    Model,
+    Effort,
 }
 
 impl Translator {
@@ -176,7 +194,13 @@ impl Translator {
             in_turn: AtomicBool::new(false),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
+            stdin_replies: Mutex::new(Vec::new()),
         })
+    }
+
+    /// Take the lines `inbound` queued for claude's stdin.
+    pub async fn take_stdin_replies(&self) -> Vec<Value> {
+        std::mem::take(&mut *self.stdin_replies.lock().await)
     }
 
     pub async fn modes_value(&self) -> Value {

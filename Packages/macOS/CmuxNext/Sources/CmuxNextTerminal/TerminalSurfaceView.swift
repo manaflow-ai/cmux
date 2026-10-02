@@ -17,6 +17,8 @@ public final class TerminalSurfaceView: NSView {
     // MARK: State
 
     private(set) var surface: ghostty_surface_t?
+    /// The light/dark scheme last given to this surface (diagnostics).
+    var colorSchemeIsDark = false
     let bridge: Unmanaged<SurfaceBridge>
     /// The font scale after each font size change (nil: the configured
     /// size); `TerminalSurfaceView+FontScale`.
@@ -127,6 +129,9 @@ public final class TerminalSurfaceView: NSView {
         }
         self.surface = surface
         installFontSizeCallback()
+        // Light/dark themes (the default Apple System Colors) follow the
+        // app's appearance on every live surface.
+        GhosttyRuntime.shared.registerColorScheme(of: self)
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()

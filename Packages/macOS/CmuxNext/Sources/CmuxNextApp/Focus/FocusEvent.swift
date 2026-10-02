@@ -67,6 +67,20 @@ nonisolated enum FocusEvent: Hashable, Sendable, Codable {
     case sidebarVisibility(hidden: Bool)
 }
 
+extension FocusEvent {
+    /// Moves focus or selection on purpose (a pane or tab choice, a focus
+    /// target, a new intent or expectation, a drop landing): what an action
+    /// run without view-change permission must not send. Reports of what
+    /// AppKit or the daemon did (responder, topology, key, overlays) are not.
+    var changesView: Bool {
+        switch self {
+        case .focusPane, .selectTab, .focusTarget, .beginIntent, .expect: true
+        case .dragEnded(.dropped): true
+        default: false
+        }
+    }
+}
+
 /// Outputs of the reducer, applied by `FocusEffectApplier` after the
 /// reducer returns. Each is idempotent.
 nonisolated enum FocusEffect: Hashable, Sendable {

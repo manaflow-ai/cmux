@@ -649,7 +649,7 @@ impl Mux {
     /// Project the complete live tree into one durable patch while the caller
     /// holds the registry -> state writer fence. The matching effect receipt
     /// must be committed before either guard is released.
-    pub(super) fn resource_effect_projection_locked(
+    pub(crate) fn resource_effect_projection_locked(
         &self,
         registry: &WorkspaceRegistry,
         state: &mut State,

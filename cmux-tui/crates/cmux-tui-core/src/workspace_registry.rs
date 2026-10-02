@@ -30,30 +30,24 @@ use crate::resource::{
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
-pub(crate) mod closed_history_store;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
 mod personal_browser_profiles;
-mod personal_mutations;
-pub(crate) mod personal_state_store;
-mod personal_store;
+pub(crate) mod personal_mutations;
+pub(crate) mod personal_store;
 mod personal_terminals;
-mod presentation_store;
+pub(crate) mod presentation_store;
 mod public_fold;
 mod public_projection_store;
-mod resource_store;
-pub(crate) mod screen_state_store;
-mod screen_store;
-mod session_journal;
-pub(crate) mod state_store;
-pub(crate) mod state_values;
-pub(crate) mod tab_state_store;
+pub(crate) mod resource_store;
+pub(crate) mod screen_store;
+pub(crate) mod session_journal;
 mod terminal_exit_store;
 mod terminal_keep_store;
 mod topology_close_store;
-pub(crate) mod workspace_status_store;
 
+pub use crate::state::kept_tab_store::KeptTabRecord;
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
@@ -166,7 +160,7 @@ const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
 /// An extra write that runs inside a workspace-registry commit transaction.
-type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
+pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedWorkspaceRegistrySchema {
@@ -714,7 +708,7 @@ pub struct ProjectionCommit {
 /// calls, and the OS lease prevents another daemon from opening the same
 /// session concurrently.
 pub struct WorkspaceRegistry {
-    connection: Connection,
+    pub(crate) connection: Connection,
     database_path: Option<PathBuf>,
     registry_id: String,
     generation: String,
@@ -2745,7 +2739,8 @@ impl WorkspaceRegistry {
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
         personal_store::migrate_personal_v1(&connection, &registry_id, &session_name)?;
-        state_store::migrate_saved_tab_groups_to_personal(&connection)?;
+        crate::state::store::migrate_saved_tab_groups_to_personal(&connection)?;
+        crate::state::window_record_store::migrate_window_projection(&connection)?;
         let quick_check: String =
             connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
         if quick_check != "ok" {
@@ -3493,6 +3488,38 @@ impl WorkspaceRegistry {
         active_workspace: Option<&WorkspacePublicId>,
         result: &Value,
     ) -> anyhow::Result<RegistryCommit> {
+        self.commit_for_resource_effect_with(
+            mutation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            event_kind,
+            workspace_key,
+            workspaces,
+            active_workspace,
+            result,
+            None,
+        )
+    }
+
+    /// [`Self::commit_for_resource_effect`] that also writes `extra` (state
+    /// rows such as the ephemeral flag) in the staging transaction, so the
+    /// resource projection that later publishes the workspace already sees
+    /// them.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_for_resource_effect_with(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        event_kind: &str,
+        workspace_key: &str,
+        workspaces: &[RegistryWorkspace],
+        active_workspace: Option<&WorkspacePublicId>,
+        result: &Value,
+        extra: Option<RegistryTransactionWrite<'_>>,
+    ) -> anyhow::Result<RegistryCommit> {
         self.commit_workspace_registry(
             mutation,
             fingerprint,
@@ -3504,7 +3531,7 @@ impl WorkspaceRegistry {
             active_workspace,
             result,
             false,
-            None,
+            extra,
         )
     }
 
@@ -4026,7 +4053,7 @@ fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
 fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     presentation_store::create_presentation_schema(transaction)?;
     screen_store::create_screen_schema(transaction)?;
-    state_store::create_state_schema(transaction)?;
+    crate::state::store::create_state_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspaces (
            workspace_key TEXT PRIMARY KEY NOT NULL,
@@ -5076,7 +5103,7 @@ fn terminal_replay(
     }))
 }
 
-fn validate_identifier(label: &str, value: &str) -> anyhow::Result<()> {
+pub(crate) fn validate_identifier(label: &str, value: &str) -> anyhow::Result<()> {
     if value.trim().is_empty() {
         anyhow::bail!("{label} cannot be empty");
     }
@@ -5174,13 +5201,13 @@ fn try_preflight_unsupported_schema(
     }))
 }
 
-fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<Option<String>> {
+pub(crate) fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<Option<String>> {
     Ok(connection
         .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| row.get(0))
         .optional()?)
 }
 
-fn required_meta(connection: &Connection, key: &str) -> anyhow::Result<String> {
+pub(crate) fn required_meta(connection: &Connection, key: &str) -> anyhow::Result<String> {
     meta_value(connection, key)?
         .ok_or_else(|| anyhow::anyhow!("workspace registry is missing {key}"))
 }
@@ -5206,7 +5233,7 @@ fn current_resource_revision(connection: &Connection) -> anyhow::Result<u64> {
     required_meta(connection, "resource_revision")?.parse().context("resource revision is invalid")
 }
 
-fn transaction_resource_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
+pub(crate) fn transaction_resource_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
     let value: String = transaction.query_row(
         "SELECT value FROM meta WHERE key = 'resource_revision'",
         [],

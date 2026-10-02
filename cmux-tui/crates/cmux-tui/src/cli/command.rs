@@ -54,6 +54,19 @@ pub(super) enum Resolve {
     /// that `list` reports with that prefix replaces it.
     #[cfg_attr(not(unix), allow(dead_code))]
     IdPrefix { field: String, list: ResourceOperation },
+    /// The request is a terminal's font zoom (`tab.update`). A browser tab's
+    /// page zoom goes to the app instead (cli/resolve.rs).
+    TabZoom { step: ZoomStep },
+}
+
+/// What `tab … zoom` asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ZoomStep {
+    In,
+    Out,
+    Reset,
+    /// An exact value (`zoom 1.5`, `update --zoom 1.5`).
+    Value,
 }
 
 #[derive(Clone, Debug)]
@@ -3540,10 +3553,7 @@ pub(in crate::cli) mod tests {
             (vec!["workspace", "group", "g", "move", "--index", "1"], "workspace_group.move"),
             (vec!["tab", tab, "pin"], "tab.pin"),
             (vec!["tab", tab, "unpin"], "tab.unpin"),
-            (
-                vec!["tab", tab, "update", "--zoom", "1.5", "--back", "a", "--forward", "b"],
-                "tab.update",
-            ),
+            (vec!["tab", tab, "update", "--zoom", "1.5"], "tab.update"),
             (vec!["tab", "group", "list", "--pane", pane], "tab_group.list"),
             (vec!["tab", "group", "g", "show"], "tab_group.get"),
             (
@@ -5450,7 +5460,7 @@ pub(in crate::cli) mod tests {
 
         assert_eq!(cases.len(), 171);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 178);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 181);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
@@ -5527,16 +5537,26 @@ pub(in crate::cli) mod tests {
                         | "terminal.renderer_grant.create"
                         | "terminal.viewer.release"
                         | "terminal.viewer.resize"
+                        // Window records have one writer, the app that hosts
+                        // the window (OWNERSHIP-PRINCIPLES); the CLI reads app
+                        // windows through `cmux window list`.
+                        | "window_record.list"
+                        | "window_record.put"
+                        | "window_record.delete"
                 )
             })
             .map(String::as_str)
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(seen, expected, "safe CLI operation coverage drifted from the catalog");
+        // Fields only the app that hosts a browser page writes (its record's
+        // owner and history list); the CLI never sets them.
+        let app_owned = [("tab.update", "owner"), ("tab.update", "back"), ("tab.update", "forward")];
         for operation in &expected {
             let catalog_fields = catalog["operations"][operation]["params"]["fields"]
                 .as_object()
                 .unwrap()
                 .keys()
+                .filter(|field| !app_owned.contains(&(*operation, field.as_str())))
                 .cloned()
                 .collect::<std::collections::BTreeSet<_>>();
             assert_eq!(

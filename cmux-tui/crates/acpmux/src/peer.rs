@@ -6,13 +6,17 @@ use crate::rpc::{Message, RpcError, method};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-/// What the hub receives from a peer.
+/// Source of `Peer::generation`.
+static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+/// What the hub receives from a peer, tagged with the peer's name and
+/// generation so notices from a replaced or removed peer can be dropped.
 #[derive(Debug)]
 pub enum PeerNotice {
     Connected,
@@ -32,6 +36,9 @@ pub enum PeerNotice {
 
 pub struct Peer {
     pub name: String,
+    /// Unique per `Peer` instance; a replacement under the same name gets a
+    /// new one.
+    pub generation: u64,
     pub url: String,
     token: Option<String>,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
@@ -45,8 +52,10 @@ pub struct Peer {
     /// Version and build the peer reported at handshake.
     pub remote_version: StdMutex<Option<(String, String)>>,
     attached: StdMutex<HashSet<String>>,
-    notices: mpsc::Sender<(String, PeerNotice)>,
+    notices: mpsc::Sender<(String, u64, PeerNotice)>,
     stop: AtomicBool,
+    /// Wakes `serve` so `stop` closes the live connection.
+    stop_signal: Notify,
     /// Counts connect attempts that settled (ready or failed), bumped by the
     /// hub once it applied the outcome, so a caller can await the next one.
     settled: tokio::sync::watch::Sender<u64>,
@@ -57,11 +66,12 @@ impl Peer {
         name: &str,
         url: &str,
         token: Option<String>,
-        notices: mpsc::Sender<(String, PeerNotice)>,
+        notices: mpsc::Sender<(String, u64, PeerNotice)>,
     ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
         Arc::new(Self {
             name: name.to_owned(),
+            generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
             url: url.to_owned(),
             token,
             tunnel: Mutex::new(None),
@@ -75,6 +85,7 @@ impl Peer {
             attached: StdMutex::new(HashSet::new()),
             notices,
             stop: AtomicBool::new(false),
+            stop_signal: Notify::new(),
             settled: tokio::sync::watch::channel(0).0,
         })
     }
@@ -91,6 +102,8 @@ impl Peer {
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        // Stores a permit when `serve` is not waiting yet.
+        self.stop_signal.notify_one();
         if let Ok(mut t) = self.tunnel.try_lock() {
             if let Some(child) = t.as_mut() {
                 let _ = child.start_kill();
@@ -234,8 +247,8 @@ impl Peer {
                 Ok(()) => backoff = 1,
                 Err(e) => {
                     *self.last_error.lock().unwrap() = Some(e.clone());
-                    let _ =
-                        self.notices.send((self.name.clone(), PeerNotice::Disconnected(e))).await;
+                    let notice = PeerNotice::Disconnected(e);
+                    let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
                 }
             }
             self.connected.store(false, Ordering::SeqCst);
@@ -330,8 +343,11 @@ impl Peer {
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions =
                 watch.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
-            let _ = me.notices.send((me.name.clone(), PeerNotice::Sessions(sessions))).await;
-            let _ = me.notices.send((me.name.clone(), PeerNotice::Connected)).await;
+            let _ = me
+                .notices
+                .send((me.name.clone(), me.generation, PeerNotice::Sessions(sessions)))
+                .await;
+            let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             let attached: Vec<String> = me.attached.lock().unwrap().iter().cloned().collect();
             for sid in attached {
                 let _ = me.request(method::MUX_ATTACH, json!({"sessionId": sid, "limit": 0})).await;
@@ -340,7 +356,11 @@ impl Peer {
         });
 
         let result = loop {
+            if self.stop.load(Ordering::SeqCst) {
+                break Ok(());
+            }
             tokio::select! {
+                _ = self.stop_signal.notified() => break Ok(()),
                 frame = source.next() => {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
@@ -367,7 +387,7 @@ impl Peer {
                             } else {
                                 PeerNotice::Notification { method: m, params: p }
                             };
-                            if self.notices.send((self.name.clone(), notice)).await.is_err() {
+                            if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(());
                             }
                         }

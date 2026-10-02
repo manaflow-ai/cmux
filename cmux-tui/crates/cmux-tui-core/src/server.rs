@@ -168,6 +168,11 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`,
+/// every terminal ends but the placed ones keep their tabs, so the next
+/// owner shows the same screens, splits and tabs, each dead until a
+/// frontend starts a new shell in it.
+pub const END_TERMINALS_KEEP_LAYOUT_CAPABILITY: &str = "end-terminals-keep-layout-v1";
 /// Advertises `close-tabs` and `end_terminals` on `close-pane`,
 /// `close-screen`, `close-workspace`, and `close-tab-group`: many
 /// placements and the terminals they end close in one durable commit.
@@ -258,6 +263,13 @@ pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
 /// status, progress and log, with `extra.state` on session snapshots and
 /// `state_upsert`/`state_delete` changes on `session.events`.
 pub const STATE_RESOURCES_CAPABILITY: &str = "state-resources-v1";
+/// `window_record.list|put|delete`: one personal record per app window with
+/// a per-record revision (OWNERSHIP-PRINCIPLES single writer).
+pub const WINDOW_RECORDS_CAPABILITY: &str = "window-records-v1";
+/// `owner` on frontend browser records: the raw `new-frontend-browser-tab`
+/// and `update-frontend-browser-tab` field, `tab.update {owner}`, and the
+/// tab's `extra.owner` and raw `browser_owner`.
+pub const FRONTEND_BROWSER_OWNER_CAPABILITY: &str = "frontend-browser-owner-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -377,6 +389,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         TERMINAL_RESOURCES_CAPABILITY,
         TERMINAL_PLACEMENT_ENV_CAPABILITY,
@@ -402,6 +415,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TERMINAL_SHELL_ARGS_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
+        WINDOW_RECORDS_CAPABILITY,
+        FRONTEND_BROWSER_OWNER_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1048,6 +1063,10 @@ enum Command {
         /// hosts for the next owner (`terminal-reap-v1`). For test teardown.
         #[serde(default)]
         end_terminals: bool,
+        /// With `end_terminals`, keep the tabs of placed terminals so the
+        /// next owner shows the same layout (`end-terminals-keep-layout-v1`).
+        #[serde(default)]
+        keep_layout: bool,
     },
     Ping,
     SetClientInfo {
@@ -1395,12 +1414,15 @@ enum Command {
         favicon_url: Option<String>,
         #[serde(default)]
         profile_id: Option<String>,
+        /// Install id of the hosting app (the record's only writer).
+        #[serde(default)]
+        owner: Option<String>,
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
     },
-    /// Record a frontend-rendered browser's URL, title, or favicon.
+    /// Record a frontend-rendered browser's URL, title, favicon, or owner.
     UpdateFrontendBrowserTab {
         surface: SurfaceId,
         #[serde(default)]
@@ -1409,6 +1431,8 @@ enum Command {
         title: Option<String>,
         #[serde(default, deserialize_with = "present_nullable")]
         favicon_url: Option<Option<String>>,
+        #[serde(default)]
+        owner: Option<String>,
     },
     NewBrowserTab {
         url: String,
@@ -11574,9 +11598,12 @@ fn pane_json(
                     ContentPublicId::Terminal(id) => Some(id),
                     ContentPublicId::Browser(_) => None,
                 });
+            // A kept-layout tab (`end-terminals-keep-layout-v1`) has no
+            // runtime surface after a restart; its identity is the index's.
             let tab_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
-                .map(|identity| &identity.tab_id);
+                .map(|identity| &identity.tab_id)
+                .or_else(|| state.resource_indexes.tab_ids.get(sid));
             let content_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.as_str());
@@ -11592,11 +11619,21 @@ fn pane_json(
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
+            // `end-terminals-keep-layout-v1`: a kept tab whose terminal has
+            // ended, to restart a shell in.
+            let relaunch = state
+                .resource_indexes
+                .tab_ids
+                .get(sid)
+                .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
+                .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()))
+                .map(|kept| json!({"cwd": kept.cwd}));
             json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
                 "group": group_of(sid),
                 "pinned": pinned,
+                "relaunch": relaunch,
                 "cwd": directory.and_then(|directory| directory.cwd.as_deref()),
                 "git_branch": directory.and_then(|directory| directory.git_branch.as_deref()),
                 "git_detached": directory.is_some_and(|directory| directory.git_detached),
@@ -11621,6 +11658,7 @@ fn pane_json(
                 "browser_engine": frontend_browser.map(|record| record.engine.as_str()),
                 "favicon_url": frontend_browser.and_then(|record| record.favicon_url.as_deref()),
                 "browser_profile_id": frontend_browser.and_then(|record| record.profile_id.as_deref()),
+                "browser_owner": frontend_browser.and_then(|record| record.owner.as_deref()),
                 "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
                 "url": surface.and_then(|s| s.browser_url()),
                 "supports_clear_history_key_fallback": surface
@@ -13309,7 +13347,11 @@ fn handle_command_with_cancellation(
                 "launch_snapshot_path": mux.launch_snapshot_path(),
             }))
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals } => {
+        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
+            anyhow::ensure!(
+                end_terminals || !keep_layout,
+                "bad request: keep_layout requires end_terminals"
+            );
             let actual_identity = mux.begin_daemon_handoff(
                 client,
                 DaemonHandoffRequest::fenced(pid, generation, force),
@@ -13318,7 +13360,12 @@ fn handle_command_with_cancellation(
             // can start while the hosts end. A failure releases it and keeps
             // this daemon serving.
             let ended_terminals = if end_terminals {
-                match mux.end_all_terminals() {
+                let ended = if keep_layout {
+                    mux.end_all_terminals_keeping_layout()
+                } else {
+                    mux.end_all_terminals()
+                };
+                match ended {
                     Ok(ended) => Some(ended.len()),
                     Err(error) => {
                         mux.cancel_daemon_handoff(client);
@@ -14057,6 +14104,7 @@ fn handle_command_with_cancellation(
             title,
             favicon_url,
             profile_id,
+            owner,
             cols,
             rows,
         } => {
@@ -14066,6 +14114,7 @@ fn handle_command_with_cancellation(
                 title,
                 favicon_url,
                 profile_id,
+                owner,
             };
             let surface = mux.new_frontend_browser_tab(
                 pane,
@@ -14079,14 +14128,15 @@ fn handle_command_with_cancellation(
                 "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
             }))
         }
-        Command::UpdateFrontendBrowserTab { surface, url, title, favicon_url } => {
+        Command::UpdateFrontendBrowserTab { surface, url, title, favicon_url, owner } => {
             let (record, changed) =
-                mux.update_frontend_browser_tab(surface, url, title, favicon_url)?;
+                mux.update_frontend_browser_tab(surface, url, title, favicon_url, owner)?;
             Ok(json!({
                 "surface": surface,
                 "url": record.url,
                 "title": record.title,
                 "favicon_url": record.favicon_url,
+                "owner": record.owner,
                 "changed": changed,
             }))
         }
@@ -15274,7 +15324,11 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::CloseSurface { surface } => {
-            get_surface(mux, surface)?;
+            // A kept-layout tab (`end-terminals-keep-layout-v1`) has no
+            // runtime surface after a restart but is still a placed tab.
+            if get_surface(mux, surface).is_err() && !surface_has_view_placement(mux, surface) {
+                anyhow::bail!("unknown surface {surface}");
+            }
             if !mux.close_surface(surface)? {
                 anyhow::bail!("unknown surface {surface}");
             }
@@ -24376,6 +24430,7 @@ mod tests {
                 generation,
                 force: false,
                 end_terminals: false,
+                keep_layout: false,
             },
             &requester_writer,
         )
@@ -24398,6 +24453,7 @@ mod tests {
                 generation,
                 force: false,
                 end_terminals: false,
+                keep_layout: false,
             },
             &requester_writer,
         )
@@ -27260,6 +27316,7 @@ mod tests {
                 "bootstrap-receipt-00000001",
                 None,
                 &WorkspaceMutation::new("bootstrap-create", "chrome-gui").unwrap(),
+                false,
             )
             .unwrap();
         assert!(!created.replayed);
@@ -27574,6 +27631,8 @@ mod tests {
             CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
             STATE_RESOURCES_CAPABILITY,
+            WINDOW_RECORDS_CAPABILITY,
+            FRONTEND_BROWSER_OWNER_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }

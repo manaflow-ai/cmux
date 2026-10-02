@@ -142,13 +142,15 @@ extension TabStripView {
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
         newTabButton.frame = CGRect(x: pixel(buttonX), y: tabY, width: buttonWidth, height: tabHeight)
         updateFadeMask()
+        // Tabs moved (scroll, reflow, close): what is under a still pointer may differ.
+        geometryDidChange()
     }
 
     /// Fades the strip's ends only while tabs are hidden beyond them: none
     /// on the leading edge at offset 0, none on the trailing edge at the
     /// end, none when every tab fits (rubber band past an end included). An
-    /// edge's band fades in or out with the Motion `hover` token (a snap
-    /// under Reduce Motion); the mask comes off once no edge is faded, so a
+    /// edge's band fades in or out with the Motion `hover` token (a short
+    /// crossfade under Reduce Motion, per the Motion policy); the mask comes off once no edge is faded, so a
     /// strip that fits renders with no offscreen pass.
     func updateFadeMask() {
         let width = viewportWidth
@@ -166,7 +168,7 @@ extension TabStripView {
         let clear = NSColor.clear.cgColor
         let colors = [edges.leading ? clear : opaque, opaque, opaque, edges.trailing ? clear : opaque]
         if isFaded, tabsClip.layer?.mask !== fadeMask { tabsClip.layer?.mask = fadeMask }
-        let animates = window != nil && !Motion.reduceMotion && (wasFaded || isFaded)
+        let animates = window != nil && (wasFaded || isFaded)
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             MainActor.assumeIsolated {
@@ -216,12 +218,9 @@ extension TabStripView {
         if autoscrollDuringDrag(dt) { active = true }
         scroll.step(dt)
         if !scroll.isSettled { active = true }
+        // Tabs sliding under a still pointer update hover (applyFrames ->
+        // geometryDidChange), as in Chrome.
         applyFrames()
-        if drag == nil, groups.drag == nil, pressedCloseID == nil, let window {
-            // Tabs sliding under a still pointer update hover, as in Chrome.
-            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-            if bounds.contains(point) { updateHover(at: point) }
-        }
         if !active { MotionTrace.end("tabs") }
         return active
     }

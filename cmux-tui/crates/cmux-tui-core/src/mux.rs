@@ -1,7 +1,6 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
-mod closed_history;
 mod host_close;
 mod idle_close;
 mod personal;
@@ -9,21 +8,12 @@ mod presentation;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
-mod screen_groups;
-mod state_commit;
-mod state_personal;
-mod state_screens;
-mod state_tabs;
-#[cfg(test)]
-mod state_tests;
-mod state_workspace;
-mod tab_drag;
-mod tab_groups;
-mod tab_strip;
+pub(crate) mod screen_groups;
+pub(crate) mod tab_drag;
+pub(crate) mod tab_groups;
+pub(crate) mod tab_strip;
 
-pub(crate) use state_personal::PersonalChange;
-pub(crate) use state_screens::ScreenChange;
-pub(crate) use state_workspace::WorkspaceStatusChange;
+pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
 mod terminal_directory;
 mod terminal_progress;
@@ -128,7 +118,7 @@ pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) 
 /// log, so the core does not need to know how diagnostics are persisted.
 pub type DiagnosticReporter = Arc<dyn Fn(&str) + Send + Sync + 'static>;
 
-struct SignaledMutex<T> {
+pub(crate) struct SignaledMutex<T> {
     value: Mutex<T>,
     release_epoch: Mutex<u64>,
     released: Condvar,
@@ -163,7 +153,7 @@ impl<T> SignaledMutex<T> {
     }
 
     #[track_caller]
-    fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
+    pub(crate) fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
@@ -240,7 +230,7 @@ impl<T> SignaledMutex<T> {
     }
 }
 
-struct SignaledMutexGuard<'a, T> {
+pub(crate) struct SignaledMutexGuard<'a, T> {
     value: Option<MutexGuard<'a, T>>,
     owner: &'a SignaledMutex<T>,
     site: crate::diagnostics::LockSite,
@@ -597,7 +587,7 @@ impl fmt::Display for ProviderWorkspaceAuthorityUpdateError {
 impl std::error::Error for ProviderWorkspaceAuthorityUpdateError {}
 
 #[derive(Default)]
-struct ProviderWorkspaceState {
+pub(crate) struct ProviderWorkspaceState {
     managed: bool,
     mux_generation: Option<Box<str>>,
     authority_generation: u64,
@@ -2578,13 +2568,13 @@ pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
     /// publication of revisioned workspace deltas. Lock order is always
     /// registry, then state.
-    workspace_registry: SignaledMutex<WorkspaceRegistry>,
-    session_public_id: SessionPublicId,
-    machine_public_id: crate::resource::MachinePublicId,
+    pub(crate) workspace_registry: SignaledMutex<WorkspaceRegistry>,
+    pub(crate) session_public_id: SessionPublicId,
+    pub(crate) machine_public_id: crate::resource::MachinePublicId,
     /// Control-socket admission counters, shared with the accept loop.
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
     started_at: Instant,
-    state: Mutex<State>,
+    pub(crate) state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
     config_reload_changed: Condvar,
@@ -3001,7 +2991,7 @@ impl Mux {
         )
     }
 
-    fn from_workspace_registry(
+    pub(crate) fn from_workspace_registry(
         session: String,
         mut surface_options: SurfaceOptions,
         registry: WorkspaceRegistry,
@@ -4653,7 +4643,7 @@ impl Mux {
         Ok(())
     }
 
-    fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
+    pub(crate) fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
         state
             .workspaces
             .iter()
@@ -4667,7 +4657,7 @@ impl Mux {
             .collect()
     }
 
-    fn ordinary_resource_selectors() -> crate::ResourceSelectors {
+    pub(crate) fn ordinary_resource_selectors() -> crate::ResourceSelectors {
         crate::ResourceSelectors {
             machine: Some("current".into()),
             session: Some("current".into()),
@@ -4793,7 +4783,7 @@ impl Mux {
     /// Report an agent state for a selected terminal resource and reconcile
     /// any durable hook projections waiting for that terminal.
     #[allow(clippy::too_many_arguments)]
-    fn commit_resource_mutation_plan(
+    pub(crate) fn commit_resource_mutation_plan(
         &self,
         mutation: &WorkspaceMutation,
         operation: &str,
@@ -6045,11 +6035,11 @@ impl Mux {
         self.persist_terminal_exit(&host_id, incarnation.as_deref(), exit)
     }
 
-    fn publish_resource_event(&self) {
+    pub(crate) fn publish_resource_event(&self) {
         self.publish_journal_event();
     }
 
-    fn publish_journal_event(&self) {
+    pub(crate) fn publish_journal_event(&self) {
         self.journal_kernel.notify_commit();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
@@ -7628,7 +7618,7 @@ impl Mux {
         }
     }
 
-    fn rebuild_split_screen_index(state: &mut State) {
+    pub(crate) fn rebuild_split_screen_index(state: &mut State) {
         fn index_node(
             node: &Node,
             workspace_index: usize,
@@ -14046,15 +14036,19 @@ impl Mux {
             expected_revision,
             mutation,
             true,
+            false,
         )
     }
 
+    /// Stage an empty workspace for a resource effect. `ephemeral` marks it
+    /// in the same transaction, so no reader sees it without the flag.
     fn create_empty_workspace_for_resource_effect(
         &self,
         name: Option<String>,
         requested_key: Option<String>,
         public_id: WorkspacePublicId,
         mutation: &WorkspaceMutation,
+        ephemeral: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         self.create_empty_workspace_with_mutation_inner(
             name,
@@ -14064,6 +14058,7 @@ impl Mux {
             None,
             mutation,
             false,
+            ephemeral,
         )
     }
 
@@ -14077,6 +14072,7 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         project_resource: bool,
+        ephemeral: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
@@ -14094,11 +14090,14 @@ impl Mux {
         let ws_id = self.next_id();
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
-        let fingerprint = serde_json::json!({
+        let mut fingerprint = serde_json::json!({
             "op": "create-workspace",
             "name": requested_name,
             "requested_key": requested_key,
         });
+        if ephemeral {
+            fingerprint["ephemeral"] = Value::Bool(true);
+        }
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             let workspace = commit.result["workspace"]
                 .as_u64()
@@ -14159,7 +14158,11 @@ impl Mux {
                     &result,
                 )?
             } else {
-                registry.commit_for_resource_effect(
+                let marked = workspace_public_id.as_str().to_string();
+                let mark = move |tx: &rusqlite::Transaction<'_>| {
+                    crate::state::store::mark_workspace_ephemeral(tx, &marked)
+                };
+                registry.commit_for_resource_effect_with(
                     mutation,
                     &fingerprint,
                     expected_generation,
@@ -14169,6 +14172,9 @@ impl Mux {
                     &desired,
                     Some(&workspace_public_id),
                     &result,
+                    ephemeral.then_some(
+                        &mark as crate::workspace_registry::RegistryTransactionWrite<'_>,
+                    ),
                 )?
             };
             let committed_workspace = commit.result["workspace"]
@@ -14418,7 +14424,7 @@ impl Mux {
         self.new_screen_with_cwd(workspace, None, size)
     }
 
-    fn new_screen_with_cwd(
+    pub(crate) fn new_screen_with_cwd(
         self: &Arc<Self>,
         workspace: Option<WorkspaceId>,
         cwd: Option<String>,
@@ -16810,10 +16816,17 @@ impl Mux {
         // the runtime terminal emulator is alive: after a daemon restart the
         // in-memory VT is gone, so reconciliation degrades a kept-exited
         // terminal to the normal detach below.
-        let keep_live_views = terminal.on_exit == TerminalOnExit::Keep
-            && public_terminal_id
-                .as_ref()
-                .is_some_and(|public_id| state.terminal_catalog.contains_key(public_id));
+        // Tabs the workspace store keeps (`kept_tabs`, keep-layout) stay
+        // regardless of the runtime: a host's exit never removes them.
+        let kept_by_store = match public_terminal_id.as_ref() {
+            Some(public_id) => Self::terminal_tabs_kept_locked(&registry, &state, public_id)?,
+            None => false,
+        };
+        let keep_live_views = kept_by_store
+            || (terminal.on_exit == TerminalOnExit::Keep
+                && public_terminal_id
+                    .as_ref()
+                    .is_some_and(|public_id| state.terminal_catalog.contains_key(public_id)));
         let detach_projection = if matches!(
             terminal.lifecycle,
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
@@ -17859,6 +17872,7 @@ impl Mux {
                     None,
                     WorkspacePublicId::random()?,
                     &WorkspaceMutation::local("cmux-tui-layout-workspace"),
+                    false,
                 )?
                 .workspace,
                 true,
@@ -19483,7 +19497,7 @@ fn unique_surface_runtimes(state: &State) -> Vec<Arc<Surface>> {
         .collect()
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)

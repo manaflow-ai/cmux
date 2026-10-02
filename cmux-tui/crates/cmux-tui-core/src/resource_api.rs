@@ -769,9 +769,9 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             },
         });
         registry.read_state(|connection| {
-            crate::workspace_registry::state_values::decorate_snapshot(connection, &mut snapshot)?;
+            crate::state::values::decorate_snapshot(connection, &mut snapshot)?;
             snapshot["extra"] = json!({
-                "state": crate::workspace_registry::state_store::state_snapshot(connection)?,
+                "state": crate::state::store::state_snapshot(connection)?,
             });
             Ok(())
         })?;

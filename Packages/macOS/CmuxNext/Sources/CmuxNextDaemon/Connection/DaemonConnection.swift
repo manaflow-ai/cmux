@@ -220,26 +220,10 @@ public actor DaemonConnection {
     /// Delivers an event the connection itself produced, after those routed so far.
     func yieldEvent(_ envelope: DaemonEventEnvelope) { continuation.yield(envelope) }
 
-    /// `list-workspaces` plus the sequence of the last event it supersedes.
-    public func snapshot() async throws -> (tree: DaemonTree, barrier: UInt64) {
-        guard case .ready(let transport, let serial) = phase else { throw DaemonError.notConnected }
-        let response = try await transport.request(cmd: ListWorkspacesRequest.command, timeout: configuration.snapshotTimeout) { id in
-            try WireCoding.encodeRequest(ListWorkspacesRequest(), id: id)
-        }
-        var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
-        if identity?.supports(DaemonCapabilities.shared.savedTabGroups) == true, tree.savedTabGroups.isEmpty {
-            // Saved groups are not part of `list-workspaces`. Their changes
-            // emit `tree-changed`, which triggers this snapshot again.
-            tree.savedTabGroups = try await Self.perform(ListSavedTabGroupsRequest(), on: transport,
-                                                         timeout: configuration.requestTimeout).savedGroups
-            tree.linkSavedTabGroups()
-        }
-        if identity?.supports(DaemonCapabilities.shared.profiles) == true {
-            // Personal state is its own read; its changes emit
-            // `personal-changed`, which triggers this snapshot again.
-            tree.personal = try await Self.perform(ListPersonalRequest(), on: transport, timeout: configuration.requestTimeout)
-        }
-        return (tree, DaemonEventEnvelope.sequence(serial: serial, index: response.eventBarrier))
+    /// The ready transport and its connection serial, or nil when not connected.
+    var ready: (transport: LineTransport, serial: UInt64)? {
+        guard case .ready(let transport, let serial) = phase else { return nil }
+        return (transport, serial)
     }
 
     static func perform<R: DaemonRequest>(_ request: R, on transport: LineTransport,
@@ -258,7 +242,9 @@ public actor DaemonConnection {
         let serial = serial
         do {
             let endpoint = try await endpointProvider()
+            DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
             let transport = try LineTransport(path: endpoint.socketPath)
+            DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
             transport.start(
@@ -308,8 +294,19 @@ public actor DaemonConnection {
         return false
     }
 
+    /// `identify`, `set-client-info` and `subscribe` go out together (one
+    /// round trip); the identity is checked before the connection is used.
+    /// Against the wrong or an incompatible daemon the other two are
+    /// harmless, and the socket closes.
     private func handshake(_ transport: LineTransport) async throws -> DaemonIdentity {
-        let identity = try await Self.perform(IdentifyRequest(), on: transport, timeout: configuration.requestTimeout)
+        let replies = await transport.pipeline([
+            PipelinedLine(IdentifyRequest()),
+            PipelinedLine(SetClientInfoRequest(name: configuration.clientName, kind: "frontend",
+                                               capabilities: configuration.advertisedCapabilities)),
+            PipelinedLine(SubscribeRequest(treeEvents: configuration.treeEvents)),
+        ], timeout: configuration.requestTimeout)
+        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
+        DaemonLaunchTimings.shared.mark("daemon.identify_end")
         guard identity.app == "cmux-tui" else {
             transport.close()
             throw DaemonError.wrongApp(identity.app)
@@ -323,12 +320,8 @@ public actor DaemonConnection {
             transport.close()
             throw DaemonError.missingCapabilities(missing)
         }
-        _ = try await Self.perform(
-            SetClientInfoRequest(name: configuration.clientName, kind: "frontend", capabilities: configuration.advertisedCapabilities),
-            on: transport, timeout: configuration.requestTimeout
-        )
-        _ = try await Self.perform(SubscribeRequest(treeEvents: configuration.treeEvents), on: transport,
-                                   timeout: configuration.requestTimeout)
+        _ = try replies[1].get()
+        _ = try replies[2].get()
         return identity
     }
 

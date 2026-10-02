@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "1a3580a84cdeefbb38733d6fc53ee6a7a3b64f6933ac7cf8e51e9fae6009d4ea",
+  "catalog_sha256": "b7f15e13d00bdf49127444f640663bdb08c500077778bdd48e61d0dde5cd247e",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -459,6 +459,15 @@
     },
     "terminal.wait_exit": {
       "class": "read"
+    },
+    "window_record.delete": {
+      "class": "mutation"
+    },
+    "window_record.list": {
+      "class": "read"
+    },
+    "window_record.put": {
+      "class": "mutation"
     },
     "workspace.close": {
       "class": "mutation"

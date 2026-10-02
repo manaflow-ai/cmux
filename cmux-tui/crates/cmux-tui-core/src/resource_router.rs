@@ -7,7 +7,6 @@ mod auxiliary;
 mod content;
 mod effects;
 mod session;
-mod state;
 mod topology;
 
 use std::collections::{HashMap, HashSet};
@@ -843,7 +842,7 @@ fn dispatch_resource_request(
         OperationOwner::Content => content::dispatch(mux, request),
         OperationOwner::Topology => topology::dispatch(mux, request),
         OperationOwner::Auxiliary => auxiliary::dispatch(mux, request),
-        OperationOwner::State => state::dispatch(mux, request),
+        OperationOwner::State => crate::state::router::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
@@ -1050,6 +1049,9 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::ScreenGroupUngroup
         | ResourceOperation::ClosedList
         | ResourceOperation::ClosedReopen
+        | ResourceOperation::WindowRecordList
+        | ResourceOperation::WindowRecordPut
+        | ResourceOperation::WindowRecordDelete
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet
         | ResourceOperation::WorkspaceStatusClear
@@ -1785,7 +1787,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 178);
+        assert_eq!(operations.len(), 181);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1795,7 +1797,7 @@ mod tests {
                 OperationOwner::Content => assert!(content::handles(operation)),
                 OperationOwner::Topology => assert!(topology::handles(operation)),
                 OperationOwner::Auxiliary => assert!(auxiliary::handles(operation)),
-                OperationOwner::State => assert!(state::handles(operation)),
+                OperationOwner::State => assert!(crate::state::router::handles(operation)),
                 OperationOwner::Machine | OperationOwner::Snapshot | OperationOwner::Connection => {
                 }
             }
@@ -1805,7 +1807,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 178);
+        assert_eq!(operations.len(), 181);
         for (name, descriptor) in operations {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();

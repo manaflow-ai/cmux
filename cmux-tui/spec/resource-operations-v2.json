@@ -26,7 +26,8 @@
     "workspace_group",
     "room",
     "screen_group",
-    "closed"
+    "closed",
+    "window_record"
   ],
   "types": {
     "JsonValue": {
@@ -6076,6 +6077,92 @@
       },
       "extra": false
     },
+    "WindowRecordSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "<install_id>/<window_id>; the id of the record's state_upsert and state_delete changes."
+        },
+        "install_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "window_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "owner": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The install that hosts the window and is the record's only writer; always equal to install_id. install_unadopted owns records migrated from the windows frontend projection until an app adopts them."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The record's own revision; every put advances it."
+        },
+        "record": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "The app's window state (shown workspace, listed workspaces, frame, selected tab per pane, focused pane). Always a JSON object."
+        },
+        "updated_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "WindowRecordDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The revision the record had when it was deleted."
+        }
+      },
+      "extra": false
+    },
     "WorkspaceStatusEntry": {
       "kind": "object",
       "fields": {
@@ -6269,7 +6356,8 @@
         "room",
         "screen_group",
         "closed",
-        "workspace_status"
+        "workspace_status",
+        "window_record"
       ]
     },
     "StateEntitySnapshot": {
@@ -6306,6 +6394,10 @@
         {
           "kind": "ref",
           "name": "WorkspaceStatusSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "WindowRecordSnapshot"
         }
       ],
       "constraints": [
@@ -6745,7 +6837,8 @@
                 "workspace_group",
                 "room",
                 "screen_group",
-                "closed"
+                "closed",
+                "window_record"
               ]
             }
           },
@@ -6915,7 +7008,8 @@
                 "workspace_group",
                 "room",
                 "screen_group",
-                "closed"
+                "closed",
+                "window_record"
               ]
             }
           },
@@ -13607,6 +13701,16 @@
             },
             "description": "A browser tab's forward URLs, nearest first."
           },
+          "owner": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "Install id of the app that hosts a frontend-rendered browser tab, stored on its browser record and shown as the tab's extra.owner. Only that app sends it; the CLI never does. Not authenticated yet."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -13618,7 +13722,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one field is present. back and forward apply only to browser tabs."
+          "At least one field is present. back and forward apply only to browser tabs; owner only to frontend-rendered browser tabs."
         ]
       },
       "result": {
@@ -15616,6 +15720,179 @@
         "A timeout returns the pending result variant and is not an error.",
         "The exited result is reconnect-safe and uses the terminal registry's durable exit record.",
         "Explicit terminal.close wakes active waiters with terminal.closed; detaching the last view does not settle them."
+      ]
+    },
+    "window_record.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "window_record",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "install_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "window_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The record's own revision (0 = the record must not exist). Omit for no precondition. A mismatch is revision.conflict and writes nothing."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WindowRecordDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "window_record.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "window_record",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "WindowRecordSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "window_record.put": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "window_record",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "install_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The putting app's install id; the record's owner. Not authenticated yet: the daemon trusts it."
+          },
+          "window_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "record": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "A JSON object of at most 64 KiB; replaces the stored record."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The record's own revision (0 = the record must not exist). Omit for no precondition. A mismatch is revision.conflict and writes nothing."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "install_id and window_id are 1 to 128 ASCII letters, digits, '-', '_', '.' or ':'; install_unadopted is reserved.",
+          "The first put of a window_id held by install_unadopted adopts that record: expected_revision is compared with the unadopted record's revision (list first), its revision continues, and the batch deletes the unadopted record."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "WindowRecordSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
       ]
     },
     "workspace.close": {

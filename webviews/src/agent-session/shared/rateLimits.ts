@@ -17,12 +17,14 @@ export type RateLimitWindowLabels = {
 export function normalizeRateLimitRow(row: AgentSessionRateLimitRow): NormalizedRateLimitRow {
   const usedPercentValue = row.usedPercent;
   const remainingPercentValue = row.remainingPercent;
-  const usedPercent = usedPercentValue != null && Number.isFinite(usedPercentValue)
-    ? clampPercent(usedPercentValue)
-    : clampPercent(100 - (remainingPercentValue ?? 0));
-  const remainingPercent = remainingPercentValue != null && Number.isFinite(remainingPercentValue)
-    ? clampPercent(remainingPercentValue)
-    : clampPercent(100 - usedPercent);
+  const usedPercent =
+    usedPercentValue != null && Number.isFinite(usedPercentValue)
+      ? clampPercent(usedPercentValue)
+      : clampPercent(100 - (remainingPercentValue ?? 0));
+  const remainingPercent =
+    remainingPercentValue != null && Number.isFinite(remainingPercentValue)
+      ? clampPercent(remainingPercentValue)
+      : clampPercent(100 - usedPercent);
   return {
     ...row,
     remainingPercent,
@@ -122,8 +124,5 @@ function formatCompactDurationLabel(format: string | undefined, value: number, f
   if (format == null || format.length === 0) {
     return fallback;
   }
-  return format
-    .replaceAll("%@", formattedValue)
-    .replaceAll("%d", formattedValue)
-    .replaceAll("{value}", formattedValue);
+  return format.replaceAll("%@", formattedValue).replaceAll("%d", formattedValue).replaceAll("{value}", formattedValue);
 }

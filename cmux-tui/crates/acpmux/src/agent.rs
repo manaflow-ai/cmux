@@ -26,16 +26,34 @@ pub enum Direction {
 /// Something the agent sent that acpmux must act on.
 #[derive(Debug)]
 pub enum Inbound {
-    Request { id: Id, method: String, params: Option<Value> },
-    Notification { method: String, params: Option<Value> },
+    Request {
+        id: Id,
+        method: String,
+        params: Option<Value>,
+    },
+    Notification {
+        method: String,
+        params: Option<Value>,
+    },
     Stderr(String),
-    Exited(Option<i32>),
+    /// The agent process with this pid exited. The pid tells a late exit of
+    /// a replaced process apart from the current one.
+    Exited {
+        pid: Option<u32>,
+        code: Option<i32>,
+    },
 }
 
 pub type Tap = Arc<dyn Fn(Direction, &Message) + Send + Sync>;
 
 /// How long `kill` lets the agent's process group exit after SIGTERM.
 const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// How often the reader checks that the agent process is still running.
+const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// How long the reader keeps draining stdout after the agent process exits.
+const LEADER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 struct Pending {
     map: HashMap<String, oneshot::Sender<Result<Value, RpcError>>>,
@@ -178,8 +196,32 @@ impl ChildAgent {
             let agent_for_exit = agent.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
+                // The leader can exit while a descendant still holds stdout
+                // open; watch it so its exit is reported regardless.
+                let mut leader_check = tokio::time::interval(LEADER_CHECK);
+                let mut leader_gone: Option<tokio::time::Instant> = None;
                 loop {
-                    let line = match lines.next_line().await {
+                    let next = tokio::select! {
+                        next = lines.next_line() => next,
+                        _ = leader_check.tick() => {
+                            if let Some(at) = leader_gone {
+                                // Give buffered output a moment, then stop reading.
+                                if at.elapsed() >= LEADER_DRAIN {
+                                    break;
+                                }
+                            } else if !agent_for_exit.is_alive().await {
+                                leader_gone = Some(tokio::time::Instant::now());
+                                // Stop what the agent left running so the pipe closes.
+                                if let Some(pg) = agent_for_exit.pid {
+                                    unsafe {
+                                        libc::killpg(pg as i32, libc::SIGKILL);
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                    };
+                    let line = match next {
                         Ok(Some(l)) => l,
                         _ => break,
                     };
@@ -207,6 +249,13 @@ impl ChildAgent {
                         );
                         tap(Direction::In, &Message::notification(&kind, raw.clone()));
                         let translated = tr.inbound(&raw).await;
+                        // Answers the translator owes claude itself.
+                        for l in tr.take_stdin_replies().await {
+                            tap(Direction::Out, &Message::notification("claude.stdin", l.clone()));
+                            let mut s = l.to_string();
+                            s.push('\n');
+                            let _ = agent_for_exit.stdin_tx.send(s).await;
+                        }
                         // Translated ACP messages go through the same tap as
                         // native ACP traffic, so the log and viewers see them.
                         for m in &translated {
@@ -258,7 +307,7 @@ impl ChildAgent {
                 }
                 drop(p);
                 let code = agent_for_exit.wait_exit().await;
-                let _ = inbound.send(Inbound::Exited(code)).await;
+                let _ = inbound.send(Inbound::Exited { pid: agent_for_exit.pid, code }).await;
             });
         }
         Ok(agent)
@@ -283,19 +332,23 @@ impl ChildAgent {
 
     pub async fn kill(&self) {
         let mut guard = self.child.lock().await;
-        if let Some(child) = guard.as_mut() {
-            if let Some(pid) = child.id() {
-                // TERM the whole group first so children get a chance to exit,
-                // then KILL whatever is left. The wait ends as soon as the
-                // agent exits; 300 ms is only the most it gets.
-                unsafe {
-                    libc::killpg(pid as i32, libc::SIGTERM);
-                }
-                let _ = tokio::time::timeout(KILL_GRACE, child.wait()).await;
-                unsafe {
-                    libc::killpg(pid as i32, libc::SIGKILL);
-                }
+        // The saved group id, not `child.id()`: once the leader is reaped
+        // that is None, and its background processes would survive.
+        if let Some(pid) = self.pid {
+            // TERM the whole group first so children get a chance to exit,
+            // then KILL whatever is left. The wait ends as soon as the
+            // agent exits; 300 ms is only the most it gets.
+            unsafe {
+                libc::killpg(pid as i32, libc::SIGTERM);
             }
+            if let Some(child) = guard.as_mut() {
+                let _ = tokio::time::timeout(KILL_GRACE, child.wait()).await;
+            }
+            unsafe {
+                libc::killpg(pid as i32, libc::SIGKILL);
+            }
+        }
+        if let Some(child) = guard.as_mut() {
             let _ = child.kill().await;
         }
         *guard = None;

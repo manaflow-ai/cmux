@@ -75,6 +75,19 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         // names; an explicit route targets that session's current workspace.
         let caller_route = global.socket.is_none() && global.session.is_none();
         if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route) {
+            // A browser tab's page zoom: the app hosts the page and owns it.
+            #[cfg(unix)]
+            if let super::resolve::Failure::AppAction { action, target } = &failure {
+                let args = ["--target".to_owned(), target.clone()];
+                return match super::app::run_action(action, &args, super::app::ActionName::Any) {
+                    Ok(command) => super::app::run(&global, command),
+                    Err(error) => print_local_error(
+                        &json!({"code":"usage.invalid","message":error.to_string(),"details":{},"retryable":false}),
+                        global.output,
+                        2,
+                    ),
+                };
+            }
             return failure.report(global.output);
         }
         request["params"] = plan.params.clone();
@@ -1057,6 +1070,17 @@ pub(super) fn resolve_socket_with_env(
         return Ok((path.clone(), false));
     }
     if let Some(session) = &global.session {
+        // The bundling app starts its own session under the Darwin per-user
+        // temp directory, whatever this process's TMPDIR is.
+        #[cfg(target_os = "macos")]
+        if let Some(identity) = crate::app_identity::AppIdentity::detect(
+            |name| env(name).and_then(|value| value.into_string().ok()),
+            std::env::current_exe().ok().as_deref(),
+        ) && identity.daemon_session().as_deref() == Some(session.as_str())
+            && let Some(path) = crate::app_identity::app_daemon_socket(&identity)
+        {
+            return Ok((path, true));
+        }
         return Ok((cmux_tui_core::server::try_default_socket_path(session)?, true));
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {

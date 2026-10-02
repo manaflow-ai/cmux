@@ -9,9 +9,13 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     /// A command that starts a terminal missed its deadline. The daemon may
     /// still create the terminal, so a caller must not simply retry.
     public var terminalMayAppear: Bool
+    /// The command's reply missed its deadline: it may still apply, so a
+    /// caller must not simply retry.
+    public var mayHaveApplied: Bool
 
-    public init(_ message: String, terminalMayAppear: Bool = false) {
+    public init(_ message: String, mayHaveApplied: Bool = false, terminalMayAppear: Bool = false) {
         self.message = message
+        self.mayHaveApplied = mayHaveApplied
         self.terminalMayAppear = terminalMayAppear
     }
 

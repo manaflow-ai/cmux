@@ -11,7 +11,7 @@ use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
 use super::super::command::{RequestPlan, Resolve, WireOperation};
-use super::super::resolve;
+use super::super::{federation, resolve};
 use super::Exclusion;
 use super::schema::{self, Generator};
 
@@ -72,6 +72,9 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("sidebar_view.input", SIDEBAR_REASON),
     ("sidebar_view.reload", SIDEBAR_REASON),
     ("sidebar_view.resize", SIDEBAR_REASON),
+    ("window_record.list", WINDOW_RECORD_REASON),
+    ("window_record.put", WINDOW_RECORD_REASON),
+    ("window_record.delete", WINDOW_RECORD_REASON),
 ];
 
 const MACHINE_REASON: &str =
@@ -85,6 +88,8 @@ const CLIENT_REASON: &str = "Connection-scoped client records in the cmux-tui-on
 const PROJECTION_REASON: &str = "Frontend projection records the app writes; cmux-tui-only.";
 const PAIRING_REASON: &str =
     "Device pairing approval: a person approves a pairing, never an agent; cmux-tui-only.";
+const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that hosts the \
+     window; the CLI omits it too, and window_list reads the app's windows.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 
 pub(super) fn catalog() -> &'static Value {
@@ -411,7 +416,10 @@ impl V2Tool {
         raw: &str,
         session: &mut Option<String>,
     ) -> Result<(String, Option<Resolve>), Value> {
-        let (qualifier, id) = resolve::split_session(raw);
+        let (qualifier, id) = match federation::qualified(raw) {
+            Some((session, id)) => (Some(session), id),
+            None => (None, raw),
+        };
         if let Some(qualifier) = qualifier {
             set_session(session, qualifier)?;
         }

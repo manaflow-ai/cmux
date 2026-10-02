@@ -7,7 +7,7 @@
 #   scripts/cmux-next/build-agent-pane-web.sh --check  # fail if it is stale
 set -eu
 
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 SRC="$ROOT/webviews/src/agent-session"
 OUT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 MODE="${1:-build}"
@@ -37,7 +37,7 @@ bun x esbuild "$SRC/acpmux/main.tsx" \
 # The shared stylesheet opens with a Tailwind @import that only Vite resolves;
 # the pane needs just its variables and rules, so drop @import lines.
 grep -v '^@import ' "$SRC/shared/styles.css" > "$WORK/styles.css"
-cat "$SRC/acpmux/styles.css" >> "$WORK/styles.css"
+cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" >> "$WORK/styles.css"
 
 # Inline script and style, loopback WebSocket only. No remote loads, no eval.
 CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src ws://127.0.0.1:* ws://localhost:*"
@@ -56,7 +56,7 @@ CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; 
 
 if [ "$MODE" = "--check" ]; then
   if ! cmp -s "$WORK/index.html" "$OUT/index.html"; then
-    echo "error: $OUT/index.html is stale; run scripts/cmux-next/build-agent-pane-web.sh" >&2
+    echo "error: $OUT/index.html is stale; run scripts/cmux-next/build-agent-pane-web.sh (after merging feat-cmux-next: scripts/cmux-next/regenerate-web-bundles.sh)" >&2
     exit 1
   fi
   echo "agent pane web bundle is current"

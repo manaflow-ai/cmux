@@ -41,6 +41,8 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     public var cliName: String
     /// Main menu the action appears in, if any.
     public var mainMenu: ActionMainMenu?
+    /// A developer tool: available in DEV and NIGHTLY builds only, absent
+    /// from every surface in Release and RC (`DevTools`).
     public var isDebugOnly: Bool
     /// Deletes or closes something the user cannot get back (a Cloud
     /// machine, a workspace group, a workspace with running processes, a
@@ -65,6 +67,14 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// needs (Connect to CodeRouter): the CLI runs it with `wait` and the
     /// control socket gives it ``ActionDescriptor/resultDeadline``.
     public var waitsForResult: Bool = false
+    /// The action's purpose is to change this client's view: focus a pane
+    /// or tab, select a tab, show a workspace, bring a window forward
+    /// (tab.focus, Go to Tab, workspace next/previous, pane focus moves).
+    /// Such a run may change the view whatever its origin; any other run
+    /// only when its origin is the user or it asks with `focus: true`
+    /// (plans/cmux-next/OWNERSHIP-PRINCIPLES.md, ``ActionRunScope``).
+    /// The catalog marks these in `ActionCatalog.focusActionIDs`.
+    public var focuses: Bool = false
     /// How long `action.run` with `wait` may take for such an action.
     public static let resultDeadline: Duration = .seconds(40)
 
