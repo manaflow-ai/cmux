@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 
 #if canImport(cmux_DEV)
@@ -18,7 +19,7 @@ struct CmuxTopTTYCollisionAttributionTests {
     private let workspaceID = UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!
     private let surfaceID = UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000002")!
 
-    private let appPID = 3000
+    private let appPID = Int(Darwin.getpid())
     private let foreignParentPID = 9000
     private let shellPID = 4001
     private let shellChildPID = 4002
@@ -82,6 +83,39 @@ struct CmuxTopTTYCollisionAttributionTests {
 
     /// A reparented helper that still names this surface through `CMUX_*` scope stays
     /// attributed; explicit scope outranks the PPID-1 exclusion.
+    @Test func processGroupMembersRequireTheirProvenLeaderToRemainTheGroupLeader() {
+        let resolver = CmuxTopTTYOwnershipResolver(cmuxOwnedPIDs: [appPID])
+        let ownership = resolver.resolve(
+            candidates: [shellPID, backgroundJobPID],
+            processes: [
+                shellPID: CmuxTopTTYOwnershipProcess(
+                    pid: shellPID,
+                    parentPID: appPID,
+                    processGroupID: 9999,
+                    cmuxSurfaceID: nil
+                ),
+                backgroundJobPID: CmuxTopTTYOwnershipProcess(
+                    pid: backgroundJobPID,
+                    parentPID: 1,
+                    processGroupID: shellPID,
+                    cmuxSurfaceID: nil
+                )
+            ],
+            surfaceID: nil,
+            provenPIDs: [shellPID]
+        )
+
+        #expect(ownership.provenPIDs == [shellPID])
+        #expect(ownership.unattributedPIDs == [backgroundJobPID])
+    }
+
+    @MainActor
+    @Test func appLaunchEvidenceAppliesToAWindowWithoutItsOwnAppProcessRoots() throws {
+        let surface = try #require(firstAnnotatedSurface())
+        #expect(intArray(surface["tty_process_pids"]).contains(shellPID))
+        #expect(!intArray(surface["unattributed_tty_process_pids"]).contains(shellPID))
+    }
+
     @MainActor
     @Test func reparentedScopedHelperStaysAttributed() throws {
         let surface = try #require(firstAnnotatedSurface())
@@ -203,7 +237,7 @@ struct CmuxTopTTYCollisionAttributionTests {
             "index": 0,
             "key": true,
             "visible": true,
-            "app_process_pids": [appPID],
+            "app_process_pids": [],
             "workspaces": [[
                 "kind": "workspace",
                 "id": workspaceID.uuidString,
