@@ -1,7 +1,8 @@
 // What the changes view shows beyond one turn: a git scope of the session's repository, ported
 // from the changes pane in the agent-pane reference prototype (src/changes/model.ts). The session
-// host answers `git.scope.diff {scope}` with a ChangeSet and `git.status` with a GitStatus
-// (cmux-next-spec spec/acp-ui.md); the mock daemon answers both from its fixture.
+// host answers `git.diff {scope, include_patch}` and `git.status` in the shapes of cmux-tui's
+// resource catalog (GitDiffResult, GitStatusResult); the mock daemon answers both from its
+// fixture. The wire is snake_case; the view's types are not.
 import type { DiffHunk, DiffLine, TurnFile } from "../diff";
 
 export type ChangeScope = "lastTurn" | "uncommitted" | "unstaged" | "staged" | "committed" | "branch";
@@ -16,6 +17,8 @@ export type ChangedFile = {
   /// The file's unified diff, from its `@@` hunks on; absent for a binary file.
   patch?: string;
   binary?: boolean;
+  /// The patch stopped short of the whole diff.
+  patchTruncated?: boolean;
 };
 
 export type ChangeSet = {
@@ -34,6 +37,7 @@ export type ChangeSet = {
 };
 
 export type GitStatus = {
+  root?: string;
   branch?: string;
   upstream?: string;
   base?: string;
@@ -48,7 +52,7 @@ export type ChangesLoad =
   | { state: "loaded"; changeSet: ChangeSet };
 
 /// Where the view reads a scope from: the session host, or the mock daemon in mock mode.
-export type ChangesSource = { scopeDiff: (scope: ChangeScope) => Promise<unknown> };
+export type ChangesSource = { diff: (scope: ChangeScope) => Promise<unknown> };
 
 /// The scope menu, top to bottom; `null` is a separator.
 export const SCOPE_ORDER: (ChangeScope | null)[] = [
@@ -89,12 +93,13 @@ export function readChangeSet(value: unknown, scope: ChangeScope): ChangeSet | u
     return [
       {
         path,
-        previousPath: text(file.previousPath),
+        previousPath: text(file.previous_path),
         status,
         additions: count(file.additions),
         deletions: count(file.deletions),
         patch: text(file.patch),
         binary: file.binary === true,
+        patchTruncated: file.patch_truncated === true,
       },
     ];
   });
@@ -106,9 +111,9 @@ export function readChangeSet(value: unknown, scope: ChangeScope): ChangeSet | u
     files,
     additions: count(raw.additions),
     deletions: count(raw.deletions),
-    untrackedSkipped: count(raw.untrackedSkipped),
-    totalFiles: count(raw.totalFiles),
-    filesOmitted: count(raw.filesOmitted),
+    untrackedSkipped: count(raw.untracked_skipped),
+    totalFiles: count(raw.total_files),
+    filesOmitted: count(raw.files_omitted),
   };
 }
 
