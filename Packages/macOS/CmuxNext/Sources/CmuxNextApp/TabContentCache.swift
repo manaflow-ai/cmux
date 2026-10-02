@@ -61,6 +61,8 @@ final class TabContentCache {
     var defersRestoredPages = false
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
+    /// Tabs an agent drove (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
+    var agentDrivenTabs: Set<String> = []
     /// Creates a Chromium page (asynchronous; a seam for tests).
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
         try await cef.makeTab($0)
@@ -308,6 +310,7 @@ final class TabContentCache {
             entry.extensionMenuHandler = handler
             entry.chrome.extensionMenuHandler = handler
         }
+        if agentDrivenTabs.contains(key) { page.markAgentDriven() }
         browsers[key] = entry
         pageInstalls.bump()
         // Pages are kept by hibernation, never by the terminal warm set.
@@ -351,16 +354,12 @@ final class TabContentCache {
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil
         hibernation?.forget(key)
+        agentDrivenTabs.remove(key)
         terminals.removeValue(forKey: key)?.close()
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)
         onPresentationChange?()
-    }
-
-    /// Drops terminal surfaces whose tabs no longer exist.
-    func prune(liveTabs: Set<String>) {
-        for key in terminals.keys where !liveTabs.contains(key) { release(key) }
     }
 
     // MARK: Previews

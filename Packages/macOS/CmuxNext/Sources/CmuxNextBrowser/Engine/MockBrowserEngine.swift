@@ -65,6 +65,7 @@ public final class MockBrowserTab: BrowserTab {
         case runExtensionAction(String, anchor: CGRect)
         case hideExtensionPopups
         case showExtensionActionMenu(String)
+        case markAgentDriven
     }
 
     public let id: BrowserTabID
@@ -241,6 +242,7 @@ public final class MockBrowserTab: BrowserTab {
     }
 
     public func showDevTools() { commands.append(.showDevTools) }
+    public func markAgentDriven() { commands.append(.markAgentDriven) }
 
     public func close() {
         guard !isClosed else { return }
