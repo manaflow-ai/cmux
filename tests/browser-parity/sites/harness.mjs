@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadRuntime, createDevBrowser, createNodeHost } from "../lib/dev-driver.mjs";
+import { loadRuntime, createDevBrowser, createNodeHost, createHostedRepl } from "../lib/dev-driver.mjs";
 import { answer, createState, COOKIES, MOCK_HOSTS } from "./mock-sites.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -94,7 +94,7 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
       if (!authResponder) return call(method, params);
       return authResponder(params, { call, context });
     };
-    const repl = ns.replHost.createBrowserRepl({ host, driver });
+    const repl = createHostedRepl(ns, { host, driver }).repl;
     const s = {
       repl,
       auth,

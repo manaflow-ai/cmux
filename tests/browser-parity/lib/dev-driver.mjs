@@ -17,6 +17,7 @@ import crypto from "node:crypto";
 import os from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { createReferenceHost } from "./reference-host.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -805,6 +806,28 @@ export function createNodeHost({ workDir, sessionId = "dev", print, readable = n
   };
 }
 
+// The runtime behind the reference host (reference-host.mjs): what agent code
+// sees under the Rust browser host. Every harness builds its REPL here.
+export function createHostedRepl(ns, { host, driver }) {
+  const ref = createReferenceHost(ns, { host, driver });
+  const repl = ns.replHost.createBrowserRepl({ host: ref.host, driver: ref.driver });
+  const evaluate = repl.evaluate;
+  repl.evaluate = async (code, options) => {
+    const r = await evaluate(code, options);
+    if (!r.ok) {
+      r.error = ref.maskText(r.error);
+      ref.maskError(r.exception);
+    }
+    return r;
+  };
+  // Reads a field of the current tab as the host (unmasked), for tests.
+  async function pageValue(selector) {
+    const page = [...repl.session.pages.values()].reverse().find((p) => !p._closed && !String(p._targetId).startsWith("lazy:"));
+    return driver.call("frame.evaluate", { targetId: page._targetId, world: "page", source: "(s) => document.querySelector(s).value", args: [selector], awaitPromise: true });
+  }
+  return { ...ref, repl, pageValue };
+}
+
 // Runs REPL cells the way `cmux browser repl` runs calls: every cell is a
 // one-shot session unless it names a session, and one-shot sessions close
 // the tabs they opened unless kept. Returns each cell's printed output and
@@ -826,7 +849,7 @@ export async function runDevCells(cells, { workDir } = {}) {
         driver.on("download.finished", (p) => p.path && readable.add(fs.realpathSync(p.path)));
         let current = print;
         const host = createNodeHost({ workDir: dir, sessionId: cell.session || `oneshot-${outputs.length + 1}`, print: (l, t) => current(l, t), readable });
-        entry = { driver, repl: ns.replHost.createBrowserRepl({ host, driver }), setPrint: (p) => (current = p) };
+        entry = { driver, repl: createHostedRepl(ns, { host, driver }).repl, setPrint: (p) => (current = p) };
         if (cell.session) named.set(cell.session, entry);
       }
       entry.setPrint(print);
