@@ -2746,6 +2746,7 @@
 		D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */; };
 		DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */; };
 		D1F0A00100000000000000B3 /* PresenceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B4 /* PresenceSettings.swift */; };
+		C5457A0D0000000000000001 /* PressAndHoldDefaultsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5457A0D0000000000000002 /* PressAndHoldDefaultsTests.swift */; };
 		C0DEA771000000000000000D /* PricingPlansScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000E /* PricingPlansScreen.swift */; };
 		C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000C /* ProBadgeStyle.swift */; };
 		F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */; };
@@ -7094,6 +7095,7 @@
 		D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClient.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClientTests.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000B4 /* PresenceSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceSettings.swift; sourceTree = "<group>"; };
+		C5457A0D0000000000000002 /* PressAndHoldDefaultsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PressAndHoldDefaultsTests.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000E /* PricingPlansScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PricingPlansScreen.swift; sourceTree = "<group>"; };
 		C0DEA771000000000000000C /* ProBadgeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeStyle.swift; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedResumeIndexes.swift; sourceTree = "<group>"; };
@@ -12740,6 +12742,7 @@
 				C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */,
 				C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */,
 				5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */,
+				C5457A0D0000000000000002 /* PressAndHoldDefaultsTests.swift */,
 				5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */,
 				816400000000000000000004 /* GhosttyScrollViewTests.swift */,
 				C0793DC7D7B61CF54886EC36 /* RemoteTmuxControlParserTests.swift */,
@@ -17841,6 +17844,7 @@
 					F83620010000000000000001 /* PortScannerTTYFreshnessTests.swift in Sources */,
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
+				C5457A0D0000000000000001 /* PressAndHoldDefaultsTests.swift in Sources */,
 				AC0FCEFB6665CF134634D60B /* ProcessExitWait.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
 				0A327C88E531C7E407CEF58C /* ProcessSnapshotMeasurement.swift in Sources */,
