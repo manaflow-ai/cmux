@@ -16,6 +16,13 @@ const en = {
   "turn.stopped": "You stopped after {time}",
   "approval.title": "How should the agent's actions be approved?",
   "effort.title": "Effort",
+  "files.search": "Search files",
+  "files.hint": "Type to search for files",
+  "files.searching": "Searching…",
+  "files.none": "No matching files",
+  "files.failed": "Couldn't search files",
+  "files.outside": "This folder isn't in a git repository",
+  "files.more": "Showing the first {count}; type more to narrow it",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -34,6 +41,13 @@ const ja: Record<StringKey, string> = {
   "turn.stopped": "{time} 後に停止しました",
   "approval.title": "エージェントの操作をどのように承認しますか？",
   "effort.title": "推論の強さ",
+  "files.search": "ファイルを検索",
+  "files.hint": "入力してファイルを検索",
+  "files.searching": "検索中…",
+  "files.none": "一致するファイルはありません",
+  "files.failed": "ファイルを検索できませんでした",
+  "files.outside": "このフォルダは git リポジトリにありません",
+  "files.more": "最初の {count} 件を表示しています。絞り込むには続けて入力してください",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

@@ -17,6 +17,7 @@ import type { FileSearchSource } from "./fileSearchModel";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import { seededText } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
+import { t } from "./i18n";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -26,7 +27,6 @@ export const COMPOSER_LABELS = {
   placeholder: "Ask anything, @ for context, / for commands",
   add: "Add",
   mention: "Mention a file or folder",
-  searchFiles: "Search files",
   attach: "Attach files or images",
   prompt: "Prompt",
   send: "Send",
@@ -157,15 +157,20 @@ export function Composer({
   // Writes "@" at the caret, or "@path " for a file picked in Search files.
   const mention = (path?: string) => {
     if (composing.current) return;
-    const at = caret;
+    const at = markdownOffset(text, caret);
     const before = text.slice(0, at);
     // A path with a space is quoted, or an agent would read the mention only up to it. The prompt
     // is markdown, which takes backslash escapes as its own, so a quote in a name is left as is.
     const mentioned = path && /\s/.test(path) ? `"${path}"` : path;
-    const insert = (before && !/\s$/.test(before) ? " @" : "@") + (mentioned ? `${mentioned} ` : "");
+    const spaced = !before || /(\s|&#x20;|&#32;|&nbsp;)$/i.test(before);
+    const shown = (spaced ? "@" : " @") + (mentioned ? `${mentioned} ` : "");
+    // Escaped, the path reads as typed text (`__init__.py` is not bold); the caret counts what shows.
+    const insert = shown.replace(/[\\`*_[\]~<]/g, "\\$&");
     plusDraft.current = undefined;
-    pendingCaret.current = at + insert.length;
-    edit(before + insert + text.slice(at), at + insert.length);
+    pendingCaret.current = caret + shown.length;
+    // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
+    const after = text.slice(at).replace(/^\s+$/, "");
+    edit(before + insert + after, caret + shown.length);
     field.current?.focus();
   };
   // + then Commands opens the agent's commands: the menu reads the
@@ -311,7 +316,7 @@ export function Composer({
                   choices: [
                     ...(onAttach ? [{ id: "attach", name: COMPOSER_LABELS.attach, icon: <PaperclipIcon /> }] : []),
                     { id: "mention", name: COMPOSER_LABELS.mention, icon: <AtIcon />, hint: "@" },
-                    ...(searchFiles ? [{ id: "files", name: COMPOSER_LABELS.searchFiles, icon: <SearchIcon /> }] : []),
+                    ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
                     ...(commands?.length
                       ? [{ id: "commands", name: COMPOSER_LABELS.commands, icon: <SlashIcon />, hint: "/" }]
                       : []),
@@ -441,4 +446,15 @@ function Highlighted({ name, ranges }: { name: string; ranges: [number, number][
   }
   if (at < name.length) parts.push(name.slice(at));
   return <>{parts}</>;
+}
+
+/// Where the caret, counted in the characters the prompt shows, falls in its markdown: a
+/// backslash escape and a character reference (the serializer's `&#x20;`) each show as one.
+function markdownOffset(markdown: string, shown: number): number {
+  let index = 0;
+  for (let count = 0; count < shown && index < markdown.length; count++) {
+    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);)/i.exec(markdown.slice(index));
+    index += escape ? escape[0].length : 1;
+  }
+  return index;
 }

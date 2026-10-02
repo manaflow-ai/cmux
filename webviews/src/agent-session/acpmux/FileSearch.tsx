@@ -8,17 +8,7 @@ import {
   type FileSearchSource,
   type Run,
 } from "./fileSearchModel";
-
-/// Palette copy. English defaults until the host passes localized labels, as the rest of the pane does today.
-export const FILE_SEARCH_LABELS = {
-  search: "Search files",
-  hint: "Type to search for files",
-  searching: "Searching…",
-  none: "No matching files",
-  failed: "Couldn't search files",
-  outside: "This folder isn't in a git repository",
-  more: "Showing the first {count}; type more to narrow it",
-};
+import { t } from "./i18n";
 
 /// How long typing settles before the palette asks again.
 const SEARCH_DEBOUNCE_MS = 80;
@@ -130,31 +120,31 @@ export function FileSearch({
 
   const note =
     state.kind === "idle"
-      ? FILE_SEARCH_LABELS.hint
+      ? t("files.hint")
       : state.kind === "failed"
         ? state.outside
-          ? FILE_SEARCH_LABELS.outside
-          : FILE_SEARCH_LABELS.failed
+          ? t("files.outside")
+          : t("files.failed")
         : state.kind === "searching" && results.length === 0
-          ? FILE_SEARCH_LABELS.searching
+          ? t("files.searching")
           : state.kind === "done" && results.length === 0
-            ? FILE_SEARCH_LABELS.none
+            ? t("files.none")
             : undefined;
 
   return (
-    <dialog ref={root} open className="acpmux-file-search" aria-label={FILE_SEARCH_LABELS.search}>
+    <dialog ref={root} open className="acpmux-file-search" aria-label={t("files.search")}>
       <input
         ref={field}
         type="text"
         // A combobox that owns the result list: the role carries aria-expanded and aria-controls.
         // oxlint-disable-next-line jsx-a11y/no-redundant-roles
         role="combobox"
-        aria-label={FILE_SEARCH_LABELS.search}
+        aria-label={t("files.search")}
         aria-expanded={results.length > 0}
         aria-controls={listId}
         aria-autocomplete="list"
         aria-activedescendant={results.length > 0 ? `${listId}-${selected}` : undefined}
-        placeholder={FILE_SEARCH_LABELS.search}
+        placeholder={t("files.search")}
         value={query}
         spellCheck={false}
         autoComplete="off"
@@ -165,7 +155,7 @@ export function FileSearch({
         onKeyDown={keyDown}
       />
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <div id={listId} role="listbox" aria-label={FILE_SEARCH_LABELS.search} aria-busy={state.kind === "searching"}>
+      <div id={listId} role="listbox" aria-label={t("files.search")} aria-busy={state.kind === "searching"}>
         {results.map((match, index) => {
           const { dir, name } = matchRuns(match.path, match.matches);
           return (
@@ -192,9 +182,7 @@ export function FileSearch({
       </div>
       {note && <output className="acpmux-file-note">{note}</output>}
       {state.kind === "done" && state.truncated && results.length > 0 && (
-        <output className="acpmux-file-note">
-          {FILE_SEARCH_LABELS.more.replace("{count}", String(results.length))}
-        </output>
+        <output className="acpmux-file-note">{t("files.more", { count: results.length })}</output>
       )}
     </dialog>
   );

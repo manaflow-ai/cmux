@@ -313,6 +313,37 @@ test("a picked path with a space is quoted, so the agent reads the whole mention
   expect(promptField(doc).value).toBe('@"docs/My Notes.md" ');
 });
 
+test("a picked path keeps its markdown characters as typed text: no bold, no link, caret after it", async () => {
+  const picks = ["src/__init__.py", "app/[id]/page_x.tsx"];
+  await act(async () =>
+    root.render(
+      createElement(Composer, {
+        snapshot: snapshot(),
+        chips: () => null,
+        onSend: () => {},
+        onStop: () => {},
+        searchFiles: async () => ({ root: "~/py", results: [{ path: picks.shift()! }] }),
+      }),
+    ),
+  );
+  await settle();
+  for (const query of ["init", "page"]) {
+    await act(async () => doc.querySelector<HTMLButtonElement>('[aria-label="Add"]')!.click());
+    await act(async () => {
+      [...doc.querySelectorAll("[role=option]")]
+        .find((option) => option.textContent === "Search files")!
+        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    await act(async () => typeInto(field(), query));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 120)));
+    await key("Enter");
+  }
+  const prompt = promptField(doc);
+  expect(prompt.element.textContent).toBe("@src/__init__.py @app/[id]/page_x.tsx ");
+  expect(prompt.element.querySelector("strong, em, a, code")).toBeNull();
+  expect(prompt.selectionStart).toBe("@src/__init__.py @app/[id]/page_x.tsx ".length);
+});
+
 test("the mock daemon answers file.search for a folder, empty for no query, and fails outside a repository", async () => {
   const socket = new MockAcpmuxSocket();
   const answer = (
