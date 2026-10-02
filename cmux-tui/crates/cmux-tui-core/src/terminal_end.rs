@@ -103,6 +103,10 @@ impl TerminalEnd {
 mod tests {
     use super::*;
 
+    fn receipt(outcome: Value) -> Value {
+        serde_json::json!({"outcome": outcome, "exited_at": "12", "revision": "3"})
+    }
+
     #[test]
     fn persisted_exit_and_signal_receipts_are_process_ends() {
         for outcome in [
