@@ -166,3 +166,20 @@ the brain host then connects with the mux's launch credential.
   the local owner's read cursors.
 - Promotion: `conversation.promote` copies a local conversation into a new `ConversationDO`; the local
   one becomes read-only with a pointer. No automatic sync between kinds.
+
+## 6. Phase A status (2026-10-02)
+
+- Daemon owner: crate `cmux-conversation` + `conversation_store.rs`, capability `local-conversations-v1`
+  (trusted local Unix connections only). Hosted focused run green (36967786594); the full run is
+  being fixed. The app lists the capability in `awaitingPin` until the next cmux-tui pin cut, which
+  belongs to the Rust CLI session; until then a tagged build needs `CMUX_NEXT_TUI_BIN=<hosted binary>`.
+- App: Cmd-1 / `home.show`, Home row, `showsHome`, `HomeService` (mirror + intent log per open
+  conversation, seeded property test against a reference owner), `HomeWindowModel`,
+  `HomeTranscriptAdapter`, `debug.home`, `scripts/cmux-next/home-e2e.py`.
+- Renderer: `CmuxNextHome` (port of MessagesLab appkit-virtual). The 1M-message bench of the module
+  and of the prototype has not had a valid low-load run yet (machine load 100 to 180 for hours).
+- Brain host: `mux/` (Bun; `bun run build` -> `mux/dist/mux`; 22 tests). The app starts it when
+  `CMUX_NEXT_MUX_HOST` names that executable.
+- Known gaps: the 4-turn budget and 2 s gap are not enforced by the owner yet; actor is client-declared;
+  no `request-settled`; edits/retractions by humans do not wake the mux; reply counts and thread
+  connectors are not drawn.
