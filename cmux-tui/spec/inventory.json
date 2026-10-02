@@ -335,7 +335,13 @@
       "unregister-browser-provider",
       "shutdown-daemon",
       "pairing-response",
-      "url-open"
+      "url-open",
+      "conversation-list",
+      "conversation-create",
+      "conversation-snapshot",
+      "conversation-history",
+      "conversation-op",
+      "conversation-typing"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -401,6 +407,18 @@
     },
     {
       "name": "config-reload-requested",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-typing",
       "streams": [
         "subscribe"
       ]

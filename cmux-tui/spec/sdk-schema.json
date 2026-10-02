@@ -16249,6 +16249,256 @@
     "Off by default and after a daemon restart.",
     "When on, finished OSC 133 shell commands are journaled as sensitive shell.command.finished records."
    ]
+  },
+  "conversation-list": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "local-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. See spec/commands.md for the result object."
+   ]
+  },
+  "conversation-create": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "local-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "actor": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "title": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "participants": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. A replay of the same idempotency key and request returns the created conversation with replayed:true. See spec/commands.md."
+   ]
+  },
+  "conversation-snapshot": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "local-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "tail": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. tail is 1-500. See spec/commands.md for the result object."
+   ]
+  },
+  "conversation-history": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "local-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "before_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. limit is 1-500. See spec/commands.md for the result object."
+   ]
+  },
+  "conversation-op": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "local-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "actor": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "op": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Rejects use error_code conversation_rejected with the reason as the error text. See spec/commands.md."
+   ]
+  },
+  "conversation-typing": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "local-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "actor": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "on": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Ephemeral: never stored. See spec/commands.md."
+   ]
   }
  },
  "events": {
@@ -19447,6 +19697,106 @@
       "type": {
        "kind": "scalar",
        "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "conversation-changed": {
+   "since": 12,
+   "capability": "local-conversations-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "conversation-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "rev": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "change": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "conversation-typing": {
+   "since": 12,
+   "capability": "local-conversations-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "conversation-typing"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "on": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
       },
       "presence": "required",
       "nullable": false

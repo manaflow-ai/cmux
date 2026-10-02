@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/cmux-cloud-cli",
+    "crates/cmux-conversation",
     "bindings/rust",
     "bindings/rust-sidebar",
     "bindings/rust-daemon-client",
@@ -43,6 +44,7 @@ members = [
 ]
 default-members = [
     "crates/cmux-cloud-cli",
+    "crates/cmux-conversation",
     "bindings/rust",
     "bindings/rust-sidebar",
     "bindings/rust-daemon-client",
@@ -94,6 +96,7 @@ cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
+cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }

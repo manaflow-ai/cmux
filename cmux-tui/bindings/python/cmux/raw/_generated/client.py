@@ -102,6 +102,24 @@ class GeneratedClientMixin:
     def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING) -> WorkspaceMutationResult:
         return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, end_terminals=end_terminals))
 
+    def conversation_create(self, actor: str, idempotency_key: str, participants: Union[JsonValue, None], title: str) -> JsonValue:
+        return self._invoke_command('conversation-create', ConversationCreateRequest(actor=actor, idempotency_key=idempotency_key, participants=participants, title=title))
+
+    def conversation_history(self, before_seq: int, conversation: str, limit: int) -> JsonValue:
+        return self._invoke_command('conversation-history', ConversationHistoryRequest(before_seq=before_seq, conversation=conversation, limit=limit))
+
+    def conversation_list(self) -> JsonValue:
+        return self._invoke_command('conversation-list', ConversationListRequest())
+
+    def conversation_op(self, actor: str, conversation: str, idempotency_key: str, op: Union[JsonValue, None], *, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('conversation-op', ConversationOpRequest(actor=actor, conversation=conversation, idempotency_key=idempotency_key, op=op, transaction=transaction))
+
+    def conversation_snapshot(self, conversation: str, tail: int) -> JsonValue:
+        return self._invoke_command('conversation-snapshot', ConversationSnapshotRequest(conversation=conversation, tail=tail))
+
+    def conversation_typing(self, actor: str, conversation: str, on: bool) -> JsonValue:
+        return self._invoke_command('conversation-typing', ConversationTypingRequest(actor=actor, conversation=conversation, on=on))
+
     def copy(self, surface: Id, mode: Literal['screen', 'selection', 'scrollback']) -> CopyResult:
         return self._invoke_command('copy', CopyRequest(surface=surface, mode=mode))
 
@@ -631,6 +649,12 @@ GeneratedClientMixin.close_tab_group.__cmux_command__ = COMMANDS['close-tab-grou
 GeneratedClientMixin.close_tabs.__cmux_command__ = COMMANDS['close-tabs']
 GeneratedClientMixin.close_terminal.__cmux_command__ = COMMANDS['close-terminal']
 GeneratedClientMixin.close_workspace.__cmux_command__ = COMMANDS['close-workspace']
+GeneratedClientMixin.conversation_create.__cmux_command__ = COMMANDS['conversation-create']
+GeneratedClientMixin.conversation_history.__cmux_command__ = COMMANDS['conversation-history']
+GeneratedClientMixin.conversation_list.__cmux_command__ = COMMANDS['conversation-list']
+GeneratedClientMixin.conversation_op.__cmux_command__ = COMMANDS['conversation-op']
+GeneratedClientMixin.conversation_snapshot.__cmux_command__ = COMMANDS['conversation-snapshot']
+GeneratedClientMixin.conversation_typing.__cmux_command__ = COMMANDS['conversation-typing']
 GeneratedClientMixin.copy.__cmux_command__ = COMMANDS['copy']
 GeneratedClientMixin.create_bookmark.__cmux_command__ = COMMANDS['create-bookmark']
 GeneratedClientMixin.create_browser_profile.__cmux_command__ = COMMANDS['create-browser-profile']

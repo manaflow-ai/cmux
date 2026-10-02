@@ -71,6 +71,12 @@ public:
     [[nodiscard]] Result<JsonValue> close_tabs(const CloseTabsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<CloseTerminalResult> close_terminal(const CloseTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> close_workspace(const CloseWorkspaceRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> conversation_create(const ConversationCreateRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> conversation_history(const ConversationHistoryRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> conversation_list(const ConversationListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> conversation_op(const ConversationOpRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> conversation_snapshot(const ConversationSnapshotRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> conversation_typing(const ConversationTypingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<CopyResult> copy(const CopyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_bookmark(const CreateBookmarkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_browser_profile(const CreateBrowserProfileRequest& request, RequestOptions options = {});

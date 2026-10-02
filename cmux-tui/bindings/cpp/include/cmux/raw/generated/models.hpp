@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a";
+inline constexpr std::string_view kProtocolIrSha256 = "44e18d2ed7a231cf54c1aef9708d9b691c633398a2efa3d755e991f83896ed7c";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -191,6 +191,12 @@ struct CloseTabGroupRequest;
 struct CloseTabsRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
+struct ConversationCreateRequest;
+struct ConversationHistoryRequest;
+struct ConversationListRequest;
+struct ConversationOpRequest;
+struct ConversationSnapshotRequest;
+struct ConversationTypingRequest;
 struct CopyRequest;
 struct CreateBookmarkRequest;
 struct CreateBrowserProfileRequest;
@@ -371,6 +377,8 @@ struct ClientDetachedEvent;
 struct ClientListInvalidatedEvent;
 struct ColorsChangedEvent;
 struct ConfigReloadRequestedEvent;
+struct ConversationChangedEvent;
+struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
 struct DetachedEvent;
 struct EmptyEvent;
@@ -1144,6 +1152,67 @@ struct ConfigReloadRequestedEvent {
     friend bool operator==(const ConfigReloadRequestedEvent&, const ConfigReloadRequestedEvent&) = default;
 };
 
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct ConversationChangedEvent {
+    std::optional<JsonValue> change{};
+    std::string conversation{};
+    std::uint64_t rev{};
+    std::optional<std::string> transaction{};
+    friend bool operator==(const ConversationChangedEvent&, const ConversationChangedEvent&) = default;
+};
+
+struct ConversationCreateRequest {
+    std::string actor{};
+    std::string idempotency_key{};
+    std::optional<JsonValue> participants{};
+    std::string title{};
+    friend bool operator==(const ConversationCreateRequest&, const ConversationCreateRequest&) = default;
+};
+
+struct ConversationHistoryRequest {
+    std::uint64_t before_seq{};
+    std::string conversation{};
+    std::uint32_t limit{};
+    friend bool operator==(const ConversationHistoryRequest&, const ConversationHistoryRequest&) = default;
+};
+
+struct ConversationListRequest {
+    friend bool operator==(const ConversationListRequest&, const ConversationListRequest&) = default;
+};
+
+struct ConversationOpRequest {
+    std::string actor{};
+    std::string conversation{};
+    std::string idempotency_key{};
+    std::optional<JsonValue> op{};
+    Field<std::string> transaction{};
+    friend bool operator==(const ConversationOpRequest&, const ConversationOpRequest&) = default;
+};
+
+struct ConversationSnapshotRequest {
+    std::string conversation{};
+    std::uint32_t tail{};
+    friend bool operator==(const ConversationSnapshotRequest&, const ConversationSnapshotRequest&) = default;
+};
+
+struct ConversationTypingEvent {
+    std::string conversation{};
+    bool on{};
+    std::string participant{};
+    friend bool operator==(const ConversationTypingEvent&, const ConversationTypingEvent&) = default;
+};
+
+struct ConversationTypingRequest {
+    std::string actor{};
+    std::string conversation{};
+    bool on{};
+    friend bool operator==(const ConversationTypingRequest&, const ConversationTypingRequest&) = default;
+};
+
 enum class CopyRequestMode {
     screen,
     selection,
@@ -1182,11 +1251,6 @@ struct CreateBookmarkRequest {
     std::string title{};
     Field<std::string> url{};
     friend bool operator==(const CreateBookmarkRequest&, const CreateBookmarkRequest&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct CreateBrowserProfileRequest {
@@ -4870,6 +4934,42 @@ struct Codec<CloseWorkspaceRequest> {
 };
 
 template <>
+struct Codec<ConversationCreateRequest> {
+    static Result<Json> encode(const ConversationCreateRequest& value);
+    static Result<ConversationCreateRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationHistoryRequest> {
+    static Result<Json> encode(const ConversationHistoryRequest& value);
+    static Result<ConversationHistoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationListRequest> {
+    static Result<Json> encode(const ConversationListRequest& value);
+    static Result<ConversationListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationOpRequest> {
+    static Result<Json> encode(const ConversationOpRequest& value);
+    static Result<ConversationOpRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationSnapshotRequest> {
+    static Result<Json> encode(const ConversationSnapshotRequest& value);
+    static Result<ConversationSnapshotRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationTypingRequest> {
+    static Result<Json> encode(const ConversationTypingRequest& value);
+    static Result<ConversationTypingRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CopyRequest> {
     static Result<Json> encode(const CopyRequest& value);
     static Result<CopyRequest> decode(const Json& value);
@@ -5947,6 +6047,18 @@ template <>
 struct Codec<ConfigReloadRequestedEvent> {
     static Result<Json> encode(const ConfigReloadRequestedEvent& value);
     static Result<ConfigReloadRequestedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationChangedEvent> {
+    static Result<Json> encode(const ConversationChangedEvent& value);
+    static Result<ConversationChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationTypingEvent> {
+    static Result<Json> encode(const ConversationTypingEvent& value);
+    static Result<ConversationTypingEvent> decode(const Json& value);
 };
 
 template <>
