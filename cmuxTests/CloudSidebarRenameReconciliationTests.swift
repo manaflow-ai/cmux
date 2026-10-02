@@ -47,6 +47,13 @@ struct CloudSidebarRenameReconciliationTests {
         fixture.reconcile()
         #expect(fixture.workspace.panelCustomTitles[fixture.panelID] == nil)
         #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "terminal")
+        #expect(fixture.agentName("Pending task"))
+        let pending = CloudVMPendingMutation(kind: .tabRename, remoteTabID: "tab_main",
+            name: "Pending task", receipt: .init(generation: "fixture", revision: 3))
+        fixture.install(try fixture.state(revision: 3, includeMainTab: false),
+            observation: .init(freshness: .current, reason: nil, pendingWrites: [pending]))
+        fixture.reconcile()
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Pending task")
         #expect(fixture.workspace.setPanelCustomTitle(
             panelId: fixture.panelID, title: "Keep this tab", source: .user, catalog: fixture.catalog
         ))
