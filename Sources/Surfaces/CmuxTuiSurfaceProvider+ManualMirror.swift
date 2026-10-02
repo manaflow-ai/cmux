@@ -66,6 +66,11 @@ extension CmuxTuiSurfaceProvider {
             materializedPlacement: resolved.placement, catalog: catalog,
             allowPlacementRepair: allowPlacementRepair
         ) ?? resolved.placement ?? knownPlacement
+        if allowPlacementRepair, resource.creationAttachment == nil, confirmedPlacement == nil {
+            // A restored pane without a confirmed replacement would attach to a
+            // live numeric surface while losing its remote tab identity.
+            throw CloudDiagnosticFailure.placement
+        }
         try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
