@@ -51,6 +51,11 @@
   background: var(--acpmux-menu-press);
 }
 
+/* New chat's lists (needs input, in progress, recent): rows hover in styles.css; a press steps further. */
+.acpmux-home-row:active {
+  background: var(--acpmux-menu-press);
+}
+
 /* The picker and slash menus fade in on the appear token; ui.animationSpeed off makes it 0ms. */
 @keyframes acpmux-menu-in {
   from {
@@ -70,7 +75,8 @@
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
   }
   .acpmux-menu-item,
-  .acpmux-slash-row {
+  .acpmux-slash-row,
+  .acpmux-home-row {
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
   }
   .acpmux-menu,
