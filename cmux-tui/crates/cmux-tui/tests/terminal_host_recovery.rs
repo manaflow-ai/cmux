@@ -4421,6 +4421,12 @@ fn shutdown_daemon_end_terminals_keep_layout_keeps_tabs_across_restart() {
         for pane in screen["panes"].as_array().unwrap() {
             for tab in pane["tabs"].as_array().unwrap() {
                 assert_eq!(tab["dead"], true, "a kept tab came back live: {tab}");
+                // The workspace store's keep-layout record, with the shell's
+                // directory recorded by the session host before it ended.
+                assert!(
+                    tab["relaunch"]["cwd"].is_string(),
+                    "a kept tab has no relaunch record: {tab}"
+                );
             }
         }
     }
@@ -4437,6 +4443,7 @@ fn shutdown_daemon_end_terminals_keep_layout_keeps_tabs_across_restart() {
     let tabs = kept_workspace(&tree)["screens"][0]["panes"][1]["tabs"].clone();
     assert_eq!(tabs.as_array().unwrap().len(), 1, "{tabs}");
     assert_eq!(tabs[0]["dead"], false, "{tabs}");
+    assert!(tabs[0]["relaunch"].is_null(), "a new tab carries a relaunch record: {tabs}");
     let resolved = request_response(
         &harness.socket,
         serde_json::json!({"id": 12, "cmd": "resolve-terminal", "terminal_id": detached}),
