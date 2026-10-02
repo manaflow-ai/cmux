@@ -1662,8 +1662,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func pdf(_ params: [String: Any]) async throws -> [String: Any] {
         let panel = try panel(params)
         let data: Data = try await withWindow(panel) { [self] webView, _ in
-            // Printing runs AppKit's print machinery; if it never reports
-            // back, fall back to WebKit's single-page PDF.
+            // withWindow only lays a hidden tab out at its viewport size; the
+            // print session runs for a private offscreen window, never this
+            // one. If printing never reports back, fall back to WebKit's
+            // single-page PDF.
             do {
                 return try await self.withTimeoutThrowing(milliseconds: 20_000, what: "printing") {
                     try await BrowserReplCapture.printPDF(webView: webView, options: params)

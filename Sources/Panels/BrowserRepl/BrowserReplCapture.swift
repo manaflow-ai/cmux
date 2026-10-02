@@ -146,73 +146,29 @@ enum BrowserReplCapture {
     }
 
     /// Prints the page to a paginated PDF with Playwright's `format`, `width`,
-    /// `height`, `landscape`, `margin` and `printBackground` options.
+    /// `height`, `landscape`, `margin` and `printBackground` options, in a
+    /// print session of its own offscreen window, never the web view's.
     static func printPDF(webView: WKWebView, options: [String: Any]) async throws -> Data {
         var paper = (options["format"] as? String).flatMap(paperSize(format:)) ?? CGSize(width: 8.5 * 72, height: 11 * 72)
         if let width = points(options["width"]) { paper.width = width }
         if let height = points(options["height"]) { paper.height = height }
         if options["landscape"] as? Bool == true { paper = CGSize(width: paper.height, height: paper.width) }
         let margin = options["margin"] as? [String: Any] ?? [:]
-        return try await printPDF(
-            webView: webView,
-            paper: paper,
-            margins: NSEdgeInsets(
-                top: points(margin["top"]) ?? 0,
-                left: points(margin["left"]) ?? 0,
-                bottom: points(margin["bottom"]) ?? 0,
-                right: points(margin["right"]) ?? 0
-            ),
-            printBackground: options["printBackground"] as? Bool ?? false
-        )
-    }
-
-    private static func printPDF(
-        webView: WKWebView,
-        paper: CGSize,
-        margins: NSEdgeInsets,
-        printBackground: Bool
-    ) async throws -> Data {
-        guard let window = webView.window else {
-            throw WebKitBrowserReplDriver.error("unsupported", "Printing needs a window")
-        }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-\(UUID().uuidString).pdf")
-        defer { try? FileManager.default.removeItem(at: url) }
-        let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo()
-        printInfo.paperSize = paper
-        printInfo.topMargin = margins.top
-        printInfo.leftMargin = margins.left
-        printInfo.bottomMargin = margins.bottom
-        printInfo.rightMargin = margins.right
-        printInfo.horizontalPagination = .automatic
-        printInfo.verticalPagination = .automatic
-        printInfo.jobDisposition = .save
-        printInfo.dictionary()[NSPrintInfo.AttributeKey.jobSavingURL] = url
-
-        let preferences = webView.configuration.preferences
-        let previousBackgrounds = preferences.shouldPrintBackgrounds
-        preferences.shouldPrintBackgrounds = printBackground
-        defer { preferences.shouldPrintBackgrounds = previousBackgrounds }
-
-        let operation = webView.printOperation(with: printInfo)
-        operation.showsPrintPanel = false
-        operation.showsProgressPanel = false
-        // WebKit's print view starts with an empty frame and prints nothing
-        // until it is sized.
-        operation.view?.frame = webView.bounds
-        let succeeded: Bool = await withCheckedContinuation { continuation in
-            let completion = BrowserReplPrintCompletion { continuation.resume(returning: $0) }
-            objc_setAssociatedObject(operation, &BrowserReplPrintCompletion.keyStorage, completion, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            operation.runModal(
-                for: window,
-                delegate: completion,
-                didRun: #selector(BrowserReplPrintCompletion.printOperationDidRun(_:success:contextInfo:)),
-                contextInfo: nil
+        do {
+            return try await BrowserReplPDFPrinter.pdf(
+                of: webView,
+                paper: paper,
+                margins: NSEdgeInsets(
+                    top: points(margin["top"]) ?? 0,
+                    left: points(margin["left"]) ?? 0,
+                    bottom: points(margin["bottom"]) ?? 0,
+                    right: points(margin["right"]) ?? 0
+                ),
+                printBackground: options["printBackground"] as? Bool ?? false
             )
-        }
-        guard succeeded, let data = try? Data(contentsOf: url), !data.isEmpty else {
+        } catch is BrowserReplPDFPrinter.Failure {
             throw WebKitBrowserReplDriver.error("invalid", "Printing to PDF failed")
         }
-        return data
     }
 
     /// Playwright's cookie URL filter: domain and path match, secure only on https.
@@ -231,21 +187,5 @@ enum BrowserReplCapture {
     static func isLoopback(_ host: String) -> Bool {
         let bare = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
         return bare == "localhost" || bare.hasSuffix(".localhost") || bare == "::1" || bare.hasPrefix("127.")
-    }
-}
-
-private final class BrowserReplPrintCompletion: NSObject {
-    nonisolated(unsafe) static var keyStorage: UInt8 = 0
-
-    private var completion: ((Bool) -> Void)?
-
-    init(completion: @escaping (Bool) -> Void) {
-        self.completion = completion
-    }
-
-    @objc func printOperationDidRun(_ operation: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
-        let callback = completion
-        completion = nil
-        callback?(success)
     }
 }
