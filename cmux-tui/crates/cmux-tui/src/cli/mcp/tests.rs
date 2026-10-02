@@ -501,7 +501,10 @@ fn tool_schemas_follow_the_catalog() {
         let properties = schema["properties"].as_object().expect("properties");
         assert_eq!(schema["additionalProperties"], false);
         assert!(!properties.contains_key("machine"), "{} exposes the machine", tool.name);
-        assert_eq!(properties.contains_key("idempotency_key"), tool.mutation, "{}", tool.name);
+        // `git.checkpoint.get` looks a create up by the key it ran under.
+        let lookup = tool.wire == "git.checkpoint.get";
+        let keyed = properties.contains_key("idempotency_key");
+        assert_eq!(keyed, tool.mutation || lookup, "{}", tool.name);
         assert_eq!(properties.contains_key("offset"), tool.paginated, "{}", tool.name);
         for required in schema["required"].as_array().unwrap() {
             assert!(properties.contains_key(required.as_str().unwrap()), "{}", tool.name);

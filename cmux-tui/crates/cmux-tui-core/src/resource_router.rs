@@ -969,7 +969,13 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SidebarViewInput
         | ResourceOperation::SidebarViewResize
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
-        ResourceOperation::GitDiff | ResourceOperation::GitStatus => OperationOwner::Git,
+        ResourceOperation::GitCheckpointCreate
+        | ResourceOperation::GitCheckpointGet
+        | ResourceOperation::GitCheckpointList
+        | ResourceOperation::GitCheckpointPin
+        | ResourceOperation::GitCheckpointUnpin
+        | ResourceOperation::GitDiff
+        | ResourceOperation::GitStatus => OperationOwner::Git,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::TabPin
         | ResourceOperation::TabUnpin
