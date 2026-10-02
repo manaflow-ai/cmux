@@ -74,6 +74,7 @@ let package = Package(
         .package(path: "../../Shared/CMUXAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxTheme"),
         .package(path: "../../Shared/CmuxIrxTransport"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
@@ -340,13 +341,20 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextDesign",
-            dependencies: ["CmuxNextWakeups"],
+            dependencies: [
+                "CmuxNextWakeups",
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // Theme derivation (Ghostty colors -> chrome tokens), contrast, live reload.
         .testTarget(
             name: "CmuxNextDesignTests",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: [
+                "CmuxNextDesign",
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .target(

@@ -1,0 +1,16 @@
+Browser tab: 1, Title: "Frames Fixture", URL: "http://localhost:18765/frames.html?peer=http%3A%2F%2F127.0.0.1%3A18766".
+0 AXWebArea Frames Fixture, URL: localhost:18765/frames.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+	1 heading Frames, Value: 1
+		2 text Frames
+	3 container Description: Same origin, ID: same
+		4 AXWebArea Inner, URL: localhost:18765/frame-inner.html
+			5 container
+				6 button Inside frame, ID: inner-btn
+				7 text field (settable) Description: Frame field, ID: inner-input
+	8 container Description: Cross origin, ID: cross
+		9 AXWebArea Inner, URL: 127.0.0.1:18766/frame-inner.html
+			10 container
+				11 button Inside frame, ID: inner-btn
+				12 text field (settable) Description: Frame field, ID: inner-input
+
+The focused UI element is 0 AXWebArea Frames Fixture, URL: localhost:18765/frames.html?peer=http%3A%2F%2F127.0.0.1%3A18766

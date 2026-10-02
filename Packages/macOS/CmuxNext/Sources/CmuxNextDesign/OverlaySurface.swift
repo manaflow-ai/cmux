@@ -153,7 +153,7 @@ public final class OverlaySurfaceView: NSView {
             layer.cornerRadius = cornerRadius
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
-            layer.borderWidth = 1 / max(window?.backingScaleFactor ?? 2, 1)
+            layer.borderWidth = Metrics.lineWidth(1 / max(window?.backingScaleFactor ?? 2, 1))
         }
     }
 
@@ -171,7 +171,7 @@ public final class OverlaySurfaceView: NSView {
                 let base = Palette.windowBackground.usingColorSpace(.sRGB) ?? Palette.windowBackground
                 let fill = base.withAlphaComponent(1).blended(withFraction: ChromeTunables.opaqueOverlayLift.value, of: Palette.textPrimary.withAlphaComponent(1)) ?? base
                 materialView?.layer?.backgroundColor = fill.cgColor
-                materialView?.layer?.borderColor = Palette.separator.withAlphaComponent(1).cgColor
+                materialView?.layer?.borderColor = Borders.color(Palette.separator.withAlphaComponent(1)).cgColor
             }
         }
         applyShape()

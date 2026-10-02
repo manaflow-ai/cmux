@@ -1,0 +1,21 @@
+{
+  "oracle": {},
+  "cmux": {
+    "read-text": "clip text",
+    "pasted": "clip text",
+    "copied": "copy me",
+    "cut": [
+      "copy me",
+      ""
+    ],
+    "read-items": [
+      [
+        "text/plain",
+        "via write"
+      ]
+    ],
+    "trusted-paste": [
+      "input #clip"
+    ]
+  }
+}

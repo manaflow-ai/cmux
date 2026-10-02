@@ -1,0 +1,1968 @@
+- list:
+  - link "Skip to main content":
+    - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#content
+  - link "Skip to search":
+    - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#mdn-search
+- banner:
+  - navigation:
+    - link "MDN":
+      - /url: https://developer.mozilla.org/en-US/
+      - img "MDN"
+    - navigation:
+      - button "HTML":
+        - generic: HTML
+      - paragraph:
+        - 'link "HTML: Markup language"':
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML
+      - term: HTML reference
+      - definition:
+        - list:
+          - link "Elements":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements
+          - link "Global attributes":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes
+          - link "Attributes":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes
+          - link "See all HTML references":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference
+            - text: See all…
+      - term: HTML guides
+      - definition:
+        - list:
+          - link "Responsive images":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Responsive_images
+          - link "HTML cheatsheet":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Cheatsheet
+          - link "Date & time formats":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Date_and_time_formats
+          - link "See all HTML guides":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Guides
+            - text: See all…
+      - term: Markup languages
+      - definition:
+        - list:
+          - link "SVG":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/SVG
+          - link "MathML":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/MathML
+          - link "XML":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/XML
+      - button "CSS":
+        - generic: CSS
+      - paragraph:
+        - 'link "CSS: Styling language"':
+          - /url: https://developer.mozilla.org/en-US/docs/Web/CSS
+      - term: CSS reference
+      - definition:
+        - list:
+          - link "Properties":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties
+          - link "Selectors":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Selectors
+          - link "At-rules":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/At-rules
+          - link "Values":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values
+          - link "See all CSS references":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference
+            - text: See all…
+      - term: CSS guides
+      - definition:
+        - list:
+          - link "Box model":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Box_model/Introduction
+          - link "Animations":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Animations/Using
+          - link "Flexbox":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Flexible_box_layout/Basic_concepts
+          - link "Colors":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Colors/Applying_color
+          - link "See all CSS guides":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides
+            - text: See all…
+      - term: Layout cookbook
+      - definition:
+        - list:
+          - link "Column layouts":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/How_to/Layout_cookbook/Column_layouts
+          - link "Centering an element":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/How_to/Layout_cookbook/Center_an_element
+          - link "Card component":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/How_to/Layout_cookbook/Card
+          - link "See all…":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/How_to/Layout_cookbook
+      - button "JavaScript":
+        - generic: JavaScript
+      - paragraph:
+        - 'link "JavaScript: Scripting language"':
+          - /url: https://developer.mozilla.org/en-US/docs/Web/JavaScript
+      - term: JS reference
+      - definition:
+        - list:
+          - link "Standard built-in objects":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects
+          - link "Expressions & operators":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators
+          - link "Statements & declarations":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements
+          - link "Functions":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Functions
+          - link "See all JavaScript references":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference
+            - text: See all…
+      - term: JS guides
+      - definition:
+        - list:
+          - link "Control flow & error handling":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Control_flow_and_error_handling
+          - link "Loops and iteration":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Loops_and_iteration
+          - link "Working with objects":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Working_with_objects
+          - link "Using classes":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Using_classes
+          - link "See all JavaScript guides":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide
+            - text: See all…
+      - button "Web APIs":
+        - generic: Web APIs
+      - paragraph:
+        - 'link "Web APIs: Programming interfaces"':
+          - /url: https://developer.mozilla.org/en-US/docs/Web/API
+      - term: Web API reference
+      - definition:
+        - list:
+          - link "File system API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/File_System_API
+          - link "Fetch API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API
+          - link "Geolocation API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Geolocation_API
+          - link "HTML DOM API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/HTML_DOM_API
+          - link "Push API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Push_API
+          - link "Service worker API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API
+          - link "See all Web API guides":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API
+            - text: See all…
+      - term: Web API guides
+      - definition:
+        - list:
+          - link "Using the Web animation API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Web_Animations_API/Using_the_Web_Animations_API
+          - link "Using the Fetch API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch
+          - link "Working with the History API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/History_API/Working_with_the_History_API
+          - link "Using the Web speech API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API/Using_the_Web_Speech_API
+          - link "Using web workers":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers
+      - button "All":
+        - generic: All
+      - paragraph:
+        - link "All web technology":
+          - /url: https://developer.mozilla.org/en-US/docs/Web
+      - term: Technologies
+      - definition:
+        - list:
+          - link "Accessibility":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/Accessibility
+          - link "HTTP":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTTP
+          - link "URI":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/URI
+          - link "Web extensions":
+            - /url: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions
+          - link "WebAssembly":
+            - /url: https://developer.mozilla.org/en-US/docs/WebAssembly
+          - link "WebDriver":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/WebDriver
+          - link "See all web technology references":
+            - /url: https://developer.mozilla.org/en-US/docs/Web
+            - text: See all…
+      - term: Topics
+      - definition:
+        - list:
+          - link "Media":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/Media
+          - link "Performance":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/Performance
+          - link "Privacy":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/Privacy
+          - link "Security":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/Security
+          - link "Progressive web apps":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps
+      - button "Learn":
+        - generic: Learn
+      - paragraph:
+        - link "Learn web development":
+          - /url: https://developer.mozilla.org/en-US/docs/Learn_web_development
+      - term: Frontend developer course
+      - definition:
+        - list:
+          - link "Getting started modules":
+            - /url: https://developer.mozilla.org/en-US/docs/Learn_web_development/Getting_started
+          - link "Core modules":
+            - /url: https://developer.mozilla.org/en-US/docs/Learn_web_development/Core
+          - link "MDN Curriculum":
+            - /url: https://developer.mozilla.org/en-US/curriculum/
+          - link "Check out the video course from Scrimba, our partner (external)":
+            - /url: https://scrimba.com/frontend-path-c0j?via=mdn-learn-navbar
+      - term: Learn HTML
+      - definition:
+        - list:
+          - link "Structuring content with HTML module":
+            - /url: https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Structuring_content
+      - term: Learn CSS
+      - definition:
+        - list:
+          - link "CSS styling basics module":
+            - /url: https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Styling_basics
+          - link "CSS layout module":
+            - /url: https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/CSS_layout
+      - term: Learn JavaScript
+      - definition:
+        - list:
+          - link "Dynamic scripting with JavaScript module":
+            - /url: https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Scripting
+      - button "Tools":
+        - generic: Tools
+      - paragraph: Discover our tools
+      - list:
+        - link "Playground":
+          - /url: https://developer.mozilla.org/en-US/play
+        - link "HTTP Observatory":
+          - /url: https://developer.mozilla.org/en-US/observatory
+      - list:
+        - link "Border-image generator":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Backgrounds_and_borders/Border-image_generator
+        - link "Border-radius generator":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Backgrounds_and_borders/Border-radius_generator
+        - link "Box-shadow generator":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Backgrounds_and_borders/Box-shadow_generator
+        - link "Color format converter":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Colors/Color_format_converter
+        - link "Color mixer":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Colors/Color_mixer
+        - link "Shape generator":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Guides/Shapes/Shape_generator
+      - button "About":
+        - generic: About
+      - paragraph: Get to know MDN better
+      - list:
+        - link "About MDN":
+          - /url: https://developer.mozilla.org/en-US/about
+        - link "Advertise with us":
+          - /url: https://developer.mozilla.org/en-US/advertising
+      - list:
+        - link "Community":
+          - /url: https://developer.mozilla.org/en-US/community
+        - link "MDN on GitHub (external)":
+          - /url: https://github.com/mdn
+      - link "Blog":
+        - /url: https://developer.mozilla.org/en-US/blog/
+  - list:
+    - link "Web":
+      - /url: https://developer.mozilla.org/en-US/docs/Web
+    - link "HTML":
+      - /url: https://developer.mozilla.org/en-US/docs/Web/HTML
+    - link "Reference":
+      - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference
+    - link "Elements":
+      - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements
+    - link "<iframe>":
+      - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe
+- main:
+  - heading "<iframe> HTML inline frame element" [level=1]:
+    - code: <iframe>
+    - text: HTML inline frame element
+  - generic "Baseline Check Baseline Widely available * Chrome check Edge check Firefox check Safari check":
+    - img "Baseline Check"
+    - generic: Baseline
+    - generic: Widely available
+    - generic: "*"
+    - generic "Supported in Chrome and Edge":
+      - img "Chrome check"
+      - img "Edge check"
+    - generic "Supported in Firefox":
+      - img "Firefox check"
+    - generic "Supported in Safari":
+      - img "Safari check"
+  - paragraph:
+    - text: The
+    - strong:
+      - code: <iframe>
+    - link "HTML":
+      - /url: https://developer.mozilla.org/en-US/docs/Web/HTML
+    - text: element represents a nested
+    - link "browsing context":
+      - /url: https://developer.mozilla.org/en-US/docs/Glossary/Browsing_context
+    - text: ", embedding another document into the current one."
+  - complementary:
+    - navigation:
+      - heading "In this article" [level=2]
+      - list:
+        - link "Try it":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#try_it
+        - link "Attributes":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#attributes
+        - link "Usage notes":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#usage_notes
+        - link "Accessibility":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#accessibility
+        - link "Examples":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#examples
+        - link "Technical summary":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#technical_summary
+        - link "Specifications":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#specifications
+        - link "Browser compatibility":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#browser_compatibility
+        - link "See also":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#see_also
+  - region "Try it":
+    - heading "Try it" [level=2]:
+      - link "Try it":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#try_it
+    - paragraph:
+      - text: Each embedded browsing context has its own
+      - link "document":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/Document
+      - text: and allows URL navigations. The navigations of each embedded browsing context are linearized into the
+      - link "session history":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/History
+      - text: of the
+      - emphasis: topmost
+      - text: browsing context. The browsing context that embeds the others is called the
+      - emphasis: parent browsing context
+      - text: . The
+      - emphasis: topmost
+      - text: browsing context — the one with no parent — is usually the browser window, represented by the
+      - link "Window":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window
+        - code: Window
+      - text: object.
+    - paragraph:
+      - strong: "Warning:"
+      - text: Because each browsing context is a complete document environment, every
+      - code: <iframe>
+      - text: in a page requires increased memory and other computing resources. While theoretically you can use as many
+      - code: <iframe>
+      - text: s as you like, check for performance problems.
+  - region "Attributes":
+    - heading "Attributes" [level=2]:
+      - link "Attributes":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#attributes
+    - paragraph:
+      - text: This element includes the
+      - link "global attributes":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes
+      - text: .
+    - term:
+      - link "allow":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow
+        - code: allow
+    - definition:
+      - paragraph:
+        - text: Specifies a
+        - link "Permissions Policy":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Permissions_Policy
+        - text: for the
+        - code: <iframe>
+        - text: . The policy defines what features are available to the
+        - code: <iframe>
+        - text: (for example, access to the microphone, camera, battery, web-share, etc.) based on the origin of the request.
+      - paragraph:
+        - text: See
+        - link "iframes":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Permissions-Policy#iframes
+        - text: in the
+        - code: Permissions-Policy
+        - text: topic for examples.
+      - paragraph:
+        - strong: "Note:"
+        - text: A Permissions Policy specified by the
+        - code: allow
+        - text: attribute implements a further restriction on top of the policy specified in the
+        - link "Permissions-Policy":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Permissions-Policy
+          - code: Permissions-Policy
+        - text: header. It doesn't replace it.
+    - term:
+      - link "allowfullscreen":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allowfullscreen
+        - code: allowfullscreen
+    - definition:
+      - paragraph:
+        - text: Set to
+        - code: "true"
+        - text: if the
+        - code: <iframe>
+        - text: can activate fullscreen mode by calling the
+        - link "requestFullscreen()":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/API/Element/requestFullscreen
+          - code: requestFullscreen()
+        - text: method.
+      - paragraph:
+        - strong: "Note:"
+        - text: This attribute is considered a legacy attribute and redefined as
+        - code: allow="fullscreen *"
+        - text: .
+    - term:
+      - link "allowpaymentrequest Deprecated":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allowpaymentrequest
+        - code: allowpaymentrequest
+        - img "Deprecated"
+    - definition:
+      - paragraph:
+        - text: Set to
+        - code: "true"
+        - text: if a cross-origin
+        - code: <iframe>
+        - text: should be allowed to invoke the
+        - link "Payment Request API":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/API/Payment_Request_API
+        - text: .
+      - paragraph:
+        - strong: "Note:"
+        - text: This attribute is considered a legacy attribute and redefined as
+        - code: allow="payment *"
+        - text: .
+    - term:
+      - link "browsingtopics Non-standard Deprecated":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#browsingtopics
+        - code: browsingtopics
+        - img "Non-standard"
+        - img "Deprecated"
+    - definition:
+      - paragraph:
+        - text: A boolean attribute that, if present, specifies that the selected topics for the current user should be sent with the request for the
+        - code: <iframe>
+        - text: "'s source."
+    - term:
+      - link "credentialless Experimental":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#credentialless
+        - code: credentialless
+        - img "Experimental"
+    - definition:
+      - paragraph:
+        - text: Set to
+        - code: "true"
+        - text: to make the
+        - code: <iframe>
+        - text: credentialless, meaning that its content will be loaded in a new, ephemeral context. It doesn't have access to the network, cookies, and storage data associated with its origin. It uses a new context local to the top-level document lifetime. In return, the
+        - link "Cross-Origin-Embedder-Policy":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Embedder-Policy
+          - code: Cross-Origin-Embedder-Policy
+        - text: (COEP) embedding rules can be lifted, so documents with COEP set can embed third-party documents that do not. See
+        - link "IFrame credentialless":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/IFrame_credentialless
+        - text: for more details.
+    - term:
+      - link "csp Experimental":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#csp
+        - code: csp
+        - img "Experimental"
+    - definition:
+      - paragraph:
+        - text: A
+        - link "Content Security Policy":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP
+        - text: enforced for the embedded resource. See
+        - link "HTMLIFrameElement.csp":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/API/HTMLIFrameElement/csp
+          - code: HTMLIFrameElement.csp
+        - text: for details.
+    - term:
+      - link "height":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#height
+        - code: height
+    - definition:
+      - paragraph:
+        - text: The height of the frame in CSS pixels. Default is
+        - code: "150"
+        - text: .
+    - term:
+      - link "loading":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#loading
+        - code: loading
+    - definition:
+      - paragraph: "Indicates when the browser should load the iframe:"
+      - term:
+        - link "eager":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#eager
+          - code: eager
+      - definition:
+        - paragraph: Load the iframe immediately on page load (this is the default value).
+      - term:
+        - link "lazy":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#lazy
+          - code: lazy
+      - definition:
+        - paragraph:
+          - text: Defer loading of the iframe until it reaches a calculated distance from the
+          - link "visual viewport":
+            - /url: https://developer.mozilla.org/en-US/docs/Glossary/Visual_Viewport
+          - text: ", as defined by the browser. The intent is to avoid using the network and storage bandwidth required to fetch the frame until the browser is reasonably certain that it will be needed. This improves the performance and cost in most typical use cases, in particular by reducing initial page load times."
+        - paragraph: Loading is only deferred when JavaScript is enabled. This is an anti-tracking measure, because if a user agent supported lazy loading when scripting is disabled, it would still be possible for a site to track a user's approximate scroll position throughout a session, by strategically placing iframes in a page's markup such that a server can track how many iframes are requested and when.
+    - term:
+      - link "name":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#name
+        - code: name
+    - definition:
+      - paragraph:
+        - text: A targetable name for the embedded browsing context. This can be used in the
+        - code: target
+        - text: attribute of the
+        - link "<a>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/a
+          - code: <a>
+        - text: ","
+        - link "<form>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/form
+          - code: <form>
+        - text: ", or"
+        - link "<base>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/base
+          - code: <base>
+        - text: elements; the
+        - code: formtarget
+        - text: attribute of the
+        - link "<input>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input
+          - code: <input>
+        - text: or
+        - link "<button>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/button
+          - code: <button>
+        - text: elements; or the
+        - code: windowName
+        - text: parameter in the
+        - link "window.open()":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/open
+          - code: window.open()
+        - text: method. In addition, the name becomes a property of the
+        - link "Window":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window
+          - code: Window
+        - text: and
+        - link "Document":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/API/Document
+          - code: Document
+        - text: objects, containing a reference to the embedded window or the element itself.
+    - term:
+      - link "privateToken Experimental":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#privatetoken
+        - code: privateToken
+        - img "Experimental"
+    - definition:
+      - paragraph:
+        - text: Contains a string representation of an options object representing a
+        - link "private state token":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/API/Private_State_Token_API/Using
+        - text: operation; this object has the same structure as the
+        - code: RequestInit
+        - text: dictionary's
+        - link "privateToken":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/API/RequestInit#privatetoken
+          - code: privateToken
+        - text: property. IFrames containing this attribute can initiate operations such as issuing or redeeming tokens when their embedded content is loaded.
+    - term:
+      - link "referrerpolicy":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#referrerpolicy
+        - code: referrerpolicy
+    - definition:
+      - paragraph:
+        - text: Indicates which
+        - link "referrer":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/API/Document/referrer
+        - text: "to send when fetching the frame's resource:"
+      - term:
+        - link "no-referrer":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#no-referrer
+          - code: no-referrer
+      - definition:
+        - paragraph:
+          - text: The
+          - link "Referer":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Referer
+            - code: Referer
+          - text: header will not be sent.
+      - term:
+        - link "no-referrer-when-downgrade":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#no-referrer-when-downgrade
+          - code: no-referrer-when-downgrade
+      - definition:
+        - paragraph:
+          - text: The
+          - link "Referer":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Referer
+            - code: Referer
+          - text: header will not be sent to
+          - link "origin":
+            - /url: https://developer.mozilla.org/en-US/docs/Glossary/Origin
+          - text: s without
+          - link "TLS":
+            - /url: https://developer.mozilla.org/en-US/docs/Glossary/TLS
+          - text: (
+          - link "HTTPS":
+            - /url: https://developer.mozilla.org/en-US/docs/Glossary/HTTPS
+          - text: ).
+      - term:
+        - link "origin":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#origin
+          - code: origin
+      - definition:
+        - paragraph:
+          - text: "The sent referrer will be limited to the origin of the referring page: its"
+          - link "scheme":
+            - /url: https://developer.mozilla.org/en-US/docs/Learn_web_development/Howto/Web_mechanics/What_is_a_URL
+          - text: ","
+          - link "host":
+            - /url: https://developer.mozilla.org/en-US/docs/Glossary/Host
+          - text: ", and"
+          - link "port":
+            - /url: https://developer.mozilla.org/en-US/docs/Glossary/Port
+          - text: .
+      - term:
+        - link "origin-when-cross-origin":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#origin-when-cross-origin
+          - code: origin-when-cross-origin
+      - definition:
+        - paragraph: The referrer sent to other origins will be limited to the scheme, the host, and the port. Navigations on the same origin will still include the path.
+      - term:
+        - link "same-origin":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#same-origin
+          - code: same-origin
+      - definition:
+        - paragraph:
+          - text: A referrer will be sent for
+          - link "same origin":
+            - /url: https://developer.mozilla.org/en-US/docs/Glossary/Same-origin_policy
+          - text: ", but cross-origin requests will contain no referrer information."
+      - term:
+        - link "strict-origin":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#strict-origin
+          - code: strict-origin
+      - definition:
+        - paragraph: Only send the origin of the document as the referrer when the protocol security level stays the same (HTTPS→HTTPS), but don't send it to a less secure destination (HTTPS→HTTP).
+      - term:
+        - link "strict-origin-when-cross-origin (default)":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#strict-origin-when-cross-origin
+          - code: strict-origin-when-cross-origin
+          - text: (default)
+      - definition:
+        - paragraph: Send a full URL when performing a same-origin request, only send the origin when the protocol security level stays the same (HTTPS→HTTPS), and send no header to a less secure destination (HTTPS→HTTP).
+      - term:
+        - link "unsafe-url":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#unsafe-url
+          - code: unsafe-url
+      - definition:
+        - paragraph:
+          - text: The referrer will include the origin
+          - emphasis: and
+          - text: the path (but not the
+          - link "fragment":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/HTMLAnchorElement/hash
+          - text: ","
+          - link "password":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/HTMLAnchorElement/password
+          - text: ", or"
+          - link "username":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/HTMLAnchorElement/username
+          - text: ).
+          - strong: This value is unsafe
+          - text: ", because it leaks origins and paths from TLS-protected resources to insecure origins."
+    - term:
+      - link "sandbox":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#sandbox
+        - code: sandbox
+    - definition:
+      - paragraph:
+        - text: Controls the restrictions applied to the content embedded in the
+        - code: <iframe>
+        - text: ". The value of the attribute can either be empty to apply all restrictions, or space-separated tokens to lift particular restrictions:"
+      - term:
+        - link "allow-downloads":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-downloads
+          - code: allow-downloads
+      - definition:
+        - paragraph:
+          - text: Allows downloading files through an
+          - link "<a>":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/a
+            - code: <a>
+          - text: or
+          - link "<area>":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/area
+            - code: <area>
+          - text: element with the
+          - link "download":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/a#download
+          - text: attribute, as well as through the navigation that leads to a download of a file. This works regardless of whether the user clicked on the link, or JS code initiated it without user interaction.
+      - term:
+        - link "allow-forms":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-forms
+          - code: allow-forms
+      - definition:
+        - paragraph: Allows the page to submit forms. If this keyword is not used, a form will be displayed as normal, but submitting it will not trigger input validation, send data to a web server, or close a dialog.
+      - term:
+        - link "allow-modals":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-modals
+          - code: allow-modals
+      - definition:
+        - paragraph:
+          - text: Allows the page to open modal windows by
+          - link "Window.alert()":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/alert
+            - code: Window.alert()
+          - text: ","
+          - link "Window.confirm()":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/confirm
+            - code: Window.confirm()
+          - text: ","
+          - link "Window.print()":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/print
+            - code: Window.print()
+          - text: and
+          - link "Window.prompt()":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/prompt
+            - code: Window.prompt()
+          - text: ", while opening a"
+          - link "<dialog>":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog
+            - code: <dialog>
+          - text: is allowed regardless of this keyword. It also allows the page to receive
+          - link "BeforeUnloadEvent":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/BeforeUnloadEvent
+            - code: BeforeUnloadEvent
+          - text: event.
+      - term:
+        - link "allow-orientation-lock":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-orientation-lock
+          - code: allow-orientation-lock
+      - definition:
+        - paragraph:
+          - text: Lets the resource
+          - link "lock the screen orientation":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Screen/lockOrientation
+          - text: .
+      - term:
+        - link "allow-pointer-lock":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-pointer-lock
+          - code: allow-pointer-lock
+      - definition:
+        - paragraph:
+          - text: Allows the page to use the
+          - link "Pointer Lock API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Pointer_Lock_API
+          - text: .
+      - term:
+        - link "allow-popups":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-popups
+          - code: allow-popups
+      - definition:
+        - paragraph:
+          - text: Allows popups (created, for example, by
+          - link "Window.open()":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/open
+            - code: Window.open()
+          - text: or
+          - code: target="_blank"
+          - text: ). If this keyword is not used, such functionality will silently fail.
+      - term:
+        - link "allow-popups-to-escape-sandbox":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-popups-to-escape-sandbox
+          - code: allow-popups-to-escape-sandbox
+      - definition:
+        - paragraph:
+          - text: Allows a sandboxed document to open a new browsing context without forcing the sandboxing flags upon it. This will allow, for example, a third-party advertisement to be safely sandboxed without forcing the same restrictions upon the page the ad links to. If this flag is not included, a redirected page, popup window, or new tab will be subject to the same sandbox restrictions as the originating
+          - code: <iframe>
+          - text: .
+      - term:
+        - link "allow-presentation":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-presentation
+          - code: allow-presentation
+      - definition:
+        - paragraph:
+          - text: Allows embedders to have control over whether an iframe can start a
+          - link "presentation session":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/PresentationRequest
+          - text: .
+      - term:
+        - link "allow-same-origin":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-same-origin
+          - code: allow-same-origin
+      - definition:
+        - paragraph:
+          - text: If this token is not used, the resource is treated as being from a special origin that always fails the
+          - link "same-origin policy":
+            - /url: https://developer.mozilla.org/en-US/docs/Glossary/Same-origin_policy
+          - text: (potentially preventing access to
+          - link "data storage/cookies":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Same-origin_policy#cross-origin_data_storage_access
+          - text: and some JavaScript APIs).
+        - paragraph:
+          - strong: "Note:"
+          - text: When
+          - code: allow-same-origin
+          - text: is present, a same-origin parent document can still access and interact with the iframe's DOM even if
+          - code: allow-scripts
+          - text: is not set. The
+          - code: allow-scripts
+          - text: token only controls script execution within the embedded browsing context and does not affect DOM access from the parent.
+      - term:
+        - link "allow-scripts":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-scripts
+          - code: allow-scripts
+      - definition:
+        - paragraph: Allows the page to run scripts (but not create pop-up windows). If this keyword is not used, this operation is not allowed.
+      - term:
+        - link "allow-storage-access-by-user-activation Experimental":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-storage-access-by-user-activation
+          - code: allow-storage-access-by-user-activation
+          - img "Experimental"
+      - definition:
+        - paragraph:
+          - text: Allows a document loaded in the
+          - code: <iframe>
+          - text: to use the
+          - link "Storage Access API":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Storage_Access_API
+          - text: to request access to unpartitioned cookies.
+      - term:
+        - link "allow-top-navigation":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-top-navigation
+          - code: allow-top-navigation
+      - definition:
+        - paragraph:
+          - text: Lets the resource navigate the top-level browsing context (the one named
+          - code: _top
+          - text: ).
+      - term:
+        - link "allow-top-navigation-by-user-activation":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-top-navigation-by-user-activation
+          - code: allow-top-navigation-by-user-activation
+      - definition:
+        - paragraph: Lets the resource navigate the top-level browsing context, but only if initiated by a user gesture.
+      - term:
+        - link "allow-top-navigation-to-custom-protocols":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-top-navigation-to-custom-protocols
+          - code: allow-top-navigation-to-custom-protocols
+      - definition:
+        - paragraph:
+          - text: Allows navigations to non-
+          - code: http
+          - text: protocols built into browser or
+          - link "registered by a website":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/API/Navigator/registerProtocolHandler
+          - text: . This feature is also activated by
+          - code: allow-popups
+          - text: or
+          - code: allow-top-navigation
+          - text: keyword.
+      - paragraph:
+        - strong: "Note:"
+      - list:
+        - text: The
+        - code: sandbox
+        - text: attribute can block the browser's built-in PDF viewer. See
+        - link "Embedding PDFs":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#embedding_pdfs
+        - text: .
+        - text: When the embedded document has the same origin as the embedding page, it is
+        - strong: strongly discouraged
+        - text: to use both
+        - code: allow-scripts
+        - text: and
+        - code: allow-same-origin
+        - text: ", as that lets the embedded document remove the"
+        - code: sandbox
+        - text: attribute — making it no more secure than not using the
+        - code: sandbox
+        - text: attribute at all.
+        - text: Sandboxing is useless if the attacker can display content outside a sandboxed
+        - code: iframe
+        - text: — such as if the viewer opens the frame in a new tab. Such content should be also served from a
+        - emphasis: separate origin
+        - text: to limit potential damage.
+      - paragraph:
+        - strong: "Note:"
+        - text: When redirecting the user, opening a popup window, or opening a new tab from an embedded page within an
+        - code: <iframe>
+        - text: with the
+        - code: sandbox
+        - text: attribute, the new browsing context is subject to the same
+        - code: sandbox
+        - text: restrictions. This can create issues — for example, if a page embedded within an
+        - code: <iframe>
+        - text: without a
+        - code: sandbox="allow-forms"
+        - text: or
+        - code: sandbox="allow-popups-to-escape-sandbox"
+        - text: attribute set on it opens a new site in a separate tab, form submission in that new browsing context will silently fail.
+    - term:
+      - link "src":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#src
+        - code: src
+    - definition:
+      - paragraph:
+        - text: The URL of the page to embed. Use a value of
+        - code: about:blank
+        - text: to embed an empty page that conforms to the
+        - link "same-origin policy":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Same-origin_policy#inherited_origins
+        - text: . Also note that programmatically removing an
+        - code: <iframe>
+        - text: "'s src attribute (e.g., via"
+        - link "Element.removeAttribute()":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/API/Element/removeAttribute
+          - code: Element.removeAttribute()
+        - text: ) causes
+        - code: about:blank
+        - text: to be loaded in the frame in Firefox (from version 65), Chromium-based browsers, and Safari/iOS.
+      - paragraph:
+        - strong: "Note:"
+        - text: The
+        - code: about:blank
+        - text: page uses the embedding document's URL as its base URL when resolving any relative URLs, such as anchor links.
+    - term:
+      - link "srcdoc":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#srcdoc
+        - code: srcdoc
+    - definition:
+      - paragraph:
+        - text: Inline HTML to embed, overriding the
+        - code: src
+        - text: attribute. Its content should follow the syntax of a full HTML document, which includes the doctype directive,
+        - code: <html>
+        - text: ","
+        - code: <body>
+        - text: tags, etc., although most of them can be omitted, leaving only the body content. This doc will have
+        - code: about:srcdoc
+        - text: as its location. If a browser does not support the
+        - code: srcdoc
+        - text: attribute, it will fall back to the URL in the
+        - code: src
+        - text: attribute.
+      - paragraph:
+        - strong: "Note:"
+        - text: The
+        - code: about:srcdoc
+        - text: page uses the embedding document's URL as its base URL when resolving any relative URLs, such as anchor links.
+    - term:
+      - link "width":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#width
+        - code: width
+    - definition:
+      - paragraph:
+        - text: The width of the frame in CSS pixels. Default is
+        - code: "300"
+        - text: .
+  - region "Deprecated attributes":
+    - heading "Deprecated attributes" [level=3]:
+      - link "Deprecated attributes":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#deprecated_attributes
+    - paragraph: These attributes are deprecated and may no longer be supported by all user agents. You should not use them in new content, and try to remove them from existing content.
+    - term:
+      - link "align Deprecated":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#align
+        - code: align
+        - img "Deprecated"
+    - definition:
+      - paragraph: The alignment of this element with respect to the surrounding context.
+    - term:
+      - link "frameborder Deprecated":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#frameborder
+        - code: frameborder
+        - img "Deprecated"
+    - definition:
+      - paragraph:
+        - text: The value
+        - code: "1"
+        - text: (the default) draws a border around this frame. The value
+        - code: "0"
+        - text: removes the border around this frame, but you should instead use the CSS property
+        - link "border":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/border
+          - code: border
+        - text: to control
+        - code: <iframe>
+        - text: borders.
+    - term:
+      - link "longdesc Deprecated":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#longdesc
+        - code: longdesc
+        - img "Deprecated"
+    - definition:
+      - paragraph: A URL of a long description of the frame's content. Due to widespread misuse, this is not helpful for non-visual browsers.
+    - term:
+      - link "marginheight Deprecated":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#marginheight
+        - code: marginheight
+        - img "Deprecated"
+    - definition:
+      - paragraph: The amount of space in pixels between the frame's content and its top and bottom borders.
+    - term:
+      - link "marginwidth Deprecated":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#marginwidth
+        - code: marginwidth
+        - img "Deprecated"
+    - definition:
+      - paragraph: The amount of space in pixels between the frame's content and its left and right borders.
+    - term:
+      - link "scrolling Deprecated":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#scrolling
+        - code: scrolling
+        - img "Deprecated"
+    - definition:
+      - paragraph: "Indicates when the browser should provide a scrollbar for the frame:"
+      - term:
+        - link "auto":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#auto
+          - code: auto
+      - definition:
+        - paragraph: Only when the frame's content is larger than its dimensions.
+      - term:
+        - link "yes":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#yes
+          - code: "yes"
+      - definition:
+        - paragraph: Always show a scrollbar.
+      - term:
+        - link "no":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#no
+          - code: "no"
+      - definition:
+        - paragraph: Never show a scrollbar.
+  - region "Usage notes":
+    - heading "Usage notes" [level=2]:
+      - link "Usage notes":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#usage_notes
+  - region "Scripting":
+    - heading "Scripting" [level=3]:
+      - link "Scripting":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#scripting
+    - paragraph:
+      - text: Inline frames, like
+      - link "<frame>":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/frame
+        - code: <frame>
+      - text: elements, are included in the
+      - link "window.frames":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/frames
+        - code: window.frames
+      - text: pseudo-array.
+    - paragraph:
+      - text: With the DOM
+      - link "HTMLIFrameElement":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/HTMLIFrameElement
+        - code: HTMLIFrameElement
+      - text: object, scripts can access the
+      - link "window":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window
+        - code: window
+      - text: object of the framed resource via the
+      - link "contentWindow":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/HTMLIFrameElement/contentWindow
+        - code: contentWindow
+      - text: property. The
+      - link "contentDocument":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/HTMLIFrameElement/contentDocument
+        - code: contentDocument
+      - text: property refers to the
+      - code: document
+      - text: inside the
+      - code: <iframe>
+      - text: ", same as"
+      - code: contentWindow.document
+      - text: .
+    - paragraph:
+      - text: From the inside of a frame, a script can get a reference to its parent window with
+      - link "window.parent":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/parent
+        - code: window.parent
+      - text: .
+    - paragraph:
+      - text: Script access to a frame's content is subject to the
+      - link "same-origin policy":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Same-origin_policy
+      - text: . Scripts cannot access most properties in other
+      - code: window
+      - text: objects if the script was loaded from a different origin, including scripts inside a frame accessing the frame's parent. Cross-origin communication can be achieved using
+      - link "Window.postMessage()":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage
+        - code: Window.postMessage()
+      - text: .
+    - heading "Top navigation in cross-origin frames" [level=4]
+    - paragraph:
+      - text: Scripts running in a same-origin frame can access the
+      - link "Window.top":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/top
+        - code: Window.top
+      - text: property and set
+      - link "window.top.location":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/location
+        - code: window.top.location
+      - text: to redirect the top-level page to a new location. This behavior is referred to as "top navigation".
+    - paragraph:
+      - text: A cross-origin frame is allowed to redirect the top-level page using
+      - code: top
+      - text: only if the frame has
+      - link "sticky activation":
+        - /url: https://developer.mozilla.org/en-US/docs/Glossary/Sticky_activation
+      - text: . If top navigation is blocked, browsers may either prompt for user permission to redirect or report the error in the developer console (or both). This restriction by browsers is called
+      - emphasis: framebusting intervention
+      - text: . What this means is that a cross-origin frame can't immediately redirect the top-level page — the user must have previously interacted with the frame or granted permission to redirect.
+    - paragraph:
+      - text: A sandboxed frame blocks all top navigation unless the
+      - code: sandbox
+      - text: attribute values are set to
+      - link "allow-top-navigation":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-top-navigation
+        - code: allow-top-navigation
+      - text: or
+      - link "allow-top-navigation-by-user-activation":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#allow-top-navigation-by-user-activation
+        - code: allow-top-navigation-by-user-activation
+      - text: . Note that top-navigation permissions are inherited, so a nested frame can perform a top navigation only if its parent frames are also allowed to.
+  - region "Embedding PDFs":
+    - heading "Embedding PDFs" [level=3]:
+      - link "Embedding PDFs":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#embedding_pdfs
+    - paragraph:
+      - text: An
+      - code: <iframe>
+      - text: can display a PDF using the browser's built-in PDF viewer. Unlike
+      - link "<object>":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/object
+        - code: <object>
+      - text: ", it does not support child content as a fallback if the PDF cannot be displayed. Provide a link outside the"
+      - code: <iframe>
+      - text: so users can open the PDF separately.
+    - paragraph:
+      - text: The
+      - link "sandbox":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#sandbox
+        - code: sandbox
+      - text: attribute can prevent the built-in PDF viewer from loading, even with
+      - code: allow-scripts
+      - text: or
+      - code: allow-downloads
+      - text: . It is not a portable way to add restrictions to a native PDF preview. The browser's PDF viewer already sandboxes all executable content.
+  - region "Positioning and scaling":
+    - heading "Positioning and scaling" [level=3]:
+      - link "Positioning and scaling":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#positioning_and_scaling
+    - paragraph:
+      - text: Being a
+      - link "replaced element":
+        - /url: https://developer.mozilla.org/en-US/docs/Glossary/Replaced_elements
+      - text: ", the"
+      - code: <iframe>
+      - text: allows the position of the embedded document within its box to be adjusted using the
+      - link "object-position":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/object-position
+        - code: object-position
+      - text: property.
+    - paragraph:
+      - strong: "Note:"
+      - text: The
+      - link "object-fit":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/object-fit
+        - code: object-fit
+      - text: property has no effect on
+      - code: <iframe>
+      - text: elements.
+  - region "error and load event behavior":
+    - heading "error and load event behavior" [level=3]:
+      - link "error and load event behavior":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#error_and_load_event_behavior
+        - code: error
+        - text: and
+        - code: load
+        - text: event behavior
+    - paragraph:
+      - text: The
+      - code: error
+      - text: and
+      - code: load
+      - text: events fired on
+      - code: <iframe>
+      - text: s could be used to probe the URL space of the local network's HTTP servers. Therefore, as a security precaution user agents do not fire the
+      - link "error":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/error_event
+      - text: event on
+      - code: <iframe>
+      - text: s, and the
+      - link "load":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/load_event
+      - text: event is always triggered even if the
+      - code: <iframe>
+      - text: content fails to load.
+  - region "Responsive <iframe> sizing":
+    - heading "Responsive <iframe> sizing" [level=3]:
+      - link "Responsive <iframe> sizing":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#responsive_iframe_sizing
+        - text: Responsive
+        - code: <iframe>
+        - text: sizing
+    - paragraph:
+      - text: For security and privacy reasons,
+      - code: <iframe>
+      - text: elements do not by default expose any information to the parent document about the size of the content in the document they are embedding.
+    - paragraph:
+      - text: To enable responsive sizing of
+      - code: <iframe>
+      - text: elements based on their content, the
+      - link "<meta name=\"responsive-embedded-sizing\">":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meta/name/responsive-embedded-sizing
+        - code: <meta name="responsive-embedded-sizing">
+      - text: tag can be included in an embedded document to opt it in to sharing its size information with the parent document. The
+      - link "frame-sizing":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/frame-sizing
+        - code: frame-sizing
+      - text: CSS property can then be set on the
+      - code: <iframe>
+      - text: to cause it to adopt the same horizontal or vertical size as the embedded document's actual content size. This ensures that
+      - code: <iframe>
+      - text: content fits seamlessly into its embedder, avoiding unnecessary scrollbars.
+    - paragraph:
+      - text: To resize the
+      - code: <iframe>
+      - text: dynamically as the embedded document changes layout size, you can call the
+      - link "Window.requestResize()":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/API/Window/requestResize
+        - code: Window.requestResize()
+      - text: method from the embedded document to make it report an updated size.
+  - region "Accessibility":
+    - heading "Accessibility" [level=2]:
+      - link "Accessibility":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#accessibility
+    - paragraph:
+      - text: People navigating with assistive technology such as a screen reader can use the
+      - link "title attribute":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes/title
+        - code: title
+        - text: attribute
+      - text: on an
+      - code: <iframe>
+      - text: "to label its content. The title's value should concisely describe the embedded content:"
+    - paragraph:
+      - text: Without this title, they have to navigate into the
+      - code: <iframe>
+      - text: to determine what its embedded content is. This context shift can be confusing and time-consuming, especially for pages with multiple
+      - code: <iframe>
+      - text: s and/or if embeds contain interactive content like video or audio.
+  - region "Examples":
+    - heading "Examples" [level=2]:
+      - link "Examples":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#examples
+  - region "A basic <iframe>":
+    - heading "A basic <iframe>" [level=3]:
+      - link "A basic <iframe>":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#a_basic_iframe
+    - paragraph:
+      - text: This example embeds the page at
+      - link "https://example.org (external)":
+        - /url: https://example.org/
+      - text: "in an iframe. This is a common use case of iframes: to embed content from another site. For example, the live sample itself, and the"
+      - link "try it":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#try_it
+      - text: example at the top, are both
+      - code: <iframe>
+      - text: embeds of content from another MDN site.
+    - heading "HTML" [level=4]
+    - heading "Result" [level=4]
+  - region "Embedding source code in an <iframe>":
+    - heading "Embedding source code in an <iframe>" [level=3]:
+      - link "Embedding source code in an <iframe>":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#embedding_source_code_in_an_iframe
+    - paragraph:
+      - text: This example directly renders source code in an iframe. This can be used as a technique to prevent script injection when displaying user-generated content, when combined with the
+      - code: sandbox
+      - text: attribute.
+    - paragraph:
+      - text: Note that when using
+      - code: srcdoc
+      - text: ", any relative URLs in the embedded content will be resolved relative to the URL of the embedding page. If you want to use anchor links that point to places in the embedded content, you need to explicitly specify"
+      - code: about:srcdoc
+      - text: as the base URL.
+    - heading "HTML" [level=4]
+    - paragraph:
+      - text: Here's how to write escape sequences when using
+      - code: srcdoc
+      - text: ":"
+    - list:
+      - text: First, write the HTML out, escaping anything you would escape in a normal HTML document (such as
+      - code: <
+      - text: ","
+      - code: ">"
+      - text: ","
+      - code: "&"
+      - text: ", etc.)."
+      - code: "&lt;"
+      - text: and
+      - code: <
+      - text: represent the exact same character in the
+      - code: srcdoc
+      - text: attribute. Therefore, to make it an actual escape sequence in the HTML document, replace any ampersands (
+      - code: "&"
+      - text: ) with
+      - code: "&amp;"
+      - text: . For example,
+      - code: "&lt;"
+      - text: becomes
+      - code: "&amp;lt;"
+      - text: ", and"
+      - code: "&amp;"
+      - text: becomes
+      - code: "&amp;amp;"
+      - text: .
+      - text: Replace any double quotes (
+      - code: "\""
+      - text: ) with
+      - code: "&quot;"
+      - text: to prevent the
+      - code: srcdoc
+      - text: attribute from being prematurely terminated (if you use
+      - code: "'"
+      - text: instead, then you should replace
+      - code: "'"
+      - text: with
+      - code: "&apos;"
+      - text: instead). This step happens after the previous one, so
+      - code: "&quot;"
+      - text: generated in this step doesn't become
+      - code: "&amp;quot;"
+      - text: .
+    - heading "Result" [level=4]
+  - region "Technical summary":
+    - heading "Technical summary" [level=2]:
+      - link "Technical summary":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#technical_summary
+    - figure:
+      - table:
+        - rowgroup:
+          - row "Content categories Flow content, phrasing content, embedded content, interactive content, palpable content.":
+            - rowheader "Content categories":
+              - link "Content categories":
+                - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Content_categories
+            - cell "Flow content, phrasing content, embedded content, interactive content, palpable content.":
+              - link "Flow content":
+                - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Content_categories#flow_content
+              - text: ","
+              - link "phrasing content":
+                - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Content_categories#phrasing_content
+              - text: ", embedded content, interactive content, palpable content."
+          - row "Permitted content None.":
+            - rowheader "Permitted content"
+            - cell "None."
+          - row "Tag omission None, both the starting and ending tags are mandatory.":
+            - rowheader "Tag omission"
+            - cell "None, both the starting and ending tags are mandatory."
+          - row "Permitted parents Any element that accepts embedded content.":
+            - rowheader "Permitted parents"
+            - cell "Any element that accepts embedded content."
+          - row "Implicit ARIA role No corresponding role (external)":
+            - rowheader "Implicit ARIA role"
+            - cell "No corresponding role (external)":
+              - link "No corresponding role (external)":
+                - /url: https://w3c.github.io/html-aria/#dfn-no-corresponding-role
+          - row "Permitted ARIA roles application, document, img, none, presentation":
+            - rowheader "Permitted ARIA roles"
+            - cell "application, document, img, none, presentation":
+              - link "application":
+                - /url: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Roles/application_role
+                - code: application
+              - text: ","
+              - link "document":
+                - /url: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Roles/document_role
+                - code: document
+              - text: ","
+              - link "img":
+                - /url: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Roles/img_role
+                - code: img
+              - text: ","
+              - link "none":
+                - /url: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Roles/none_role
+                - code: none
+              - text: ","
+              - link "presentation":
+                - /url: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Reference/Roles/presentation_role
+                - code: presentation
+          - row "DOM interface HTMLIFrameElement":
+            - rowheader "DOM interface"
+            - cell "HTMLIFrameElement":
+              - link "HTMLIFrameElement":
+                - /url: https://developer.mozilla.org/en-US/docs/Web/API/HTMLIFrameElement
+                - code: HTMLIFrameElement
+  - region "Specifications":
+    - heading "Specifications" [level=2]:
+      - link "Specifications":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#specifications
+    - table:
+      - rowgroup:
+        - row "Specification":
+          - columnheader "Specification"
+      - rowgroup:
+        - 'row "HTML # the-iframe-element (external)"':
+          - 'cell "HTML # the-iframe-element (external)"':
+            - 'link "HTML # the-iframe-element (external)"':
+              - /url: https://html.spec.whatwg.org/multipage/iframe-embed-object.html#the-iframe-element
+              - text: HTML
+              - text: "# the-iframe-element (external)"
+  - region "Browser compatibility":
+    - heading "Browser compatibility" [level=2]:
+      - link "Browser compatibility":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#browser_compatibility
+  - region "See also":
+    - heading "See also" [level=2]:
+      - link "See also":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe#see_also
+    - list:
+      - 'link "CSP: frame-ancestors"':
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/frame-ancestors
+      - link "Privacy, permissions, and information security":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/Privacy
+      - link "Local network access":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Local_network_access
+  - region "Help improve MDN":
+    - heading "Help improve MDN" [level=2]
+    - link "Learn how to contribute":
+      - /url: https://developer.mozilla.org/en-US/docs/MDN/Community/Getting_started
+    - paragraph:
+      - text: This page was last modified on
+      - time: Sep 16, 2026
+      - text: by
+      - link "MDN contributors":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe/contributors.txt
+      - text: .
+    - link "View this page on GitHub (external)":
+      - /url: https://github.com/mdn/content/blob/main/files/en-us/web/html/reference/elements/iframe/index.md?plain=1
+    - text: •
+    - link "Report a problem with this content (external)":
+      - /url: https://github.com/mdn/content/issues/new?template=page-report.yml&mdn-url=https%3A%2F%2Fdeveloper.mozilla.org%2Fen-US%2Fdocs%2FWeb%2FHTML%2FReference%2FElements%2Fiframe&metadata=%3C%21--+Do+not+make+changes+below+this+line+--%3E%0A%3Cdetails%3E%0A%3Csummary%3EPage+report+details%3C%2Fsummary%3E%0A%0A*+Folder%3A+%60en-us%2Fweb%2Fhtml%2Freference%2Felements%2Fiframe%60%0A*+MDN+URL%3A+https%3A%2F%2Fdeveloper.mozilla.org%2Fen-US%2Fdocs%2FWeb%2FHTML%2FReference%2FElements%2Fiframe%0A*+GitHub+URL%3A+https%3A%2F%2Fgithub.com%2Fmdn%2Fcontent%2Fblob%2Fmain%2Ffiles%2Fen-us%2Fweb%2Fhtml%2Freference%2Felements%2Fiframe%2Findex.md%0A*+Last+commit%3A+https%3A%2F%2Fgithub.com%2Fmdn%2Fcontent%2Fcommit%2F456c370394c0cd8869feb60c4e9926f35422beaf%0A*+Document+last+modified%3A+2026-09-16T03%3A52%3A25.000Z%0A%0A%3C%2Fdetails%3E
+- complementary:
+  - navigation:
+    - list:
+      - link "HTML":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML
+      - generic "Guides":
+        - link "Guides":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Guides
+      - link "How to":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/How_to
+      - link "Define terms with HTML":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/How_to/Define_terms_with_HTML
+      - link "Use data attributes":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/How_to/Use_data_attributes
+      - link "Use cross-origin images":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/How_to/CORS_enabled_image
+      - link "Add a hitmap on top of an image":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/How_to/Add_a_hit_map_on_top_of_an_image
+      - link "Author fast-loading HTML pages":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/How_to/Author_fast-loading_HTML_pages
+      - link "Add JavaScript":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/How_to/Add_JavaScript_to_your_web_page
+      - link "Reference":
+        - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference
+      - generic "Elements":
+        - link "Elements":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements
+      - list:
+        - link "<a>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/a
+          - code: <a>
+        - link "<abbr>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/abbr
+          - code: <abbr>
+        - link "<acronym> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/acronym
+          - code: <acronym>
+          - img "Deprecated"
+        - link "<address>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/address
+          - code: <address>
+        - link "<area>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/area
+          - code: <area>
+        - link "<article>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/article
+          - code: <article>
+        - link "<aside>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/aside
+          - code: <aside>
+        - link "<audio>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/audio
+          - code: <audio>
+        - link "<b>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/b
+          - code: <b>
+        - link "<base>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/base
+          - code: <base>
+        - link "<bdi>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/bdi
+          - code: <bdi>
+        - link "<bdo>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/bdo
+          - code: <bdo>
+        - link "<big> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/big
+          - code: <big>
+          - img "Deprecated"
+        - link "<blockquote>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/blockquote
+          - code: <blockquote>
+        - link "<body>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/body
+          - code: <body>
+        - link "<br>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/br
+          - code: <br>
+        - link "<button>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/button
+          - code: <button>
+        - link "<canvas>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/canvas
+          - code: <canvas>
+        - link "<caption>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/caption
+          - code: <caption>
+        - link "<center> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/center
+          - code: <center>
+          - img "Deprecated"
+        - link "<cite>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/cite
+          - code: <cite>
+        - link "<code>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/code
+          - code: <code>
+        - link "<col>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/col
+          - code: <col>
+        - link "<colgroup>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/colgroup
+          - code: <colgroup>
+        - link "<data>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/data
+          - code: <data>
+        - link "<datalist>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/datalist
+          - code: <datalist>
+        - link "<dd>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dd
+          - code: <dd>
+        - link "<del>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/del
+          - code: <del>
+        - link "<details>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/details
+          - code: <details>
+        - link "<dfn>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dfn
+          - code: <dfn>
+        - link "<dialog>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog
+          - code: <dialog>
+        - link "<dir> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dir
+          - code: <dir>
+          - img "Deprecated"
+        - link "<div>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/div
+          - code: <div>
+        - link "<dl>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dl
+          - code: <dl>
+        - link "<dt>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dt
+          - code: <dt>
+        - link "<em>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/em
+          - code: <em>
+        - link "<embed>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/embed
+          - code: <embed>
+        - link "<fencedframe> Deprecated, pending removal":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/fencedframe
+          - code: <fencedframe>
+          - img "Deprecated, pending removal"
+        - link "<fieldset>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/fieldset
+          - code: <fieldset>
+        - link "<figcaption>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/figcaption
+          - code: <figcaption>
+        - link "<figure>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/figure
+          - code: <figure>
+        - link "<font> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/font
+          - code: <font>
+          - img "Deprecated"
+        - link "<footer>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/footer
+          - code: <footer>
+        - link "<form>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/form
+          - code: <form>
+        - link "<frame> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/frame
+          - code: <frame>
+          - img "Deprecated"
+        - link "<frameset> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/frameset
+          - code: <frameset>
+          - img "Deprecated"
+        - link "<geolocation> Experimental":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/geolocation
+          - code: <geolocation>
+          - img "Experimental"
+        - link "<h1>–<h6>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/Heading_Elements
+          - code: <h1>–<h6>
+        - link "<head>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/head
+          - code: <head>
+        - link "<header>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/header
+          - code: <header>
+        - link "<hgroup>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/hgroup
+          - code: <hgroup>
+        - link "<hr>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/hr
+          - code: <hr>
+        - link "<html>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/html
+          - code: <html>
+        - link "<i>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/i
+          - code: <i>
+        - emphasis:
+          - link "<iframe>":
+            - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/iframe
+            - code: <iframe>
+        - link "<img>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img
+          - code: <img>
+        - link "<input>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input
+          - code: <input>
+        - link "<ins>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/ins
+          - code: <ins>
+        - link "<kbd>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/kbd
+          - code: <kbd>
+        - link "<label>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/label
+          - code: <label>
+        - link "<legend>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/legend
+          - code: <legend>
+        - link "<li>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/li
+          - code: <li>
+        - link "<link>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/link
+          - code: <link>
+        - link "<main>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/main
+          - code: <main>
+        - link "<map>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/map
+          - code: <map>
+        - link "<mark>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/mark
+          - code: <mark>
+        - link "<marquee> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/marquee
+          - code: <marquee>
+          - img "Deprecated"
+        - link "<menu>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/menu
+          - code: <menu>
+        - link "<meta>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meta
+          - code: <meta>
+        - link "<meter>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meter
+          - code: <meter>
+        - link "<nav>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/nav
+          - code: <nav>
+        - link "<nobr> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/nobr
+          - code: <nobr>
+          - img "Deprecated"
+        - link "<noembed> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/noembed
+          - code: <noembed>
+          - img "Deprecated"
+        - link "<noframes> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/noframes
+          - code: <noframes>
+          - img "Deprecated"
+        - link "<noscript>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/noscript
+          - code: <noscript>
+        - link "<object>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/object
+          - code: <object>
+        - link "<ol>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/ol
+          - code: <ol>
+        - link "<optgroup>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/optgroup
+          - code: <optgroup>
+        - link "<option>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/option
+          - code: <option>
+        - link "<output>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/output
+          - code: <output>
+        - link "<p>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/p
+          - code: <p>
+        - link "<param> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/param
+          - code: <param>
+          - img "Deprecated"
+        - link "<picture>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/picture
+          - code: <picture>
+        - link "<plaintext> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/plaintext
+          - code: <plaintext>
+          - img "Deprecated"
+        - link "<pre>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/pre
+          - code: <pre>
+        - link "<progress>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/progress
+          - code: <progress>
+        - link "<q>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/q
+          - code: <q>
+        - link "<rb> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/rb
+          - code: <rb>
+          - img "Deprecated"
+        - link "<rp>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/rp
+          - code: <rp>
+        - link "<rt>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/rt
+          - code: <rt>
+        - link "<rtc> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/rtc
+          - code: <rtc>
+          - img "Deprecated"
+        - link "<ruby>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/ruby
+          - code: <ruby>
+        - link "<s>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/s
+          - code: <s>
+        - link "<samp>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/samp
+          - code: <samp>
+        - link "<script>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script
+          - code: <script>
+        - link "<search>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/search
+          - code: <search>
+        - link "<section>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/section
+          - code: <section>
+        - link "<select>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/select
+          - code: <select>
+        - link "<selectedcontent>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/selectedcontent
+          - code: <selectedcontent>
+        - link "<slot>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/slot
+          - code: <slot>
+        - link "<small>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/small
+          - code: <small>
+        - link "<source>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/source
+          - code: <source>
+        - link "<span>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/span
+          - code: <span>
+        - link "<strike> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/strike
+          - code: <strike>
+          - img "Deprecated"
+        - link "<strong>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/strong
+          - code: <strong>
+        - link "<style>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/style
+          - code: <style>
+        - link "<sub>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/sub
+          - code: <sub>
+        - link "<summary>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/summary
+          - code: <summary>
+        - link "<sup>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/sup
+          - code: <sup>
+        - link "<table>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/table
+          - code: <table>
+        - link "<tbody>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/tbody
+          - code: <tbody>
+        - link "<td>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/td
+          - code: <td>
+        - link "<template>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/template
+          - code: <template>
+        - link "<textarea>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/textarea
+          - code: <textarea>
+        - link "<tfoot>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/tfoot
+          - code: <tfoot>
+        - link "<th>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/th
+          - code: <th>
+        - link "<thead>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/thead
+          - code: <thead>
+        - link "<time>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/time
+          - code: <time>
+        - link "<title>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/title
+          - code: <title>
+        - link "<tr>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/tr
+          - code: <tr>
+        - link "<track>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/track
+          - code: <track>
+        - link "<tt> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/tt
+          - code: <tt>
+          - img "Deprecated"
+        - link "<u>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/u
+          - code: <u>
+        - link "<ul>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/ul
+          - code: <ul>
+        - link "<var>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/var
+          - code: <var>
+        - link "<video>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/video
+          - code: <video>
+        - link "<wbr>":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/wbr
+          - code: <wbr>
+        - link "<xmp> Deprecated":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/xmp
+          - code: <xmp>
+          - img "Deprecated"
+      - generic "Attributes":
+        - link "Attributes":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes
+      - generic "Global attributes":
+        - link "Global attributes":
+          - /url: https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes
+      - generic "Attributes by element":
+        - generic: Attributes by element
+      - generic "Attribute values":
+        - generic: Attribute values
+- contentinfo:
+  - link "MDN logo":
+    - /url: https://developer.mozilla.org/
+    - img "MDN"
+  - paragraph: Your blueprint for a better internet.
+  - list:
+    - link "MDN on GitHub":
+      - /url: https://github.com/mdn/
+    - link "MDN on Bluesky":
+      - /url: https://bsky.app/profile/developer.mozilla.org
+    - link "MDN on X":
+      - /url: https://x.com/mozdevnet
+    - link "MDN on Mastodon":
+      - /url: https://mastodon.social/@mdn
+    - link "MDN blog RSS feed":
+      - /url: https://developer.mozilla.org/en-US/blog/rss.xml
+  - term: MDN
+  - definition:
+    - list:
+      - link "About":
+        - /url: https://developer.mozilla.org/en-US/about
+      - link "Blog":
+        - /url: https://developer.mozilla.org/en-US/blog/
+      - link "Mozilla careers (external)":
+        - /url: https://www.mozilla.org/en-US/careers/listings/
+      - link "Advertise with us":
+        - /url: https://developer.mozilla.org/en-US/advertising
+      - link "MDN Plus":
+        - /url: https://developer.mozilla.org/en-US/plus
+      - link "Product help (external)":
+        - /url: https://support.mozilla.org/products/mdn-plus
+  - term: Contribute
+  - definition:
+    - list:
+      - link "MDN Community":
+        - /url: https://developer.mozilla.org/en-US/community
+      - link "Community resources":
+        - /url: https://developer.mozilla.org/en-US/docs/MDN/Community
+      - link "Writing guidelines":
+        - /url: https://developer.mozilla.org/en-US/docs/MDN/Writing_guidelines
+      - link "MDN Discord (external)":
+        - /url: https://developer.mozilla.org/discord
+      - link "MDN on GitHub (external)":
+        - /url: https://github.com/mdn
+  - term: Developers
+  - definition:
+    - list:
+      - link "Web technologies":
+        - /url: https://developer.mozilla.org/en-US/docs/Web
+      - link "Learn web development":
+        - /url: https://developer.mozilla.org/en-US/docs/Learn_web_development
+      - link "Guides":
+        - /url: https://developer.mozilla.org/en-US/docs/MDN/Guides
+      - link "Tutorials":
+        - /url: https://developer.mozilla.org/en-US/docs/MDN/Tutorials
+      - link "Glossary":
+        - /url: https://developer.mozilla.org/en-US/docs/Glossary
+      - link "Hacks blog (external)":
+        - /url: https://hacks.mozilla.org/
+  - link "Mozilla logo":
+    - /url: https://www.mozilla.org/
+    - img "Mozilla"
+  - list:
+    - link "Website Privacy Notice (external)":
+      - /url: https://www.mozilla.org/privacy/websites/
+    - link "Telemetry Settings (external)":
+      - /url: https://www.mozilla.org/en-US/privacy/websites/data-preferences/
+    - link "Legal (external)":
+      - /url: https://www.mozilla.org/about/legal/terms/mozilla
+    - link "Community Participation Guidelines (external)":
+      - /url: https://www.mozilla.org/about/governance/policies/participation/
+  - paragraph:
+    - text: Portions of this content are ©1998–2026 by individual mozilla.org contributors. Content available under
+    - link "a Creative Commons license":
+      - /url: https://developer.mozilla.org/docs/MDN/Writing_guidelines/Attrib_copyright_license
+    - text: .
