@@ -71,6 +71,8 @@ publish = false
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
+# `cargo kani` sets cfg(kani) for the proof harnesses in cmux-layout-reducer.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
 
 [workspace.lints.clippy]
 uninlined_format_args = "warn"
