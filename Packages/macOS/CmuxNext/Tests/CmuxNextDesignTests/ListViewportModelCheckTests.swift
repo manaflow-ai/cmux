@@ -9,9 +9,13 @@ import Testing
 /// and every change (remove a row, insert a row, move focus, remove the
 /// focused row with its successor focused) to depth 3. V1-V6 are checked
 /// after every step; each mutant breaks one and must be caught.
-@Suite struct ListViewportModelCheckTests {
+/// Nonisolated and serialized: the exploration is seconds to minutes of CPU,
+/// which on the main actor (this target's default isolation) stalls every
+/// main-actor test in the process past its time limit; serialized keeps the
+/// mutant cases from filling the cooperative pool at once.
+@Suite(.serialized) nonisolated struct ListViewportModelCheckTests {
     typealias Viewport = ListViewport<Int>
-    typealias Settle = (_ new: Viewport, _ old: Viewport, _ offset: CGFloat, _ focused: Int?, _ newFocus: Int?) -> CGFloat
+    typealias Settle = @Sendable (_ new: Viewport, _ old: Viewport, _ offset: CGFloat, _ focused: Int?, _ newFocus: Int?) -> CGFloat
 
     static let padding: CGFloat = 4
     static let real: Settle = { new, old, offset, focused, newFocus in

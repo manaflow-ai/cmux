@@ -1,4 +1,4 @@
-// Prototype glyphs in the atlas stroke style: 16px box, 1.25 stroke, currentColor.
+// Prototype glyphs in the reference stroke style: 16px box, 1.25 stroke, currentColor.
 import type { ReactNode } from "react";
 
 function Glyph({ children, size = 16 }: { children: ReactNode; size?: number }) {

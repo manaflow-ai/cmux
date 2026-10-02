@@ -10,11 +10,14 @@ const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
   ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
 );
+const { proseMirrorGlobals, promptField, typeInto } = await import("./promptFieldTesting");
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // The composer's prompt is a Milkdown (ProseMirror) editor.
+  ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 afterAll(() => Object.assign(globals, saved));
@@ -66,15 +69,8 @@ const modes = {
   ],
 };
 
-/// Types into the prompt through React's change handler (see composer.test.tsx for why).
-function typeInto(node: HTMLTextAreaElement, value: string) {
-  node.value = value;
-  node.setSelectionRange(value.length, value.length);
-  const props = (node as unknown as Record<string, { onChange(event: { target: HTMLTextAreaElement }): void }>)[
-    Object.keys(node).find((key) => key.startsWith("__reactProps$"))!
-  ]!;
-  props.onChange({ target: node });
-}
+/// Milkdown makes the composer's editor a task after it mounts.
+const ready = () => act(() => new Promise((resolve) => setTimeout(resolve, 10)));
 
 describe("acpmux composer pickers", () => {
   let root: ReturnType<typeof createRoot>;
@@ -115,7 +111,7 @@ describe("acpmux composer pickers", () => {
     await act(async () => root.unmount());
   });
 
-  test("the model and the effort are two dropdowns, each with its current choice checked", async () => {
+  test("the model is a dropdown with its current choice checked; the effort is a stepped slider", async () => {
     await render(snapshot({ configOptions: [effort] }));
     expect(button("Model")!.textContent).toBe("6 Astra");
     expect(button("Effort")!.textContent).toBe("High");
@@ -130,7 +126,23 @@ describe("acpmux composer pickers", () => {
     expect(calls).toEqual(["model sol"]);
     expect(doc.querySelector("[role=listbox]")).toBeNull();
     await act(async () => button("Effort")!.click());
-    expect(options()).toEqual(["Medium", "High *"]);
+    // The popover names the effort and the model over one stop per level.
+    expect(doc.querySelector(".acpmux-effort-title")!.textContent).toBe("High");
+    expect(doc.querySelector(".acpmux-effort-model")!.textContent).toBe("6 Astra");
+    const range = doc.querySelector<HTMLInputElement>(".acpmux-effort-range")!;
+    expect([range.min, range.max, range.value]).toEqual(["0", "1", "1"]);
+    // Through React's change handler: react-dom may load before the DOM exists (see typeInto).
+    await act(async () => {
+      range.value = "0";
+      const props = (range as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
+        Object.keys(range).find((key) => key.startsWith("__reactProps$"))!
+      ]!;
+      props.onChange({ target: range });
+    });
+    expect(calls).toEqual(["model sol", "effort reasoning_effort medium"]);
+    // Escape closes it back to the chip.
+    await key(range, "Escape");
+    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
   });
 
   test("arrows and Enter pick from the menu, and Escape closes it back to the button", async () => {
@@ -151,23 +163,33 @@ describe("acpmux composer pickers", () => {
   });
 
   test("Space picks on keyup without the button's click reopening the menu, and a shrunk list keeps a row highlighted", async () => {
-    await render(snapshot({ configOptions: [effort] }));
-    const level = button("Effort")!;
-    // The highlight opens on the current effort, the last one.
-    await key(level, "ArrowDown");
-    expect(doc.getElementById(level.getAttribute("aria-activedescendant")!)!.textContent).toBe("High");
+    const full = { ...modes, currentModeId: "bypassPermissions" };
+    await render(snapshot({ modes: full }));
+    const mode = button("Mode")!;
+    // The highlight opens on the current mode, the last one.
+    await key(mode, "ArrowDown");
+    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Full access");
     // A live update drops that option while it is highlighted.
-    await render(snapshot({ configOptions: [{ ...effort, options: [effort.options[0]!] }] }));
-    expect(doc.getElementById(level.getAttribute("aria-activedescendant")!)!.textContent).toBe("Medium");
-    await key(level, " ");
-    expect(level.getAttribute("aria-expanded")).toBe("true");
+    await render(snapshot({ modes: { ...full, availableModes: [full.availableModes[0]!] } }));
+    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Ask for approval");
+    await key(mode, " ");
+    expect(mode.getAttribute("aria-expanded")).toBe("true");
     const up = new dom.window.KeyboardEvent("keyup", { key: " ", bubbles: true, cancelable: true });
     await act(async () => {
-      level.dispatchEvent(up);
+      mode.dispatchEvent(up);
     });
     expect(up.defaultPrevented).toBe(true);
-    expect(calls).toEqual(["effort reasoning_effort medium"]);
-    expect(level.getAttribute("aria-expanded")).toBe("false");
+    expect(calls).toEqual(["mode ask"]);
+    expect(mode.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("the approval menu asks its question over the described modes", async () => {
+    await render(snapshot({ modes }));
+    await act(async () => button("Mode")!.click());
+    const menu = doc.querySelector("[role=listbox]")!;
+    expect(menu.getAttribute("aria-label")).toBe("How should the agent's actions be approved?");
+    expect(menu.querySelector(".acpmux-menu-heading")!.textContent).toBe("How should the agent's actions be approved?");
+    expect(menu.textContent).toContain("Always ask");
   });
 
   test("a model the catalog doesn't list still shows by the id the agent reported", async () => {
@@ -263,10 +285,10 @@ describe("acpmux composer send button", () => {
   let root: ReturnType<typeof createRoot>;
   let sent: string[];
   let stops: number;
-  const textarea = () => doc.querySelector("textarea")!;
+  const textarea = () => promptField(doc);
   const send = () => doc.querySelector(".acpmux-send")!;
-  const render = async (value: AcpmuxSnapshot) =>
-    act(async () =>
+  const render = async (value: AcpmuxSnapshot) => {
+    await act(async () =>
       root.render(
         createElement(Composer, {
           snapshot: value,
@@ -280,6 +302,8 @@ describe("acpmux composer send button", () => {
         }),
       ),
     );
+    await ready();
+  };
   const key = async (name: string, init: KeyboardEventInit = {}) =>
     act(async () => {
       textarea().dispatchEvent(
@@ -353,8 +377,8 @@ describe("acpmux composer send button", () => {
 describe("acpmux composer context", () => {
   test("the tray names the project, the machine and the branch, and the worktree switch shows whether the session has one", async () => {
     const root = createRoot(doc.getElementById("root")!);
-    const render = async (summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>>) =>
-      act(async () =>
+    const render = async (summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>>) => {
+      await act(async () =>
         root.render(
           createElement(Composer, {
             snapshot: snapshot(summary),
@@ -364,6 +388,8 @@ describe("acpmux composer context", () => {
           }),
         ),
       );
+      await ready();
+    };
     const chips = () =>
       [...doc.querySelectorAll(".acpmux-context-chip")].map(
         (chip) => `${chip.textContent}|${chip.getAttribute("title") ?? ""}`,
@@ -404,8 +430,8 @@ describe("acpmux composer context", () => {
 describe("acpmux composer queue", () => {
   test("queued prompts list above the bar in order, and the list goes away when empty", async () => {
     const root = createRoot(doc.getElementById("root")!);
-    const render = async (queue: AcpmuxSnapshot["queue"]) =>
-      act(async () =>
+    const render = async (queue: AcpmuxSnapshot["queue"]) => {
+      await act(async () =>
         root.render(
           createElement(Composer, {
             snapshot: { ...snapshot({}, true), queue },
@@ -415,6 +441,8 @@ describe("acpmux composer queue", () => {
           }),
         ),
       );
+      await ready();
+    };
     try {
       await render([
         { id: "p1", prompt: "first" },
@@ -428,9 +456,9 @@ describe("acpmux composer queue", () => {
       ]);
       expect(list.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
       // The slash menu anchors to the field, so the queue never pushes it up.
-      await act(async () => typeInto(doc.querySelector("textarea")!, "/"));
+      await act(async () => typeInto(promptField(doc), "/"));
       expect(doc.querySelector(".acpmux-composer-box > .acpmux-slash-menu")).not.toBeNull();
-      await act(async () => typeInto(doc.querySelector("textarea")!, ""));
+      await act(async () => typeInto(promptField(doc), ""));
       await render([]);
       expect(doc.querySelector(".acpmux-composer-queue")).toBeNull();
     } finally {

@@ -5,7 +5,7 @@ import Testing
 
 /// Exhaustive model check of the column strip scroll after closes,
 /// creations and focus moves (close-focus.md, user 2026-10-01: "what is
-/// the best way to handle scroll ... in horizontal niri scroll"). Strips
+/// the best way to handle scroll ... in horizontal column scroll"). Strips
 /// of up to 4 columns (widths 30, 55 or 100 percent of the viewport, two
 /// viewport widths), every focused column and every reachable scroll
 /// offset, every step to depth 6. The focus successor is
@@ -19,7 +19,11 @@ import Testing
 /// the clamp forces a move, S4 a reveal is minimal, S5 a close left of
 /// the viewport does not move what the user sees, S6 a second sync of the
 /// same strip does not scroll again.
-@Suite struct ColumnScrollCloseModelCheckTests {
+/// Nonisolated and serialized: the exploration is seconds to minutes of CPU,
+/// which on the main actor (this target's default isolation) stalls every
+/// main-actor test in the process past its time limit; serialized keeps the
+/// mutant cases from filling the cooperative pool at once.
+@Suite(.serialized) nonisolated struct ColumnScrollCloseModelCheckTests {
     struct World: Hashable {
         var widths: [Int]          // percent of the viewport, by column order
         var ids: [Int]
@@ -128,7 +132,7 @@ import Testing
         }
         // S4: a changed focus is revealed with the least motion from the
         // anchored offset (the old focus keeps its screen x when it survives).
-        // niri's restore point: closing the column just opened right of the
+        // the restore point: closing the column just opened right of the
         // focused one puts back the offset from before the open (an undo
         // of that scroll, close-focus.md decision 5) instead of the least
         // motion.

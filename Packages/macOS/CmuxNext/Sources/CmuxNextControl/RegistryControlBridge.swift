@@ -196,6 +196,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.browserFocused, "browserFocused"),
         (.canvasLayout, "canvasLayout"),
         (.simulatorFocused, "simulatorFocused"),
+        (.agentPaneFocused, "agentPaneFocused"),
         (.diffViewerFocused, "diffViewerFocused"),
         (.filePreviewFocused, "filePreviewFocused"),
         (.markdownFocused, "markdownFocused"),

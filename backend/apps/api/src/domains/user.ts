@@ -53,6 +53,7 @@ export const userDomain: Domain<UserState> = {
           id: p.user,
           stack_user_id: p.stack_user_id,
           email: p.email ?? null,
+          email_verified: p.email_verified === true,
           display_name: p.display_name ?? p.email?.split("@")[0] ?? "cmux user",
           personal_team: p.team
         }

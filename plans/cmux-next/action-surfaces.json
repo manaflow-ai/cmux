@@ -2562,6 +2562,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "tab search",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "tab.search",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "tab move-to-new-workspace",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5591,6 +5602,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "liveInput",
+      "cli_name" : "action agent-pane-search-chats",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.searchChats",
+      "mcp" : "liveInput",
+      "palette" : "offered"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "agent open-terminal-as-chat",
       "context_menu" : "noObject",
@@ -7504,12 +7526,45 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "sidebar remove-from-sidebar",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarItem"
+      ],
+      "id" : "sidebar.item.removeEverywhere",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "sidebar remove-item",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarItem"
       ],
       "id" : "sidebar.item.remove",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar hide-app",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarItem"
+      ],
+      "id" : "sidebar.item.hideApp",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar toggle-item-label",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarItem"
+      ],
+      "id" : "sidebar.item.toggleLabel",
       "mcp" : "offered",
       "palette" : "offered"
     },
@@ -7593,6 +7648,72 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "sidebar section-layout-list",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.layoutList",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar section-layout-inline",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.layoutInline",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar section-layout-grid",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.layoutGrid",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar set-section-alignment",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.setAlignment",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar set-section-gap",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.setGap",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar set-section-columns",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarSection"
+      ],
+      "id" : "sidebar.section.setColumns",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "sidebar toggle-section-title",
       "context_menu" : "offered",
       "context_menus" : [
@@ -7654,6 +7775,50 @@
         "sidebarBackground"
       ],
       "id" : "sidebar.layout.reset",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action app-store-show",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "id" : "appStore.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action app-store-show-installed",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "appStore.showInstalled",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "apps hide",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "app.hide",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "apps unhide",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "app.unhide",
       "mcp" : "offered",
       "palette" : "offered"
     }

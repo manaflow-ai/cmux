@@ -1,4 +1,4 @@
-// Fine-grained reactive core (SolidJS-shaped), the same model as the old cmux
+// Fine-grained reactive core (signals, effects, owner scopes), the same model as the old cmux
 // JS sidebar runtime: signals, effects that track what they read, and owner
 // scopes that dispose child effects. Effects never run per tick; a write marks
 // the readers dirty and one flush re-runs exactly those readers.

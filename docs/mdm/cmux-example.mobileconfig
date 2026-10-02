@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>DisabledFeatures</key>
+			<array/>
+			<key>PayloadDisplayName</key>
+			<string>cmux settings</string>
+			<key>PayloadIdentifier</key>
+			<string>com.manaflow.cmux.example.settings</string>
+			<key>PayloadType</key>
+			<string>com.manaflow.cmux</string>
+			<key>PayloadUUID</key>
+			<string>5B0C4E42-7D8A-4C55-9C3E-2D6F4A1B9E01</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>history.terminalCommands</key>
+			<false/>
+			<key>window.rail</key>
+			<string>off</string>
+			<key>window.titlebar</key>
+			<string>minimal</string>
+		</dict>
+	</array>
+	<key>PayloadDescription</key>
+	<string>Example managed settings for cmux. Generated from the settings catalog; see managed-preferences.md.</string>
+	<key>PayloadDisplayName</key>
+	<string>cmux (example)</string>
+	<key>PayloadIdentifier</key>
+	<string>com.manaflow.cmux.example</string>
+	<key>PayloadScope</key>
+	<string>System</string>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>5B0C4E42-7D8A-4C55-9C3E-2D6F4A1B9E00</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>

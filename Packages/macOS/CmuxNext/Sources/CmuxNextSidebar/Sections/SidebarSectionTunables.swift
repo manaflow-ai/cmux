@@ -9,7 +9,7 @@ public nonisolated enum SectionsLookVariant: String, Sendable, CaseIterable, Has
     case quiet
     /// Each section of a sticky band sits in a rounded inset card.
     case card
-    /// Built-in sections lay out as an icon grid (Arc favorites).
+    /// Built-in sections lay out as an icon grid.
     case tray
     /// No headers; a thin line between sections (a tonal step under
     /// `appearance.borders = none`).
@@ -84,6 +84,9 @@ public nonisolated enum SidebarSectionTunables {
 
     public static var all: [TunableDescriptor] { [look.descriptor, localPrototype.descriptor] }
 
-    /// The live look: the Debug Settings override, else quiet.
-    @MainActor public static var currentLook: SectionsLookVariant { look.override ?? look.defaultValue }
+    /// The live look: the Debug Settings override, else `sidebar.sectionLook`
+    /// in cmux.json (quiet by default).
+    @MainActor public static var currentLook: SectionsLookVariant {
+        look.override ?? SectionsLookVariant(rawValue: DesignSettings.shared.sidebarSections.look) ?? .quiet
+    }
 }

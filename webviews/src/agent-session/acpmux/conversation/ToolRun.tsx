@@ -1,4 +1,4 @@
-// A settled run of tool calls as Codex draws it: one summary line ("Read files, ran commands")
+// A settled run of tool calls: one summary line ("Read files, ran commands")
 // that opens to the calls themselves, in a list that scrolls past nine rows.
 import { useId, useState, type ReactNode } from "react";
 import type { AcpmuxActivity } from "../model";

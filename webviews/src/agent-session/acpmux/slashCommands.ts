@@ -1,7 +1,7 @@
 /// The agent's slash commands (ACP `available_commands_update`) and the
 /// composer's `/` menu over them: the menu opens while the prompt is a single
 /// `/word` at its start, filters by that word, and picking a command writes
-/// `/name ` back so its arguments can follow, as in Codex and Claude.
+/// `/name ` back so its arguments can follow.
 
 export type SlashCommand = { name: string; description: string; hint?: string };
 
@@ -47,7 +47,7 @@ export function matchCommands(commands: SlashCommand[], query: string): SlashMat
 }
 
 /// Where `needle` starts a word of `name` after a `-`, `_`, `:`, `.` or `$`
-/// (Codex lists skills as `$name`), or -1.
+/// (some agents list skills as `$name`), or -1.
 function wordStart(name: string, needle: string): number {
   for (let at = name.indexOf(needle, 1); at > 0; at = name.indexOf(needle, at + 1)) {
     if ("-_:.$".includes(name[at - 1])) return at;

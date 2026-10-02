@@ -14,31 +14,16 @@ import {
   TeamMember,
   UserProfile
 } from "./schemas.ts"
+import { automationOps } from "./automation-ops.ts"
+import { integrationOps } from "./integrations.ts"
+import { feedOps } from "./feed.ts"
+import { enrollmentOps } from "./enrollment-ops.ts"
+import { ssoOps } from "./sso-ops.ts"
+import { policyOps } from "./policy-ops.ts"
 
-/**
- * Cloud operations, authored in Effect Schema (spec D7). `catalog:export`
- * writes them into the cmux operation catalog; the API Worker routes and
- * validates with the same definitions.
- */
-export interface CloudOpDef<P extends Schema.Top = Schema.Top, R extends Schema.Top = Schema.Top> {
-  readonly name: string
-  readonly owner: "cloud:UserDO" | "cloud:TeamDO"
-  readonly class: "read" | "mutation"
-  readonly risk: "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
-  readonly target: string
-  /** Who may call: a Stack session (human), an install token, or both. */
-  readonly principals: ReadonlyArray<"session" | "install">
-  readonly params: P
-  readonly result: R
-  readonly errors: ReadonlyArray<string>
-  readonly docs: string
-  readonly cli: { readonly path: string; readonly visible: boolean }
-  readonly mcp: { readonly expose: "default" | "opt_in" | "never"; readonly group: string }
-}
+export { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
+import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 
-const def = <P extends Schema.Top, R extends Schema.Top>(d: CloudOpDef<P, R>) => d
-
-const mutationErrors = ["validation.invalid", "idempotency.conflict", "revision.conflict", "auth.forbidden", "auth.unauthenticated"]
 
 export const UserEnsure = def({
   name: "user.ensure",
@@ -167,7 +152,22 @@ export const HostRemove = def({
   mcp: { expose: "never", group: "team" }
 })
 
-export const cloudOps = [UserEnsure, InstallRegister, InstallRename, InstallRevoke, InstallList, TeamDirectory, HostEnroll, HostRemove] as const
+export const cloudOps = [
+  UserEnsure,
+  InstallRegister,
+  InstallRename,
+  InstallRevoke,
+  InstallList,
+  TeamDirectory,
+  HostEnroll,
+  HostRemove,
+  ...automationOps,
+  ...integrationOps,
+  ...feedOps,
+  ...policyOps,
+  ...enrollmentOps,
+  ...ssoOps
+] as const
 
 export type CloudOpName = (typeof cloudOps)[number]["name"]
 

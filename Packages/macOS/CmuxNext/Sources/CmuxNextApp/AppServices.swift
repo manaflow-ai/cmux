@@ -76,6 +76,10 @@ final class AppServices {
     private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
+    /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
+    private(set) lazy var apps = AppsService(services: self)
+    /// Home: local conversations with the mux (plans/cmux-next/home.md).
+    private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
     /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md).
@@ -159,8 +163,9 @@ final class AppServices {
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery] in
             crashRecovery.marker?.installHandlers()
-            // Chromium resets signal actions at start; SIGTERM stays a quit.
-            QuitSignal.ignoreProcessSignal()
+            // Chromium resets signal actions at start and catches SIGINT and
+            // SIGHUP itself; they stay requested quits.
+            QuitSignal.reclaim()
         }
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
             // Chromium wanted a window and has none for that profile (a

@@ -3,12 +3,12 @@ import CmuxNextDesign
 
 /// The page area of a tab shows the Ghostty theme background
 /// (`Palette.pageBackground`) only before its first real page (a new tab,
-/// loading); after it, a page without a background of its own is white, as
-/// in Chrome and Safari, popups and moved tabs included (coordinator
+/// loading); after it, a page without a background of its own is white
+/// (the web default), popups and moved tabs included (coordinator
 /// decision 2026-09-30, both engines). Chromium starts on
 /// `CefBrowserSettings.background_color` and switches per tab with
 /// `cmux_browser_set_background_color` (fork API 12, which also paints it
-/// in Chrome's contents view, so it survives tab moves and popups).
+/// in Chromium's contents view, so it survives tab moves and popups).
 nonisolated enum PageBackground {
     /// A URL whose document keeps the theme color in WebKit: nothing, or
     /// the page of a new tab.
@@ -23,7 +23,7 @@ nonisolated enum PageBackground {
     /// does the same (`CEFTab.pastFirstRealPage`).
     static func startsWithTheme(openedByPage: Bool) -> Bool { !openedByPage }
 
-    /// Chrome's white default, 0xAARRGGBB.
+    /// Chromium's white default, 0xAARRGGBB.
     static let engineDefaultARGB: UInt32 = 0xFFFF_FFFF
 
     /// The Chromium page background: the theme color until the tab's first

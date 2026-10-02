@@ -9,6 +9,7 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     case notifications
     case history
     case bookmarks
+    case appStore = "app_store"
 }
 
 /// What an item points at: a kind and a string value. Kinds this client
@@ -28,6 +29,8 @@ public nonisolated struct LayoutItemRef: Hashable, Sendable, Codable {
     public static let roomKind = "room"
     public static let savedGroupKind = "saved_group"
     public static let urlKind = "url"
+    /// An installed cmux app (`<publisher>/<name>`); its menu offers Hide.
+    public static let appKind = "app"
 
     public static func builtIn(_ item: SidebarBuiltIn) -> LayoutItemRef { LayoutItemRef(kind: builtInKind, value: item.rawValue) }
     /// A qualified public workspace id (`<session>:ws_…`).
@@ -37,6 +40,7 @@ public nonisolated struct LayoutItemRef: Hashable, Sendable, Codable {
     public static func room(_ id: String) -> LayoutItemRef { LayoutItemRef(kind: roomKind, value: id) }
     public static func savedGroup(_ id: String) -> LayoutItemRef { LayoutItemRef(kind: savedGroupKind, value: id) }
     public static func url(_ url: String) -> LayoutItemRef { LayoutItemRef(kind: urlKind, value: url) }
+    public static func app(_ id: String) -> LayoutItemRef { LayoutItemRef(kind: appKind, value: id) }
 
     /// The built-in this ref names, or nil (another kind, or a built-in
     /// from a newer client).
@@ -46,9 +50,25 @@ public nonisolated struct LayoutItemRef: Hashable, Sendable, Codable {
 public nonisolated struct LayoutItem: Hashable, Sendable, Codable, Identifiable {
     public var id: LayoutItemID
     public var ref: LayoutItemRef
+    /// False: the item shows its icon only on a line (inline arrangement),
+    /// like the account avatar beside Settings.
+    public var showsLabel: Bool
 
-    public init(id: LayoutItemID, ref: LayoutItemRef) {
+    public init(id: LayoutItemID, ref: LayoutItemRef, showsLabel: Bool = true) {
         self.id = id
         self.ref = ref
+        self.showsLabel = showsLabel
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, ref
+        case showsLabel = "shows_label"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(LayoutItemID.self, forKey: .id)
+        ref = try c.decode(LayoutItemRef.self, forKey: .ref)
+        showsLabel = try c.decodeIfPresent(Bool.self, forKey: .showsLabel) ?? true
     }
 }

@@ -1,9 +1,0 @@
-# note: interactive (clickable / focusable) elements only.
-- title: "Files Fixture" [url=http://localhost:18765/files.html?peer=http%3A%2F%2F127.0.0.1%3A18766]
-- text: "Single"
-- button "Single" [ref=e1]
-- text: "Many"
-- button "Many" [ref=e2]
-- button "Choose via button" [ref=e3]
-- link "Download file" [ref=e4]
-- text: "none"

@@ -36,6 +36,7 @@ extension SidebarBuiltIn {
         case .notifications: "bell"
         case .history: "clock.arrow.circlepath"
         case .bookmarks: "bookmark"
+        case .appStore: "bag"
         }
     }
 
@@ -48,6 +49,7 @@ extension SidebarBuiltIn {
         case .notifications: SectionStrings.notifications
         case .history: SectionStrings.history
         case .bookmarks: SectionStrings.bookmarks
+        case .appStore: SectionStrings.appStore
         }
     }
 
@@ -65,6 +67,7 @@ extension SidebarItemInfo {
         case LayoutItemRef.roomKind: "circle.grid.2x2"
         case LayoutItemRef.savedGroupKind: "folder"
         case LayoutItemRef.urlKind: "globe"
+        case LayoutItemRef.appKind: "app.dashed"
         default: "questionmark.square.dashed"
         }
         return SidebarItemInfo(title: ref.value, symbol: symbol, isMissing: true)

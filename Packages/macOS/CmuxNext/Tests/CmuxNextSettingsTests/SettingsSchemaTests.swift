@@ -34,7 +34,7 @@ import Testing
         case .color: ["#112233", "#11223344"]
         case .sound: ["default", "none", "Glass"]
         case .url: ["", "https://example.com/start", "example.com"]
-        case .hostList: [[], ["mail.google.com", "*.figma.com"]]
+        case .hostList: [[], ["mail.google.com", "*.example.com"]]
         case .timeRange: [["start": "22:00", "end": "07:30"]]
         }
     }

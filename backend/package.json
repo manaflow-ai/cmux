@@ -5,15 +5,18 @@
   "workspaces": [
     "packages/*",
     "apps/*",
-    "db"
+    "db",
+    "../clients/ts/*"
   ],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test",
     "catalog:export": "bun run --cwd packages/protocol catalog:export",
-    "catalog:check": "bun run --cwd packages/protocol catalog:check",
+    "catalog:check": "bun run --cwd packages/protocol catalog:check && bun run --cwd packages/protocol catalog:client:check",
     "db:migrate": "bun run --cwd db migrate",
     "e2e:staging": "bun run --cwd db e2e --env staging",
-    "e2e:development": "bun run --cwd db e2e --env development"
+    "e2e:development": "bun run --cwd db e2e --env development",
+    "catalog:client": "bun run --cwd packages/protocol catalog:client",
+    "lint:size": "bun scripts/check-file-size.ts"
   }
 }

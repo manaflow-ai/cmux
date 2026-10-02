@@ -41,6 +41,10 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.debugSettingsUnavailable", "Debug Settings exist only in DEV and NIGHTLY builds")
     }
     static var settingArgumentRequired: String { text("handlers.refusal.settingArgumentRequired", "setting is required (a dotted cmux.json path)") }
+    static func settingManaged(_ key: String) -> String {
+        format("handlers.refusal.settingManaged", "%@ is managed by your organization", key)
+    }
+
     static func settingNotToggle(_ key: String) -> String {
         format("handlers.refusal.settingNotToggle", "%@ is not an on/off setting; change it in Settings", key)
     }

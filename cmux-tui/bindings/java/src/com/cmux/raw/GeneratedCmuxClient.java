@@ -163,6 +163,46 @@ public abstract class GeneratedCmuxClient {
         return WorkspaceMutationResult.fromWire(result);
     }
 
+    public final Object conversationAgentToken(ConversationAgentTokenRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_AGENT_TOKEN, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object conversationBind(ConversationBindRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_BIND, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object conversationCreate(ConversationCreateRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_CREATE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object conversationHistory(ConversationHistoryRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_HISTORY, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object conversationList() throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_LIST, Map.of());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object conversationOp(ConversationOpRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_OP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object conversationSnapshot(ConversationSnapshotRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_SNAPSHOT, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object conversationTyping(ConversationTypingRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_TYPING, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final CopyResult copy(CopyRequest request) throws CmuxException {
         Object result = execute(Commands.COPY, request.toWire());
         return CopyResult.fromWire(result);

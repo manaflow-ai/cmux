@@ -7,4 +7,5 @@ bun "$host/js/build.ts" --check
 bun "$host/tools/gen-cmux-global.ts" --check
 bun "$root/samples/apps/build.ts" --check
 (cd "$host/js" && bun test)
+"$root/scripts/cmux-next/sync-app-runtime.sh" --check
 echo "app platform checks passed"

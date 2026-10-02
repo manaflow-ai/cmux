@@ -25,10 +25,10 @@ public struct BookmarkFolderChoice: Hashable, Sendable, Identifiable {
     }
 }
 
-/// Chrome's "Bookmark added" / "Edit bookmark" bubble from the omnibar star:
+/// The "Bookmark added" / "Edit bookmark" bubble from the omnibar star:
 /// Name, Folder, Remove, Done, and More… for the manager. Return or Done
-/// saves; Escape or a click outside closes and also saves (Chrome keeps
-/// edits on close).
+/// saves; Escape or a click outside closes and also saves (edits are kept
+/// on close).
 @MainActor
 public final class BookmarkEditBubble: NSObject, NSPopoverDelegate {
     public struct Result: Sendable {

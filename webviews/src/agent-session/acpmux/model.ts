@@ -5,6 +5,8 @@ export type AcpmuxRow = {
   version: number;
   at: number;
   kind: string;
+  /// The acpmux event a turn summary came from, where a fork through that turn ends.
+  seq?: number;
   text?: string;
   streaming?: boolean;
   pending?: boolean;
@@ -21,6 +23,8 @@ export type AcpmuxRow = {
   /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
   /// folds under one summary line (conversation/toolRunSummary.ts).
   settled?: boolean;
+  /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
+  previous?: number;
 };
 
 export type AcpmuxActivity = {
@@ -88,6 +92,8 @@ export type AcpmuxSnapshot = {
   connection: string;
   sessionId?: string;
   isWorking: boolean;
+  /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
+  canFork?: boolean;
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
   catalog: { id: string; name: string; models: { id: string; name?: string }[] }[];
@@ -210,6 +216,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   }
   // The 27px disclosure line, and the live status lines in its place.
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
+  // The 20px date line with 8px above it.
+  if (row.kind === DATE) return 36;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
@@ -399,7 +407,7 @@ export function visibleLayoutRange(
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
-import { isFoldedCopy, THINKING, WORKED, WORKING } from "./conversation/turns";
+import { DATE, isFoldedCopy, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 

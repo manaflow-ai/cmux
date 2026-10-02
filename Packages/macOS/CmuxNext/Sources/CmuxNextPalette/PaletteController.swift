@@ -289,11 +289,15 @@ public final class PaletteController {
         panel.contentView = content
         panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
         panel.capturesKeyEquivalents = { [weak self] in self?.model.shortcutRecorder != nil }
+        panel.capturesKeyEquivalent = { [weak self] event in
+            guard let model = self?.model, PaletteKeyMap.isCloseItem(event) else { return false }
+            return model.currentPageOwnsCloseKey || model.selectedItem?.closeCommand != nil
+        }
         // Shown without the keys (app inactive): the keys going to another
         // window closes it like a click outside.
         panel.onKeyElsewhere = { [weak self] in self?.hide(restoringKey: false) }
         panel.onResignKey = { [weak self] in
-            // Clicking elsewhere closes the palette, like Spotlight; the
+            // Clicking elsewhere closes the palette; the
             // clicked window keeps the keys.
             self?.hide(restoringKey: false)
         }

@@ -212,8 +212,8 @@ Same socket, framing and envelope as the existing daemon (`{"method":...,"args":
 | --- | --- | --- | --- |
 | `activity_sessions_list` | `{status?: "live"\|"ended"\|"all", since_ms?, limit?}` | `{profile, machine, sessions: [SessionRecord]}` | any local client |
 | `activity_session_get` | `{id}` | `SessionRecord` | any |
-| `activity_timeline` | `{id, after_seq?, limit?}` (default limit 500) | `{events: [Event], next_seq}` | any |
-| `activity_frame` | `{blob, size: "thumb"\|"full"}` | `{mime, width, height, data_base64}` | any |
+| `activity_timeline` | `{id, after_seq?, limit?}` (default limit 500) | `{events: [Event], next_seq, frames: {blob: {width, height, source_width, source_height, expired}}}` (click points are in source pixels) | any |
+| `activity_frame` | `{blob, size: "thumb"\|"full", id?}` (`id` lets `full` find the full frame of a thumbnail) | `{mime, data_base64}` | any |
 | `activity_subscribe` | `{sessions: bool, events_for: [id]}` | stream: one line per update, `{"ok":true,"result":{"type":"sessions","sessions":[...]}}` or `{"type":"events","session":id,"events":[...]}`; ends when the client closes | any |
 | `activity_session_stop` / `_pause` / `_resume` | `{id}` | `{applied: bool}` | host-authenticated |
 | `activity_agent_stop` / `activity_agent_allow` | `{actor}` | `{applied: bool}` | host-authenticated |
@@ -244,8 +244,11 @@ Not decided here, or UNVERIFIED: ScreenCaptureKit content filters for "authentic
 
 | Step | State | Where |
 | --- | --- | --- |
-| a | implemented; tests red then green on hosted Linux CI (`Run activity store tests` step) | https://github.com/manaflow-ai/cmux-cua/pull/28 (draft, base `cmux-cua-native`) |
-| e | landed: `CmuxNextAgentActivity` (model, mock source, split/lanes/grid behind `agentActivity.layout`, snapshot test) | feat-cmux-next |
-| b, c, d, f, g, h, i | not started | |
+| a | done: reducer, redaction, retention, thumbnail sizing; CI red then green | https://github.com/manaflow-ai/cmux-cua/pull/28 (draft, base `cmux-cua-native`) |
+| b | done: file store, `ActivityHost`, daemon gate on every tool call, thumbnails, idle sweep; hosted Linux CI green (31 core + 3 daemon tests); Windows compiles | same PR, 68d1e0aec, b5f791766 |
+| c | done for the activity methods of 6a (list, get, timeline, frame, subscribe stream, stop/pause/resume, agent stop/allow, recording, policy); `cmux-cua sessions` CLI verbs and the MCP read tools are not done | same PR |
+| e | done (SwiftUI prototype views) | feat-cmux-next |
+| f | partly done: `AgentActivitySocketSource` (stream + requests, fake-host tests), `cmux://agent-activity` page in a browser tab record, palette and Window menu "Agent Activity"; not done: AppKit rewrite (decision 10), titlebar indicator, Stop All, Computer Use Stop/Focus rebinding, live watch | feat-cmux-next d7c609149b0, 04b1f9019c4 |
+| d, g, h, i | not started | |
 
-Notes: user stop, pause and resume are enforced by the connection's authenticated class (`user`), not by the claimed `origin` channel. `StopAgent {actor}` stops every live session of one agent and refuses its new sessions until the user allows it again (an agent could otherwise dodge a stop with a new label). cmux-cua's full Linux test step is red on trunk (6 pre-existing failures in `bundle`, `telemetry`, `version_check`), so the activity tests run in their own step first.
+Notes: user stop, pause and resume are enforced by the connection's authenticated class (`user`, the host-authorized connection), not by the claimed `origin` channel. `StopAgent {actor}` stops every live session of one agent and refuses its new sessions until the user allows it again. Until step d, agents are keyed by the parent process of their MCP proxy (`agent:<ppid>`, kind from its process name), attribution `none`. The act frame is captured after the tool returns, before the reply, with a 300 ms budget. The HTTP MCP transport and the second (non-Unix) call loop in `serve.rs` do not log activity yet. cmux-cua's full Linux test step is red on trunk (6 pre-existing failures in `bundle`, `telemetry`, `version_check`), so the activity tests run in their own CI step first.

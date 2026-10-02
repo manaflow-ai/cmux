@@ -5,7 +5,7 @@ import Observation
 import Testing
 @testable import CmuxNextApp
 
-/// Browser tabs show their page's favicon, Chrome's throbber while the
+/// Browser tabs show their page's favicon, a throbber while the
 /// page loads, and a globe until a favicon exists (nxdog13: "browser tabs
 /// need to support favicons").
 @Suite struct BrowserTabIconStateTests {

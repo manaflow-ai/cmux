@@ -28,5 +28,7 @@ Lawrence states these repeatedly. Apply all of them without being asked; list in
 
 ## Process
 - Own worktree; land on feat-cmux-next with the full gate; review subagent before daemon/store/protocol landings; record shared-surface changes in `plans/cmux-next/COORDINATION.md`; clean up tags/worktrees.
-- Questions for Lawrence go through the coordinator (AskUserQuestion), never as prose at the end. Cross-team agents (Leo, Aziz, Austin) are reached through the agent mailbox on cmux-lawrence (`~/agent-mailbox/README.md`).
+- Only the coordinator writes the spec repo (manaflow-ai/cmux-next-spec). Put proposals in `plans/cmux-next/<area>.md` and send "spec proposal: <area>" to the coordinator (mailbox inbox/lawrence-coordinator or SendMessage). Everything Lawrence decides must reach the spec through the coordinator.
+- Questions for Lawrence go through the coordinator (AskUserQuestion), never as prose at the end. Cross-team agents (Leo, Aziz, Austin) are reached through the agent mailbox on `<dev-host>` (`~/agent-mailbox/README.md`; `<dev-host>` is the team router Mac named in your local agent instructions).
+- Never poll the GitHub API in loops (the shared REST limit runs out): one blocking `gh run watch` or a foreground verify script, `gh api rate_limit` before batches, local git for repo data.
 - Reports: short sentences, what landed (SHAs), what is verified, what is UNVERIFIED, decisions needed, and shortcuts you took.

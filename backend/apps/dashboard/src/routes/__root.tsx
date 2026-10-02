@@ -16,14 +16,25 @@ table { width:100%; border-collapse: collapse; } th, td { text-align:left; paddi
 code, .mono { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 button { font: inherit; padding: 4px 10px; border:1px solid var(--line); background:var(--card); color:var(--fg); border-radius:6px; cursor:pointer; }
 button.danger { color: var(--bad); }
-input { font: inherit; padding: 6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
+input, select { font: inherit; padding: 6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
 .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; margin: 12px 0; overflow-x:auto; }
 .muted { color: var(--muted); } .error { color: var(--bad); }
 `
 
 export const Route = createRootRoute({
   head: () => ({
-    meta: [{ charSet: "utf-8" }, { name: "viewport", content: "width=device-width, initial-scale=1" }, { title: "cmux Cloud (next)" }]
+    meta: [
+      { charSet: "utf-8" },
+      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { title: "cmux Cloud (next)" },
+      { property: "og:site_name", content: "cmux" },
+      { name: "theme-color", content: "#0b1020" }
+    ],
+    links: [
+      { rel: "icon", href: "/favicon.ico", sizes: "32x32" },
+      { rel: "icon", type: "image/png", href: "/icon.png" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }
+    ]
   }),
   shellComponent: Shell,
   component: Layout
@@ -55,6 +66,15 @@ function Layout() {
         </Link>
         <Link to="/team" activeProps={{ className: "active" }}>
           Team
+        </Link>
+        <Link to="/automations" activeProps={{ className: "active" }}>
+          Automations
+        </Link>
+        <Link to="/integrations" activeProps={{ className: "active" }}>
+          Integrations
+        </Link>
+        <Link to="/policy" activeProps={{ className: "active" }}>
+          Policy
         </Link>
         <span style={{ flex: 1 }} />
         {signedIn ? (

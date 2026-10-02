@@ -3,7 +3,7 @@ public import CoreGraphics
 /// Where a drop lands relative to its region.
 public nonisolated enum DropOverlayZone: String, Sendable, Hashable, CaseIterable {
     case center, left, right, top, bottom
-    /// Between columns (a new niri column).
+    /// Between columns (a new strip column).
     case column
 
     init(_ target: DropTarget) {
