@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { t } from "./i18n";
+import { registerPicker } from "./pickerOpeners";
 
 /// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
 /// title, the model under it, and a stepped slider with one stop per level the agent offers.
@@ -28,6 +29,15 @@ export function EffortPicker({
     efforts.findIndex((choice) => choice.id === current),
   );
   const name = efforts[level]?.name ?? t("effort.title");
+  // Automation opens the popover by its label as a click does (see pickerOpeners.ts).
+  useEffect(
+    () =>
+      registerPicker(t("effort.title"), () => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        setOpen(true);
+      }),
+    [],
+  );
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {

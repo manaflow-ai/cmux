@@ -423,7 +423,8 @@ describe("acpmux composer pickers", () => {
       openPicker("Effort");
       openPicker("Effort");
     });
-    expect(options()).toEqual(["Medium", "High *"]);
+    expect(button("Effort")!.getAttribute("aria-expanded")).toBe("true");
+    expect(doc.activeElement).toBe(doc.querySelector(".acpmux-effort-range"));
   });
 
   test("opening a menu by its label takes focus off the prompt first, as a click does", async () => {
