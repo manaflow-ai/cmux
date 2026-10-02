@@ -352,8 +352,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "29e06df188ed305e86a8377cdf963935588784ac001a59c23b3ad55eb4c9f28a",
-      "size": 53663
+      "sha256": "b01f4d015bef94183d40b6a946e5304f90d049130658acdba06b5201b10486da",
+      "size": 54257
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -672,8 +672,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "b3008b9ecf9d6a392a8ff6e3c9462aaf88992cedb1638bd3b9ea31874e14053a",
-      "size": 47342
+      "sha256": "3443fd371d5c33b21620a0315d2fc32da1bb43bf9403b6c5c3c12e3f5d332c6b",
+      "size": 47852
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -689,6 +689,11 @@
       "path": "GetCellPixelsResult.java",
       "sha256": "d29e71cb2e5f6ada5e49e14496576397f67f5a202cb042fadd48555f19333fa1",
       "size": 3473
+    },
+    {
+      "path": "GetFrontendBrowserHistoryRequest.java",
+      "sha256": "1b982830ae2f6061601580538a4a0db8e48ec9ec751af00510efb143256a4e3c",
+      "size": 2179
     },
     {
       "path": "GetFrontendProjectionRequest.java",
@@ -1232,7 +1237,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "d5074e1f2cdaa725c0e018e64db8bd798ae7d83bb00b1fe7717ce362d8b85c30",
+      "sha256": "e16daad4fdf2def3c9359b292c8b94e1e0f9b7e3ed23b455434c29fd56cbe7b9",
       "size": 4943
     },
     {
@@ -1629,6 +1634,11 @@
       "path": "SetDefaultColorsRequest.java",
       "sha256": "7bf8cf1b85137e678d95b11d322c22de199abe39868cbe33ce5d93cbf2576db7",
       "size": 7555
+    },
+    {
+      "path": "SetFrontendBrowserHistoryRequest.java",
+      "sha256": "e96e4ecbeba5567e1ed37349b84823ad4171719aa0ee9867f800edcaff598942",
+      "size": 2909
     },
     {
       "path": "SetPersonalTerminalRequest.java",
@@ -2242,7 +2252,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b",
+  "ir_sha256": "0d174030864a2c1fb68a1a56a8977108193a3f4c28103682d56cbda6fac89023",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

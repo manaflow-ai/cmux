@@ -7,7 +7,8 @@ typealias BrowserEngineTag = CmuxNextDaemon.BrowserEngine
 
 /// Daemon-owned browser tabs (`frontend-browser-tabs-v1`): creation with an
 /// engine choice (`resolve`, `open`), and the debounced url/title/favicon write-back that lets
-/// the daemon restore them after relaunch. The command closures are seams
+/// the daemon restore them after relaunch, with their back/forward entries
+/// (`frontend-browser-history-v1`). The command closures are seams
 /// for tests.
 final class BrowserTabService {
     /// `new-frontend-browser-tab` in `pane` with a browser profile id (nil
@@ -21,6 +22,11 @@ final class BrowserTabService {
     private var pendingNotices: [SurfaceID: String] = [:]
     /// `update-frontend-browser-tab`. Returns false when the command failed.
     var update: @MainActor (SurfaceID, BrowserRecordUpdate) async -> Bool
+    /// `set-frontend-browser-history`. Returns false when the command failed.
+    var storeHistory: @MainActor (SurfaceID, FrontendBrowserHistory) async -> Bool
+    /// `get-frontend-browser-history`; nil when there is none or the daemon
+    /// does not store it.
+    var fetchHistory: @MainActor (SurfaceID) async -> FrontendBrowserHistory?
     /// Whether the daemon serves `frontend-browser-tabs-v1`.
     var isAvailable: @MainActor () -> Bool
     /// Why Chromium cannot open a tab now; nil when it can (or may still
@@ -37,6 +43,9 @@ final class BrowserTabService {
     // wakeup-allow: one-shot debounce of browser record write-back (injected for tests)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
     private var writers: [String: BrowserRecordWriter] = [:]
+    private var historyWriters: [String: BrowserHistoryWriter] = [:]
+    /// Stored-history reads in flight, by tab id (cancelled with the page).
+    private var historyFetches: [String: Task<Void, Never>] = [:]
     /// True for a pane of an incognito window (the App sets it).
     var isIncognitoPane: @MainActor (PaneID) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
@@ -56,6 +65,16 @@ final class BrowserTabService {
             await daemon?.run("update-frontend-browser-tab") { connection in
                 _ = try await connection.updateFrontendBrowserTab(surface, url: update.url, title: update.title, faviconURL: update.favicon)
             } ?? false
+        }
+        storeHistory = { [weak daemon] surface, history in
+            guard daemon?.supports(DaemonCapabilities.shared.frontendBrowserHistory) == true else { return false }
+            return await daemon?.run(SetFrontendBrowserHistoryRequest.command) { connection in
+                _ = try await connection.request(SetFrontendBrowserHistoryRequest(surface: surface, history: history))
+            } ?? false
+        }
+        fetchHistory = { [weak daemon] surface in
+            guard daemon?.supports(DaemonCapabilities.shared.frontendBrowserHistory) == true, let connection = daemon?.connection else { return nil }
+            return try? await connection.request(GetFrontendBrowserHistoryRequest(surface: surface)).history
         }
         tabModel = { [weak daemon] id in
             daemon?.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.id == id }
@@ -133,9 +152,39 @@ final class BrowserTabService {
         // split, another window) keeps its record, but the store gives it a
         // new TabModel in the destination pane, so the writer must not hold
         // the original one.
-        writers[id] = BrowserRecordWriter(tab: page, recorded: BrowserRecord(tab: tab), delay: writeBackDelay, sleep: sleep) { [weak self] fields in
+        let writer = BrowserRecordWriter(tab: page, recorded: BrowserRecord(tab: tab), delay: writeBackDelay, sleep: sleep) { [weak self] fields in
             guard let surface = self?.tabModel(id)?.surface else { return false }
             return await update(surface, fields)
+        }
+        writers[id] = writer
+        trackHistory(page, id: id, surface: tab.surface, recordURL: tab.url, while: writer)
+    }
+
+    /// Restores `page`'s back/forward entries from the daemon when its tab
+    /// reopens at the page they were saved on, then writes them back as
+    /// they change (`BrowserHistoryWriter`).
+    private func trackHistory(_ page: any BrowserTab, id: String, surface: SurfaceID, recordURL: String?,
+                              while record: BrowserRecordWriter) {
+        guard let restoring = page as? any BrowserTab & BrowserSessionRestoring else { return }
+        let fetchHistory = fetchHistory, storeHistory = storeHistory
+        historyFetches[id]?.cancel()
+        historyFetches[id] = Task { [weak self, weak record] in
+            let saved = await fetchHistory(surface)
+            // A cancelled read's handle may already be a newer one's.
+            guard !Task.isCancelled else { return }
+            self?.historyFetches[id] = nil
+            // The page may have been released or replaced while the daemon
+            // answered: its record writer is then gone.
+            guard let self, let record, self.writers[id] === record, self.historyWriters[id] == nil else { return }
+            if let saved, let session = BrowserHistoryWriter.session(saved),
+               session.entries[session.current].url.absoluteString == recordURL {
+                restoring.restoreSession(session.entries, current: session.current)
+            }
+            self.historyWriters[id] = BrowserHistoryWriter(page: restoring, recorded: saved, delay: self.writeBackDelay,
+                                                           sleep: self.sleep) { [weak self] history in
+                guard let surface = self?.tabModel(id)?.surface else { return false }
+                return await storeHistory(surface, history)
+            }
         }
     }
 
@@ -148,6 +197,8 @@ final class BrowserTabService {
     /// The page was released: stop writing.
     func untrack(_ key: String) {
         writers.removeValue(forKey: key)?.cancel()
+        historyWriters.removeValue(forKey: key)?.cancel()
+        historyFetches.removeValue(forKey: key)?.cancel()
     }
 
     func isTracking(_ key: String) -> Bool { writers[key] != nil }
@@ -156,5 +207,11 @@ final class BrowserTabService {
     /// the record reopened at relaunch is the page the user last saw.
     func flushRecords() async {
         for writer in writers.values { await writer.flushNow() }
+        // Each page is asked for its scroll position at once, not in turn.
+        await withTaskGroup(of: Void.self) { group in
+            for writer in historyWriters.values {
+                group.addTask { @MainActor in await writer.flushNow() }
+            }
+        }
     }
 }

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b";
+inline constexpr std::string_view kProtocolIrSha256 = "0d174030864a2c1fb68a1a56a8977108193a3f4c28103682d56cbda6fac89023";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -226,6 +226,7 @@ struct FocusPaneRequest;
 struct ForgetSessionRequest;
 struct GetBrowserProviderRequest;
 struct GetCellPixelsRequest;
+struct GetFrontendBrowserHistoryRequest;
 struct GetFrontendProjectionRequest;
 struct GetSizeStateRequest;
 struct IdentifyRequest;
@@ -325,6 +326,7 @@ struct SetClientInfoRequest;
 struct SetClientSizingRequest;
 struct SetColumnStickyRequest;
 struct SetDefaultColorsRequest;
+struct SetFrontendBrowserHistoryRequest;
 struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
 struct SetProfileFollowsRequest;
@@ -1655,6 +1657,11 @@ struct GetCellPixelsResult {
     std::vector<CellPixelSurface> surfaces{};
     std::uint16_t width_px{};
     friend bool operator==(const GetCellPixelsResult&, const GetCellPixelsResult&) = default;
+};
+
+struct GetFrontendBrowserHistoryRequest {
+    Id surface{};
+    friend bool operator==(const GetFrontendBrowserHistoryRequest&, const GetFrontendBrowserHistoryRequest&) = default;
 };
 
 struct GetFrontendProjectionRequest {
@@ -3217,6 +3224,12 @@ struct SetDefaultColorsRequest {
     Field<ColorHex> selection_bg{};
     Field<ColorHex> selection_fg{};
     friend bool operator==(const SetDefaultColorsRequest&, const SetDefaultColorsRequest&) = default;
+};
+
+struct SetFrontendBrowserHistoryRequest {
+    std::optional<JsonValue> history{};
+    Id surface{};
+    friend bool operator==(const SetFrontendBrowserHistoryRequest&, const SetFrontendBrowserHistoryRequest&) = default;
 };
 
 struct SetPersonalTerminalRequest {
@@ -5171,6 +5184,12 @@ struct Codec<GetCellPixelsRequest> {
 };
 
 template <>
+struct Codec<GetFrontendBrowserHistoryRequest> {
+    static Result<Json> encode(const GetFrontendBrowserHistoryRequest& value);
+    static Result<GetFrontendBrowserHistoryRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<GetFrontendProjectionRequest> {
     static Result<Json> encode(const GetFrontendProjectionRequest& value);
     static Result<GetFrontendProjectionRequest> decode(const Json& value);
@@ -5762,6 +5781,12 @@ template <>
 struct Codec<SetDefaultColorsRequest> {
     static Result<Json> encode(const SetDefaultColorsRequest& value);
     static Result<SetDefaultColorsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetFrontendBrowserHistoryRequest> {
+    static Result<Json> encode(const SetFrontendBrowserHistoryRequest& value);
+    static Result<SetFrontendBrowserHistoryRequest> decode(const Json& value);
 };
 
 template <>

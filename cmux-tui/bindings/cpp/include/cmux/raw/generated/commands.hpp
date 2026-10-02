@@ -105,6 +105,7 @@ public:
     [[nodiscard]] Result<JsonValue> forget_session(const ForgetSessionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BrowserProviderSnapshot> get_browser_provider(const GetBrowserProviderRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<GetCellPixelsResult> get_cell_pixels(const GetCellPixelsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> get_frontend_browser_history(const GetFrontendBrowserHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FrontendProjection> get_frontend_projection(const GetFrontendProjectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<GetSizeStateResult> get_size_state(const GetSizeStateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<IdentifyResult> identify(const IdentifyRequest& request = {}, RequestOptions options = {});
@@ -200,6 +201,7 @@ public:
     [[nodiscard]] Result<EmptyResult> set_client_sizing(const SetClientSizingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_column_sticky(const SetColumnStickyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_default_colors(const SetDefaultColorsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> set_frontend_browser_history(const SetFrontendBrowserHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_personal_terminal(const SetPersonalTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_personal_workspace(const SetPersonalWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_profile_follows(const SetProfileFollowsRequest& request, RequestOptions options = {});

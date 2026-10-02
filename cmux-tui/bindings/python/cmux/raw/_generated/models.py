@@ -2018,6 +2018,12 @@ class GetCellPixelsRequest:
 
 
 @dataclass(frozen=True)
+class GetFrontendBrowserHistoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-frontend-browser-history/request'
+    surface: Id
+
+
+@dataclass(frozen=True)
 class GetFrontendProjectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-frontend-projection/request'
     frontend: str
@@ -2835,6 +2841,13 @@ class SetDefaultColorsRequest:
     cursor_blink: Union[bool, None, MissingType] = field(default=MISSING)
     palette: Union[Dict[str, ColorHex], None, MissingType] = field(default=MISSING)
     complete: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetFrontendBrowserHistoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-frontend-browser-history/request'
+    surface: Id
+    history: Union[JsonValue, None]
 
 
 @dataclass(frozen=True)
@@ -4084,6 +4097,7 @@ __all__ = [
     'ForgetSessionRequest',
     'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
+    'GetFrontendBrowserHistoryRequest',
     'GetFrontendProjectionRequest',
     'GetSizeStateRequest',
     'IdentifyRequest',
@@ -4182,6 +4196,7 @@ __all__ = [
     'SetClientSizingRequest',
     'SetColumnStickyRequest',
     'SetDefaultColorsRequest',
+    'SetFrontendBrowserHistoryRequest',
     'SetPersonalTerminalRequest',
     'SetPersonalWorkspaceRequest',
     'SetProfileFollowsRequest',

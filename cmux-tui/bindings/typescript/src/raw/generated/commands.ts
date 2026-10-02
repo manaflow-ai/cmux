@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b. */
+/* cmux-tui mux protocol 12, IR 0d174030864a2c1fb68a1a56a8977108193a3f4c28103682d56cbda6fac89023. */
 
 
 import type * as T from "./types.js";
@@ -630,6 +630,13 @@ export type GetBrowserProviderResult = T.BrowserProviderSnapshot;
 export interface GetCellPixelsRequest extends CmuxRequestBase {
   cmd: "get-cell-pixels";
 }
+
+/** Protocol v12; authority: control. */
+export interface GetFrontendBrowserHistoryRequest extends CmuxRequestBase {
+  cmd: "get-frontend-browser-history";
+  "surface": T.Id;
+}
+export type GetFrontendBrowserHistoryResult = T.JsonValue;
 
 /** Protocol v7; authority: control. */
 export interface GetFrontendProjectionRequest extends CmuxRequestBase {
@@ -1500,6 +1507,14 @@ export interface SetDefaultColorsRequest extends CmuxRequestBase {
 export type SetDefaultColorsResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
+export interface SetFrontendBrowserHistoryRequest extends CmuxRequestBase {
+  cmd: "set-frontend-browser-history";
+  "history": (T.JsonValue) | null;
+  "surface": T.Id;
+}
+export type SetFrontendBrowserHistoryResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface SetPersonalTerminalRequest extends CmuxRequestBase {
   cmd: "set-personal-terminal";
   "session_id": string;
@@ -1965,6 +1980,7 @@ export type CmuxRequest =
   | ForgetSessionRequest
   | GetBrowserProviderRequest
   | GetCellPixelsRequest
+  | GetFrontendBrowserHistoryRequest
   | GetFrontendProjectionRequest
   | GetSizeStateRequest
   | IdentifyRequest
@@ -2060,6 +2076,7 @@ export type CmuxRequest =
   | SetClientSizingRequest
   | SetColumnStickyRequest
   | SetDefaultColorsRequest
+  | SetFrontendBrowserHistoryRequest
   | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
@@ -2618,6 +2635,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "get-frontend-browser-history": {
+    request: GetFrontendBrowserHistoryRequest;
+    result: GetFrontendBrowserHistoryResult;
+    authority: "control";
+    since: 12;
+    capability: "frontend-browser-history-v1";
     stream: null;
   };
   "get-frontend-projection": {
@@ -3378,6 +3403,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "set-frontend-browser-history": {
+    request: SetFrontendBrowserHistoryRequest;
+    result: SetFrontendBrowserHistoryResult;
+    authority: "control";
+    since: 12;
+    capability: "frontend-browser-history-v1";
     stream: null;
   };
   "set-personal-terminal": {

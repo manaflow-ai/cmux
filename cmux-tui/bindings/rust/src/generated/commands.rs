@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b.
+// cmux-tui mux protocol 12, IR 0d174030864a2c1fb68a1a56a8977108193a3f4c28103682d56cbda6fac89023.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -912,6 +912,15 @@ pub type GetBrowserProviderResult = T::BrowserProviderSnapshot;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GetCellPixelsRequest {
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetFrontendBrowserHistoryRequest {
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type GetFrontendBrowserHistoryResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2132,6 +2141,16 @@ pub type SetDefaultColorsResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetFrontendBrowserHistoryRequest {
+    pub history: Nullable<T::JsonValue>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type SetFrontendBrowserHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetPersonalTerminalRequest {
     pub session_id: String,
     pub terminal_key: String,
@@ -3043,6 +3062,10 @@ impl CmuxClient {
         self.execute(&GET_CELL_PIXELS_METADATA, &request)
     }
 
+    pub fn get_frontend_browser_history(&mut self, request: GetFrontendBrowserHistoryRequest) -> Result<GetFrontendBrowserHistoryResult> {
+        self.execute(&GET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
+    }
+
     pub fn get_frontend_projection(&mut self, request: GetFrontendProjectionRequest) -> Result<GetFrontendProjectionResult> {
         self.execute(&GET_FRONTEND_PROJECTION_METADATA, &request)
     }
@@ -3584,6 +3607,10 @@ impl CmuxClient {
             self.require_protocol_field("set-default-colors", 9)?;
         }
         self.execute(&SET_DEFAULT_COLORS_METADATA, &request)
+    }
+
+    pub fn set_frontend_browser_history(&mut self, request: SetFrontendBrowserHistoryRequest) -> Result<SetFrontendBrowserHistoryResult> {
+        self.execute(&SET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
     }
 
     pub fn set_personal_terminal(&mut self, request: SetPersonalTerminalRequest) -> Result<SetPersonalTerminalResult> {

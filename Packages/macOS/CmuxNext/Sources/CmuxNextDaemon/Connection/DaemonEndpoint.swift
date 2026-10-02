@@ -35,6 +35,9 @@ public struct DaemonCapabilities: Sendable {
     public let workspaceMetadata = "workspace-metadata-v1"
     public let tabMetadata = "tab-metadata-v1"
     public let frontendBrowserTabs = "frontend-browser-tabs-v1"
+    /// A frontend browser tab's back/forward entries and scroll positions,
+    /// stored opaque and outside the journal (`set-`/`get-frontend-browser-history`).
+    public let frontendBrowserHistory = "frontend-browser-history-v1"
     public let tabDrag = "tab-drag-v1"
     public let notificationAck = "notification-ack-v1"
     public let tabGroups = "tab-groups-v1"
@@ -118,7 +121,7 @@ public struct DaemonCapabilities: Sendable {
     /// stream whenever a PTY resize happens mid-sequence (a relaunch resizes
     /// every restored terminal), and the view freezes.
     public let terminalPendingSequence = "terminal-pending-sequence-v1"
-    public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
+    public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, frontendBrowserHistory, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,

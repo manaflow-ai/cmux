@@ -13307,6 +13307,72 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "set-frontend-browser-history": {
+   "authority": "control",
+   "since": 12,
+   "capability": "frontend-browser-history-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "history": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "history is a JSON object or null; null clears the stored history.",
+     "Serialized history must be at most 65536 bytes."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "get-frontend-browser-history": {
+   "authority": "control",
+   "since": 12,
+   "capability": "frontend-browser-history-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "list-tab-groups": {
    "authority": "control",
    "since": 12,
