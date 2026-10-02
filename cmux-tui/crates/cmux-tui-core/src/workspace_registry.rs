@@ -40,6 +40,8 @@ mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
 mod public_projection_store;
+#[cfg(unix)]
+mod reset_stat;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
@@ -84,6 +86,11 @@ pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
 #[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
+#[cfg(unix)]
+use reset_stat::{
+    reset_stat_device, reset_stat_inode, reset_stat_is_dir, reset_stat_is_file, reset_stat_kind,
+    reset_stat_metadata_fingerprint,
+};
 #[cfg(test)]
 pub(crate) use resource_store::AGENT_HOOK_MAX_ATTEMPTS;
 pub(crate) use resource_store::validate_registry_screen_projection;
@@ -2030,92 +2037,6 @@ fn reset_child_c_string(
 
     std::ffi::CString::new(name.as_bytes())
         .with_context(|| format!("reset path has an invalid file name: {}", display_path.display()))
-}
-
-#[cfg(unix)]
-fn reset_stat_is_dir(stat: &libc::stat) -> bool {
-    stat.st_mode & libc::S_IFMT == libc::S_IFDIR
-}
-
-#[cfg(unix)]
-fn reset_stat_is_file(stat: &libc::stat) -> bool {
-    stat.st_mode & libc::S_IFMT == libc::S_IFREG
-}
-
-#[cfg(unix)]
-fn reset_stat_kind(stat: &libc::stat) -> libc::mode_t {
-    stat.st_mode & libc::S_IFMT
-}
-
-#[cfg(unix)]
-fn reset_stat_metadata_fingerprint(stat: &libc::stat) -> String {
-    let kind = if reset_stat_is_dir(stat) {
-        "dir"
-    } else if reset_stat_is_file(stat) {
-        "file"
-    } else if stat.st_mode & libc::S_IFMT == libc::S_IFLNK {
-        "symlink"
-    } else {
-        "other"
-    };
-    format!(
-        "{kind}:dev={},ino={},mode={},len={},mtime={}.{}",
-        reset_stat_device(stat),
-        reset_stat_inode(stat),
-        stat.st_mode,
-        stat.st_size,
-        reset_stat_mtime_seconds(stat),
-        reset_stat_mtime_nanoseconds(stat)
-    )
-}
-
-#[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
-fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
-    stat.st_mtime
-}
-
-#[cfg(any(target_os = "aix", target_os = "hurd"))]
-fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
-    stat.st_mtim.tv_sec
-}
-
-#[cfg(all(unix, target_vendor = "apple"))]
-fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
-    // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
-    stat.st_mtime
-}
-
-#[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
-fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
-    stat.st_mtime_nsec
-}
-
-#[cfg(any(target_os = "aix", target_os = "hurd"))]
-fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
-    stat.st_mtim.tv_nsec
-}
-
-#[cfg(all(unix, target_vendor = "apple"))]
-fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
-    // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
-    stat.st_mtime_nsec
-}
-
-#[cfg(unix)]
-fn reset_stat_device(stat: &libc::stat) -> u64 {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        stat.st_dev
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    {
-        stat.st_dev as u64
-    }
-}
-
-#[cfg(unix)]
-fn reset_stat_inode(stat: &libc::stat) -> u64 {
-    stat.st_ino
 }
 
 #[cfg(not(unix))]
