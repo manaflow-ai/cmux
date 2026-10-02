@@ -35,6 +35,16 @@ describe("migration lint (parsed SQL)", () => {
     })
   }
 
+  it("allows allowlisted extensions and hash partitions in an expand migration", async () => {
+    expect(await expand("CREATE EXTENSION IF NOT EXISTS pg_trgm;\nCREATE EXTENSION IF NOT EXISTS btree_gin;")).toEqual([])
+    expect(await expand("CREATE TABLE p (id text, c text) PARTITION BY HASH (c);\nCREATE TABLE p_00 PARTITION OF p FOR VALUES WITH (MODULUS 64, REMAINDER 0);\nCREATE INDEX p_i ON p USING gin (c);")).toEqual([])
+  })
+
+  it("rejects other extensions or CREATE EXTENSION without IF NOT EXISTS", async () => {
+    expect((await expand("CREATE EXTENSION IF NOT EXISTS plpython3u;")).join()).toContain("CREATE EXTENSION")
+    expect((await expand("CREATE EXTENSION pg_trgm;")).join()).toContain("CREATE EXTENSION")
+  })
+
   it("requires a phase header and forbids transaction statements", async () => {
     expect((await lintFile("0002_a.sql", "ALTER TABLE users ADD COLUMN plan text;")).join()).toContain("phase")
     expect((await expand("BEGIN; ALTER TABLE users ADD COLUMN x text; COMMIT;")).join()).toContain("BEGIN")
