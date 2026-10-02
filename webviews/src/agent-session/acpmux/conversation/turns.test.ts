@@ -47,6 +47,33 @@ describe("turn view", () => {
     expect(ids(turnView(turn.slice(0, 4), new Set()))).toEqual(["u", "c", "t", "e"]);
   });
 
+  test("a running turn says Thinking until it has output, then Working over its work", () => {
+    const typing = row("typing", "typing", 500);
+    expect(ids(turnView([turn[0]!, typing], new Set(), true))).toEqual(["u", "thinking-u"]);
+    expect(ids(turnView([turn[0]!], new Set(), true))).toEqual(["u", "thinking-u"]);
+    const view = turnView([turn[0]!, typing, ...turn.slice(1, 4)], new Set(), true);
+    expect(ids(view)).toEqual(["u", "working-u", "c", "t", "e"]);
+    // Timed from the prompt, and steady across updates so the row keeps its own clock.
+    expect(view[1]).toMatchObject({ at: 0, version: 1 });
+  });
+
+  test("only the last turn is live, and only while the session works", () => {
+    const next = [row("u2", "user", 60_000, { text: "again" }), row("c2", "assistant", 61_000, { text: "On it." })];
+    expect(ids(turnView([...turn, ...next], new Set(), true))).toEqual([
+      "u",
+      "worked-u",
+      "a",
+      "e",
+      "s",
+      "u2",
+      "working-u2",
+      "c2",
+    ]);
+    expect(ids(turnView([...turn, ...next], new Set(), false))).toEqual(["u", "worked-u", "a", "e", "s", "u2", "c2"]);
+    // A turn that ended has its fold, whatever the flag says.
+    expect(ids(turnView(turn, new Set(), true))).toEqual(["u", "worked-u", "a", "e", "s"]);
+  });
+
   test("a turn with nothing before its answer has no fold", () => {
     const view = turnView([turn[0]!, turn[4]!, turn[5]!], new Set());
     expect(ids(view)).toEqual(["u", "a", "s"]);
