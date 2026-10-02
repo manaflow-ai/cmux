@@ -25,6 +25,14 @@ final class RootViewController: UIViewController {
         view.backgroundColor = HomePalette.background
         container.auth.onChange = { [weak self] state in self?.show(state) }
         container.devOptions.onChange = { [weak self] options in self?.home?.apply(options) }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_IOS_HOME_PREVIEW"] == "1" {
+            // DEV preview: Home on the mock owner without an account, for
+            // simulator screenshots of the prototypes. The mock needs no sign-in.
+            showHome(account: SignedInAccount(userID: "preview", email: nil, displayName: "Preview"))
+            return
+        }
+        #endif
         container.auth.start()
         show(container.auth.state)
     }
@@ -46,14 +54,19 @@ final class RootViewController: UIViewController {
             container.signedOut()
             install(SignInScreen.make(coordinator: container.auth.coordinator))
         case .signedIn(let account):
-            let store = container.homeStore(for: account)
-            let home = HomeViewController(store: store, options: container.devOptions.options)
-            self.home = home
-            let navigation = UINavigationController(rootViewController: home)
-            navigation.navigationBar.prefersLargeTitles = true
-            install(navigation)
-            DebugLaunchTasks.run(container: container, store: store, window: view.window)
+            showHome(account: account)
+            DebugLaunchTasks.signedIn(container: container)
         }
+    }
+
+    private func showHome(account: SignedInAccount) {
+        let store = container.homeStore(for: account)
+        let home = HomeViewController(store: store, options: container.devOptions.options)
+        self.home = home
+        let navigation = UINavigationController(rootViewController: home)
+        navigation.navigationBar.prefersLargeTitles = true
+        install(navigation)
+        DebugLaunchTasks.homeShown(store: store, window: view.window)
     }
 
     private func install(_ next: UIViewController) {
