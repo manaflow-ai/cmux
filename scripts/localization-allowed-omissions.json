@@ -4291,5 +4291,21 @@
       "it": "Base is the established Italian word for a base; the translated catalog entry remains explicit.",
       "pt-BR": "Base is the established Portuguese word for a base; the translated catalog entry remains explicit."
     }
+  },
+  "onboarding.projects.folder.iCloudDrive": {
+    "source": "iCloud Drive",
+    "class": "brand"
+  },
+  "onboarding.projects.folder.documents": {
+    "source": "Documents",
+    "identityLocales": {
+      "fr": "The macOS Documents folder is named \"Documents\" in French."
+    }
+  },
+  "onboarding.projects.folder.downloads": {
+    "source": "Downloads",
+    "identityLocales": {
+      "de": "The macOS Downloads folder is named \"Downloads\" in German."
+    }
   }
 }

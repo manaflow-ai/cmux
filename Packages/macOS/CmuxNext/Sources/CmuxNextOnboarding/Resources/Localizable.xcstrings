@@ -8390,7 +8390,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "اختر مجلدًا…"
           }
         },
@@ -8408,7 +8408,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ordner auswählen …"
           }
         },
@@ -8420,13 +8420,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Elegir una carpeta…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Choisir un dossier…"
           }
         },
@@ -8438,7 +8438,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "フォルダを選択…"
           }
         },
@@ -8450,7 +8450,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "폴더 선택…"
           }
         },
@@ -8504,13 +8504,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "选择文件夹…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "選擇資料夾…"
           }
         }
@@ -8521,7 +8521,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "أو أفلت مجلدًا هنا."
           }
         },
@@ -8539,7 +8539,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Oder einen Ordner hierher ziehen."
           }
         },
@@ -8551,13 +8551,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "O suelta una carpeta aquí."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ou déposez un dossier ici."
           }
         },
@@ -8569,7 +8569,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "またはここにフォルダをドロップします。"
           }
         },
@@ -8581,7 +8581,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "또는 여기에 폴더를 놓으세요."
           }
         },
@@ -8635,13 +8635,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "或将文件夹拖到这里。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "或將資料夾拖到這裡。"
           }
         }
@@ -8652,7 +8652,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "لا توجد مشاريع لوكلاء البرمجة على هذا الـ Mac بعد."
           }
         },
@@ -8670,7 +8670,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Noch keine Coding-Agent-Projekte auf diesem Mac."
           }
         },
@@ -8682,13 +8682,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Aún no hay proyectos de agentes de programación en este Mac."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Aucun projet d’agent de code sur ce Mac pour l’instant."
           }
         },
@@ -8700,7 +8700,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "この Mac にはまだコーディングエージェントのプロジェクトがありません。"
           }
         },
@@ -8712,7 +8712,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 Mac에는 아직 코딩 에이전트 프로젝트가 없습니다."
           }
         },
@@ -8766,13 +8766,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "这台 Mac 上还没有编程智能体项目。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "這台 Mac 上還沒有程式設計代理專案。"
           }
         }
@@ -8783,7 +8783,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "سطح المكتب"
           }
         },
@@ -8801,7 +8801,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Schreibtisch"
           }
         },
@@ -8813,13 +8813,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Escritorio"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Bureau"
           }
         },
@@ -8831,7 +8831,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "デスクトップ"
           }
         },
@@ -8843,7 +8843,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "데스크탑"
           }
         },
@@ -8897,13 +8897,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "桌面"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "桌面"
           }
         }
@@ -8914,7 +8914,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "المستندات"
           }
         },
@@ -8932,7 +8932,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Dokumente"
           }
         },
@@ -8944,13 +8944,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Documentos"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Documents"
           }
         },
@@ -8962,7 +8962,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "書類"
           }
         },
@@ -8974,7 +8974,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "문서"
           }
         },
@@ -9028,13 +9028,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "文稿"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "文件"
           }
         }
@@ -9045,7 +9045,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "التنزيلات"
           }
         },
@@ -9063,7 +9063,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Downloads"
           }
         },
@@ -9075,13 +9075,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Descargas"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Téléchargements"
           }
         },
@@ -9093,7 +9093,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ダウンロード"
           }
         },
@@ -9105,7 +9105,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "다운로드"
           }
         },
@@ -9159,13 +9159,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "下载"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "下載項目"
           }
         }
@@ -9176,7 +9176,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iCloud Drive"
           }
         },
@@ -9194,7 +9194,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iCloud Drive"
           }
         },
@@ -9206,13 +9206,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iCloud Drive"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iCloud Drive"
           }
         },
@@ -9224,7 +9224,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iCloud Drive"
           }
         },
@@ -9236,7 +9236,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iCloud Drive"
           }
         },
@@ -9290,13 +9290,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iCloud 云盘"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iCloud 雲碟"
           }
         }
@@ -9307,7 +9307,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "يطلب macOS الوصول إلى %@ مرة واحدة عند المتابعة."
           }
         },
@@ -9325,7 +9325,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "macOS fragt beim Fortfahren einmal nach Zugriff auf %@."
           }
         },
@@ -9337,13 +9337,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "macOS pedirá acceso a %@ una vez cuando continúes."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "macOS demande une seule fois l’accès à %@ quand vous continuez."
           }
         },
@@ -9355,7 +9355,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "続けると、macOS が %@ へのアクセスを一度だけ確認します。"
           }
         },
@@ -9367,7 +9367,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "계속하면 macOS가 %@ 접근 권한을 한 번 요청합니다."
           }
         },
@@ -9421,13 +9421,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "继续后，macOS 会就 %@ 的访问权限询问一次。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "繼續後，macOS 會就 %@ 的存取權詢問一次。"
           }
         }
@@ -9438,7 +9438,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "جارٍ البحث عن المشاريع…"
           }
         },
@@ -9456,7 +9456,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Projekte werden gesucht …"
           }
         },
@@ -9468,13 +9468,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Buscando proyectos…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Recherche de projets…"
           }
         },
@@ -9486,7 +9486,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "プロジェクトを探しています…"
           }
         },
@@ -9498,7 +9498,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "프로젝트를 찾는 중…"
           }
         },
@@ -9552,13 +9552,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "正在查找项目…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "正在尋找專案…"
           }
         }
@@ -9569,7 +9569,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "الجلسات: %lld"
           }
         },
@@ -9587,7 +9587,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sitzungen: %lld"
           }
         },
@@ -9599,13 +9599,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sesiones: %lld"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Sessions : %lld"
           }
         },
@@ -9617,7 +9617,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "セッション: %lld"
           }
         },
@@ -9629,7 +9629,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "세션: %lld"
           }
         },
@@ -9683,13 +9683,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "会话：%lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "工作階段：%lld"
           }
         }
@@ -9700,7 +9700,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "مجلدات عملت فيها مع وكلاء البرمجة. يُفتح كل مجلد تحتفظ به كمساحة عمل."
           }
         },
@@ -9718,7 +9718,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Ordner, in denen du mit Coding-Agents gearbeitet hast. Jeder, den du behältst, öffnet sich als Arbeitsbereich."
           }
         },
@@ -9730,13 +9730,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Carpetas en las que trabajaste con agentes de programación. Cada una que conserves se abre como espacio de trabajo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Les dossiers où vous avez travaillé avec des agents de code. Chacun de ceux que vous gardez s’ouvre comme espace de travail."
           }
         },
@@ -9748,7 +9748,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "コーディングエージェントと作業したフォルダです。残したフォルダはそれぞれワークスペースとして開きます。"
           }
         },
@@ -9760,7 +9760,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "코딩 에이전트와 작업한 폴더입니다. 유지하는 폴더는 각각 워크스페이스로 열립니다."
           }
         },
@@ -9814,13 +9814,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "你与编程智能体合作过的文件夹。保留的每个文件夹都会作为工作区打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "你與程式設計代理合作過的資料夾。保留的每個資料夾都會以工作區開啟。"
           }
         }
@@ -9831,7 +9831,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "أحضر مشاريعك"
           }
         },
@@ -9849,7 +9849,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Projekte übernehmen"
           }
         },
@@ -9861,13 +9861,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Trae tus proyectos"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Importez vos projets"
           }
         },
@@ -9879,7 +9879,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "プロジェクトを取り込む"
           }
         },
@@ -9891,7 +9891,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "프로젝트 가져오기"
           }
         },
@@ -9945,13 +9945,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "导入你的项目"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "匯入你的專案"
           }
         }
@@ -9962,7 +9962,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "مجلدات التخزين السحابي"
           }
         },
@@ -9980,7 +9980,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Cloud-Speicherordner"
           }
         },
@@ -9992,13 +9992,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "carpetas de almacenamiento en la nube"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "dossiers de stockage en ligne"
           }
         },
@@ -10010,7 +10010,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "クラウドストレージのフォルダ"
           }
         },
@@ -10022,7 +10022,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "클라우드 저장소 폴더"
           }
         },
@@ -10076,13 +10076,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "云存储文件夹"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "雲端儲存資料夾"
           }
         }
@@ -10093,7 +10093,7 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "محركات أقراص أخرى"
           }
         },
@@ -10111,7 +10111,7 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "andere Laufwerke"
           }
         },
@@ -10123,13 +10123,13 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "otras unidades"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "d’autres disques"
           }
         },
@@ -10141,7 +10141,7 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ほかのドライブ"
           }
         },
@@ -10153,7 +10153,7 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "다른 드라이브"
           }
         },
@@ -10207,13 +10207,13 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "其他磁盘"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "其他磁碟"
           }
         }
