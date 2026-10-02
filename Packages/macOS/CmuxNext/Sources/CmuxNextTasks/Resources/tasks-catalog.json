@@ -1,0 +1,1734 @@
+{
+  "family": "task",
+  "operations": [
+    {
+      "class": "read",
+      "cli": {
+        "path": "task list",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.list"
+      },
+      "docs": "List tasks with filters.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "description": "Archived tasks instead of active ones",
+            "type": "boolean"
+          },
+          "assignee": {
+            "description": "me, usr_ or agt_ id",
+            "type": "string"
+          },
+          "attention": {
+            "description": "Only tasks that need attention",
+            "type": "boolean"
+          },
+          "label": {
+            "description": "Label name or id (all must match)",
+            "items": {
+              "description": "Label name or id (all must match)",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "description": "Maximum number of tasks",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mine": {
+            "description": "Only tasks assigned or delegated to me",
+            "type": "boolean"
+          },
+          "open": {
+            "description": "Only open categories",
+            "type": "boolean"
+          },
+          "order": {
+            "description": "Sort order",
+            "enum": [
+              "manual",
+              "priority",
+              "updated",
+              "created"
+            ],
+            "type": "string"
+          },
+          "project": {
+            "description": "Project name or id",
+            "type": "string"
+          },
+          "search": {
+            "description": "Text in key, title or description",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status name, id or category",
+            "items": {
+              "description": "Status name, id or category",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.list",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "read",
+      "since": "tasks/1"
+    },
+    {
+      "class": "read",
+      "cli": {
+        "path": "task view",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.get"
+      },
+      "docs": "Read one task with comments, relations and agent sessions.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "task": {
+            "description": "Task key (CMX-12), task_ id or unique id prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.get",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "read",
+      "since": "tasks/1"
+    },
+    {
+      "class": "stream",
+      "cli": {
+        "path": "task watch",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.subscribe"
+      },
+      "docs": "Stream task events in commit order.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "after_seq": {
+            "description": "Resume after this sequence",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "task"
+      },
+      "name": "task.subscribe",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "read",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task create",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.create"
+      },
+      "docs": "Create a task.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "assignee": {
+            "description": "me or usr_ id",
+            "type": "string"
+          },
+          "description": {
+            "description": "Markdown description",
+            "type": "string"
+          },
+          "due": {
+            "description": "Due date YYYY-MM-DD",
+            "type": "string"
+          },
+          "estimate": {
+            "description": "Estimate points",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "description": "Client-chosen task id (generated when omitted)",
+            "pattern": "^task_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "labels": {
+            "description": "Label names or ids",
+            "items": {
+              "description": "Label names or ids",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "parent": {
+            "description": "Parent task",
+            "type": "string"
+          },
+          "priority": {
+            "description": "Priority",
+            "enum": [
+              "none",
+              "urgent",
+              "high",
+              "medium",
+              "low"
+            ],
+            "type": "string"
+          },
+          "project": {
+            "description": "Project name or id",
+            "type": "string"
+          },
+          "sort_key": {
+            "description": "Fractional sort key",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status name or id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.create",
+      "owner": "tasks",
+      "palette": {
+        "title": "New Task"
+      },
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task update",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.update"
+      },
+      "docs": "Change a task's fields.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "add_labels": {
+            "description": "Labels to add",
+            "items": {
+              "description": "Labels to add",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "assignee": {
+            "description": "me or usr_ id",
+            "type": "string"
+          },
+          "clear_parent": {
+            "description": "Clear the parent",
+            "type": "boolean"
+          },
+          "clear_project": {
+            "description": "Remove from its project",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Replacement description (needs if_version)",
+            "type": "string"
+          },
+          "due": {
+            "description": "Due date YYYY-MM-DD",
+            "type": "string"
+          },
+          "estimate": {
+            "description": "Estimate points",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "if_version": {
+            "description": "Description version being replaced",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "parent": {
+            "description": "Parent task",
+            "type": "string"
+          },
+          "priority": {
+            "description": "Priority",
+            "enum": [
+              "none",
+              "urgent",
+              "high",
+              "medium",
+              "low"
+            ],
+            "type": "string"
+          },
+          "project": {
+            "description": "Project name or id",
+            "type": "string"
+          },
+          "remove_labels": {
+            "description": "Labels to remove",
+            "items": {
+              "description": "Labels to remove",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "description": "Status name or id",
+            "type": "string"
+          },
+          "task": {
+            "description": "Task key (CMX-12), task_ id or unique id prefix",
+            "type": "string"
+          },
+          "title": {
+            "description": "New title",
+            "type": "string"
+          },
+          "unassign": {
+            "description": "Clear the assignee",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "task"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.update",
+      "owner": "tasks",
+      "palette": {
+        "title": "Change Task Status"
+      },
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task move",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.move"
+      },
+      "docs": "Reorder a task between two others.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "description": "Task that precedes it",
+            "type": "string"
+          },
+          "before": {
+            "description": "Task that follows it",
+            "type": "string"
+          },
+          "task": {
+            "description": "Task key (CMX-12), task_ id or unique id prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.move",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task archive",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.archive"
+      },
+      "docs": "Archive a task.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "task": {
+            "description": "Task key (CMX-12), task_ id or unique id prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.archive",
+      "owner": "tasks",
+      "palette": {
+        "title": "Archive Task"
+      },
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task unarchive",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.unarchive"
+      },
+      "docs": "Restore an archived task.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "task": {
+            "description": "Task key (CMX-12), task_ id or unique id prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.unarchive",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task delete",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.delete"
+      },
+      "docs": "Delete a task; its relations go with it.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "task": {
+            "description": "Task key (CMX-12), task_ id or unique id prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.delete",
+      "owner": "tasks",
+      "palette": {
+        "title": "Delete Task"
+      },
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "destructive",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task delegate",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.delegate"
+      },
+      "docs": "Hand a task to an agent; a dispatcher starts the agent session.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "agent": {
+            "description": "Agent principal",
+            "pattern": "^agt_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "class": {
+            "description": "Agent class",
+            "enum": [
+              "mux",
+              "ordinary"
+            ],
+            "type": "string"
+          },
+          "harness": {
+            "description": "Agent harness: claude, codex, opencode, …",
+            "type": "string"
+          },
+          "prompt": {
+            "description": "Extra instructions",
+            "type": "string"
+          },
+          "session": {
+            "description": "Client-chosen session id (generated when omitted)",
+            "pattern": "^asess_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "target": {
+            "description": "local, vm or host:<id>",
+            "type": "string"
+          },
+          "task": {
+            "description": "Task key (CMX-12), task_ id or unique id prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task",
+          "session",
+          "harness"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.delegate",
+      "owner": "tasks",
+      "palette": {
+        "title": "Delegate Task to Agent"
+      },
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "execute",
+      "since": "tasks/1"
+    },
+    {
+      "class": "read",
+      "cli": {
+        "path": "task session list",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.session.list"
+      },
+      "docs": "List agent sessions, optionally of one task.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "description": "Only active sessions",
+            "type": "boolean"
+          },
+          "task": {
+            "description": "Task",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.session.list",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "read",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task session claim",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.session.claim"
+      },
+      "docs": "Claim a pending agent session for a host (one dispatcher wins).",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "description": "Host that will run it",
+            "type": "string"
+          },
+          "session": {
+            "description": "Agent session id",
+            "pattern": "^asess_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "host"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "task"
+      },
+      "name": "task.session.claim",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task session attach",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.session.attach"
+      },
+      "docs": "Link a running agent session to its task session.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "acp_session": {
+            "description": "acpmux session id",
+            "type": "string"
+          },
+          "host": {
+            "description": "Host id",
+            "type": "string"
+          },
+          "session": {
+            "description": "Agent session id",
+            "pattern": "^asess_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "workspace": {
+            "description": "Workspace id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "acp_session"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.session.attach",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task session update",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.session.update"
+      },
+      "docs": "Report an agent session's status, plan or PR.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "plan": {
+            "description": "Plan steps [{content, status}]"
+          },
+          "pr": {
+            "description": "Pull request URL",
+            "type": "string"
+          },
+          "session": {
+            "description": "Agent session id",
+            "pattern": "^asess_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "status": {
+            "description": "Session status",
+            "enum": [
+              "working",
+              "awaiting_input",
+              "done",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.session.update",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-own",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task session cancel",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.session.cancel"
+      },
+      "docs": "Cancel an agent session.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "session": {
+            "description": "Agent session id",
+            "pattern": "^asess_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.session.cancel",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "read",
+      "cli": {
+        "path": "task comment list",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.comment.list"
+      },
+      "docs": "List a task's comments.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "task": {
+            "description": "Task key (CMX-12), task_ id or unique id prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.comment.list",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "read",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task comment add",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.comment.add"
+      },
+      "docs": "Comment on a task.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "description": "Markdown body",
+            "type": "string"
+          },
+          "id": {
+            "description": "Client-chosen comment id (generated when omitted)",
+            "pattern": "^cmt_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "reply_to": {
+            "description": "Thread's first comment",
+            "pattern": "^cmt_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "task": {
+            "description": "Task key (CMX-12), task_ id or unique id prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task",
+          "id",
+          "body"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.comment.add",
+      "owner": "tasks",
+      "palette": {
+        "title": "Comment on Task"
+      },
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task comment update",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.comment.update"
+      },
+      "docs": "Edit your comment.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "description": "New body",
+            "type": "string"
+          },
+          "comment": {
+            "description": "Comment id",
+            "pattern": "^cmt_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "if_version": {
+            "description": "Version being replaced",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "comment",
+          "body",
+          "if_version"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.comment.update",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-own",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task comment delete",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.comment.delete"
+      },
+      "docs": "Delete your comment.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "comment": {
+            "description": "Comment id",
+            "pattern": "^cmt_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "comment"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.comment.delete",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-own",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task relation add",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.relation.add"
+      },
+      "docs": "Relate two tasks (blocks, related, duplicate).",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "description": "From task",
+            "type": "string"
+          },
+          "id": {
+            "description": "Client-chosen relation id (generated when omitted)",
+            "pattern": "^rel_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Relation kind",
+            "enum": [
+              "blocks",
+              "related",
+              "duplicate"
+            ],
+            "type": "string"
+          },
+          "to": {
+            "description": "To task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.relation.add",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task relation remove",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.relation.remove"
+      },
+      "docs": "Remove a relation.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "relation": {
+            "description": "Relation id",
+            "pattern": "^rel_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relation"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.relation.remove",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "read",
+      "cli": {
+        "path": "task label list",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.label.list"
+      },
+      "docs": "List labels.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.label.list",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "read",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task label create",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.label.create"
+      },
+      "docs": "Create a label.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "description": "Ghostty palette index 0-15",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "description": "Client-chosen label id (generated when omitted)",
+            "pattern": "^lbl_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.label.create",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task label update",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.label.update"
+      },
+      "docs": "Rename or recolor a label.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "description": "Ghostty palette index 0-15",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "label": {
+            "description": "Label name or id",
+            "type": "string"
+          },
+          "name": {
+            "description": "New name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.label.update",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task label delete",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.label.delete"
+      },
+      "docs": "Delete a label and remove it from tasks.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "description": "Label name or id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.label.delete",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "read",
+      "cli": {
+        "path": "task status list",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.status.list"
+      },
+      "docs": "List workflow statuses.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.status.list",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "read",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task status create",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.status.create"
+      },
+      "docs": "Add a workflow status.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "description": "Category",
+            "enum": [
+              "triage",
+              "backlog",
+              "unstarted",
+              "started",
+              "completed",
+              "canceled"
+            ],
+            "type": "string"
+          },
+          "color": {
+            "description": "Ghostty palette index 0-15",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "description": "Client-chosen status id (generated when omitted)",
+            "pattern": "^st_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name",
+            "type": "string"
+          },
+          "position": {
+            "description": "Position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.status.create",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task status update",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.status.update"
+      },
+      "docs": "Rename, recolor or reorder a status.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "description": "Ghostty palette index 0-15",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "description": "New name",
+            "type": "string"
+          },
+          "position": {
+            "description": "Position",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status name or id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.status.update",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task status delete",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.status.delete"
+      },
+      "docs": "Delete a status; its tasks move to the replacement.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "replacement": {
+            "description": "Status for its tasks",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status name or id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "replacement"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.status.delete",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "read",
+      "cli": {
+        "path": "task project list",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.project.list"
+      },
+      "docs": "List projects.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "task"
+      },
+      "name": "task.project.list",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "read",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task project create",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.project.create"
+      },
+      "docs": "Create a project.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Client-chosen project id (generated when omitted)",
+            "pattern": "^prj_[0-9a-z_-]{1,64}$",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "State",
+            "enum": [
+              "planned",
+              "active",
+              "paused",
+              "completed",
+              "canceled"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.project.create",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task project update",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.project.update"
+      },
+      "docs": "Rename a project or change its state.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "New name",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project name or id",
+            "type": "string"
+          },
+          "state": {
+            "description": "State",
+            "enum": [
+              "planned",
+              "active",
+              "paused",
+              "completed",
+              "canceled"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.project.update",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task project archive",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.project.archive"
+      },
+      "docs": "Archive a project; its tasks leave it.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "description": "Project name or id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.project.archive",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    },
+    {
+      "class": "read",
+      "cli": {
+        "path": "task settings get",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.settings.get"
+      },
+      "docs": "Read the team's task settings.",
+      "focuses": false,
+      "idempotency": "forbidden",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.settings.get",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "read",
+      "since": "tasks/1"
+    },
+    {
+      "class": "mutation",
+      "cli": {
+        "path": "task settings update",
+        "visible": true
+      },
+      "code_mode": {
+        "path": "mux.task.settings.update"
+      },
+      "docs": "Change key prefix, default statuses or the agent flow.",
+      "focuses": false,
+      "idempotency": "required",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_flow": {
+            "description": "Whether status follows agent activity",
+            "enum": [
+              "forward",
+              "off"
+            ],
+            "type": "string"
+          },
+          "clear_review_status": {
+            "description": "No review status",
+            "type": "boolean"
+          },
+          "default_status": {
+            "description": "Status for new tasks",
+            "type": "string"
+          },
+          "key_prefix": {
+            "description": "Task key prefix, e.g. CMX",
+            "type": "string"
+          },
+          "review_status": {
+            "description": "Status when an agent is done",
+            "type": "string"
+          },
+          "started_status": {
+            "description": "Status when an agent starts",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "task"
+      },
+      "name": "task.settings.update",
+      "owner": "tasks",
+      "palette": null,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "risk": "mutate-shared",
+      "since": "tasks/1"
+    }
+  ],
+  "owner": "tasks",
+  "schema_version": 1,
+  "trigger_events": [
+    "task.created",
+    "task.status_changed",
+    "task.assigned",
+    "task.delegated",
+    "task.labeled",
+    "task.agent_session.status_changed",
+    "task.comment.created"
+  ]
+}

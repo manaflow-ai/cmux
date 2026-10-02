@@ -34,6 +34,8 @@ members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-tasks-core",
+    "crates/cmux-tasks",
 ]
 default-members = [
     "crates/cmux-cloud-cli",
@@ -53,6 +55,8 @@ default-members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-tasks-core",
+    "crates/cmux-tasks",
 ]
 exclude = ["vendor/crossterm"]
 
