@@ -181,14 +181,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         machine.apply(.failed(id, error))
     }
 
-    func browserDidClose() {
+    /// Chromium destroyed the browser. `closesTab` is false when quit
+    /// closed it (`CEFRuntime.shutdown`): the engine ends, the tab stays in
+    /// the daemon and reopens at relaunch.
+    func browserDidClose(closesTab: Bool = true) {
         browserID = nil
         findContinuation?.resume(returning: .none)
         findContinuation = nil
         host.removed(self)
         if !isClosed {
             isClosed = true
-            emit(.close)
+            if closesTab { emit(.close) }
         }
     }
 
