@@ -12,6 +12,10 @@ export async function GET(request: NextRequest, context: { params: Promise<{ tea
   const team = await app.getTeam(teamId);
   if (!team) return adminJsonResponse({ error: "team_not_found" }, 404);
   const users = await team.listUsers();
+  const permissionRows = typeof app.listTeamMemberPermissions === "function"
+    ? await app.listTeamMemberPermissions(teamId, { recursive: true })
+    : [];
+  const adminIds = new Set(permissionRows.filter((row) => row.permissionId === "team_admin").map((row) => row.userId));
   const members = await Promise.all(users.map(async (member) => {
     const user = await app.getUser(member.id);
     return {
@@ -20,6 +24,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ tea
       email: user?.primaryEmail ?? null,
       emailVerified: user?.primaryEmailVerified ?? false,
       signedUpAt: user?.signedUpAt?.toISOString() ?? null,
+      role: adminIds.has(member.id) ? "admin" : "member",
     };
   }));
   return adminJsonResponse({
@@ -31,5 +36,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ tea
       serverMetadata: JSON.stringify(team.serverMetadata ?? null),
     },
     members,
+    admins: members.filter((member) => member.role === "admin").map(({ id, displayName, email }) => ({ id, displayName, email })),
   });
 }
