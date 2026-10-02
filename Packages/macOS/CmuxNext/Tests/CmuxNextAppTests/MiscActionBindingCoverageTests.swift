@@ -82,4 +82,12 @@ struct MiscActionBindingCoverageTests {
         #expect(descriptor.surfacePlan.contextMenu == .exempt(.guiOnly))
         #expect(ActionBindingCoverageTests.boundServices().registry.isBound("agentPane.continueIn"))
     }
+    @Test func checkpointReviewNeedsTheFocusedPagesCapability() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let id: ActionID = "agentPane.createCheckpoint"
+        #expect(services.registry.isBound(id))
+        #expect(!services.registry.isAvailable(id, in: [.agentPaneFocused]))
+        #expect(!services.registry.isAvailable(id, in: [.checkpointCaptureAvailable]))
+        #expect(services.registry.isAvailable(id, in: [.agentPaneFocused, .checkpointCaptureAvailable]))
+    }
 }
