@@ -81,6 +81,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newColumnWidth: NewColumnWidthMode = ColumnLayoutSettings.newColumnWidthFallback
     public var stickyColumnEdge: StickyDefaultEdge = ColumnLayoutSettings.stickyEdgeFallback
     public var stickyColumnMode: StickyDefaultMode = ColumnLayoutSettings.stickyModeFallback
+    /// `layout.frameOrientation`: which docks own the frame's corners.
+    public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
@@ -91,6 +93,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
+    /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both
+    /// nil (Ghostty's values) when unset or invalid.
+    public var windowBackground = WindowBackgroundOverride()
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
     /// `status.*`.
@@ -170,6 +175,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         ColumnLayoutSettings.parse(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
+        snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)

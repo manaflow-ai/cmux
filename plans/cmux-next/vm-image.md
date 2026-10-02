@@ -369,3 +369,21 @@ The script bakes once (about 4 min), runs the verifier on the bake, derives the 
 | process creations | 463 per min | 454 per min |
 
 The remaining idle CPU is the boot supervisor's 1 s metadata poll (about 1.4 CPU-s/min) and the desktop supervisor (about 0.4). Sections 4.4 and 6 remove them; this promotion does not.
+
+### 13.10 Rebake from `main` with the fix (2026-10-02, prototype, deleted)
+
+The fix reached `main` as 9a332eca4bbc (#16864, host accept loop only). I baked `cmuxnp-dev-mainbake-9a332ec-exp20261002t2000z` (sh-753a06c15d454c2597ab67b93c124594) from that `main` commit, with the cmux-tui pinned to the commit's files.cmux.com manifest. I then ran the full verifier with the idle check from section 13.6 on top. Result: `ALL CHECKS PASSED`. The terminal host's main thread made 0 switches in 60 s. Daemon identity and SSH host keys differed across the two clones. The machine id and boot_id were shared, as expected. The snapshot and every VM are deleted.
+
+Same size (sm, 2 vCPU), same scripts. Idle is one settled clone each over 300 s.
+
+| | production sm (sh-6c0c7d26…, cmux-tui 37ee6af9846b) | main rebake (cmux-tui 9a332eca4bbc) |
+| --- | --- | --- |
+| terminal host | 0.138 CPU-s/min, 2,979 switches per min | 0, 0 |
+| daemon voluntary switches | 426 per min | 426 per min (main's daemon still has the polls that feat-cmux-next removed in 51b68635143: main thread 241, journal 121 and session journal 61 per minute) |
+| kernel `rcu_preempt` switches | 6,583 per min | 1,297 per min |
+| context switches, whole VM | 528 per s | 250 per s |
+| idle CPU, whole VM | 3.14 CPU-s/min | 2.76 CPU-s/min |
+| process creations | 461 per min | 462 per min (boot supervisor poll, unchanged) |
+| daemon ready, interleaved creates (n = 8 each) | p50 868 ms, p95 1,967 ms | p50 875 ms, p95 7,191 ms |
+
+Daemon readiness has the same median but a worse tail on this snapshot. In the interleaved run, 2 of 8 clones of the rebake waited 4.3 and 5.1 s inside the guest. The worst production clone waited 1.6 s. Earlier runs at a time of high provider variance showed slow clones on both images. An earlier lane prototype showed a stall of this kind that belonged to one snapshot (section 4.3). The cause is UNVERIFIED. The promotion evidence (13.7, item 3) must therefore include an interleaved 10-clone readiness comparison against production. A p95 more than 1 s above production blocks the promotion until the cause is known.

@@ -12,7 +12,10 @@ extension LayoutRootView {
     public func autoscrollTabDrag(locationInWindow: NSPoint, dt: Double) -> Bool {
         guard let active = model.activeScreenID, let view = screenViews[active], !view.isHidden else { return false }
         let local = view.convert(locationInWindow, from: nil)
-        guard local.y >= 0, local.y <= view.bounds.height else { return false }
+        // Only over the strip's uncovered range: a drag over a top or bottom
+        // dock drops there and never scrolls the strip.
+        let range = view.uncoveredRect
+        guard local.y >= range.minY, local.y <= range.maxY else { return false }
         guard view.edgeAutoscroll(localX: local.x, dt: dt) else { return false }
         driver.start()
         return true
