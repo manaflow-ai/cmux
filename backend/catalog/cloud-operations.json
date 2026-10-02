@@ -579,10 +579,9 @@
       "values": [
         "first-party",
         "verified",
-        "community",
         "unverified"
       ],
-      "description": "Review tier (D45). `unverified` apps are never searchable."
+      "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
     },
     "AppVersion": {
       "kind": "primitive",
@@ -2720,10 +2719,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppInstall": {
             "type": "object",
@@ -2968,10 +2966,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppInstall": {
             "type": "object",
@@ -3150,10 +3147,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppVersion": {
             "type": "string",
@@ -3556,10 +3552,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppInstall": {
             "type": "object",
@@ -3931,10 +3926,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppInstall": {
             "type": "object",
@@ -4353,10 +4347,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           }
         }
       },
@@ -4373,10 +4366,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppVersion": {
             "type": "string",
@@ -4724,10 +4716,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppId": {
             "type": "string",
@@ -4744,10 +4735,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppId": {
             "type": "string",
@@ -5087,10 +5077,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           }
         }
       },
@@ -5130,10 +5119,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppVersion": {
             "type": "string",
@@ -5526,10 +5514,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppInstall": {
             "type": "object",
@@ -5957,10 +5944,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppVersion": {
             "type": "string",
@@ -6301,10 +6287,9 @@
             "enum": [
               "first-party",
               "verified",
-              "community",
               "unverified"
             ],
-            "description": "Review tier (D45). `unverified` apps are never searchable."
+            "description": "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
           },
           "AppVersion": {
             "type": "string",

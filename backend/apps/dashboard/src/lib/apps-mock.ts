@@ -21,7 +21,7 @@ const v = (version: string, scopes: Record<string, string>, optional: Record<str
 const listings = [
   {
     id: "manaflow-ai/github-prs",
-    name: "GitHub PRs",
+    name: "Pull Requests",
     description: "Your open pull requests as a sidebar section, matched to workspaces by branch.",
     publisher: { name: "Manaflow", github_owner: "manaflow-ai", verified: true },
     repository: "https://github.com/manaflow-ai/cmux-app-github-prs",
@@ -35,16 +35,16 @@ const listings = [
     ]
   },
   {
-    id: "acme/linear-issues",
-    name: "Linear Issues",
-    description: "Issues assigned to you, with a command to start a workspace for one.",
+    id: "acme/todo-list",
+    name: "Todo List",
+    description: "Your open todos, with a command to start a workspace for one.",
     publisher: { name: "Acme", github_owner: "acme", verified: false },
-    repository: "https://github.com/acme/cmux-linear-issues",
+    repository: "https://github.com/acme/cmux-todo-list",
     categories: ["sidebar"],
-    tier: "community",
+    tier: "verified",
     latest_version: "0.4.1",
     install_count: 212,
-    versions: [v("0.4.1", { "workspace:write": "Create a workspace for an issue.", "integration:linear": "Read issues assigned to you." }, {}, 9)]
+    versions: [v("0.4.1", { "workspace:write": "Create a workspace for an issue.", "net:todo.example.com": "Read your todos." }, {}, 9)]
   },
   {
     id: "tools/cpu-status",
@@ -66,11 +66,11 @@ let approvals: Array<Record<string, Json>> = [
   {
     id: "appr_mock0000000000000001",
     kind: "install",
-    app: "acme/linear-issues",
+    app: "acme/todo-list",
     scope: "user",
     version: "0.4.1",
-    scopes: ["integration:linear", "workspace:write"],
-    added: ["integration:linear", "workspace:write"],
+    scopes: ["net:todo.example.com", "workspace:write"],
+    added: ["net:todo.example.com", "workspace:write"],
     requested_by: { identity: "inst_mockagent00000000000", origin: "mcp" },
     expires_at: now + 8 * 60_000
   }
@@ -115,7 +115,7 @@ export const mockAppsMutate = (op: string, params: Record<string, unknown>, key:
   if (op === "app.approval.decide") {
     const a = approvals.find((x) => x.id === params.approval)
     approvals = approvals.filter((x) => x.id !== params.approval)
-    if (a && params.decision === "approve") installs = [...installs, { app: a.app!, scope: a.scope!, version: a.version!, tier: "community", scopes_granted: a.scopes!, installed_at: Date.now() }]
+    if (a && params.decision === "approve") installs = [...installs, { app: a.app!, scope: a.scope!, version: a.version!, tier: "verified", scopes_granted: a.scopes!, installed_at: Date.now() }]
     return ok(op, key, { approval: a ?? null, install: null })
   }
   return { status: 400, body: { ok: false, op, error: { code: "validation.invalid", message: `mock: ${op}`, retryable: false }, transaction: "", idempotency_key: key, replayed: false, stream: "", sequence: 0 } }

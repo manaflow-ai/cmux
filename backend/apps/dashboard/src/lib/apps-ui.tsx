@@ -1,10 +1,10 @@
 import type { Tier } from "./apps"
 
-const TIER_LABEL: Record<Tier, string> = { "first-party": "First party", verified: "Verified", community: "Community", unverified: "Unverified" }
+const TIER_LABEL: Record<Tier, string> = { "first-party": "first-party (cmux)", verified: "Verified", unverified: "unverified third-party" }
 
 /** Review tier badge (D45). Neutral colors; unverified uses the warning color. */
 export function TierBadge({ tier }: { tier: Tier }) {
-  const strong = tier === "first-party" || tier === "verified"
+  const strong = tier !== "unverified"
   return (
     <span
       className="mono"
@@ -14,7 +14,7 @@ export function TierBadge({ tier }: { tier: Tier }) {
         padding: "0 6px",
         borderRadius: 4,
         border: `1px solid ${tier === "unverified" ? "var(--bad)" : "var(--line)"}`,
-        color: tier === "unverified" ? "var(--bad)" : strong ? "var(--fg)" : "var(--muted)",
+        color: tier === "unverified" ? "var(--bad)" : "var(--fg)",
         fontWeight: strong ? 600 : 400,
         whiteSpace: "nowrap"
       }}

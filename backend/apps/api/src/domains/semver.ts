@@ -5,7 +5,7 @@ import { SEMVER_PATTERN } from "@cmux/protocol"
  * 11) and ranges as cmux app manifests and installs use them: `*`, exact
  * `1.2.3`, `^1.2.3`, `~1.2.3`, `>=1.2.3`, `1.x`, `1.2.x`, and partial
  * `^1.2` / `~1`. A prerelease satisfies only a range that names the same
- * major.minor.patch with a prerelease (npm rule), so `*` never picks one.
+ * major.minor.patch with a prerelease, so `*` never picks one.
  */
 export interface SemVer {
   readonly major: number
@@ -93,7 +93,7 @@ export const satisfies = (version: string, range: string): boolean => {
   if (!sv || !b) return false
   if (b.exact) return compareSemver(sv, b.lo) === 0
   if (sv.pre.length > 0) {
-    // npm rule: a prerelease only matches a range whose lower bound is a prerelease of the same triple.
+    // A prerelease only matches a range whose lower bound is a prerelease of the same triple.
     if (b.lo.pre.length === 0 || sv.major !== b.lo.major || sv.minor !== b.lo.minor || sv.patch !== b.lo.patch) return false
   }
   if (compareSemver(sv, b.lo) < 0) return false

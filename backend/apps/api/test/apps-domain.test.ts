@@ -152,7 +152,7 @@ describe("AppDO reducer", () => {
     const s = published("1.0.0")
     expect(() => appApply(devDomain, s, alice, "app.listing.set_tier", { app: APP, tier: "verified", resolved: { entity: APP } })).toThrow(/staff/)
     expect(() => appApply(devDomain, s, staff, "app.listing.set_tier", { app: APP, tier: "first-party", resolved: { entity: APP } })).toThrow(/reserved/)
-    expect(appApply(devDomain, s, staff, "app.listing.set_tier", { app: APP, tier: "community", resolved: { entity: APP } }).state.listing!.tier).toBe("community")
+    expect(appApply(devDomain, s, staff, "app.listing.set_tier", { app: APP, tier: "verified", resolved: { entity: APP } }).state.listing!.tier).toBe("verified")
   })
 
   it("parses only https GitHub repository URLs", () => {
@@ -167,7 +167,7 @@ describe("AppDO reducer", () => {
 const release = (version = "1.0.0", over: Partial<Record<string, unknown>> = {}) => ({
   app: APP,
   version,
-  tier: "community",
+  tier: "verified",
   publisher_team: "team_pppppppppppppppppppp",
   scopes: ["workspace:read"],
   optional_scopes: ["notification:post"],
@@ -348,7 +348,7 @@ describe("team installs and the team app policy", () => {
   })
 
   it("enforces allowed tiers, the allowlist and the blocklist on installs and approvals", () => {
-    const tiers = withPolicy({ allowed_tiers: ["first-party", "verified"] })
+    const tiers = withPolicy({ allowed_tiers: ["first-party"] })
     expect(code(() => apply(tiers, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }, { owner: team }))).toBe("policy.denied")
     const allow = withPolicy({ allowlist: ["acme/other"] })
     expect(code(() => apply(allow, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }, { owner: team }))).toBe("policy.denied")
@@ -366,7 +366,7 @@ describe("team installs and the team app policy", () => {
   it("a team admits unverified apps only when its policy lists the tier", () => {
     const unverified = { app: APP, scopes: ["workspace:read"], accept_unverified: true, resolved: release("1.0.0", { tier: "unverified" }) }
     expect(code(() => apply(emptyApps, alice, "app.install", unverified, { owner: team }))).toBe("policy.denied")
-    expect(apply(withPolicy({ allowed_tiers: ["community", "unverified"] }), alice, "app.install", unverified, { owner: team }).value).toMatchObject({ status: "installed" })
+    expect(apply(withPolicy({ allowed_tiers: ["verified", "unverified"] }), alice, "app.install", unverified, { owner: team }).value).toMatchObject({ status: "installed" })
   })
 
   it("team installs need a grant with mutate-shared (install tokens of an admin included)", async () => {

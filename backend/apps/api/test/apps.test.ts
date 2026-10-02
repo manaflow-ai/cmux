@@ -103,7 +103,7 @@ describe("app store over the API (workerd)", { timeout: 60_000 }, () => {
 
     // Team install in the personal team (unverified needs the tier in the team policy), then the policy blocks it.
     expect((await userOp(tok, "app.install", { app, scope: "team", scopes: ["workspace:read"], accept_unverified: true, version_range: "1.0.0" })).json.error.code).toBe("policy.denied")
-    expect((await op(tok, "app.policy.set", { allowed_tiers: ["community", "unverified"] })).json.ok).toBe(true)
+    expect((await op(tok, "app.policy.set", { allowed_tiers: ["verified", "unverified"] })).json.ok).toBe(true)
     const t1 = await userOp(tok, "app.install", { app, scope: "team", scopes: ["workspace:read"], accept_unverified: true, version_range: "1.0.0" })
     expect(t1.json).toMatchObject({ ok: true, stream: expect.stringMatching(/^team:/), value: { status: "installed", install: { scope: "team", version: "1.0.0" } } })
     expect((await op(tok, "app.policy.set", { blocklist: [app] })).json.ok).toBe(true)

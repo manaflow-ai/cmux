@@ -34,9 +34,8 @@ function AppStore() {
         <input style={{ flex: 1, minWidth: 200 }} placeholder="Search apps" value={query} onChange={(e) => setQuery(e.target.value)} />
         <select value={tier} onChange={(e) => setTier(e.target.value as Tier | "")}>
           <option value="">All tiers</option>
-          <option value="first-party">First party</option>
+          <option value="first-party">first-party (cmux)</option>
           <option value="verified">Verified</option>
-          <option value="community">Community</option>
         </select>
         <button type="submit">Search</button>
       </form>

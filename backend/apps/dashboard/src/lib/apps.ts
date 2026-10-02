@@ -3,7 +3,7 @@ import { mockAppsMutate, mockAppsRead } from "./apps-mock"
 import { mutate, read, type Json, type OpResponse } from "./server"
 
 /** Shapes of the app store ops the dashboard shows (backend/packages/protocol/src/apps.ts). */
-export type Tier = "first-party" | "verified" | "community" | "unverified"
+export type Tier = "first-party" | "verified" | "unverified"
 
 export interface VersionRecord {
   version: string

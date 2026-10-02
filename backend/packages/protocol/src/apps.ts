@@ -36,9 +36,9 @@ export const AppScope = Schema.String.check(Schema.isPattern(SCOPE_PATTERN)).ann
   description: "A scope an app requests, `family:detail` (spec section 10, contract scopes.json)."
 })
 
-export const AppTier = Schema.Literals(["first-party", "verified", "community", "unverified"]).annotate({
+export const AppTier = Schema.Literals(["first-party", "verified", "unverified"]).annotate({
   identifier: "AppTier",
-  description: "Review tier (D45). `unverified` apps are never searchable."
+  description: "Review tier: first-party (cmux), verified, or unverified third-party. Unverified apps are never searchable."
 })
 export type AppTier = typeof AppTier.Type
 

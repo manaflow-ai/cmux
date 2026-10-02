@@ -3,7 +3,7 @@
 -- (apps, app_versions) and of UserDO/TeamDO installs (app_installs, counts and
 -- versions only, never granted scopes). Each row has exactly one writer stream,
 -- guarded by source_stream/source_seq like 0001. Search is a generated
--- tsvector with a GIN index and word-prefix tsquery (no pg_trgm).
+-- tsvector with a GIN index and word-prefix tsquery (no trigram index).
 
 -- Publisher identity (GitHub owner verified through the GitHub App or OAuth),
 -- written by the publishing team's TeamDO once verification exists. No writer yet.
@@ -29,7 +29,7 @@ CREATE TABLE apps (
   name                text NOT NULL,
   description         text NOT NULL,
   categories          text[] NOT NULL DEFAULT '{}',
-  tier                text NOT NULL CHECK (tier IN ('first-party', 'verified', 'community', 'unverified')),
+  tier                text NOT NULL CHECK (tier IN ('first-party', 'verified', 'unverified')),
   icon_url            text,
   latest_version      text,
   created_at          timestamptz NOT NULL,

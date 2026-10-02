@@ -90,7 +90,7 @@ const resolvedOf = (params: unknown): ResolvedRelease | null | "invalid" => {
 }
 
 /** Tiers a team admits when its policy names none: unverified apps need the tier listed explicitly. */
-const DEFAULT_TEAM_TIERS: ReadonlyArray<AppTier> = ["first-party", "verified", "community"]
+const DEFAULT_TEAM_TIERS: ReadonlyArray<AppTier> = ["first-party", "verified"]
 /** Pending agent requests per owner; more are refused until some are decided or expire. */
 export const MAX_PENDING_APPROVALS = 20
 

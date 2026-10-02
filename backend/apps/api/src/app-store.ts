@@ -4,7 +4,7 @@ import { withReadClient, type PlanetscaleReadResult, type ReadQuery } from "./pl
 
 /**
  * Worker-side app store reads: app.search over the `apps` projection
- * (generated tsvector + GIN, word-prefix tsquery; no pg_trgm) and install
+ * (generated tsvector + GIN, word-prefix tsquery; no trigram index) and install
  * counts for app.info. Owner `cloud:planetscale`, read-only.
  */
 
