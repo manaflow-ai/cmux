@@ -247,6 +247,7 @@ pub(super) fn parse_workspace_status(
             }
             insert_optional_string(&mut params.fields, flags, "icon", "icon");
             insert_optional_string(&mut params.fields, flags, "color", "color");
+            status_flags::insert(&mut params.fields, flags, caller_terminal())?;
             Op::WorkspaceStatusSet
         }
         ("status", ["clear"]) => Op::WorkspaceStatusClear,
@@ -693,6 +694,8 @@ pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandP
     };
     params.send(operation, &selectors, flags)
 }
+
+mod status_flags;
 
 #[cfg(test)]
 mod tests;

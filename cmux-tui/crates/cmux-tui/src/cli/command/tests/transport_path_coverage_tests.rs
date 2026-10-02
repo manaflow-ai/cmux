@@ -38,6 +38,44 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         }
     }
     for (args, expected) in [
+        (
+            vec![
+                "workspace",
+                WORKSPACE,
+                "status",
+                "set",
+                "build",
+                "Building",
+                "--progress",
+                "40%",
+                "--style",
+                "native",
+                "--ttl",
+                "30s",
+                "--pid",
+                "4242",
+                "--target-terminal",
+                TERMINAL,
+            ],
+            "workspace_status.set",
+        ),
+        (
+            vec![
+                "workspace",
+                WORKSPACE,
+                "status",
+                "set",
+                "run:1",
+                "Tests",
+                "--state",
+                "error",
+                "--exit-code",
+                "2",
+                "--duration-ms",
+                "1500",
+            ],
+            "workspace_status.set",
+        ),
         (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (

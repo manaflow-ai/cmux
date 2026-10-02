@@ -94,7 +94,13 @@ fn snapshot_entries_carry_the_meta_and_plain_writes_drop_it() {
 #[test]
 fn each_owner_end_removes_exactly_its_entries() {
     let mut connection = connection();
-    put(&mut connection, "ws_a", "a", &meta(json!({"state": "busy", "owner": {"terminal": term(1)}})), 0);
+    put(
+        &mut connection,
+        "ws_a",
+        "a",
+        &meta(json!({"state": "busy", "owner": {"terminal": term(1)}})),
+        0,
+    );
     put(&mut connection, "ws_a", "b", &meta(json!({"state": "busy", "owner": {"pid": 9}})), 0);
     put(&mut connection, "ws_b", "c", &meta(json!({"state": "success", "ttl_ms": 100})), 1000);
     put(&mut connection, "ws_b", "d", &meta(json!({"state": "busy", "ttl_ms": 5000})), 1000);
@@ -111,8 +117,9 @@ fn each_owner_end_removes_exactly_its_entries() {
     assert_eq!(remove_entries(&tx, &expired).unwrap(), vec!["ws_b".to_string()]);
     tx.commit().unwrap();
     assert_eq!(next_expiry_ms(&connection).unwrap(), Some(6000));
-    let count: i64 =
-        connection.query_row("SELECT COUNT(*) FROM workspace_status_entries", [], |row| row.get(0)).unwrap();
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM workspace_status_entries", [], |row| row.get(0))
+        .unwrap();
     assert_eq!(count, 3);
     // Replaying the same removal changes nothing more (idempotent).
     let tx = connection.transaction().unwrap();

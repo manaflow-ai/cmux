@@ -14,19 +14,25 @@ use std::time::Duration;
 
 use serde_json::json;
 
+use crate::Mux;
+use crate::resource::TerminalPublicId;
+use crate::state::commit::StateEffects;
 use crate::state::prelude::*;
 use crate::state::status_meta::{self, OwnerEnd};
 use crate::state::store::{StateChanges, StateCommit, state_upsert};
-use crate::state::commit::StateEffects;
 use crate::state::workspace_status_store as status;
-use crate::resource::TerminalPublicId;
-use crate::Mux;
 
 impl Mux {
     /// Remove every status entry `end` owns, in one commit. `None` when
     /// nothing was owned.
-    pub(crate) fn clear_owned_workspace_status(&self, end: &OwnerEnd) -> anyhow::Result<Option<StateCommit>> {
-        if self.read_registry_state(|connection| status_meta::owned_entries(connection, end))?.is_empty() {
+    pub(crate) fn clear_owned_workspace_status(
+        &self,
+        end: &OwnerEnd,
+    ) -> anyhow::Result<Option<StateCommit>> {
+        if self
+            .read_registry_state(|connection| status_meta::owned_entries(connection, end))?
+            .is_empty()
+        {
             return Ok(None);
         }
         let mutation = WorkspaceMutation::local("workspace_status.auto_clear");
@@ -64,12 +70,21 @@ impl Mux {
 /// a remote client's process id means nothing on this machine.
 pub(crate) fn names_process_owner(request: &crate::resource_router::ParsedResourceRequest) -> bool {
     request.envelope.operation == crate::resource::ResourceOperation::WorkspaceStatusSet
-        && request.fields.get("owner").and_then(|owner| owner.get("pid")).is_some_and(|pid| !pid.is_null())
+        && request
+            .fields
+            .get("owner")
+            .and_then(|owner| owner.get("pid"))
+            .is_some_and(|pid| !pid.is_null())
 }
 
 /// Start watching every owner a just-committed entry names. Called after a
 /// successful `workspace_status.set` and once at daemon start.
-pub(crate) fn watch_owners(mux: &Arc<Mux>, terminal: Option<&str>, pid: Option<u32>, has_ttl: bool) {
+pub(crate) fn watch_owners(
+    mux: &Arc<Mux>,
+    terminal: Option<&str>,
+    pid: Option<u32>,
+    has_ttl: bool,
+) {
     if let Some(terminal) = terminal {
         watch_terminal(mux, terminal.to_owned());
     }
@@ -109,7 +124,12 @@ fn watched() -> &'static Mutex<HashSet<(usize, String)>> {
 }
 
 /// Run `wait` on its own thread once per `(mux, label)`, then clear `end`.
-fn spawn_watch(mux: &Arc<Mux>, label: String, end: OwnerEnd, wait: impl FnOnce(&Mux) + Send + 'static) {
+fn spawn_watch(
+    mux: &Arc<Mux>,
+    label: String,
+    end: OwnerEnd,
+    wait: impl FnOnce(&Mux) + Send + 'static,
+) {
     let key = (mux_key(mux), label);
     if !watched().lock().unwrap().insert(key.clone()) {
         return;
@@ -174,7 +194,9 @@ fn wait_for_process_exit(pid: u32) -> std::io::Result<()> {
         change.fflags = libc::NOTE_EXIT;
         let mut event: libc::kevent = std::mem::zeroed();
         let mut result = libc::kevent(queue, &change, 1, &mut event, 1, std::ptr::null());
-        while result < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+        while result < 0
+            && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+        {
             result = libc::kevent(queue, std::ptr::null(), 0, &mut event, 1, std::ptr::null());
         }
         let error = std::io::Error::last_os_error();
@@ -219,7 +241,8 @@ struct Expiry {
 fn expiry() -> &'static Expiry {
     static EXPIRY: OnceLock<Expiry> = OnceLock::new();
     EXPIRY.get_or_init(|| {
-        let spawned = std::thread::Builder::new().name("cmux-status-expiry".into()).spawn(run_expiry);
+        let spawned =
+            std::thread::Builder::new().name("cmux-status-expiry".into()).spawn(run_expiry);
         if let Err(error) = spawned {
             eprintln!("cmux-tui: status expiry thread failed to start: {error}");
         }
@@ -252,7 +275,8 @@ fn run_expiry() {
         let mut next: Option<u64> = None;
         for mux in muxes.iter().filter_map(Weak::upgrade) {
             let now = crate::mux::now_ms();
-            if let Err(error) = mux.clear_owned_workspace_status(&OwnerEnd::Expired { now_ms: now }) {
+            if let Err(error) = mux.clear_owned_workspace_status(&OwnerEnd::Expired { now_ms: now })
+            {
                 eprintln!("cmux-tui: status expiry failed: {error}");
             }
             if let Ok(Some(deadline)) = mux.read_registry_state(status_meta::next_expiry_ms) {
@@ -265,7 +289,8 @@ fn run_expiry() {
         }
         match next {
             Some(deadline) => {
-                let wait = Duration::from_millis(deadline.saturating_sub(crate::mux::now_ms()).max(1));
+                let wait =
+                    Duration::from_millis(deadline.saturating_sub(crate::mux::now_ms()).max(1));
                 drop(expiry.wake.wait_timeout_while(guard, wait, |state| state.1 == generation));
             }
             None => {

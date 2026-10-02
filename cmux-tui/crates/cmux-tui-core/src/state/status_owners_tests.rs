@@ -38,7 +38,12 @@ fn loading_fields_round_trip_and_old_callers_stay_plain() {
     assert_eq!(set["entries"][0]["state"], "busy");
     assert_eq!(set["entries"][0]["progress"], 0.4);
     assert_eq!(set["entries"][0]["style"], "native");
-    let plain = mutate(&mux, "workspace_status.set", json!({"workspace": workspace, "key": "k", "text": "t"}), "m2");
+    let plain = mutate(
+        &mux,
+        "workspace_status.set",
+        json!({"workspace": workspace, "key": "k", "text": "t"}),
+        "m2",
+    );
     assert!(plain["entries"][1].get("state").is_none());
     // A replay with the same key returns the stored result and changes nothing.
     let before = revision(&mux);
@@ -81,7 +86,10 @@ fn invalid_owners_are_rejected_before_anything_is_written() {
         params["key"] = json!("k");
         params["text"] = json!("t");
         params["state"] = params.get("state").cloned().unwrap_or(json!("busy"));
-        assert_eq!(error_code(send(&mux, "workspace_status.set", params, Some(key))), "validation.invalid");
+        assert_eq!(
+            error_code(send(&mux, "workspace_status.set", params, Some(key))),
+            "validation.invalid"
+        );
     }
     assert!(entries(&mux, &workspace).is_empty());
     mux.shutdown();
@@ -98,12 +106,19 @@ fn ttl_expiry_removes_the_entry_in_a_daemon_commit() {
         json!({"workspace": workspace, "key": "done", "text": "Tests passed", "state": "success", "ttl_ms": 150}),
         "t1",
     );
-    mutate(&mux, "workspace_status.set", json!({"workspace": workspace, "key": "keep", "text": "stays"}), "t2");
+    mutate(
+        &mux,
+        "workspace_status.set",
+        json!({"workspace": workspace, "key": "keep", "text": "stays"}),
+        "t2",
+    );
     assert!(wait_until(|| entries(&mux, &workspace).len() == 1), "the TTL entry was not removed");
     assert_eq!(entries(&mux, &workspace)[0]["key"], "keep");
     let upserts = changes_after(&mux, before)
         .into_iter()
-        .filter(|change| change["kind"] == "state_upsert" && change["resource"] == "workspace_status")
+        .filter(|change| {
+            change["kind"] == "state_upsert" && change["resource"] == "workspace_status"
+        })
         .count();
     assert_eq!(upserts, 3, "two sets and one expiry commit");
     mux.shutdown();
@@ -121,11 +136,19 @@ fn owner_process_exit_removes_only_its_entries() {
         json!({"workspace": workspace, "key": "run", "text": "Tests", "state": "busy", "owner": {"pid": child.id()}}),
         "p1",
     );
-    mutate(&mux, "workspace_status.set", json!({"workspace": workspace, "key": "other", "text": "x", "state": "busy"}), "p2");
+    mutate(
+        &mux,
+        "workspace_status.set",
+        json!({"workspace": workspace, "key": "other", "text": "x", "state": "busy"}),
+        "p2",
+    );
     assert_eq!(entries(&mux, &workspace)[0]["owner"]["pid"], child.id());
     child.kill().unwrap();
     child.wait().unwrap();
-    assert!(wait_until(|| entries(&mux, &workspace).len() == 1), "the owned entry outlived its process");
+    assert!(
+        wait_until(|| entries(&mux, &workspace).len() == 1),
+        "the owned entry outlived its process"
+    );
     assert_eq!(entries(&mux, &workspace)[0]["key"], "other");
     mux.shutdown();
 }

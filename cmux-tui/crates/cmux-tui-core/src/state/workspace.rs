@@ -20,12 +20,21 @@ pub(crate) enum WorkspaceStatusChange {
         text: String,
         icon: Option<String>,
         color: Option<String>,
-        meta: crate::state::status_meta::StatusMeta,
+        meta: Box<crate::state::status_meta::StatusMeta>,
     },
-    Clear { key: Option<String> },
-    Progress { value: Option<f64>, label: Option<String> },
+    Clear {
+        key: Option<String>,
+    },
+    Progress {
+        value: Option<f64>,
+        label: Option<String>,
+    },
     ProgressClear,
-    Log { level: String, source: Option<String>, text: String },
+    Log {
+        level: String,
+        source: Option<String>,
+        text: String,
+    },
     LogClear,
 }
 

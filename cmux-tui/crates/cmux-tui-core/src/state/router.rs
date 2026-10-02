@@ -528,7 +528,7 @@ pub(crate) fn dispatch(
                     text: string(fields, "text").unwrap_or_default(),
                     icon: string(fields, "icon"),
                     color: string(fields, "color"),
-                    meta: meta.clone().unwrap_or_default(),
+                    meta: Box::new(meta.clone().unwrap_or_default()),
                 },
                 Op::WorkspaceStatusClear => {
                     WorkspaceStatusChange::Clear { key: string(fields, "key") }

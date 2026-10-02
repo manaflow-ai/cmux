@@ -85,7 +85,10 @@ impl StatusMeta {
 
     /// Validate every field that needs no daemon state. `known_terminal`
     /// answers whether a terminal id names a terminal this session host runs.
-    pub(crate) fn validate(&self, known_terminal: impl Fn(&TerminalPublicId) -> bool) -> anyhow::Result<()> {
+    pub(crate) fn validate(
+        &self,
+        known_terminal: impl Fn(&TerminalPublicId) -> bool,
+    ) -> anyhow::Result<()> {
         let state = self.state.as_deref().unwrap_or("info");
         if !STATES.contains(&state) {
             return Err(bad_request(format!("state must be one of {}", STATES.join(", "))));
@@ -108,7 +111,9 @@ impl StatusMeta {
         {
             return Err(bad_request(format!("ttl_ms must be between 1 and {MAX_TTL_MS}")));
         }
-        if (self.exit_code.is_some() || self.duration_ms.is_some()) && !matches!(state, "success" | "error") {
+        if (self.exit_code.is_some() || self.duration_ms.is_some())
+            && !matches!(state, "success" | "error")
+        {
             return Err(bad_request("exit_code and duration_ms need state success or error"));
         }
         for (label, terminal) in
@@ -118,7 +123,9 @@ impl StatusMeta {
             let id = TerminalPublicId::parse(terminal.clone())
                 .map_err(|_| bad_request(format!("{label} must be a term_ id")))?;
             if !known_terminal(&id) {
-                return Err(bad_request(format!("{label} {terminal} is not a terminal of this session")));
+                return Err(bad_request(format!(
+                    "{label} {terminal} is not a terminal of this session"
+                )));
             }
         }
         if let Some(session) = self.owner_agent_session.as_deref()
@@ -251,7 +258,9 @@ pub(crate) fn decorate_entries(
                 }))
             })
             .optional()?;
-        let (Some(object), Some(Value::Object(meta))) = (entry.as_object_mut(), meta) else { continue };
+        let (Some(object), Some(Value::Object(meta))) = (entry.as_object_mut(), meta) else {
+            continue;
+        };
         object.extend(meta);
     }
     Ok(())
@@ -267,7 +276,10 @@ pub(crate) enum OwnerEnd {
 }
 
 /// `(workspace_id, status_key)` of every entry `end` removes, ordered.
-pub(crate) fn owned_entries(connection: &Connection, end: &OwnerEnd) -> anyhow::Result<Vec<(String, String)>> {
+pub(crate) fn owned_entries(
+    connection: &Connection,
+    end: &OwnerEnd,
+) -> anyhow::Result<Vec<(String, String)>> {
     const SELECT: &str = "SELECT workspace_id, status_key FROM workspace_status_meta WHERE ";
     let map = |row: &rusqlite::Row<'_>| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?));
     let rows = match end {
@@ -280,7 +292,9 @@ pub(crate) fn owned_entries(connection: &Connection, end: &OwnerEnd) -> anyhow::
             .query_map(params![pid, machine], map)?
             .collect::<Result<Vec<_>, _>>()?,
         OwnerEnd::Expired { now_ms } => connection
-            .prepare(&format!("{SELECT}expires_at_ms IS NOT NULL AND expires_at_ms <= ?1 ORDER BY 1, 2"))?
+            .prepare(&format!(
+                "{SELECT}expires_at_ms IS NOT NULL AND expires_at_ms <= ?1 ORDER BY 1, 2"
+            ))?
             .query_map(params![i64::try_from(*now_ms)?], map)?
             .collect::<Result<Vec<_>, _>>()?,
     };
@@ -308,13 +322,19 @@ pub(crate) fn remove_entries(
 
 /// The earliest TTL deadline, if any entry has one.
 pub(crate) fn next_expiry_ms(connection: &Connection) -> anyhow::Result<Option<u64>> {
-    let next: Option<i64> =
-        connection.query_row("SELECT MIN(expires_at_ms) FROM workspace_status_meta", [], |row| row.get(0))?;
+    let next: Option<i64> = connection.query_row(
+        "SELECT MIN(expires_at_ms) FROM workspace_status_meta",
+        [],
+        |row| row.get(0),
+    )?;
     Ok(next.and_then(|value| u64::try_from(value).ok()))
 }
 
 /// Owners to watch after a daemon start: terminals, and processes of `machine`.
-pub(crate) fn live_owners(connection: &Connection, machine: &str) -> anyhow::Result<(Vec<String>, Vec<u32>)> {
+pub(crate) fn live_owners(
+    connection: &Connection,
+    machine: &str,
+) -> anyhow::Result<(Vec<String>, Vec<u32>)> {
     let terminals = connection
         .prepare("SELECT DISTINCT owner_terminal FROM workspace_status_meta WHERE owner_terminal IS NOT NULL")?
         .query_map([], |row| row.get::<_, String>(0))?
