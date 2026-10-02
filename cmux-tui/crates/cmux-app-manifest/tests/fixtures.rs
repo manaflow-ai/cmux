@@ -83,20 +83,38 @@ fn native_code_is_first_party_only() {
 
 #[test]
 fn publisher_rules() {
-    assert_eq!(codes(&manifest(json!({ "id": "alice/x", "repository": "https://github.com/bob/x" }))), vec!["publisher.mismatch"]);
-    assert_eq!(codes(&manifest(json!({ "id": "cmux/x", "repository": "https://github.com/mallory/x" }))), vec!["publisher.reserved"]);
+    assert_eq!(
+        codes(&manifest(json!({ "id": "alice/x", "repository": "https://github.com/bob/x" }))),
+        vec!["publisher.mismatch"]
+    );
+    assert_eq!(
+        codes(&manifest(json!({ "id": "cmux/x", "repository": "https://github.com/mallory/x" }))),
+        vec!["publisher.reserved"]
+    );
     assert_eq!(codes(&manifest(json!({ "id": "alice/x" }))), vec!["repository.required"]);
 }
 
 #[test]
 fn interfaces_and_runtimes_must_match() {
-    let m = manifest(json!({ "implements": { "cmux.nope/1": { "export": "x" }, "cmux.editor/1": { "web": "w.html" } }, "consumes": ["cmux.nope/2"] }));
-    assert_eq!(codes(&m), vec!["runtime.web.required", "interface.unknown", "runtime.main.required", "interface.unknown"]);
+    let m = manifest(
+        json!({ "implements": { "cmux.nope/1": { "export": "x" }, "cmux.editor/1": { "web": "w.html" } }, "consumes": ["cmux.nope/2"] }),
+    );
+    assert_eq!(
+        codes(&m),
+        vec![
+            "runtime.web.required",
+            "interface.unknown",
+            "runtime.main.required",
+            "interface.unknown"
+        ]
+    );
 }
 
 #[test]
 fn variant_default_is_one_of_its_values() {
-    let m = manifest(json!({ "variants": [{ "id": "layout", "title": "Layout", "values": ["grid", "list"], "default": "split" }] }));
+    let m = manifest(
+        json!({ "variants": [{ "id": "layout", "title": "Layout", "values": ["grid", "list"], "default": "split" }] }),
+    );
     assert_eq!(codes(&m), vec!["variant.default"]);
 }
 
@@ -105,7 +123,9 @@ fn package_paths_are_checked() {
     let dir = std::env::temp_dir().join(format!("cmux-app-manifest-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("src")).expect("mkdir");
     std::fs::write(dir.join("src/main.js"), "var __cmuxAppExports = {}").expect("write");
-    let m = manifest(json!({ "runtime": { "main": "src/main.js" }, "catalog": "catalog.json", "files": ["dist/"] }));
+    let m = manifest(
+        json!({ "runtime": { "main": "src/main.js" }, "catalog": "catalog.json", "files": ["dist/"] }),
+    );
     std::fs::write(dir.join("cmux-app.json"), m.to_string()).expect("write");
     let report = validate_package(&dir);
     let got: Vec<_> = report.issues.iter().map(|i| (i.path.as_str(), i.code)).collect();
