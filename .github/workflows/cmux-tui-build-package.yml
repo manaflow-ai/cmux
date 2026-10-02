@@ -254,6 +254,9 @@ jobs:
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
+          # The app host runs each app's JS next to the daemon, which finds it
+          # beside its own executable (cmux-tui-core::apps). Unix only.
+          cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
@@ -277,6 +280,7 @@ jobs:
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo zigbuild -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
+          cargo zigbuild -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
@@ -300,6 +304,9 @@ jobs:
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
+          # The app host runs each app's JS next to the daemon, which finds it
+          # beside its own executable (cmux-tui-core::apps). Unix only.
+          cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
@@ -338,8 +345,13 @@ jobs:
           binary="dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
           hook_binary="dist/cmux-tui-hook-${{ matrix.target }}${{ matrix.ext }}"
           relay_binary="dist/cmux-relay-${{ matrix.target }}${{ matrix.ext }}"
+          # Published as cmux-tui-app-host-<target> so it rides the cmux-tui
+          # artifact, checksums and manifest; install it as cmux-app-host next
+          # to cmux-tui.
+          app_host_binary="dist/cmux-tui-app-host-${{ matrix.target }}${{ matrix.ext }}"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "$binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-hook${{ matrix.ext }}" "$hook_binary"
+          cp "cmux-tui/target/${{ matrix.target }}/release/cmux-app-host${{ matrix.ext }}" "$app_host_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/chatmux-relay${{ matrix.ext }}" "dist/chatmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           # acpmux rides in the cmux-tui artifact group (like cmux-tui-hook) so
@@ -354,6 +366,7 @@ jobs:
             cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$hook_binary" "dist/cmux-tui-hook-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$acpmux_binary" "dist/cmux-tui-acpmux-${{ matrix.compatibility_target }}${{ matrix.ext }}"
+            cp "$app_host_binary" "dist/cmux-tui-app-host-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi
           ls -la dist
