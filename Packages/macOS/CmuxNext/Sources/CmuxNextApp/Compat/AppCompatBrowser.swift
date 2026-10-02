@@ -15,6 +15,10 @@ enum AppCompatBrowser {
         guard let page = entry?.tab else {
             throw ControlError(code: "unavailable", message: "The browser page is still starting; retry")
         }
+        // Before any script runs: this tab never gets a saved password filled
+        // again, so an automated click cannot release one to page script
+        // (plans/cmux-next/browser.md, "Browser import: passwords and security").
+        services.cache.markAgentDriven(tabID)
         switch operation {
         case .navigate(let raw):
             guard let target = normalizedURL(raw) else { throw ControlError(code: "invalid_params", message: "Invalid url: \(raw)") }

@@ -149,3 +149,18 @@ import Testing
         #expect(sequence.phase == .readyToShutdown)
     }
 }
+
+/// Imported passwords are never stored under Chromium's mock Keychain key
+/// (a public constant): development bundles cannot import them.
+@MainActor @Suite struct PasswordImportKeyTests {
+    @Test func mockKeychainBuildsRefusePasswordImport() {
+        #expect(CEFRuntime.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app.debug.tag", environment: [:]))
+        #expect(CEFRuntime.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app", environment: ["CMUX_MOCK_KEYCHAIN": "1"]))
+        #expect(!CEFRuntime.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app", environment: [:]))
+        #if DEBUG
+        #expect(!CEFRuntime.storesUnderMockKey(bundleIdentifier: "com.cmuxterm.app.debug.tag",
+                                               environment: ["CMUX_NEXT_PASSWORD_IMPORT_MOCK_KEY": "throwaway"]),
+                "throwaway test data only")
+        #endif
+    }
+}

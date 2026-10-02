@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 extension CEFTab {
     public func markAgentDriven() {
@@ -12,6 +13,9 @@ extension CEFTab {
     func applyPasswordFill() {
         // Turned off through the fork's cmux_tab_set_password_fill (API 15); an older fork has no autofill switch to turn.
         guard isAgentDriven, let browserID, runtime.state == .ready else { return }
-        _ = runtime.shim?.setPasswordFill(browserID, 0)
+        if runtime.shim?.setPasswordFill(browserID, 0) != 1 {
+            // Fails open on a fork without the switch; say so (no URL or value in the line).
+            runtime.logger.notice("password fill stays on for agent-driven browser \(browserID, privacy: .public): fork has no switch")
+        }
     }
 }

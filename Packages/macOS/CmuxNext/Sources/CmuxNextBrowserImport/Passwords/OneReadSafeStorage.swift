@@ -14,20 +14,20 @@ public final class OneReadSafeStorage: SafeStorageKeyProviding {
         self.source = source
     }
 
-    public func password(service: String) throws(CookieImportError) -> Data {
+    public func password(service: String) throws(CookieImportError) -> SecretBytes {
         // Held across the read: a second caller waits for the one prompt rather than raising its own.
         let result = read.withLock { reads in
             if let earlier = reads[service] { return earlier }
             let result: Result<SecretBytes, CookieImportError>
             do throws(CookieImportError) {
-                result = .success(SecretBytes(copying: try source.password(service: service)))
+                result = .success(try source.password(service: service))
             } catch {
                 result = .failure(error)
             }
             reads[service] = result
             return result
         }
-        let key: SecretBytes = try result.get()
-        return key.withUnsafeBytes { bytes in Data(bytes) }
+        // Every caller shares the one copy; it is zeroed when the run drops this cache.
+        return try result.get()
     }
 }

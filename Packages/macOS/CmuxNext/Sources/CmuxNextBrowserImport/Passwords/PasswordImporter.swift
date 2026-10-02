@@ -45,7 +45,7 @@ public struct PasswordImporter: Sendable {
         do {
             // The Keychain reply is Security's buffer; it is copied into
             // SecretBytes and released here, before any value is read.
-            let password = SecretBytes(copying: try keys.password(service: service))
+            let password = try keys.password(service: service)
             crypto = ChromiumPasswordCrypto(safeStoragePassword: password)
         } catch let error as CookieImportError {
             throw Failure.key(error)

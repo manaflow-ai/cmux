@@ -59,10 +59,15 @@ class PasswordBatch : public CefBaseRefCounted {
 
   // Runs once the profile's storage is initialized (also for a profile no tab opened yet).
   void Start() {
-    // The fork copies every row into its own store request before it returns.
+    // The fork copies every row into its own store request before it returns,
+    // so the copies here are zeroed right after the call, not after the write.
     AddRef();
-    if (!fork_api().password_import(path_.c_str(), rows_.data(), static_cast<int>(rows_.size()), &PasswordBatch::Done, this)) {
-      Reply(0, 0, 0, static_cast<int>(rows_.size()));
+    const int count = static_cast<int>(rows_.size());
+    const int started = fork_api().password_import(path_.c_str(), rows_.data(), count, &PasswordBatch::Done, this);
+    rows_.clear();
+    fields_.clear();
+    if (!started) {
+      Reply(0, 0, 0, count);
       Release();
     }
   }
@@ -80,9 +85,6 @@ class PasswordBatch : public CefBaseRefCounted {
   }
 
   void Reply(int added, int duplicate, int conflict, int rejected) {
-    // Zero every copy before the reply: the store holds its own now.
-    rows_.clear();
-    fields_.clear();
     Emit(CMUX_SHIM_REPLY, 0, reply_, added, 0,
          "{\"added\":" + std::to_string(added) + ",\"duplicate\":" + std::to_string(duplicate) +
              ",\"conflict\":" + std::to_string(conflict) + ",\"rejected\":" + std::to_string(rejected) + "}");

@@ -81,6 +81,17 @@ import Testing
         #expect(Mirror(reflecting: login).children.isEmpty && Mirror(reflecting: login.password).children.isEmpty)
     }
 
+    @Test func aFailedFillFreesOnce() {
+        struct Stop: Error {}
+        #expect(throws: Stop.self) { _ = try SecretBytes(capacity: 32) { _ in throw Stop() } }
+        let one = SecretBytes(capacity: 3) { buffer in
+            #expect(buffer.count == 3, "fill sees the capacity asked for, not the whole page")
+            buffer.copyBytes(from: [1, 2, 3])
+            return 3
+        }
+        #expect(one.count == 3)
+    }
+
     @Test func secretBytesCompareAndCopy() {
         let one = SecretBytes(copying: Array("same".utf8))
         #expect(one.matches(SecretBytes(copying: Array("same".utf8))))
@@ -155,7 +166,7 @@ import Testing
     @Test func oneKeychainPromptPerBrowserPerRun() throws {
         let counting = CountingKeys(password: storagePassword)
         let keys = OneReadSafeStorage(counting)
-        #expect(try keys.password(service: "Microsoft Edge Safe Storage") == keys.password(service: "Microsoft Edge Safe Storage"))
+        #expect(try keys.password(service: "Microsoft Edge Safe Storage") === keys.password(service: "Microsoft Edge Safe Storage"), "one shared copy")
         #expect(throws: CookieImportError.keychainDenied(service: "Google Chrome Safe Storage")) { try keys.password(service: "Google Chrome Safe Storage") }
         #expect(throws: CookieImportError.keychainDenied(service: "Google Chrome Safe Storage")) { try keys.password(service: "Google Chrome Safe Storage") }
         #expect(counting.reads.withLock { $0 } == ["Microsoft Edge Safe Storage", "Google Chrome Safe Storage"], "a Deny is not asked again")
@@ -185,9 +196,9 @@ struct FixtureKeys: SafeStorageKeyProviding {
     let service: String
     let password: SecretBytes
 
-    func password(service: String) throws(CookieImportError) -> Data {
+    func password(service: String) throws(CookieImportError) -> SecretBytes {
         guard service == self.service else { throw .keyNotFound(service: service) }
-        return password.withUnsafeBytes { Data($0) }
+        return password
     }
 }
 
@@ -198,10 +209,10 @@ final class CountingKeys: SafeStorageKeyProviding {
 
     init(password: SecretBytes) { self.password = password }
 
-    func password(service: String) throws(CookieImportError) -> Data {
+    func password(service: String) throws(CookieImportError) -> SecretBytes {
         reads.withLock { $0.append(service) }
         guard service == "Microsoft Edge Safe Storage" else { throw .keychainDenied(service: service) }
-        return password.withUnsafeBytes { Data($0) }
+        return SecretBytes(copying: password.withUnsafeBytes { Array($0) })
     }
 }
 

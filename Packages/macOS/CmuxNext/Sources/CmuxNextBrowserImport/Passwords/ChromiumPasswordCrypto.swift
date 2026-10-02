@@ -41,7 +41,7 @@ public struct ChromiumPasswordCrypto: Sendable {
 
     /// The inverse, for test fixtures only (their passwords are synthetic,
     /// so the plain copy below holds nothing real).
-    public func encrypt(_ secret: SecretBytes) throws(Failure) -> Data {
+    func encrypt(_ secret: SecretBytes) throws(Failure) -> Data {
         let plain = secret.withUnsafeBytes { Data($0) }
         let sealed = try crypt(CCOperation(kCCEncrypt), plain)
         return Data("v10".utf8) + sealed.withUnsafeBytes { Data($0) }
