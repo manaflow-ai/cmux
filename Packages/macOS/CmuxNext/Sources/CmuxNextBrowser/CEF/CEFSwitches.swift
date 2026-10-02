@@ -16,7 +16,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     var arguments: [String] {
         var result: [String] = []
         if forkAPIVersion >= 1 {
-            // One Chromium Browser per pane host, Chrome UI hidden
+            // One Chromium Browser per pane host, Chromium's own UI hidden
             // (include/cef_cmux.h in the fork).
             result.append("cmux-tabbed-windows")
         }

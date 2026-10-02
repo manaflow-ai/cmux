@@ -265,7 +265,7 @@ final class PaletteContentView: NSView {
 
     // MARK: Animation
 
-    /// Opens like Linear's command menu: a fade and an `appear` spring from
+    /// Opens with a fade and an `appear` spring from
     /// `Motion.panelOpenScale` about the panel's center. Reopening while the
     /// close still runs continues from what is on screen instead of
     /// restarting from zero.

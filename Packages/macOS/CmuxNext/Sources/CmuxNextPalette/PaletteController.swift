@@ -297,7 +297,7 @@ public final class PaletteController {
         // window closes it like a click outside.
         panel.onKeyElsewhere = { [weak self] in self?.hide(restoringKey: false) }
         panel.onResignKey = { [weak self] in
-            // Clicking elsewhere closes the palette, like Spotlight; the
+            // Clicking elsewhere closes the palette; the
             // clicked window keeps the keys.
             self?.hide(restoringKey: false)
         }

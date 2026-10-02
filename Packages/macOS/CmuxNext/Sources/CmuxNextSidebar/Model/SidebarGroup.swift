@@ -8,7 +8,7 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var color: GroupColor
     public var isCollapsed: Bool
     /// Pinned (saved) group: it survives closing its workspaces, like a
-    /// Chrome saved tab group, and clicking it while empty reopens it.
+    /// saved tab group, and clicking it while empty reopens it.
     public var isPinned: Bool
     public var workspaces: [SidebarWorkspace]
 

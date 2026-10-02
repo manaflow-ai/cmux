@@ -55,7 +55,7 @@ export const seedStack: Stack = {
     ),
     workspace(
       "ws-home",
-      agent("mock-home-screen", "Match the Codex home screen"),
+      agent("mock-home-screen", "Polish the home screen"),
       browser("b-home", "atlas-web", "localhost:4321"),
     ),
     workspace("ws-docs", browser("b-docs", "Ghostty configuration", "ghostty.org/docs/config")),

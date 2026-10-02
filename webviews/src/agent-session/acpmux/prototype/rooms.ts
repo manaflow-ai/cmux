@@ -1,7 +1,7 @@
-// Rooms and the mini window, on the sidebar prototype (#16688). A room is cmux's Arc Space
-// (plans/cmux-next/data-model.md 3-7): a switchable set of workspaces with a color and a default
-// browser profile, switched by the dots at the bottom of the sidebar. The mini window is Arc's
-// Little Arc: a link opened from a terminal, an agent or another app shows in a small window first,
+// Rooms and the mini window, on the sidebar prototype (#16688). A room
+// (plans/cmux-next/data-model.md 3-7) is a switchable set of workspaces with a color and a default
+// browser profile, switched by the dots at the bottom of the sidebar. In the mini window, a link
+// opened from a terminal, an agent or another app shows in a small window first,
 // and one key promotes it to a tab of the workspace it came from.
 import {
   agent,

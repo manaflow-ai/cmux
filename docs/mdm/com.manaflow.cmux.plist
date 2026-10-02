@@ -677,7 +677,7 @@
 			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
-			<string>Hosts such as mail.google.com or *.figma.com.</string>
+			<string>Hosts such as mail.google.com or *.example.com.</string>
 			<key>pfm_name</key>
 			<string>browser.hibernationExclusions</string>
 			<key>pfm_subkeys</key>

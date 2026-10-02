@@ -1,8 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-/// The room dots at the bottom center of the sidebar (Arc spaces,
-/// plans/cmux-next/data-model.md 7), deliberately plain (user: "more
+/// The room dots at the bottom center of the sidebar
+/// (plans/cmux-next/data-model.md 7), deliberately plain (user: "more
 /// minimal, muted, undesigned"): one small dot per room in the theme's
 /// foreground at a low alpha, the current room a little stronger; no rings,
 /// fills, colors, icons or labels (a room's emoji and name are in its

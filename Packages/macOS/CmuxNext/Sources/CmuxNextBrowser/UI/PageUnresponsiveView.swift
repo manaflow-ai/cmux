@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// Chrome's "Page unresponsive" choice, as a glass card over the page: Wait
+/// The "Page unresponsive" choice, as a glass card over the page: Wait
 /// restarts the engine's hang timer, Exit page ends the renderer (the tab
 /// then shows `PageGoneView`). Shown only while the engine reports the hang.
 final class PageUnresponsiveView: NSView {

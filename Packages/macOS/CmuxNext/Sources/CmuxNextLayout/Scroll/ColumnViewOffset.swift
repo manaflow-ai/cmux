@@ -1,11 +1,11 @@
 public import CoreGraphics
 public import CmuxNextDesign
 
-/// niri's view-offset rules (src/layout/scrolling.rs at 1f03391), in cmux's
+/// View-offset rules (plans/cmux-next/column-scroll.md), in cmux's
 /// content-space offsets (the x of the viewport's leading edge) and clamped
 /// to the strip: cmux never scrolls past the first or last column.
 public nonisolated enum ColumnViewOffset {
-    /// niri `compute_new_view_offset`: leave the view if `rect` is fully
+    /// Minimal reveal (F1): leave the view if `rect` is fully
     /// visible (with its padding); otherwise align the edge that needs less
     /// motion. A rect as wide as the view is left-aligned.
     public static func fit(_ rect: CGRect, current: CGFloat, strip: ColumnStrip) -> CGFloat {
@@ -20,14 +20,14 @@ public nonisolated enum ColumnViewOffset {
         return strip.clamp(toLeft <= toRight ? left : right - width)
     }
 
-    /// niri `compute_new_view_offset_centered`: the column in the middle; a
+    /// Centered reveal (F2): the column in the middle; a
     /// column as wide as the view is left-aligned like `fit`.
     public static func center(_ rect: CGRect, current: CGFloat, strip: ColumnStrip) -> CGFloat {
         if strip.viewportWidth <= rect.width { return fit(rect, current: current, strip: strip) }
         return strip.clamp(rect.midX - strip.viewportWidth / 2)
     }
 
-    /// niri `compute_new_view_offset_for_column`, plus the focused pane of a
+    /// On-overflow reveal (F3), plus the focused pane of a
     /// column wider than the view: if that pane is visible now, nothing
     /// moves; else the column's left edge if that shows the pane; else the
     /// least scroll that shows the pane.
@@ -56,7 +56,7 @@ public nonisolated enum ColumnViewOffset {
             guard let previous, previous != index, strip.columns.indices.contains(previous) else {
                 return fit(column.frame, current: current, strip: strip)
             }
-            // niri: the source is always the target's neighbor on the side focus came from.
+            // The source is always the target's neighbor on the side focus came from.
             let source = previous > index ? min(index + 1, strip.columns.count - 1) : max(index - 1, 0)
             let a = strip.columns[source].frame
             let b = column.frame
@@ -81,7 +81,7 @@ public nonisolated enum ColumnViewOffset {
         public var column: Int
     }
 
-    /// niri `view_offset_gesture_end` snapping points: each column's left and
+    /// Gesture-end snapping points (T2): each column's left and
     /// right alignment (with padding); column centers when centering is
     /// always on; under `on-overflow`, an edge whose neighbor cannot share the
     /// screen snaps to the center instead. Clamped to the strip, ascending.
@@ -114,7 +114,7 @@ public nonisolated enum ColumnViewOffset {
         return unique
     }
 
-    /// niri gesture end: after snapping, focus the column farthest in the
+    /// Gesture end (T3): after snapping, focus the column farthest in the
     /// gesture's direction that is fully visible. cmux keeps the focused
     /// column instead when it is still visible, so a peek does not move the
     /// keyboard. Returns nil when focus stays.

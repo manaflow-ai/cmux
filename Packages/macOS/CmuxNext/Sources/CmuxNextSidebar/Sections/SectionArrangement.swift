@@ -12,7 +12,7 @@ public nonisolated struct SectionArrangement: Hashable, Sendable, Codable {
         /// icons only when they do not, a second line only when icons do
         /// not fit either.
         case inline
-        /// Tiles in columns (Arc's pinned tiles).
+        /// Tiles in columns.
         case grid
     }
 

@@ -18,7 +18,7 @@ public protocol BrowserDevToolsHosting: AnyObject {
 /// Tells the host what the tools of a tab did, for its focus model.
 @MainActor
 public protocol BrowserDevToolsObserving: AnyObject {
-    /// The tools opened (`focused`: they take the keyboard, as in Chrome)
+    /// The tools opened (`focused`: they take the keyboard)
     /// or closed.
     func browserTab(_ tab: any BrowserTab, devToolsDidChange state: BrowserDevToolsState, focused: Bool)
 }

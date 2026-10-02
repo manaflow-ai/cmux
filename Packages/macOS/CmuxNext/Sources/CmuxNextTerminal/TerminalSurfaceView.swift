@@ -43,7 +43,7 @@ public final class TerminalSurfaceView: NSView {
     /// Grid the PTY owner announced last (``applyAnnouncedGrid(_:)``).
     var announcedGrid: TerminalGridSize? { geometry.announced }
 
-    /// App-controlled pause (off-screen niri column, unselected tab).
+    /// App-controlled pause (off-screen strip column, unselected tab).
     var isRenderingSuspended = false {
         didSet { if isRenderingSuspended != oldValue { updateOcclusion() } }
     }

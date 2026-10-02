@@ -1,4 +1,4 @@
-// Minimal TeX typesetting for the arithmetic Codex renders in replies: identifiers in
+// Minimal TeX typesetting for the arithmetic in agent replies: identifiers in
 // italic, binary operators and relations with math spacing, everything else upright, all
 // in the STIX face. It covers `$9 - x$` and `$$10x + (9 - x) = 9x + 9$$`; it is not a TeX
 // engine (no fractions, scripts or environments).

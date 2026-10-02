@@ -148,7 +148,7 @@ their existing behavior and report `browser_renderer:"daemon"`.
 
 `tab-drag-v1` makes every tab drag outcome one atomic command:
 `move-tab` (pane and index, across screens and workspaces),
-`move-tab-to-split` (pane edge), `move-tab-to-column` (new niri column),
+`move-tab-to-split` (pane edge), `move-tab-to-column` (new strip column),
 `move-tab-to-workspace`, and `move-tab-to-new-workspace` (optional group and
 index; returns the new workspace). Each takes an optional client
 `transaction`, echoed in the moved tab's `tab-changed` delta. Drags that stay
@@ -167,7 +167,7 @@ when the user has seen the tab instead of sending `select-tab`.
 `list-notifications` returns the retained ledger with `created_at_ms` and an
 `acknowledged` flag, and each workspace reports `unread_count`.
 
-`tab-groups-v1` adds Chrome-style tab groups inside a pane's strip. Panes
+`tab-groups-v1` adds tab groups inside a pane's strip. Panes
 report `tab_groups` (id, name, color, collapsed, saved id, start, count,
 surfaces) and tabs report `group`. Members stay contiguous. Every change is
 one command: `create-tab-group`, `update-tab-group` (rename, recolor,

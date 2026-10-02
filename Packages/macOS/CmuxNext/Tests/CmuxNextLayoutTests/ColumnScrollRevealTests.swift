@@ -3,7 +3,7 @@ import CoreGraphics
 import Testing
 @testable import CmuxNextLayout
 
-/// Focus reveal rules (plans/cmux-next/niri.md, "Focus"). Viewport 1000,
+/// Focus reveal rules (plans/cmux-next/column-scroll.md, "Focus"). Viewport 1000,
 /// gap 8; three 600 pt columns sit at 8, 616 and 1224 (max offset 832).
 struct ColumnScrollRevealTests {
     private let wide3 = makeStrip([600, 600, 600])

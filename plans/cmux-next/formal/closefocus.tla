@@ -2,7 +2,7 @@
 (***************************************************************************)
 (* Focus and scroll after a close (plans/cmux-next/close-focus.md).       *)
 (* One window's client view state over a projected layout:                *)
-(*   Kind = "strip": a niri column strip. Columns of panes, each column    *)
+(*   Kind = "strip": a strip column strip. Columns of panes, each column    *)
 (*     CW wide, a viewport VW wide; the successor of a closed focused pane *)
 (*     is FocusAfterClose.pane (previous pane in its column, else the next *)
 (*     there; a gone column goes to the column on the left, else right,    *)
