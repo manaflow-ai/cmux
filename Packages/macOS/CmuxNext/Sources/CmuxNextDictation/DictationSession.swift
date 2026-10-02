@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextWakeups
+import os
 
 /// One composer's dictation: permissions, the engine, the transcript and
 /// the stop deadline. Everything else (where the text goes, Esc, the
@@ -11,6 +12,10 @@ import CmuxNextWakeups
 /// as a stop or cancel reaches the engine.
 @MainActor
 public final class DictationSession {
+    /// The page shows one message for several failures; the log keeps the
+    /// engine's own reason. It names a framework error, never what was said.
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "dictation")
+
     public private(set) var phase: DictationPhase = .idle
     /// Called on every change, on the main actor.
     public var onUpdate: ((DictationUpdate) -> Void)?
@@ -188,6 +193,7 @@ public final class DictationSession {
         // Keep the words on screen when it fails mid-phrase.
         if let delta = transcript.commitTrailingVolatileText() { committed += delta }
         let failure = error as? DictationFailure ?? .transcriptionFailed(String(describing: error))
+        Self.logger.error("dictation failed: \(String(describing: failure), privacy: .public)")
         switch failure {
         case .microphoneAccessDenied: set(.denied(.microphone), text: committed)
         case .speechRecognitionAccessDenied: set(.denied(.speechRecognition), text: committed)
