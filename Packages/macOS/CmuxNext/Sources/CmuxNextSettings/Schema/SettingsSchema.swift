@@ -97,6 +97,17 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(CenterFocusedColumnSetting.fallback.rawValue), keywords: ["niri", "scroll"]
             ),
+            SettingDescriptor(
+                StripScrollbarSetting.configPath, section: .general, group: columns,
+                title: SettingsText.text("settings.layout.stripScrollbar", "Column Scroll Bar"),
+                help: SettingsText.text("settings.layout.stripScrollbar.help", "A thin bar under the columns that shows and moves the visible range."),
+                kind: .choice([
+                    SettingChoice(StripScrollbarMode.auto.rawValue, SettingsText.text("settings.choice.stripScrollbarAuto", "While Scrolling")),
+                    SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.text("settings.choice.always", "Always")),
+                    SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.text("settings.choice.off", "Off")),
+                ]),
+                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["niri", "scroll", "scrollbar", "minimap"]
+            ),
         ]
     }
 

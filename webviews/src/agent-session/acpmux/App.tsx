@@ -1,7 +1,7 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
-import type { Token } from "marked";
+import type { Token, Tokens } from "marked";
 import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, markdownBlocks, paneHeader, placeRows, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
@@ -58,12 +58,18 @@ function renderInline(tokens: Token[] | undefined, fallback: string): React.Reac
   });
 }
 
+/// `listHeight` in model.ts measures the same items: inline text, then any nested list.
+function MarkdownList({ list }: { list: Tokens.List }) {
+  const items = list.items.map((item, index) => <li key={index}>{item.tokens.map((token, tokenIndex) => token.type === "list" ? <MarkdownList key={tokenIndex} list={token as Tokens.List} /> : <React.Fragment key={tokenIndex}>{renderInline([token], "")}</React.Fragment>)}</li>);
+  return list.ordered ? <ol start={typeof list.start === "number" && list.start !== 1 ? list.start : undefined}>{items}</ol> : <ul>{items}</ul>;
+}
+
 function MarkdownBlocks({ source }: { source: string }) {
   return <>{markdownBlocks(source).map((token, index) => {
     if (token.type === "code") return <pre key={index}><code>{token.text}</code></pre>;
     if (token.type === "heading") return <div className={`acpmux-heading acpmux-heading-${token.depth}`} key={index}>{renderInline(token.tokens, token.text)}</div>;
     if (token.type === "paragraph" || token.type === "text") return <p key={index}>{renderInline(token.tokens, token.text)}</p>;
-    if (token.type === "list") return <ul key={index}>{token.items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item.tokens, item.text)}</li>)}</ul>;
+    if (token.type === "list") return <MarkdownList key={index} list={token as Tokens.List} />;
     if (token.type === "blockquote") return <blockquote key={index}>{renderInline(token.tokens, token.text)}</blockquote>;
     if (token.type === "hr") return <hr key={index} />;
     return <p key={index}>{token.raw}</p>;
@@ -74,11 +80,13 @@ const MessageRow = memo(function MessageRow({ row }: RowProps) {
   return <div className={`acpmux-markdown ${row.kind === "user" ? "acpmux-user-bubble" : ""}`}><MarkdownBlocks source={row.text ?? ""} /></div>;
 }, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version);
 
+const toolCalls = (count = 0) => count === 1 ? "1 tool call" : `${count} tool calls`;
+
 const ToolActivityRow = memo(function ToolActivityRow({ row, onToggleActivity, expanded }: RowProps) {
-  return <div className="acpmux-activity"><button className="acpmux-activity-toggle" aria-expanded={expanded} onClick={() => onToggleActivity(row.id)}>{expanded ? "⌄" : "›"} Worked with {row.toolCount ?? 0} tool calls</button>{expanded && <div className="acpmux-activity-items">{(row.items ?? []).map((item) => <div className="acpmux-activity-item" key={`${row.id}-${item.text}`}><span className="acpmux-glyph">{item.kind === "tool" ? "▣" : "✦"}</span>{item.text}{item.tool?.output && <pre>{item.tool.output}</pre>}</div>)}</div>}</div>;
+  return <div className="acpmux-activity"><button className="acpmux-activity-toggle" aria-expanded={expanded} onClick={() => onToggleActivity(row.id)}>{expanded ? "⌄" : "›"} Worked with {toolCalls(row.toolCount)}</button>{expanded && <div className="acpmux-activity-items">{(row.items ?? []).map((item) => <div className="acpmux-activity-item" key={`${row.id}-${item.text}`}><span className="acpmux-glyph">{item.kind === "tool" ? "▣" : "✦"}</span>{item.text}{item.tool?.output && <pre>{item.tool.output}</pre>}</div>)}</div>}</div>;
 }, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version && previous.expanded === next.expanded);
 
-const SummaryRow = memo(function SummaryRow({ row }: RowProps) { return <div className="acpmux-summary">{`Worked for ${Math.round((row.durationMs ?? 0) / 1000)}s · ${row.toolCount ?? 0} tool calls`}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
+const SummaryRow = memo(function SummaryRow({ row }: RowProps) { return <div className="acpmux-summary">{row.durationMs === undefined ? toolCalls(row.toolCount) : `Worked for ${Math.round(row.durationMs / 1000)}s · ${toolCalls(row.toolCount)}`}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const NoticeRow = memo(function NoticeRow({ row }: RowProps) { return <div className="acpmux-muted">{row.text}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const PermissionRow = memo(function PermissionRow({ row }: RowProps) { const permission = row.permission; return <div className="acpmux-permission-card"><strong>{permission?.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission?.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const EditedFilesRow = memo(function EditedFilesRow({ row, onOpenDiff }: RowProps) {

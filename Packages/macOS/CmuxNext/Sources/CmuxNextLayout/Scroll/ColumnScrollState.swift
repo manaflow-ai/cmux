@@ -62,6 +62,9 @@ public nonisolated enum ColumnScrollEvent: Hashable, Sendable {
     case gestureEnded(time: TimeInterval, animated: Bool)
     /// One discrete mouse-wheel notch, +1 forward (offset increases).
     case wheel(direction: Int, animated: Bool)
+    /// Scroll to an offset chosen by the strip scrollbar (a track click's
+    /// page target); focus follows like a wheel notch.
+    case page(to: CGFloat, animated: Bool)
 }
 
 /// What the view does after a reduce.
