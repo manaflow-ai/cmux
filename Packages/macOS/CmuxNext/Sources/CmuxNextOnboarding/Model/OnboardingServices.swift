@@ -8,6 +8,12 @@ public import Foundation
 /// `MockOnboardingServices` runs the window alone (demo, tests).
 @MainActor
 public protocol OnboardingServices: AnyObject {
+    // Role
+    /// The role step's answer from an earlier run, if any.
+    var savedProfile: OnboardingProfile? { get }
+    /// Keeps the role step's answer (the onboarding state file).
+    func saveProfile(_ profile: OnboardingProfile)
+
     // Theme
     /// The colors of the user's own Ghostty config (the default choice).
     var ghosttyTheme: ThemeInput { get }
@@ -27,6 +33,10 @@ public protocol OnboardingServices: AnyObject {
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary
     /// Whether this build can save imported passwords (the browser engine has the store).
     func canImportPasswords() async -> Bool
+    /// The single confirmation before saved passwords are read: Touch ID or
+    /// the Mac's password (LocalAuthentication). False when the person
+    /// cancels or fails; nothing is read then.
+    func authorizePasswordRead(reason: String) async -> Bool
 
     // Default browser
     var defaultApps: any DefaultAppRegistering { get }
@@ -50,6 +60,8 @@ public protocol OnboardingServices: AnyObject {
 }
 
 public extension OnboardingServices {
+    var savedProfile: OnboardingProfile? { nil }
+    func saveProfile(_ profile: OnboardingProfile) {}
     var ghosttyHasOwnTheme: Bool { true }
     var hasAccountsStep: Bool { false }
     func canImportPasswords() async -> Bool { false }

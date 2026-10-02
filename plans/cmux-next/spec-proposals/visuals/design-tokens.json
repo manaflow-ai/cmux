@@ -1357,7 +1357,7 @@
   },
   "appearance.statusIndicator.*": {
    "value": {
-    "style": "arc|native|dot|none (arc)",
+    "style": "arc|native|dot|braille|none (arc)",
     "size": 1,
     "thickness": 1.5,
     "color": "token:textSecondary"

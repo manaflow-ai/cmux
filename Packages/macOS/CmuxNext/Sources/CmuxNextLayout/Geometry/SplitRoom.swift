@@ -47,8 +47,9 @@ public nonisolated enum SplitRoom {
             // The column's real frame: a sticky column is capped, docked
             // strip columns are shares of the strip (sticky-column.md S3, S4).
             let geometry = ScreenGeometry.compute(layout, viewport: viewport, style: style, scale: 2)
-            let width = geometry.columns[columns[index].id]?.width ?? viewport.width
-            let container = CGSize(width: width, height: viewport.height)
+            // A band or a strip that a band shortened is not the viewport's height.
+            let frame = geometry.columns[columns[index].id]
+            let container = CGSize(width: frame?.width ?? viewport.width, height: frame?.height ?? viewport.height)
             let need = minimumSize(splitting: pane, axis: axis, in: columns[index].root, removing: removing, style: style)
             if fits(need, in: container) { return .split }
             // A sticky column never grows a neighbor column.

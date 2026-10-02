@@ -99,6 +99,8 @@ public nonisolated enum AgentPaneReply {
         if let newSession = handshake.newSession { value["newSession"] = newSession }
         if let cwd = handshake.cwd { value["cwd"] = cwd }
         if let draft = handshake.draft { value["draft"] = draft }
+        if let prompt = handshake.prompt { value["prompt"] = prompt }
+        value["handoffStrings"] = AgentPaneHandoffStrings().values
         return success(value)
     }
 }

@@ -687,6 +687,7 @@ dependencies = [
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-sdk",
  "libc",
  "log",
@@ -999,8 +1000,10 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
+ "libc",
  "smoltcp",
  "tokio",
  "tokio-util",

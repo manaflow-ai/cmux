@@ -35,8 +35,8 @@ struct MiscActionBindingCoverageTests {
         #expect(reasons.allSatisfy { $0.value != MiscHandlerStrings.cloud })
         let unported: [ActionID: String] = ["palette.mobileConnect": CloudStrings.mobilePairing]
         for (id, reason) in unported { #expect(reasons[id]! == reason) }
-        for id: ActionID in ["newCloudMachine", "cloudKillMachine", "palette.cloud.status", "palette.cloud.tools", "palette.cloud.handoff",
-                             "palette.cloud.promoteTemplate"] {
+        for id: ActionID in ["newCloudMachine", "cloudKillMachine", "cloudPauseMachine", "cloudResumeMachine", "palette.cloud.deleteSnapshot", "palette.cloud.status", "palette.cloud.tools", "palette.cloud.handoff",
+                             "palette.cloud.promoteTemplate", "cloudSSH", "cloudExec"] {
             #expect([CloudStrings.noClient, CloudStrings.signInFirst, CloudStrings.localBackend].contains(reasons[id]!))
         }
     }
@@ -53,6 +53,14 @@ struct MiscActionBindingCoverageTests {
         #expect(ActionBindingCoverageTests.run(services, "markAllNotificationsRead") == .refused("needs daemon capability notification-ack-v1"))
     }
 
+    @Test func cloudExecRequiresAndTrimsItsCommand() throws {
+        let invocation = ActionInvocation(arguments: ["command": .string("  uname -a  ")])
+        #expect(try CloudHandlers.commandArgument(invocation) == "uname -a")
+        #expect(throws: ActionFailure.self) {
+            try CloudHandlers.commandArgument(ActionInvocation(arguments: ["command": .string("  ")]))
+        }
+    }
+
     @Test func handlersRefuseWithoutATarget() {
         let services = ActionBindingCoverageTests.boundServices()
         #expect(ActionBindingCoverageTests.run(services, "jumpToUnread") == .refused(MiscHandlerStrings.noUnread))
@@ -64,5 +72,14 @@ struct MiscActionBindingCoverageTests {
         #expect(AgentHandlers.forkCommand(agent: "claude", session: "ab-12_c") == "claude --resume ab-12_c --fork-session")
         #expect(AgentHandlers.forkCommand(agent: "codex", session: "ab") == nil)
         #expect(AgentHandlers.forkCommand(agent: "claude", session: "a; rm -rf ~") == nil)
+    }
+
+    @Test func continueInIsAUserChooserBackedByTheSharedFrontendFlow() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "agentPane.continueIn" })
+        #expect(descriptor.requires.contains(.agentPaneFocused))
+        #expect(descriptor.targets == [.pane])
+        #expect(descriptor.surfacePlan.cli == .exempt(.guiOnly))
+        #expect(descriptor.surfacePlan.contextMenu == .exempt(.guiOnly))
+        #expect(ActionBindingCoverageTests.boundServices().registry.isBound("agentPane.continueIn"))
     }
 }

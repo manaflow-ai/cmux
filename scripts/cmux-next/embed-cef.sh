@@ -30,8 +30,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
+source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-1"
+LAYOUT="versioned-3-locale-fallback-allowlist"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -133,6 +134,27 @@ stamp_dir="${DERIVED_FILE_DIR:-${TMPDIR:-/tmp}}/cmux-cef-embed"
 mkdir -p "$stamp_dir"
 source_stamp="$stamp_dir/source"
 source_value="$cef_dir $LAYOUT"
+# Chromium ships 228 locale catalogs. Keep every catalog CEF resolves for
+# cmux's 21 app languages and their regional macOS variants, including
+# es_419, pt_PT and en_GB. Unsupported app languages bs and km fall back to en.
+CEF_LOCALE_ALLOWLIST="$(cef_locale_allowlist)"
+keep_cef_locale() {
+  case $'\n'"$CEF_LOCALE_ALLOWLIST"$'\n' in
+    *$'\n'"$1"$'\n'*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+prune_cef_locales() {
+  local resources="$1" locale_dir locale
+  for locale_dir in "$resources"/*.lproj; do
+    [[ -d "$locale_dir" ]] || continue
+    locale="$(basename "$locale_dir" .lproj)"
+    if ! keep_cef_locale "$locale"; then
+      rm -rf "$locale_dir"
+    fi
+  done
+}
+
 if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$(cat "$source_stamp")" != "$source_value" ]]; then
   fw="$frameworks/$FW_NAME"
   rm -rf "$fw"
@@ -140,6 +162,7 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   for item in "$FW_BINARY" Libraries Resources; do
     ditto "$cef_dir/$FW_NAME/$item" "$fw/Versions/A/$item"
   done
+  prune_cef_locales "$fw/Versions/A/Resources"
   ln -s A "$fw/Versions/Current"
   for item in "$FW_BINARY" Libraries Resources; do
     ln -s "Versions/Current/$item" "$fw/$item"
