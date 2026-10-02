@@ -131,9 +131,11 @@ impl BrowserTool {
         if self.evaluates() {
             let eval_ms = match params.get("timeoutMs") {
                 None => DEFAULT_EVAL_MS,
-                Some(value) => value.as_u64().filter(|ms| (1..=MAX_EVAL_MS).contains(ms)).ok_or_else(
-                    || invalid(format!("timeoutMs must be an integer from 1 to {MAX_EVAL_MS}")),
-                )?,
+                Some(value) => {
+                    value.as_u64().filter(|ms| (1..=MAX_EVAL_MS).contains(ms)).ok_or_else(|| {
+                        invalid(format!("timeoutMs must be an integer from 1 to {MAX_EVAL_MS}"))
+                    })?
+                }
             };
             params.insert("timeoutMs".into(), json!(eval_ms));
             timeout = REQUEST_TIMEOUT + Duration::from_millis(eval_ms);

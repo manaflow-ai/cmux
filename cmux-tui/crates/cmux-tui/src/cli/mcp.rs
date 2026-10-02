@@ -76,7 +76,11 @@ pub(super) trait Backend {
         timeout: Duration,
         idempotency_key: Option<&str>,
     ) -> Result<Value, CallFailure>;
-    fn browser(&self, request: browser_tools::Request, mutation: bool) -> Result<Value, CallFailure>;
+    fn browser(
+        &self,
+        request: browser_tools::Request,
+        mutation: bool,
+    ) -> Result<Value, CallFailure>;
 }
 
 /// The CLI's transport, with the CLI's global options.
@@ -117,7 +121,11 @@ impl Backend for LiveBackend {
         transport::app_method(&self.global, method, params, timeout, idempotency_key)
     }
 
-    fn browser(&self, request: browser_tools::Request, mutation: bool) -> Result<Value, CallFailure> {
+    fn browser(
+        &self,
+        request: browser_tools::Request,
+        mutation: bool,
+    ) -> Result<Value, CallFailure> {
         transport::browser_host(request.method, request.params, request.timeout, mutation)
     }
 }
@@ -323,7 +331,8 @@ impl<B: Backend> Server<B> {
         self.refresh_actions();
         let mut tools =
             v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
-        tools.extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
+        tools
+            .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
         tools.push(action_tools::window_list_tool());
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
         tools
