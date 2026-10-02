@@ -55,6 +55,14 @@ describe("copy", () => {
     expect(email.html).toContain("&lt;script&gt;")
   })
 
+  it("omits footer links and unsubscribe headers when the routes do not exist", () => {
+    const email = renderEmail({ ...base, unsubscribeLink: null, reportLink: null })
+    expect(email.headers).toEqual({})
+    expect(email.text).not.toContain("Stop all invites")
+    expect(email.html).not.toContain("Report spam")
+    expect(email.text.split("\n")).toContain(LINK)
+  })
+
   it("adds the opt-out line to the first text only", () => {
     expect(renderSms({ ...base, firstSmsToNumber: true }).body).toBe(`Lawrence sent you a message on cmux: "want to try my agents?"\nReply STOP to opt out.\n${LINK}`)
     expect(renderSms(base).body).not.toContain("STOP")

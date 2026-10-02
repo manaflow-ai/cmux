@@ -46,8 +46,7 @@ const copy = {
   kind: "dm" as const,
   preview: "want to try my agents? (staging test of the cmux invite)",
   link,
-  unsubscribeLink: "https://cmux.com/u/staging-test",
-  reportLink: "https://cmux.com/r/staging-test",
+  // The unsubscribe and report routes are not built yet: no footer links rather than dead ones.
   firstSmsToNumber: true
 }
 const message = address.channel === "email" ? renderEmail(copy) : renderSms(copy)

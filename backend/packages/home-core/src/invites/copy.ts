@@ -19,8 +19,9 @@ export interface CopyInput {
   readonly title?: string | null
   readonly preview?: string | null
   readonly link: string
-  readonly unsubscribeLink: string
-  readonly reportLink: string
+  /** One-click unsubscribe and report pages; omit only where those routes do not exist yet (no dead links). */
+  readonly unsubscribeLink?: string | null
+  readonly reportLink?: string | null
   /** The first text to this number carries the opt-out line (D-H5). */
   readonly firstSmsToNumber?: boolean
 }
@@ -103,7 +104,7 @@ export const renderEmail = (input: CopyInput): RenderedEmail => {
   const email = input.inviterEmail ? cleanUserText(input.inviterEmail, 254, "") : ""
   const why = email ? fill(s.whyWithEmail, { name: values.name!, email }) : fill(s.why, { name: values.name! })
   const quote = variant === "A" ? values.preview! : ""
-  const text = [lead, quote ? `\n"${quote}"` : "", `\n${s.button}:\n${checkedLink(input.link)}`, `\n${s.what}`, `\n--\n${why}`, `${s.unsubscribe}: ${input.unsubscribeLink}`, `${s.report}: ${input.reportLink}`]
+  const text = [lead, quote ? `\n"${quote}"` : "", `\n${s.button}:\n${checkedLink(input.link)}`, `\n${s.what}`, `\n--\n${why}`, input.unsubscribeLink ? `${s.unsubscribe}: ${input.unsubscribeLink}` : "", input.reportLink ? `${s.report}: ${input.reportLink}` : ""]
     .filter(Boolean)
     .join("\n")
   const e = escapeHtml
@@ -114,9 +115,19 @@ export const renderEmail = (input: CopyInput): RenderedEmail => {
     quote ? `<p style="margin:0 0 20px;padding:12px 16px;border-radius:18px;background:#f2f2f2;white-space:pre-wrap">${e(quote)}</p>` : "",
     `<p style="margin:0 0 24px"><a href="${e(input.link)}" style="display:inline-block;padding:10px 18px;border-radius:10px;background:#1d1d1f;color:#ffffff;text-decoration:none;font-weight:600">${e(s.button)}</a></p>`,
     `<p style="margin:0 0 24px;color:#6e6e73;font-size:14px">${e(s.what)}</p>`,
-    `<p style="margin:0;color:#86868b;font-size:12px">${e(why)}<br><a href="${e(input.unsubscribeLink)}" style="color:#86868b">${e(s.unsubscribe)}</a> · <a href="${e(input.reportLink)}" style="color:#86868b">${e(s.report)}</a></p>`,
+    `<p style="margin:0;color:#86868b;font-size:12px">${e(why)}${footerLinks(input, s.unsubscribe, s.report)}</p>`,
     `</div></body></html>`
   ].join("")
-  const headers = { "List-Unsubscribe": `<${input.unsubscribeLink}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
+  const headers: Record<string, string> = input.unsubscribeLink
+    ? { "List-Unsubscribe": `<${input.unsubscribeLink}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
+    : {}
   return { channel: "email", variant, subject, text, html, headers }
+}
+
+const footerLinks = (input: CopyInput, unsubscribe: string, report: string): string => {
+  const links = [
+    input.unsubscribeLink ? `<a href="${escapeHtml(input.unsubscribeLink)}" style="color:#86868b">${escapeHtml(unsubscribe)}</a>` : "",
+    input.reportLink ? `<a href="${escapeHtml(input.reportLink)}" style="color:#86868b">${escapeHtml(report)}</a>` : ""
+  ].filter(Boolean)
+  return links.length ? `<br>${links.join(" · ")}` : ""
 }
