@@ -36,14 +36,32 @@ public nonisolated enum LayoutPrototypeDockEdge: String, Sendable, CaseIterable,
     }
 }
 
+/// Which docks own the frame's corners (layout-model.md, decision L2).
+public nonisolated enum LayoutPrototypeOrientation: String, Sendable, CaseIterable, TunableChoice {
+    /// Side docks run the full height; top and bottom docks sit between them.
+    case columnMajor
+    /// Top and bottom docks run the full width; side docks sit between them.
+    case rowMajor
+
+    public var tunableTitle: String {
+        switch self {
+        case .columnMajor: "Column-major (side docks full height)"
+        case .rowMajor: "Row-major (top/bottom docks full width)"
+        }
+    }
+}
+
 /// The prototype choice carried by `LayoutStyle`.
 public nonisolated struct LayoutPrototypeSettings: Hashable, Sendable {
     public var model: LayoutPrototypeModel = .off
     public var dockEdge: LayoutPrototypeDockEdge = .bottom
+    public var orientation: LayoutPrototypeOrientation = .columnMajor
 
-    public init(model: LayoutPrototypeModel = .off, dockEdge: LayoutPrototypeDockEdge = .bottom) {
+    public init(model: LayoutPrototypeModel = .off, dockEdge: LayoutPrototypeDockEdge = .bottom,
+                orientation: LayoutPrototypeOrientation = .columnMajor) {
         self.model = model
         self.dockEdge = dockEdge
+        self.orientation = orientation
     }
 }
 
@@ -59,15 +77,19 @@ public nonisolated enum LayoutModelPrototype {
         plain.prototype = LayoutPrototypeSettings()
         switch style.prototype.model {
         case .off: return nil
-        case .frameDocks: return frame(columns, viewport: viewport, style: plain, edge: style.prototype.dockEdge, scale: scale)
+        case .frameDocks:
+            return frame(columns, viewport: viewport, style: plain, edge: style.prototype.dockEdge,
+                         orientation: style.prototype.orientation, scale: scale)
         case .grid: return grid(columns, viewport: viewport, style: plain, scale: scale)
         }
     }
 
     /// Design A. The strip and the left dock are laid out in the height the
-    /// band leaves; the left dock then runs the full height (corners belong
-    /// to the side docks, F1) and the band sits between the side docks.
-    static func frame(_ columns: [LayoutColumn], viewport: CGSize, style: LayoutStyle, edge: LayoutPrototypeDockEdge, scale: CGFloat) -> ScreenGeometry? {
+    /// band leaves. Column-major: the left dock then runs the full height and
+    /// the band sits between the side docks. Row-major: the band runs the full
+    /// width and the left dock stays between the top and bottom docks.
+    static func frame(_ columns: [LayoutColumn], viewport: CGSize, style: LayoutStyle, edge: LayoutPrototypeDockEdge,
+                      orientation: LayoutPrototypeOrientation, scale: CGFloat) -> ScreenGeometry? {
         let parts = StickyStripGeometry.partition(columns)
         guard let dock = parts.right, let sticky = dock.sticky else { return nil }
         let gap = style.stripGap
@@ -79,8 +101,8 @@ public nonisolated enum LayoutModelPrototype {
         var geometry = ScreenGeometry.compute(.columns(rest), viewport: CGSize(width: viewport.width, height: stripHeight), style: style, scale: scale)
         geometry.viewport = viewport
         if edge == .top { geometry.shift(dy: bandHeight + gap) }
-        // The left dock runs the full height.
-        if let index = geometry.sticky.firstIndex(where: { $0.sticky.edge == .left }),
+        // Column-major: the left dock runs the full height.
+        if orientation == .columnMajor, let index = geometry.sticky.firstIndex(where: { $0.sticky.edge == .left }),
            let left = columns.first(where: { $0.id == geometry.sticky[index].column }) {
             var entry = geometry.sticky[index]
             entry.frame = CGRect(x: entry.frame.minX, y: 0, width: entry.frame.width, height: viewport.height)
@@ -89,7 +111,7 @@ public nonisolated enum LayoutModelPrototype {
             geometry.sticky[index] = entry
             geometry.relayout(left.root, in: entry.frame, style: style, scale: scale)
         }
-        let leftEdge = geometry.sticky.first { $0.sticky.edge == .left }.map { $0.frame.maxX + gap } ?? gap
+        let leftEdge = orientation == .rowMajor ? gap : geometry.sticky.first { $0.sticky.edge == .left }.map { $0.frame.maxX + gap } ?? gap
         let y = edge == .top ? 0 : viewport.height - bandHeight
         let band = CGRect(x: leftEdge, y: y, width: max(1, viewport.width - gap - leftEdge), height: bandHeight)
         let glass = band.insetBy(dx: -gap / 2, dy: -gap / 2).intersection(CGRect(origin: .zero, size: viewport))

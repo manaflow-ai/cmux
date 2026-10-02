@@ -129,8 +129,13 @@ public nonisolated enum LayoutTunables {
         "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right sticky column docks to.",
         default: .bottom, code: "LayoutTunables.prototypeDockEdge")
 
+    public static let prototypeOrientation = Tunable<LayoutPrototypeOrientation>.choice(
+        "layout.prototype.orientation", .panes, "Prototype frame orientation",
+        help: "Frame prototype: column-major (side docks full height) or row-major (top/bottom docks full width).",
+        default: .columnMajor, code: "LayoutTunables.prototypeOrientation")
+
     public static var all: [TunableDescriptor] {
-        [prototypeModel.descriptor, prototypeDockEdge.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, newColumnDropWidth, inactivePaneDimming,
+        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

@@ -117,7 +117,8 @@ extension LayoutStyle {
         if let value = LayoutTunables.newColumnDropWidth.override { style.newColumnDropWidth = value }
         if let width = LayoutTunables.minimumContentWidth.override { style.minimumPaneContentSize.width = width }
         if let height = LayoutTunables.minimumContentHeight.override { style.minimumPaneContentSize.height = height }
-        style.prototype = LayoutPrototypeSettings(model: LayoutTunables.prototypeModel.value, dockEdge: LayoutTunables.prototypeDockEdge.value)
+        style.prototype = LayoutPrototypeSettings(model: LayoutTunables.prototypeModel.value, dockEdge: LayoutTunables.prototypeDockEdge.value,
+                                                  orientation: LayoutTunables.prototypeOrientation.value)
         return style
     }
 }

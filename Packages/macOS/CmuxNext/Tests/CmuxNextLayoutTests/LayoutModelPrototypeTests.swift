@@ -9,9 +9,10 @@ import Testing
 @Suite struct LayoutModelPrototypeTests {
     let viewport = CGSize(width: 1000, height: 600)
 
-    private func style(_ model: LayoutPrototypeModel, edge: LayoutPrototypeDockEdge = .bottom) -> LayoutStyle {
+    private func style(_ model: LayoutPrototypeModel, edge: LayoutPrototypeDockEdge = .bottom,
+                       orientation: LayoutPrototypeOrientation = .columnMajor) -> LayoutStyle {
         var style = LayoutStyle()
-        style.prototype = LayoutPrototypeSettings(model: model, dockEdge: edge)
+        style.prototype = LayoutPrototypeSettings(model: model, dockEdge: edge, orientation: orientation)
         return style
     }
 
@@ -49,6 +50,14 @@ import Testing
             #expect((g.panes[pane]?.maxY ?? .infinity) <= 414)
         }
         #expect(g.columnOrder == ["c1", "c2"])
+    }
+
+    @Test func rowMajorFrameRunsTheBandFullWidthAndKeepsTheLeftDockBetween() {
+        let g = geometry(style(.frameDocks, orientation: .rowMajor))
+        let band = try! #require(g.panes["p4"])
+        #expect(band.minX == 6 && band.maxX == 994)
+        // The left dock stops above the bottom band and its gap.
+        #expect((g.panes["p0"]?.maxY ?? .infinity) <= 414)
     }
 
     @Test func frameDocksAtTheTopShiftTheStripDown() {
