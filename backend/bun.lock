@@ -17,6 +17,7 @@
       "name": "@cmux/api",
       "version": "0.0.0",
       "dependencies": {
+        "@cmux/home-core": "workspace:*",
         "@cmux/ownership": "workspace:*",
         "@cmux/protocol": "workspace:*",
         "croner": "10.0.1",

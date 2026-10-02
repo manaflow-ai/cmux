@@ -27,6 +27,10 @@ public protocol OnboardingServices: AnyObject {
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary
     /// Whether this build can save imported passwords (the browser engine has the store).
     func canImportPasswords() async -> Bool
+    /// The single confirmation before saved passwords are read: Touch ID or
+    /// the Mac's password (LocalAuthentication). False when the person
+    /// cancels or fails; nothing is read then.
+    func authorizePasswordRead(reason: String) async -> Bool
 
     // Default browser
     var defaultApps: any DefaultAppRegistering { get }

@@ -74,10 +74,17 @@ import Testing
         catalog.debugActionsAvailable = true
         router.updateCatalog(catalog)
 
+        // The socket refuses a person-only action (ActionOriginTests checks the reason).
+        let personOnly = Set(ActionCatalog.all.filter(\.isPersonOnly).map(\.id.rawValue))
         for action in router.catalog.actions {
             ran.removeAll()
             let params = Self.runParams(action, name: action.cliName)
             let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: params))
+            if personOnly.contains(action.id) {
+                if case .success = result { Issue.record("\(action.cliName): a person-only action ran over the socket") }
+                #expect(ran.isEmpty, "\(action.id)")
+                continue
+            }
             guard case .success = result else {
                 Issue.record("\(action.cliName): \(result)")
                 continue

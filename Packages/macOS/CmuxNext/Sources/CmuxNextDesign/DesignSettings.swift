@@ -47,6 +47,9 @@ public final class DesignSettings {
     /// `layout.stickyColumnEdge`, `layout.stickyColumnMode`.
     public var stickyColumnEdge: StickyDefaultEdge = .right
     public var stickyColumnMode: StickyDefaultMode = .docked
+    /// `layout.frameOrientation`: column-major (side docks full height) or
+    /// row-major (top and bottom docks full width), plans/cmux-next/layout-model.md.
+    public var frameOrientation: FrameOrientation = .columnMajor
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)

@@ -1,3 +1,6 @@
+import type { AddressDO } from "./address-do.ts"
+import type { ConversationDO } from "./conversation-do.ts"
+import type { MuxDO } from "./mux-do.ts"
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { DomainDO } from "./domain-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
@@ -54,6 +57,27 @@ export interface Env {
   readonly SLACK_CLIENT_ID?: string
   readonly SLACK_CLIENT_SECRET?: string
   readonly SLACK_SIGNING_SECRET?: string
+  /** Home (plans/cmux-next/home-messaging.md): one ConversationDO per conversation. */
+  readonly CONVERSATION_DO: DurableObjectNamespace<ConversationDO>
+  /** One MuxDO per chief: its wake queue. */
+  readonly MUX_DO: DurableObjectNamespace<MuxDO>
+  /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */
+  readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
+  /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */
+  readonly HOME_ADDRESS_KEY?: string
+  /** Secrets for invite delivery (Resend email, SendBlue SMS and iMessage). */
+  readonly RESEND_API_KEY?: string
+  readonly SENDBLUE_API_KEY?: string
+  readonly SENDBLUE_API_SECRET?: string
+  readonly SENDBLUE_FROM_NUMBER?: string
+  readonly SENDBLUE_WEBHOOK_SECRET?: string
+  /** Staging, development and previews only: comma-separated recipients invites may reach; missing = none. */
+  readonly HOME_INVITE_ALLOWLIST_EMAILS?: string
+  readonly HOME_INVITE_ALLOWLIST_PHONES?: string
+  /** Kill switch: "off" refuses every invite send. */
+  readonly HOME_INVITES_SEND?: string
+  /** Origin of invite links (the dashboard): https://console-staging.cmux.dev or https://console.cmux.dev. */
+  readonly HOME_INVITE_ORIGIN?: string
   /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
   readonly HYPERDRIVE?: Hyperdrive
 }
