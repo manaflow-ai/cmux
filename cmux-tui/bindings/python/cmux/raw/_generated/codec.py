@@ -174,6 +174,7 @@ MODEL_BY_PATH = {
     'commands/conversation-history/request': models.ConversationHistoryRequest,
     'commands/conversation-list/request': models.ConversationListRequest,
     'commands/conversation-op/request': models.ConversationOpRequest,
+    'commands/conversation-search/request': models.ConversationSearchRequest,
     'commands/conversation-snapshot/request': models.ConversationSnapshotRequest,
     'commands/conversation-typing/request': models.ConversationTypingRequest,
     'commands/copy/request': models.CopyRequest,

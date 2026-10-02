@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '0d174030864a2c1fb68a1a56a8977108193a3f4c28103682d56cbda6fac89023'
+IR_SHA256 = '4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c'
 
 
 @dataclass(frozen=True)
@@ -511,6 +511,18 @@ COMMANDS = {
             'idempotency_key': CommandFieldMetadata(None, None),
             'op': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-search': CommandMetadata(
+        'conversation-search',
+        'local-admin',
+        12,
+        'conversation-search-v1',
+        ('local-admin',),
+        None,
+        {
+            'limit': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-snapshot': CommandMetadata(

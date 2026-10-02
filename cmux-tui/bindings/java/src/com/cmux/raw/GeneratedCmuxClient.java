@@ -193,6 +193,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object conversationSearch(ConversationSearchRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_SEARCH, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object conversationSnapshot(ConversationSnapshotRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_SNAPSHOT, request.toWire());
         return Wire.immutableJson(result);

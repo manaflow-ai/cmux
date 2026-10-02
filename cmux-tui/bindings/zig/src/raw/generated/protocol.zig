@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0d174030864a2c1fb68a1a56a8977108193a3f4c28103682d56cbda6fac89023";
+pub const ir_sha256 = "4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3060,6 +3060,26 @@ pub fn conversationOp(client: anytype, request: ConversationOpRequest) !wire.Dec
             .authority = "local-admin",
             .since = 12,
             .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationSearchRequest = struct {
+    limit: u32,
+    query: []const u8,
+};
+
+pub const ConversationSearchResult = JsonValue;
+
+pub fn conversationSearch(client: anytype, request: ConversationSearchRequest) !wire.Decoded(ConversationSearchResult) {
+    return client.callTyped(
+        ConversationSearchResult,
+        .{
+            .name = "conversation-search",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "conversation-search-v1",
         },
         request,
     );
@@ -7939,7 +7959,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 206;
+pub const command_count: usize = 207;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7977,6 +7997,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "conversation-history", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-list", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-op", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-search", .authority = "local-admin", .since = 12, .capability = "conversation-search-v1", .stream = null },
     .{ .name = "conversation-snapshot", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-typing", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },

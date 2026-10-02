@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0d174030864a2c1fb68a1a56a8977108193a3f4c28103682d56cbda6fac89023.
+// cmux-tui mux protocol 12, IR 4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -495,6 +495,16 @@ pub struct ConversationOpRequest {
 
 #[rustfmt::skip]
 pub type ConversationOpResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSearchRequest {
+    pub limit: u32,
+    pub query: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationSearchResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2918,6 +2928,10 @@ impl CmuxClient {
 
     pub fn conversation_op(&mut self, request: ConversationOpRequest) -> Result<ConversationOpResult> {
         self.execute(&CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn conversation_search(&mut self, request: ConversationSearchRequest) -> Result<ConversationSearchResult> {
+        self.execute(&CONVERSATION_SEARCH_METADATA, &request)
     }
 
     pub fn conversation_snapshot(&mut self, request: ConversationSnapshotRequest) -> Result<ConversationSnapshotResult> {

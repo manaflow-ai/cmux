@@ -16557,6 +16557,41 @@
     "Trusted local connections only. limit is 1-500. See spec/commands.md for the result object."
    ]
   },
+  "conversation-search": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-search-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "query": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. limit is 1-100; query is at most 200 characters, and every word matches as a prefix. See spec/commands.md for the result object."
+   ]
+  },
   "conversation-op": {
    "authority": "local-admin",
    "since": 12,

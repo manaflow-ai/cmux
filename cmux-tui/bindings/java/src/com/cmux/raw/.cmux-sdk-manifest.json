@@ -352,8 +352,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "b01f4d015bef94183d40b6a946e5304f90d049130658acdba06b5201b10486da",
-      "size": 54257
+      "sha256": "9690c9e4e1a5a991c60952beffe5117cdbf6e7ec6420e2764ba8035e01c7b76a",
+      "size": 54517
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -394,6 +394,11 @@
       "path": "ConversationOpRequest.java",
       "sha256": "52dc4c79b5faa09bf7e6b4154a3041388c4367a2b7bc43a6ef6b0f4ca9f07c6c",
       "size": 5013
+    },
+    {
+      "path": "ConversationSearchRequest.java",
+      "sha256": "1b7b2f1ba1cad63a3a7f09502d184e90b2e4818aaf9ec5a9b049216d6fd16eec",
+      "size": 2692
     },
     {
       "path": "ConversationSnapshotRequest.java",
@@ -672,8 +677,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "3443fd371d5c33b21620a0315d2fc32da1bb43bf9403b6c5c3c12e3f5d332c6b",
-      "size": 47852
+      "sha256": "9104408fb483214d6c1368695922780c4a245b2aec42f3f27faed653f2cf21c8",
+      "size": 48084
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1237,7 +1242,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "e16daad4fdf2def3c9359b292c8b94e1e0f9b7e3ed23b455434c29fd56cbe7b9",
+      "sha256": "fb2974c3aa3708a1230e5b6c120ed9f1a1f1effa257270d403f1cea459abea8a",
       "size": 4943
     },
     {
@@ -2252,7 +2257,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "0d174030864a2c1fb68a1a56a8977108193a3f4c28103682d56cbda6fac89023",
+  "ir_sha256": "4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -1764,6 +1764,13 @@ class ConversationOpRequest:
 
 
 @dataclass(frozen=True)
+class ConversationSearchRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-search/request'
+    limit: int
+    query: str
+
+
+@dataclass(frozen=True)
 class ConversationSnapshotRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-snapshot/request'
     conversation: str
@@ -4069,6 +4076,7 @@ __all__ = [
     'ConversationHistoryRequest',
     'ConversationListRequest',
     'ConversationOpRequest',
+    'ConversationSearchRequest',
     'ConversationSnapshotRequest',
     'ConversationTypingRequest',
     'CopyRequest',
