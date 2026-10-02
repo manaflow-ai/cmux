@@ -36,7 +36,7 @@ enum QuitPolicy {
         case .powerOff: return .quit(.keep)
         case .explicit(let choice): return .quit(choice)
         case .scripted: return .quit(remembered ?? .keep)
-        case .interactive: break
+        case .interactive, .signal: break  // .signal: not implemented yet
         }
         let hasTerminals = facts.terminals > 0
         let incognito = !facts.incognitoPrograms.isEmpty
