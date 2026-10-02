@@ -18,10 +18,19 @@ enum LocalAgentTab {
 /// shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
     private let host: any AgentPaneHostProviding
-    /// The page every agent tab loads: the bundled file, or in Debug builds
-    /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
-    /// bundled page is missing).
-    private let source: AgentPaneSource?
+    /// The page a new agent tab loads: the bundled page of the prototype
+    /// Debug Settings selects (`agentPane.prototype`, current by default), or
+    /// in Debug builds the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names
+    /// (nil only when the bundled page is missing). Read per view, so a
+    /// switch applies to the next tab without a relaunch.
+    private var source: AgentPaneSource? {
+        AgentPaneSource.resolve(
+            environment: environment, bundledPage: AgentPanePrototype.selected.bundledPage ?? AgentPaneView.bundledPage,
+            allowsDevServer: allowsDevServer
+        )
+    }
+    private let environment: [String: String]
+    private let allowsDevServer: Bool
     /// Adaptive, or in Debug builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE`
     /// (`1` full, `0` capped) for measuring either rate.
     private let renderRate: AgentPaneRenderRate
@@ -51,10 +60,11 @@ final class AgentTabStore {
         }
         // Release loads only the bundled page; the dev server is for Debug
         // and tagged builds (webviews/src/agent-session/acpmux/README.md).
+        self.environment = environment
         #if DEBUG
-        let allowsDevServer = true
+        allowsDevServer = true
         #else
-        let allowsDevServer = false
+        allowsDevServer = false
         #endif
         #if DEBUG
         switch environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] {
@@ -65,9 +75,6 @@ final class AgentTabStore {
         #else
         renderRate = .adaptive
         #endif
-        source = AgentPaneSource.resolve(
-            environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
-        )
         customization = AgentPaneCustomizationWatcher(
             directory: AgentPaneCustomization.directory(configFile: CmuxConfigFile.defaultURL(environment: environment))
         )
