@@ -12,8 +12,8 @@
 
 use serde_json::Value;
 
-use crate::State;
 use crate::workspace_registry::{ResourcePatch, ResourcePatchCommit, ResourceWorkspaceLedger};
+use crate::{PaneId, State, SurfaceId};
 
 type StateApply = Box<dyn FnOnce(&mut State) + Send + 'static>;
 
@@ -109,6 +109,41 @@ impl ResourceMutationPlan {
     pub(crate) fn with_layout_op(mut self, op: cmux_layout_reducer::LayoutOpKind) -> Self {
         self.layout_op = Some(op);
         self
+    }
+
+    /// Declare that this plan moves `tab` to `index` of `pane`.
+    pub(crate) fn moving_tab(self, tab: SurfaceId, pane: PaneId, index: usize) -> Self {
+        self.with_layout_op(cmux_layout_reducer::LayoutOpKind::MoveTab { tab, pane, index })
+    }
+
+    /// [`Self::stage`] for `operation`, checked when it must conserve tabs:
+    /// the layout reducer must accept the plan's op before the live state
+    /// changes, and the live result must keep I1-I3 and match the reducer's
+    /// placement, or the previous state is restored and the error returned.
+    /// Returns the replaced state only for a checked operation.
+    pub(crate) fn stage_checked(
+        &mut self,
+        state: &mut State,
+        operation: &str,
+    ) -> anyhow::Result<Option<State>> {
+        use crate::mux::layout_invariants as layout;
+        if !layout::conserves_tabs(operation) {
+            return Ok(None);
+        }
+        let before_model = layout::project(state);
+        let model = self
+            .layout_op
+            .as_ref()
+            .map(|kind| layout::model_result(operation, &before_model, kind))
+            .transpose()?;
+        let before = self.stage(state);
+        let result =
+            layout::validate_layout_transition(operation, &before_model, model.as_ref(), state);
+        if let Err(error) = result {
+            *state = before;
+            return Err(error);
+        }
+        Ok(Some(before))
     }
 
     /// Commit this tab group state with the patch.

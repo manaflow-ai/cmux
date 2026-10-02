@@ -17,6 +17,7 @@ mod sticky_columns;
 mod tab_drag;
 mod tab_groups;
 mod terminal_directory;
+mod terminal_move_topology;
 mod terminal_reap;
 mod terminal_work;
 
@@ -36,6 +37,7 @@ pub use screen_groups::{
     ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec, WorkspaceScreenGroup,
 };
 pub use sticky_columns::{ColumnStickyError, ColumnStickyOutcome, parse_column_sticky};
+use tab_drag::restore_dragged_tab;
 pub use tab_drag::{TabDragOutcome, TabDropEdge};
 pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
 pub use tab_groups::{TabGroupDestination, TabGroupOutcome};
@@ -4759,32 +4761,7 @@ impl Mux {
         // see a tab's new session path only once that commit succeeds.
         let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {
             let mut plan = prepare(&mut state, &registry)?;
-            // A tab-conserving operation is checked before anything commits,
-            // with both writer locks held: the layout reducer must accept its
-            // op before the live state changes, and the live result must keep
-            // I1-I3 and match the reducer's placement, or `before` restores
-            // the previous state.
-            let before = if layout_invariants::conserves_tabs(operation) {
-                let before_model = layout_invariants::project(&state);
-                let model = plan
-                    .layout_op
-                    .as_ref()
-                    .map(|kind| layout_invariants::model_result(operation, &before_model, kind))
-                    .transpose()?;
-                let before = plan.stage(&mut state);
-                if let Err(error) = layout_invariants::validate_layout_transition(
-                    operation,
-                    &before_model,
-                    model.as_ref(),
-                    &state,
-                ) {
-                    *state = before;
-                    return Err(error);
-                }
-                Some(before)
-            } else {
-                None
-            };
+            let before = plan.stage_checked(&mut state, operation)?;
             anyhow::Ok((plan, before))
         });
         let (mut plan, before) = prepared?;
@@ -5651,33 +5628,6 @@ impl Mux {
             &fingerprint,
             result,
         )
-    }
-
-    /// Commit the full public topology of `state` as one revision, for a
-    /// legacy path that changed the live tree while it already holds both
-    /// writer locks (registry, then state).
-    fn commit_full_resource_projection_locked(
-        &self,
-        registry: &mut WorkspaceRegistry,
-        state: &mut State,
-        operation: &str,
-    ) -> anyhow::Result<ResourcePatchCommit> {
-        let mutation = WorkspaceMutation::local("cmux-tui");
-        let mut projection =
-            self.resource_effect_projection_locked(registry, state, serde_json::json!({}))?;
-        persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;
-        let commit = registry.commit_resource_patch(
-            &mutation,
-            operation,
-            &serde_json::json!({"operation": operation, "mutation": mutation.id}),
-            None,
-            None,
-            &projection.patch,
-            &projection.result,
-            &projection.changes,
-        )?;
-        state.resource_revision = commit.revision;
-        Ok(commit)
     }
 
     pub(crate) fn commit_full_resource_projection_with_mutation(
@@ -20494,79 +20444,6 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
     // stable workspace identity.
     stamp_changed_active_pane(mux, state, previous_active);
     (removed, true)
-}
-
-/// Undo one same-screen tab drag: move the tab back to its origin pane and
-/// index, and remove the pane the drag created. Every precondition is
-/// checked first, so a stale entry fails without changing anything.
-fn restore_dragged_tab(
-    mux: &Mux,
-    state: &mut State,
-    workspace_index: usize,
-    screen_index: usize,
-    restore: crate::model::LayoutUndoTabRestore,
-) -> anyhow::Result<()> {
-    let stale = |message: &str| anyhow::Error::new(LayoutUndoError::Stale(message.to_string()));
-    let screen_panes = state.workspaces[workspace_index].screens[screen_index].root.pane_ids_vec();
-    let current = state.pane_of(restore.surface).ok_or_else(|| stale("the dragged tab closed"))?;
-    if !screen_panes.contains(&restore.origin_pane)
-        || !state.panes.contains_key(&restore.origin_pane)
-    {
-        return Err(stale("the dragged tab's origin pane closed"));
-    }
-    if !screen_panes.contains(&current) {
-        return Err(stale("the dragged tab left its screen"));
-    }
-    match restore.created_pane {
-        Some(created) => {
-            let alone = state
-                .panes
-                .get(&created)
-                .is_some_and(|pane| pane.tabs.as_slice() == [restore.surface]);
-            if current != created || !alone {
-                return Err(stale("the pane created by the drag changed"));
-            }
-        }
-        None if current == restore.origin_pane => {
-            return Err(stale("the dragged tab is already in its origin pane"));
-        }
-        // The pane the tab moved into existed before the move and is part
-        // of the layout being restored. If its other tabs have left since,
-        // moving the tab back would leave that pane empty (I3).
-        None if state.panes.get(&current).is_some_and(|pane| pane.tabs.len() == 1) => {
-            return Err(stale("the dragged tab is the last tab of its pane"));
-        }
-        None => {}
-    }
-    {
-        let pane = state.panes.get_mut(&current).expect("checked current pane");
-        let old = pane
-            .tabs
-            .iter()
-            .position(|candidate| *candidate == restore.surface)
-            .expect("checked tab membership");
-        pane.tabs.remove(old);
-        if !pane.tabs.is_empty() && pane.active_tab >= old && pane.active_tab > 0 {
-            pane.active_tab -= 1;
-        }
-    }
-    if restore.created_pane == Some(current) {
-        state.remove_pane(current);
-    }
-    let origin = state.panes.get_mut(&restore.origin_pane).expect("checked origin pane");
-    let index = restore.origin_index.min(origin.tabs.len());
-    origin.tabs.insert(index, restore.surface);
-    origin.active_tab = index;
-    state.resource_indexes.tab_pane.insert(restore.surface, restore.origin_pane);
-    let workspace = state.workspaces[workspace_index].id;
-    let screen = state.workspaces[workspace_index].screens[screen_index].id;
-    mux.subscribers.update_surface_session_path(
-        restore.surface,
-        workspace,
-        screen,
-        restore.origin_pane,
-    );
-    Ok(())
 }
 
 fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId) {
