@@ -249,6 +249,7 @@ public enum CloudNotificationSyncReducer: Sendable {
             && !pending.contains(row.id) {
             if let terminalID = row.terminalID { result.insert(terminalID) }
         }
+        result.formUnion(state.manuallyUnreadTerminalIDs)
         return result
     }
 }
@@ -410,6 +411,26 @@ public final class CloudNotificationSync {
         guard next != state else { return }
         commit(next)
         requestFlush()
+    }
+
+    /// Adds a local unread overlay for terminal rows selected from the Cloud
+    /// tree. Cloud daemons expose a read acknowledgement but no inverse
+    /// operation, so this durable client-local state is the source of truth for
+    /// the explicit Mark Unread action.
+    public func markUnread(terminalIDs: Set<String>) {
+        guard !retired, !terminalIDs.isEmpty else { return }
+        var next = state
+        next.manuallyUnreadTerminalIDs = Array(Set(next.manuallyUnreadTerminalIDs).union(terminalIDs)).sorted()
+        commit(next)
+    }
+
+    /// Clears the local unread overlay and lets the normal notification ack
+    /// path settle any matching daemon rows.
+    public func markRead(terminalIDs: Set<String>) {
+        guard !retired, !terminalIDs.isEmpty else { return }
+        var next = state
+        next.manuallyUnreadTerminalIDs.removeAll { terminalIDs.contains($0) }
+        commit(next)
     }
 
     /// Local reads by target: every unread row whose current placement the
