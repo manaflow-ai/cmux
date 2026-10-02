@@ -18,6 +18,7 @@ final class TabWatcher {
     private var lastExit: BrowserProcessExit?
     private var stopped = false
     private var urlObservation: NSKeyValueObservation?
+    private var pendingNavigationURL: URL?
 
     init(tab: WebKitTab, session: TabSession, emit: @escaping (String, [String: DriverJSON]) -> Void) {
         self.tab = tab
@@ -38,12 +39,36 @@ final class TabWatcher {
         urlObservation = nil
     }
 
+    /// Records a same-document navigation initiated by the driver. WebKit's
+    /// URL KVO does not fire consistently for fragment loads, so the driver
+    /// supplies the event after changing `location.href`. The URL guard keeps
+    /// this from duplicating a KVO event that arrived first.
+    func noteSameDocumentNavigation(to url: URL) {
+        guard !stopped, let tab, let session, lastURL != url else { return }
+        lastURL = url
+        session.waits.sameDocument()
+        emit("tab.navigated", ["targetId": .string(tab.id.rawValue), "url": .string(url.absoluteString),
+                               "frameId": session.frames.mainFrameID.map(DriverJSON.string) ?? .null,
+                               "sameDocument": .bool(true)])
+    }
+
+    /// Marks a driver-issued document navigation before WebKit reports its
+    /// provisional state. This prevents an early URL KVO update from being
+    /// mistaken for a pushState or fragment navigation.
+    func navigationStarted(to url: URL) {
+        pendingNavigationURL = url
+    }
+
     private func urlChanged(_ url: URL?, loading: Bool) {
         guard !stopped, let tab, let session, url != lastURL else { return }
         let previous = lastURL
         lastURL = url
         let provisional = if case .provisional = tab.state.phase { true } else { false }
         guard let url, let previous else { return }
+        if pendingNavigationURL == url {
+            pendingNavigationURL = nil
+            return
+        }
         // A change of only the fragment is always same-document (HTML
         // navigation); pushState and replaceState change the URL outside a load.
         guard Self.differOnlyInFragment(previous, url) || (!provisional && !loading) else { return }
