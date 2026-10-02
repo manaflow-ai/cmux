@@ -40,7 +40,7 @@ struct CloudTreeMachineDetailTabsView: View {
 
     @ViewBuilder
     private func strip(_ density: CloudTreeMachineDetailTabDensity) -> some View {
-        let row = HStack(spacing: 2) {
+        let row = HStack(spacing: density.spacing) {
             ForEach(tabs.tabs, id: \.self) { tab in
                 CloudTreeMachineDetailTabButton(
                     tab: tab,
@@ -145,8 +145,10 @@ enum CloudTreeMachineDetailTabDensity {
     case regular, tight, titlesOnly, truncating
 
     var horizontalPadding: CGFloat {
-        self == .regular ? CloudTreeMachineDetailTabButtonMetrics.horizontalPadding : 5
+        self == .regular ? CloudTreeMachineDetailTabButtonMetrics.horizontalPadding : 4
     }
+
+    var spacing: CGFloat { self == .regular ? 2 : 1 }
 
     var showsCounts: Bool { self == .regular || self == .tight }
 
