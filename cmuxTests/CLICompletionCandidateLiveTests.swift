@@ -209,6 +209,69 @@ struct CLICompletionCandidateLiveTests {
         #expect(!result.stdout.contains("injected"), "a newline must not become a second candidate")
     }
 
+    @Test("completion scopes surface, pane and window candidates to the selectors on the line")
+    func completionHonorsExplicitWorkspaceAndWindowSelectors() throws {
+        // The app answers for its *selected* workspace (A) when no workspace_id is
+        // sent. Typing `--workspace B` must list B's entries, or the suggestion
+        // disagrees with the command it completes.
+        let cases: [(kind: String, method: String, listKey: String, words: [String], expected: [String])] = [
+            ("surfaces", "surface.list", "surfaces",
+             ["--workspace", "workspace:2", "--surface", ""], ["surface:B1"]),
+            ("surfaces", "surface.list", "surfaces",
+             ["--workspace=workspace:2", "--surface", ""], ["surface:B1"]),
+            ("surfaces", "surface.list", "surfaces",
+             ["--window", "window:2", "--workspace", "workspace:2", "--surface", ""], ["surface:B1"]),
+            ("surfaces", "surface.list", "surfaces", ["--surface", ""], ["surface:A1"]),
+            ("panes", "pane.list", "panes",
+             ["--workspace", "workspace:2", "--pane", ""], ["pane:B1"]),
+            ("panes", "pane.list", "panes",
+             ["--window=window:2", "--pane", ""], ["pane:W2"]),
+            ("panes", "pane.list", "panes", ["--pane", ""], ["pane:A1"]),
+        ]
+
+        for entry in cases {
+            let socketPath = Self.socketPath()
+            let listenerFD = try Self.bindSocket(at: socketPath)
+            let serverHandled = Self.startMockServer(
+                listenerFD: listenerFD,
+                response: { request in
+                    let id = request["id"] as? String ?? "unknown"
+                    guard request["method"] as? String == entry.method else {
+                        return Self.errorResponse(id: id, code: "unexpected_request")
+                    }
+                    let params = request["params"] as? [String: Any] ?? [:]
+                    let ref: String
+                    switch (params["workspace_id"] as? String, params["window_id"] as? String) {
+                    case ("workspace:2"?, _): ref = entry.kind == "panes" ? "pane:B1" : "surface:B1"
+                    case (nil, "window:2"?): ref = "pane:W2"
+                    default: ref = entry.kind == "panes" ? "pane:A1" : "surface:A1"
+                    }
+                    return Self.successResponse(id: id, result: [entry.listKey: [["ref": ref]]])
+                }
+            )
+            defer {
+                CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
+                shutdown(listenerFD, SHUT_RDWR)
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+
+            let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+            let result = try runCLI(
+                cliPath,
+                arguments: ["__complete-candidates", entry.kind] + entry.words,
+                environment: ["CMUX_SOCKET_PATH": socketPath]
+            )
+
+            #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+            #expect(result.exitCode == 0)
+            #expect(
+                result.stdout.split(separator: "\n").map(String.init) == entry.expected,
+                "\(entry.kind) after \(entry.words) must list the requested scope, not the selected one"
+            )
+        }
+    }
+
     private static func startMockServer(
         listenerFD: Int32,
         response: @escaping @Sendable ([String: Any]) -> String

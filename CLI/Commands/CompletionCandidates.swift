@@ -10,12 +10,16 @@ enum CompletionCandidates {
     /// Upper bound on a completion round trip. Past this the shell gets nothing.
     private static let timeout: TimeInterval = 0.5
 
+    /// Candidates must agree with the command they complete, so an explicit
+    /// `--workspace`/`--window` already typed on the line scopes the listing.
+    /// Without params the app answers for its *selected* workspace, which is not
+    /// necessarily the one the user is targeting.
     static func workspaces(_ arguments: [String]) -> [String] {
-        fetch(method: "workspace.list", mapping: identifier)
+        fetch(method: "workspace.list", params: selectors(["window"], in: arguments), mapping: identifier)
     }
 
     static func surfaces(_ arguments: [String]) -> [String] {
-        fetch(method: "surface.list", mapping: identifier)
+        fetch(method: "surface.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
     }
 
     static func windows(_ arguments: [String]) -> [String] {
@@ -23,11 +27,11 @@ enum CompletionCandidates {
     }
 
     static func panes(_ arguments: [String]) -> [String] {
-        fetch(method: "pane.list", mapping: identifier)
+        fetch(method: "pane.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
     }
 
     static func panels(_ arguments: [String]) -> [String] {
-        fetch(method: "surface.list", mapping: identifier)
+        fetch(method: "surface.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
     }
 
     /// Browser tabs live in one workspace, so this is the one handler that has to
@@ -37,9 +41,12 @@ enum CompletionCandidates {
     /// terminal it owns. With neither set the app's selected-workspace fallback is
     /// still the best available answer.
     static func tabs(_ arguments: [String]) -> [String] {
-        var params: [String: Any] = [:]
+        var params = selectors(["surface", "workspace"], in: arguments)
         let environment = ProcessInfo.processInfo.environment
-        if let surfaceID = nonEmpty(environment["CMUX_SURFACE_ID"]) {
+        // An explicit selector on the line wins over the caller's environment.
+        if !params.isEmpty {
+            // keep as typed
+        } else if let surfaceID = nonEmpty(environment["CMUX_SURFACE_ID"]) {
             params["surface_id"] = surfaceID
         } else if let workspaceID = nonEmpty(environment["CMUX_WORKSPACE_ID"]) {
             params["workspace_id"] = workspaceID
@@ -74,6 +81,28 @@ enum CompletionCandidates {
     /// the same `id ?? ref` shape the rest of the CLI reads these lists with.
     private static func identifier(_ item: [String: Any]) -> String? {
         (item["ref"] as? String) ?? (item["id"] as? String)
+    }
+
+    /// Reads `--name value` and `--name=value` from the shell words, last one
+    /// winning, and maps each to the `<name>_id` RPC param. A flag with no value
+    /// yet, or whose next word is another flag, contributes nothing.
+    private static func selectors(_ names: [String], in words: [String]) -> [String: Any] {
+        var params: [String: Any] = [:]
+        for name in names {
+            let flag = "--\(name)"
+            for (index, word) in words.enumerated() {
+                var value: String?
+                if word == flag, index + 1 < words.count {
+                    value = words[index + 1]
+                } else if word.hasPrefix(flag + "=") {
+                    value = String(word.dropFirst(flag.count + 1))
+                }
+                if let value = nonEmpty(value), !value.hasPrefix("-") {
+                    params["\(name)_id"] = value
+                }
+            }
+        }
+        return params
     }
 
     private static func nonEmpty(_ value: String?) -> String? {
@@ -166,18 +195,21 @@ struct CompleteCandidates: ParsableCommand {
     )
 
     @Argument var kind: String
+    /// Shell words the handler scopes its listing by, as ArgumentParser's
+    /// completion callback would pass them.
+    @Argument(parsing: .remaining) var words: [String] = []
 
     func run() throws {
         let candidates: [String]
         switch kind {
-        case "workspaces": candidates = CompletionCandidates.workspaces([])
-        case "surfaces": candidates = CompletionCandidates.surfaces([])
-        case "windows": candidates = CompletionCandidates.windows([])
-        case "panes": candidates = CompletionCandidates.panes([])
-        case "panels": candidates = CompletionCandidates.panels([])
-        case "tabs": candidates = CompletionCandidates.tabs([])
-        case "themes": candidates = CompletionCandidates.themes([])
-        case "vms": candidates = CompletionCandidates.vms([])
+        case "workspaces": candidates = CompletionCandidates.workspaces(words)
+        case "surfaces": candidates = CompletionCandidates.surfaces(words)
+        case "windows": candidates = CompletionCandidates.windows(words)
+        case "panes": candidates = CompletionCandidates.panes(words)
+        case "panels": candidates = CompletionCandidates.panels(words)
+        case "tabs": candidates = CompletionCandidates.tabs(words)
+        case "themes": candidates = CompletionCandidates.themes(words)
+        case "vms": candidates = CompletionCandidates.vms(words)
         default: candidates = []
         }
 
