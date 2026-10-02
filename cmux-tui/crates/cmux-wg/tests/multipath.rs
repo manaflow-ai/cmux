@@ -161,7 +161,11 @@ const B_DIRECT: &str = "192.168.7.2:51820";
 /// Both sides up on the relay only, one stream open, nothing sent yet.
 async fn world() -> World {
     let sim = SimNet::new();
-    sim.set_link(addr(A_RELAY), addr(B_RELAY), LinkProfile { latency: RELAY_LATENCY, cut: false, ..LinkProfile::default() });
+    sim.set_link(
+        addr(A_RELAY),
+        addr(B_RELAY),
+        LinkProfile { latency: RELAY_LATENCY, cut: false, ..LinkProfile::default() },
+    );
     sim.set_link(
         addr(A_DIRECT),
         addr(B_DIRECT),

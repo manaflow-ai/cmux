@@ -70,9 +70,7 @@ impl Shared {
         let current = self.selector.current();
         let targeted = current.is_some_and(|id| self.slots.iter().any(|slot| slot.id == id));
         self.slots.iter().any(|slot| {
-            !slot.failed
-                && (!targeted || Some(slot.id) == current)
-                && slot.carrier.backlogged()
+            !slot.failed && (!targeted || Some(slot.id) == current) && slot.carrier.backlogged()
         })
     }
 }
