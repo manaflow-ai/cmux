@@ -36,3 +36,11 @@ struct ModuleResourceBundleTests {
         #expect(strings.bundle?.bundleURL.lastPathComponent == "CmuxNext_Present.bundle")
     }
 }
+
+extension ModuleResourceBundleTests {
+    @Test func missingLocalizationFallsBackToEnglish() {
+        let strings = ModuleResourceBundle(name: "CmuxNext_Missing", searchDirectories: []).localization("de")
+        #expect(strings.bundle == nil)
+        #expect(strings.text("test.plain", defaultValue: "Process exited") == "Process exited")
+    }
+}

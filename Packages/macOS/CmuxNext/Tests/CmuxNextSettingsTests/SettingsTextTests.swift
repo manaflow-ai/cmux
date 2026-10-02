@@ -12,4 +12,11 @@ struct SettingsTextTests {
         let missing = ModuleResourceBundle(name: "CmuxNext_Missing", searchDirectories: [])
         #expect(SettingsText.text("settings.group.engine", "Engine", strings: missing) == "Engine")
     }
+
+    /// The lookup reads the real table: German comes back, not the English default.
+    @Test func germanTableIsRead() {
+        let german = ModuleResourceBundle.settings.localization("de")
+        #expect(german.bundle != nil)
+        #expect(SettingsText.text("settings.group.memory", "Memory", strings: german) == "Speicher")
+    }
 }

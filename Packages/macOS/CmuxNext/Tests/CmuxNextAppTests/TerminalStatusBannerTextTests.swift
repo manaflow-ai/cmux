@@ -27,3 +27,12 @@ import Testing
         #expect(ModuleResourceBundle.terminal.bundle != nil)
     }
 }
+
+/// The lookup reads the real table: German comes back, not the English default.
+@MainActor struct TerminalStatusBannerTranslationTests {
+    @Test func germanTableIsRead() {
+        let german = ModuleResourceBundle.terminal.localization("de")
+        #expect(german.bundle != nil)
+        #expect(TerminalStatusBanner.text(for: .exited, strings: german) == "Prozess beendet")
+    }
+}

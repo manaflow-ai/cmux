@@ -18,6 +18,11 @@ public nonisolated struct ModuleResourceBundle: Sendable {
             .first
     }
 
+    /// Wraps an already resolved bundle (nil reads as missing).
+    public init(bundle: Bundle?) {
+        self.bundle = bundle
+    }
+
     /// The bundle of `target` in the CmuxNext package. `anchor` is a class
     /// compiled into that target, locating its code the way `Bundle.module` does.
     public init(cmuxNextTarget target: String, anchor: AnyClass) {
@@ -32,6 +37,14 @@ public nonisolated struct ModuleResourceBundle: Sendable {
                 code.bundleURL.deletingLastPathComponent(),
             ].compactMap { $0 }
         )
+    }
+
+    /// The same table pinned to one language (`de`, `ja`, ...), whatever the
+    /// user's preferred languages are; nil bundle when that language is absent.
+    public func localization(_ language: String) -> ModuleResourceBundle {
+        ModuleResourceBundle(bundle: bundle?
+            .url(forResource: language, withExtension: "lproj")
+            .flatMap { Bundle(url: $0) })
     }
 
     /// The localized value of `key`, or `defaultValue` (English) when the
