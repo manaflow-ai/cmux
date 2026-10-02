@@ -1,4 +1,19 @@
 {
+  "agent.codePuppy.displayName": {
+    "class": "brand",
+    "source": "Code Puppy"
+  },
+  "command.cmuxConfig.defaultCodePuppyTitle": {
+    "class": "brand",
+    "source": "Code Puppy"
+  },
+  "command.cmuxCLI.hooks.agents": {
+    "source": "codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, code-puppy (alias: pup)",
+    "identityLocales": {
+      "fr": "Agent command names are invariant CLI tokens; alias is also the French term. The translated catalog entry remains required.",
+      "es": "Agent command names are invariant CLI tokens; alias is also the Spanish term. The translated catalog entry remains required."
+    }
+  },
   "actions.discovery.menuTitle": {
     "source": "Actions · cmux.json…",
     "identityLocales": {
