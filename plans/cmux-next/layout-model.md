@@ -122,20 +122,30 @@ v1), scroll offsets and focus are client view state.
   out above (or below) the inset; a column whose rows overflow (rows.md G2) scrolls them under
   the overlay.
 - F3. Shares: left/right as today (3/4, 2/5 each with both). Top/bottom at most 1/2 of the
-  height, 1/3 each with both; at least the band's minimum pane height.
-- F4. Stacking: strip panes, strip dividers, top/bottom glass and panes, left/right glass and
-  panes, scrollbars. The strip scrollbar sits at the bottom of the strip's uncovered area, above
-  a bottom dock.
-- F5. What a dock covers takes no clicks or drops for the strip (sticky-column.md D2, four
-  edges). Strip panes clip at a pinned dock's inner edge or an overlay rim's outer edge, on both
-  axes.
+  height, 1/3 each with both; at least the band's minimum pane height. These are client
+  viewport math in both orientations; the store holds only permille (E5).
+- F1a. Orientation is an explicit input of the pure placement function, and F1, F3 and F4 are
+  tested in both orientations.
+- F4. Stacking: strip panes, strip dividers, then the docks that do not own the corners, then
+  the docks that do (column-major: top/bottom below left/right; row-major: left/right below
+  top/bottom), then scrollbars. The strip scrollbar sits at the bottom of the strip's uncovered
+  area, so a pinned or overlay bottom dock moves it up (today it uses the view's height). The
+  row scrollbar (rows.md V5) sits inside its column's frame, never under a right dock.
+- F5. What a dock covers, from its inner edge (or its overlay rim's outer edge) out to the
+  window edge, takes no clicks or drops for the strip (sticky-column.md D2, four edges). In the
+  clip mask the strip stays visible under an overlay's glass rim and is clipped beyond it, on
+  both axes.
+- F6. Reveal needs the scroll reducer, not only geometry: `ColumnStrip` and the vertical row
+  strip carry the uncovered range (leading and trailing insets), and the reveal (column scroll
+  rule F1) and the snap points use it. This closes sticky-column.md's known overlay gap for
+  left/right and gives top/bottom overlays their vertical reveal.
 
 ## Ops (variants of the one LayoutOp set)
 
 | Op | Effect | Rejects |
 | --- | --- | --- |
 | `SetPin { column, pin: Option<Pin> }` | pins or unpins a column in place (generalizes `set-column-sticky` to four edges); E1, E2 in the same commit | top/bottom on a column with more than one row (`dock-needs-one-row`); last strip column (`last-scrolling-column`) |
-| `PinRow { row, edge: top \| bottom, mode, new_column, extent_permille }` | "Make Row Sticky Top/Bottom": lifts one row out of its column into a new dock column; an emptied source column is removed (and normalized) in the same commit | left/right edge; the row's column is the last strip column and has only this row |
+| `PinRow { row, edge: top \| bottom, mode, new_column, extent_permille }` | "Make Row Sticky Top/Bottom": lifts one row out of its column into a new dock column; an emptied source column is removed (and normalized) in the same commit | left/right edge; the pin would not survive normalization (the row is the only row of the last strip column), which TLC found as an op that only churns ids |
 | `MoveTab { tab, to: Destination::Dock { edge, mode, new_column, new_row, new_pane, extent_permille } }` | a dropped or moved tab opens the dock on that edge (or joins its pane when the dock exists: `Destination::Pane`) | dock exists on that edge (the resolver names its pane instead) |
 | `UnpinDock { column, after_column }` | a dock becomes a strip column after `after_column` (the client resolves it; focus is client state) | last dock never rejects; unknown column |
 | `SetExtent { column, extent_permille }` | resize a strip column or a dock (generalizes `set-viewport-pane-width`) | out of range |
@@ -230,6 +240,27 @@ applies live.
 - B, `grid`: each strip column's panes become grid cells by index; rows share one height across
   columns; a column with fewer panes shows holes.
 Screenshots and recordings are listed in "Evidence".
+
+## Ownership of the work
+
+- Layout model lead: this proposal, the reducer ops, the daemon (`edge-docks-v1`, side table,
+  `column.update` integration), the TLA+ model, the prototypes.
+- App four-edge geometry (F1 to F6: `StickyStripGeometry`, `ScreenGeometry`,
+  `ScreenContentView+Sticky` stacking, clip, hit testing and navigation frames,
+  `DropZoneGeometry.target(atView:)`, scrollbar placement, the scroll reducer insets): a
+  separate task for the sticky-column geometry owner, assigned by the coordinator after
+  Lawrence picks the model.
+
+## Evidence (2026-10-02)
+
+- Geometry: `LayoutModelPrototypeTests` (7 tests) pin the frame in both orientations and both
+  edges, docks drawn from plain columns, the grid's shared rows and holes, and off = real layout.
+- Live build lmproto-v1 (fleet job a5dbd34f2414ad8ecd984564): the tunables switch live and the
+  app stayed in the background (`app_active` false, no key window). The screenshots are not
+  evidence of the design: the seed made two full-width columns, and the sticky view path places
+  sticky panes by edge rather than by the geometry frame, so the band draws as a right column.
+  Live rendering of the prototypes is UNVERIFIED until the view path reads the frame (part of
+  the app geometry task above). No recordings were made.
 
 ## Verification plan
 

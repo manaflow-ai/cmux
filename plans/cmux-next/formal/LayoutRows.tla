@@ -296,7 +296,10 @@ Apply(S, op) ==
                        THEN Normalize([S1 EXCEPT !.cols = Remove(@, c), !.sticky[c] = "none"])
                        ELSE S1
              IN IF S.sticky[c] = op.e /\ Len(S.rowsOf[c]) = 1 THEN NoOp(S)
-                ELSE IF \E x \in LiveCols(S2) : S2.sticky[x] = "none" THEN Done(S2)
+                \* The pin must survive normalization: lifting the only row of the
+                \* last strip column would leave only the dock, normalize would unpin
+                \* it, and the op would only churn ids (found by R6_OwnPlaceComplete).
+                ELSE IF S2.sticky[nc] = op.e /\ \E x \in LiveCols(S2) : S2.sticky[x] = "none" THEN Done(S2)
                 ELSE Reject
     [] op.k = "orient" ->
         IF S.orient = op.e THEN NoOp(S)
