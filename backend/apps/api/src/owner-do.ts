@@ -361,7 +361,10 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         // small; otherwise a snapshot, which carries the decided keys that settle those intents.
         const gap = after !== undefined && after <= engine.currentSeq && engine.currentSeq - after <= 1000 && pending.length === 0 && engine.canReplayFrom(after)
         if (gap) {
-          for (const e of engine.eventsAfter(after)) if (this.mayReceive(engine.currentState, e, a.principal)) safeSend(ws, JSON.stringify(e))
+          // A hidden event in the gap means a filtered snapshot instead (no stale mirror at the tail).
+          const events = engine.eventsAfter(after)
+          if (events.every((e) => this.mayReceive(engine.currentState, e, a.principal))) for (const e of events) safeSend(ws, JSON.stringify(e))
+          else safeSend(ws, this.snapshotFor(engine, a.principal, pending))
         } else safeSend(ws, this.snapshotFor(engine, a.principal, pending))
         return
       }

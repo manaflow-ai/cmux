@@ -189,6 +189,9 @@ describe("Home objects: ConversationDO subscribers (membership and history_visib
     await until(() => frames.some((f) => f.t === "snapshot"))
     const snap = frames.find((f) => f.t === "snapshot")
     expect(snap.rows.rows.map((r: { row: { parts: Array<{ text: string }> } }) => r.row.parts[0]!.text)).toEqual(["after"])
+    // History reads use the same floor (no message at or before the join).
+    const history = (await conv.readOp(id, bob, "conversation.history", { limit: 10 })) as { value: { messages: Array<{ parts: Array<{ text: string }> }> } }
+    expect(history.value.messages.map((m) => m.parts[0]!.text)).toEqual(["after"])
 
     // The owner removes Bob: his socket closes, so no later message reaches him.
     await ok("participants.remove", { participant: b }, "r")

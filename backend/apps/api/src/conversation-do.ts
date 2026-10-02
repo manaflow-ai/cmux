@@ -93,7 +93,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const before = typeof q.before_seq === "number" ? q.before_seq : undefined
     const floor = this.floor(state, me)
     const engine = this.boundEngine!
-    const rows = engine.rows.range<conversation.Message>(conversation.TABLE_MSG, { ...(before === undefined ? {} : { before }), after: floor - 1, limit, desc: true })
+    const rows = engine.rows.range<conversation.Message>(conversation.TABLE_MSG, { ...(before === undefined ? {} : { before }), after: floor, limit, desc: true })
     return { ok: true, value: { messages: rows.reverse().map((r) => r.row), has_more: rows.length === limit }, revision: "" }
   }
 
