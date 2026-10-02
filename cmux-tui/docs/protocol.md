@@ -167,7 +167,7 @@ when the user has seen the tab instead of sending `select-tab`.
 `list-notifications` returns the retained ledger with `created_at_ms` and an
 `acknowledged` flag, and each workspace reports `unread_count`.
 
-`tab-groups-v1` adds Chrome-style tab groups inside a pane's strip. Panes
+`tab-groups-v1` adds tab groups inside a pane's strip. Panes
 report `tab_groups` (id, name, color, collapsed, saved id, start, count,
 surfaces) and tabs report `group`. Members stay contiguous. Every change is
 one command: `create-tab-group`, `update-tab-group` (rename, recolor,

@@ -226,7 +226,7 @@ pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 /// `ack-tab-notifications`, `list-notifications`, and the workspace
 /// `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
-/// Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`,
+/// Tab groups: the `*-tab-group` commands, `Pane.tab_groups`,
 /// and `Tab.group`.
 pub const TAB_GROUPS_CAPABILITY: &str = "tab-groups-v1";
 /// Saved (pinned) tab groups that outlive their placements.
@@ -254,7 +254,7 @@ pub use bookmarks::BOOKMARKS_CAPABILITY;
 /// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
 /// and `screen-changed` deltas.
 pub const SCREEN_METADATA_CAPABILITY: &str = "screen-metadata-v1";
-/// Chrome-style screen groups: the `*-screen-group` commands, saved screen
+/// Screen groups: the `*-screen-group` commands, saved screen
 /// groups, and `Workspace.screen_groups`.
 pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
 /// `launch_snapshot_path` in `identify`: a read-only file with the last

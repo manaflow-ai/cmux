@@ -1,7 +1,8 @@
-//! Chrome-style tab groups and saved (pinned) groups.
+//! Tab groups (named, colored, collapsible runs of tabs) and saved (pinned)
+//! groups.
 //!
 //! A tab group lives in one pane's tab strip: an id, a name (may be empty),
-//! one of Chrome's nine colors, and a shared collapsed flag. Each tab
+//! one of nine named colors, and a shared collapsed flag. Each tab
 //! placement belongs to at most one group, and members are contiguous in
 //! tab order. Membership is keyed by the public tab id and is valid only
 //! while the tab sits in the group's pane, so a tab moved away by another

@@ -766,7 +766,7 @@
       this.errors = [];
       this._lazyCounter = 0;
       this._unsubscribe = [];
-      // Hooks agent-tools.js installs (plans/cmux-next/browser-repl/browser-use-parity.md):
+      // Hooks agent-tools.js installs (plans/cmux-next/browser-repl/README.md):
       // recording and downloads (the host owns the policy, secrets and masking).
       this.agentTools = null;
       const route = (event, fn) => this._unsubscribe.push(driver.on(event, (payload) => {
@@ -2063,8 +2063,8 @@
       return text ? Buffer.from(text.base64, "base64").toString("utf8") : "";
     }
     // Items are { type, data } (data a string or bytes), or
-    // { entries: [{ mimeType, text | data }] } as ChatGPT for Chrome writes
-    // them; every entry of every item lands on the clipboard.
+    // { entries: [{ mimeType, text | data }] } (multi-entry items);
+    // every entry of every item lands on the clipboard.
     async write(items) {
       const list = [].concat(items === undefined ? [] : items);
       const flat = [];
