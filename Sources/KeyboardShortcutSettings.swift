@@ -447,11 +447,12 @@ enum KeyboardShortcutSettings {
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
             case .newLocalWorkspace:
-                // Control+Cmd+N: the local-workspace escape hatch, next to New
-                // Workspace (Cmd+N), New Window (Cmd+Shift+N), and New Browser
-                // Workspace (Option+Cmd+N). Control+Cmd+N is otherwise unused by
-                // cmux defaults and is not an AppKit-reserved keystroke.
-                return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
+                // Control+Option+Cmd+N: the local-workspace escape hatch, next to
+                // New Workspace (Cmd+N), New Window (Cmd+Shift+N), and New Browser
+                // Workspace (Option+Cmd+N). Control+Cmd+N belongs to New Pane (Auto
+                // Layout); this one is unused by cmux defaults and is not an
+                // AppKit-reserved keystroke.
+                return StoredShortcut(key: "n", command: true, shift: false, option: true, control: true)
             case .newBrowserWorkspace:
                 // Option+Cmd+N: sits next to New Workspace (Cmd+N) and New Window (Cmd+Shift+N)
                 // without colliding with any cmux default or an AppKit-reserved keystroke.

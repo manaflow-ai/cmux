@@ -15321,7 +15321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newLocalWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            performNewLocalWorkspaceAction(event: event, debugSource: "shortcut.ctrlCmdN")
+            performNewLocalWorkspaceAction(event: event, debugSource: "shortcut.ctrlOptCmdN")
             return true
         }
 
