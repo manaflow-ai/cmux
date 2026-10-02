@@ -28,8 +28,9 @@ import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
-import { needsTrust, type TrustSource } from "./folderTrust";
-import { TrustFolderDialog } from "./TrustFolderDialog";
+import type { TrustSource } from "./folderTrust";
+import { TrustAsk } from "./TrustAsk";
+import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { t } from "./i18n";
 import { agentName } from "./agents";
 import { DiffPanel } from "./DiffPanel";
@@ -704,53 +705,14 @@ function AcpmuxPane() {
   );
   // A new chat centers its composer under the hero.
   const freshChat = isNewChat(snapshot);
-  // The first prompt in a folder the user hasn't decided on waits behind "Trust this folder?".
-  const trustOpen = useRef(false);
-  const [trustAsk, setTrustAsk] = useState<{
-    sessionId?: string;
-    cwd: string;
-    agent: string;
-    answer(go: boolean): void;
-  }>();
-  trustOpen.current = trustAsk !== undefined;
-  const sendContext = useRef({
-    freshChat,
+  // A folder the user hasn't decided on is asked about beside the chat's other permission asks,
+  // once its first prompt went; nothing waits on the answer.
+  const trustAsk = useFolderTrustAsk(trustSource, {
     sessionId: snapshot.sessionId,
     cwd: snapshot.summary?.cwd,
-    harness: snapshot.summary?.harness,
+    started: !freshChat && snapshot.rows.length > 0,
+    turns: snapshot.summary?.turnCount ?? 0,
   });
-  sendContext.current = {
-    freshChat,
-    sessionId: snapshot.sessionId,
-    cwd: snapshot.summary?.cwd,
-    harness: snapshot.summary?.harness,
-  };
-  const confirmSend = useCallback(async () => {
-    const { freshChat: fresh, sessionId, cwd, harness } = sendContext.current;
-    if (!fresh || !cwd || !(await needsTrust(trustSource, cwd))) return true;
-    // The chat changed while the folder was read: the prompt stays in the composer, unsent.
-    if (sendContext.current.sessionId !== sessionId || sendContext.current.cwd !== cwd) return false;
-    return new Promise<boolean>((resolve) =>
-      setTrustAsk({
-        sessionId,
-        cwd,
-        agent: harness ? agentName(harness) : t("trust.agent"),
-        answer: (go) => {
-          setTrustAsk(undefined);
-          resolve(go);
-        },
-      }),
-    );
-  }, []);
-  // A question about one chat's folder never answers for another: switching chats cancels it.
-  // A reattach briefly reads no folder; only another session or another folder counts.
-  const sessionId = snapshot.sessionId;
-  const sessionCwd = snapshot.summary?.cwd;
-  useEffect(() => {
-    if (!trustAsk) return;
-    const moved = trustAsk.sessionId !== sessionId || (sessionCwd !== undefined && trustAsk.cwd !== sessionCwd);
-    if (moved) trustAsk.answer(false);
-  }, [trustAsk, sessionId, sessionCwd]);
   // Turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(
     () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
@@ -888,8 +850,7 @@ function AcpmuxPane() {
     };
     window.cmuxAcpmuxBridge = {
       command(name) {
-        // Search chats would open under "Trust this folder?", outside the dialog's inert siblings.
-        if (name === "searchChats" && !trustOpen.current) setSearching((open) => !open);
+        if (name === "searchChats") setSearching((open) => !open);
       },
       receive(next) {
         if (next.protocolVersion !== 1) return;
@@ -1099,9 +1060,18 @@ function AcpmuxPane() {
             <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource} />
           )}
         </div>
-        {snapshot.permission?.pending && (
+        {(snapshot.permission?.pending || trustAsk.ask) && (
           <div className="acpmux-permission">
-            <PermissionCard permission={snapshot.permission} />
+            {trustAsk.ask && (
+              <TrustAsk
+                ask={trustAsk.ask}
+                agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+                onTrust={trustAsk.trust}
+                onDistrust={trustAsk.distrust}
+                onUndo={trustAsk.undo}
+              />
+            )}
+            {snapshot.permission?.pending && <PermissionCard permission={snapshot.permission} />}
           </div>
         )}
         {/* Between the hero and the docked composer. */}
@@ -1116,20 +1086,8 @@ function AcpmuxPane() {
           draft={draft}
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
-          confirmSend={confirmSend}
         />
       </div>
-      {trustAsk && (
-        <TrustFolderDialog
-          cwd={trustAsk.cwd}
-          agent={trustAsk.agent}
-          onTrust={async () => {
-            await trustSource.set(trustAsk.cwd, "trusted");
-            trustAsk.answer(true);
-          }}
-          onCancel={() => trustAsk.answer(false)}
-        />
-      )}
       {searching && (
         <SearchChats
           sessions={snapshot.sessions}

@@ -91,20 +91,8 @@
 .acpmux-context-chip{display:flex;align-items:center;gap:6px;min-width:0;height:26px;padding:0 10px 0 8px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);white-space:nowrap}
 .acpmux-context-chip>span{overflow:hidden;text-overflow:ellipsis}
 .acpmux-context-chip .acpmux-icon{color:var(--agent-muted)}
-/* Trust this folder?: a centered confirmation over a dimmed pane. */
-.acpmux-trust-scrim{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:16px;background:color-mix(in srgb,var(--agent-page-bg,var(--acpmux-base)) 55%,transparent)}
-.acpmux-trust{position:relative;display:flex;flex-direction:column;gap:12px;width:min(440px,100%);margin:0;padding:24px 22px 20px;box-sizing:border-box;border:0;border-radius:18px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 24px 60px var(--agent-shadow,rgb(0 0 0/.4));color:var(--agent-text);text-align:center}
-.acpmux-trust-title{margin:0 24px;font-size:19px;font-weight:600;line-height:26px}
-.acpmux-trust-path{font-size:14px;line-height:20px;overflow-wrap:anywhere}
-.acpmux-trust-body{margin:0;color:var(--acpmux-composer-dim);font-size:14px;line-height:20px}
-.acpmux-trust-error{margin:0;color:var(--agent-danger,var(--agent-text));font-size:13px}
-.acpmux-trust-primary,.acpmux-trust-secondary{height:40px;border:0;border-radius:20px;font:inherit;font-size:14px;cursor:pointer}
-.acpmux-trust-primary{margin-top:4px;background:var(--agent-text);color:var(--acpmux-menu-bg)}
-.acpmux-trust-primary[aria-busy="true"]{opacity:.6;cursor:progress}
-.acpmux-trust-secondary{background:color-mix(in srgb,var(--agent-text) 12%,transparent);color:var(--agent-text)}
-.acpmux-trust-primary:focus-visible,.acpmux-trust-secondary:focus-visible,.acpmux-trust-close:focus-visible{outline:1.5px solid var(--agent-highlight,var(--agent-text));outline-offset:2px}
-.acpmux-trust-close{position:absolute;top:14px;right:14px;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:13px;background:none;color:var(--acpmux-composer-dim);cursor:pointer}
-.acpmux-trust-close:hover{color:var(--agent-text);background:color-mix(in srgb,var(--agent-text) 10%,transparent)}
+/* The folder trust ask (TrustAsk.tsx): one quiet line among the chat's permission asks, its actions text buttons that step on hover and press. */
+.acpmux-trust-ask{display:flex;align-items:center;gap:4px;min-height:34px;margin-bottom:8px;padding:4px 4px 4px 12px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:13px}.acpmux-trust-ask-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-trust-ask-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:13px;background:none;color:var(--agent-text);font:inherit;cursor:pointer}.acpmux-trust-ask-action:hover{background:var(--acpmux-composer-hover)}.acpmux-trust-ask-action:active{background:color-mix(in srgb,var(--agent-text) 20%,var(--agent-page-bg,var(--acpmux-base)))}.acpmux-trust-ask-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-trust-ask-action{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}
 .acpmux-context-worktree{display:flex;align-items:center;gap:8px;margin-left:auto;padding-right:4px;color:var(--agent-muted);white-space:nowrap}
 .acpmux-switch{position:relative;width:26px;height:16px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
 .acpmux-switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--agent-text);opacity:.7}

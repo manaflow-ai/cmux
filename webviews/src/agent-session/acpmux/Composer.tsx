@@ -39,9 +39,6 @@ type Props = {
   accessory?: React.ReactNode;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
-  /// Asked before a prompt goes, such as whether the user trusts the folder. False keeps the
-  /// prompt in the box unsent; a failure sends it, so a host that can't answer never blocks.
-  confirmSend?(prompt: string): Promise<boolean>;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -51,23 +48,8 @@ type Props = {
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
-export function Composer({
-  snapshot,
-  chips: Chips,
-  onSend,
-  onStop,
-  draft,
-  leading,
-  accessory,
-  onAttach,
-  confirmSend,
-}: Props) {
-  // A send waiting on confirmSend; a second Enter meanwhile does nothing.
-  const confirming = useRef(false);
+export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leading, accessory, onAttach }: Props) {
   const [text, setText] = useState("");
-  // The prompt as it is now, for a send that waited on confirmSend while the user kept typing.
-  const textNow = useRef(text);
-  textNow.current = text;
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
@@ -133,33 +115,12 @@ export function Composer({
   const submit = (event: { preventDefault(): void }) => {
     event.preventDefault();
     const prompt = unwrapped().trim();
-    if (!prompt) plusDraft.current = undefined;
-    if (!prompt || confirming.current) return;
-    const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
-    const submitted = text;
-    const send = () => {
-      plusDraft.current = undefined;
-      // What was typed while the send waited stays, without the prompt that went.
-      // The draft + took apart while the dialog had focus counts as the prompt too.
-      const now = textNow.current;
-      const base = now.trim() === prompt ? now : [submitted, prompt].find((sent) => now.startsWith(sent));
-      const rest = base === undefined ? now : now.slice(base.length).trimStart();
-      edit(rest, rest.length);
-      if (rest) pendingCaret.current = rest.length;
-      sentAt.current = Date.now();
-      refocusSend.current = fromSend;
-      onSend(prompt);
-    };
-    if (!confirmSend) return send();
-    confirming.current = true;
-    void confirmSend(prompt)
-      .catch(() => true)
-      .then((go) => {
-        confirming.current = false;
-        if (go) send();
-        // The dialog that asked took focus with it; a send from the button refocuses that instead.
-        if (!go || !fromSend) field.current?.focus();
-      });
+    plusDraft.current = undefined;
+    if (!prompt) return;
+    edit("", 0);
+    sentAt.current = Date.now();
+    refocusSend.current = document.activeElement?.classList.contains("acpmux-send") ?? false;
+    onSend(prompt);
   };
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   const mention = () => {

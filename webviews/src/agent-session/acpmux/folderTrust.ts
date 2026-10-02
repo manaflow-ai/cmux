@@ -2,7 +2,8 @@
 // in Claude Code's `~/.claude.json` and Codex's `~/.codex/config.toml` for the folder, per
 // harness, and the stricter of the two (or "unknown"). Those files each keep their one
 // writer: `acp.trust.set {cwd, level}` records the decision in acpmux's own per-folder
-// record, which acpmux applies as launch overrides for the sessions it starts there.
+// record, which acpmux applies as launch overrides for the sessions it starts there; level
+// "unknown" clears that record, so each agent's own default applies again (Undo).
 
 export type TrustLevel = "trusted" | "untrusted" | "unknown";
 export type HarnessTrust = { claude?: TrustLevel; codex?: TrustLevel };
@@ -10,7 +11,7 @@ export type FolderTrust = { cwd: string; level: TrustLevel; harnesses?: HarnessT
 
 export type TrustSource = {
   get(cwd: string): Promise<unknown>;
-  set(cwd: string, level: Exclude<TrustLevel, "unknown">): Promise<unknown>;
+  set(cwd: string, level: TrustLevel): Promise<unknown>;
 };
 
 const LEVELS: readonly TrustLevel[] = ["trusted", "untrusted", "unknown"];
@@ -37,25 +38,24 @@ export function stricterTrust(left: TrustLevel, right: TrustLevel): TrustLevel {
   return rank[left] <= rank[right] ? left : right;
 }
 
-/// How long a send waits on the folder's trust before going without asking.
+/// How long the pane waits on a folder's trust before leaving it unasked.
 export const TRUST_READ_TIMEOUT_MS = 1500;
 
-/// Whether to ask before the first prompt in `cwd`: only when the folder reads "unknown". A
-/// folder already decided, or a host that can't say (no reply in time, a failed read), never blocks a send.
-export async function needsTrust(
+/// The folder's trust, or undefined when the host can't say (no reply in time, a failed read):
+/// a folder the pane can't read is never asked about.
+export async function readFolderTrust(
   source: TrustSource,
-  cwd: string | undefined,
+  cwd: string,
   timeoutMs = TRUST_READ_TIMEOUT_MS,
-): Promise<boolean> {
-  if (!cwd) return false;
+): Promise<FolderTrust | undefined> {
   let timer: number | undefined;
   const late = new Promise<undefined>((resolve) => {
     timer = window.setTimeout(resolve, timeoutMs);
   });
   try {
-    return readTrust(await Promise.race([source.get(cwd), late]))?.level === "unknown";
+    return readTrust(await Promise.race([source.get(cwd), late]));
   } catch {
-    return false;
+    return undefined;
   } finally {
     clearTimeout(timer);
   }

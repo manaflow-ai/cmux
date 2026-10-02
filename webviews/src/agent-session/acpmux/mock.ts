@@ -320,6 +320,11 @@ export class MockAcpmuxSocket {
       }
       case "acp.trust.set": {
         const cwd = String(params.cwd ?? "");
+        // "unknown" forgets acpmux's record, so the agents' own levels answer again.
+        if (params.level === "unknown") {
+          this.trust.delete(cwd);
+          return { cwd, level: "unknown" };
+        }
         const level: TrustLevel = params.level === "untrusted" ? "untrusted" : "trusted";
         this.trust.set(cwd, level);
         return { cwd, level };
