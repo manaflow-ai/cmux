@@ -41,7 +41,12 @@ public final class AgentPaneModel {
                 var handshake = request == .ready
                     ? try await host.handshake(sessionId: sessionId)
                     : try await host.reconnectHandshake(sessionId: sessionId)
-                if sessionId == nil { handshake.newTab = newTab }
+                // A new tab page is a new chat on every host, the mock included: the page
+                // never falls back to the most recent session behind it.
+                if sessionId == nil, let newTab {
+                    handshake.newTab = newTab
+                    handshake.newSession = true
+                }
                 lastError = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {

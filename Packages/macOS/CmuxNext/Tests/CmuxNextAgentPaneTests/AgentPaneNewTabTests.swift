@@ -16,6 +16,8 @@ import Testing
         #expect(newTab["kind"] as? String == "browser")
         #expect(newTab["hotkeys"] as? [String: String] == ["terminal": "⌃⇧⌘T", "agent": "⇧⌘I"])
         #expect(newTab["cwd"] as? String == "~/code/cmux")
+        // The mock host sets no newSession of its own; the page still opens empty.
+        #expect(value["newSession"] as? Bool == true)
     }
 
     @Test func aPlainChatHasNoNewTabPage() async throws {
