@@ -131,6 +131,8 @@ export class AcpmuxDirectClient {
   private streamingActivity?: string;
   private supersededMessageIds = new Set<string>();
   private messageRows = new Map<string, string>();
+  /// The activity row each tool call lives in, so a late update lands where the call began.
+  private toolRows = new Map<string, string>();
   private readonly listener: Listener;
   private readonly host: AcpmuxHostConfig;
   private reconnectTimer?: number;
@@ -227,6 +229,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptTexts.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
+    this.toolRows.clear();
     this.pendingPermission = undefined;
   }
 
@@ -382,7 +385,7 @@ export class AcpmuxDirectClient {
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
     const inFlight = new Set(this.optimisticPromptRows.values());
     const local = [...this.rows.values()].filter((row) => row.failed || inFlight.has(row.id));
-    this.rows.clear(); for (const row of local) this.rows.set(row.id, row); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.supersededMessageIds.clear(); this.messageRows.clear(); this.pendingPermission = undefined;
+    this.rows.clear(); for (const row of local) this.rows.set(row.id, row); this.firstSeq = undefined; this.lastSeq = 0; this.turnOpen = false; this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; this.supersededMessageIds.clear(); this.messageRows.clear(); this.toolRows.clear(); this.pendingPermission = undefined;
     const events = [...this.events].sort((a, b) => a.seq - b.seq);
     for (const event of events) { this.lastSeq = Math.max(this.lastSeq, event.seq); this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq); this.reduce(event); }
   }
@@ -442,15 +445,32 @@ export class AcpmuxDirectClient {
       const sameMessage = Boolean(this.streamingAssistant && (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId));
       const id = sameMessage ? this.streamingAssistant! : `assistant-${event.seq}`;
       const existing = this.rows.get(id);
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "assistant", text: `${existing?.text ?? ""}${text}`, streaming: true }); this.streamingAssistant = id; this.streamingAssistantMessageId = messageId; if (messageId) this.messageRows.set(messageId, id); this.rows.delete("typing");
+      // Text after tool calls is a new segment; the next tool call opens a new fold.
+      this.streamingActivity = undefined;
+      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "assistant", text: `${existing?.text ?? ""}${text}`, streaming: true }); this.streamingAssistant = id; this.streamingAssistantMessageId = messageId; if (messageId) this.messageRows.set(messageId, id); this.rows.delete("typing");
     } else if (event.kind === "agent_thought_chunk" && text) {
+      this.endAssistantSegment();
       const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id);
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: existing?.toolCount ?? 0, items: [...(existing?.items ?? []), { kind: "thought", text }] }); this.streamingActivity = id;
+      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "activity", toolCount: existing?.toolCount ?? 0, items: [...(existing?.items ?? []), { kind: "thought", text }] }); this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
-      const callId = String(update.toolCallId ?? `tool-${event.seq}`); const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text);
+      const callId = String(update.toolCallId ?? `tool-${event.seq}`);
+      // An update to a call already shown stays in its fold; a new call ends the text segment.
+      const known = this.toolRows.get(callId);
+      if (!known) this.endAssistantSegment();
+      const id = known && this.rows.has(known) ? known : this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text);
       if (itemIndex >= 0) items[itemIndex] = item; else items.push(item);
-      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: items.filter((entry) => entry.kind === "tool").length, items }); this.streamingActivity = id;
+      this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: existing?.at ?? event.at, kind: "activity", toolCount: items.filter((entry) => entry.kind === "tool").length, items }); this.toolRows.set(callId, id);
+      if (!known) this.streamingActivity = id;
     } else if (event.kind === "plan") this.rows.set(`plan-${event.seq}`, { id: `plan-${event.seq}`, version: 1, at: event.at, kind: "plan", text: text || JSON.stringify(update.entries ?? update.content ?? "") });
+  }
+
+  /// Closes the assistant text being streamed, so later text starts a new row below.
+  private endAssistantSegment(): void {
+    if (!this.streamingAssistant) return;
+    const row = this.rows.get(this.streamingAssistant);
+    if (row) this.rows.set(row.id, { ...row, version: row.version + 1, streaming: false });
+    this.streamingAssistant = undefined;
+    this.streamingAssistantMessageId = undefined;
   }
 
   private emit(connection = "connected"): void {
