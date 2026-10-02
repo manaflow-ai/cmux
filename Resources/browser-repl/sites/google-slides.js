@@ -38,8 +38,10 @@
               await t.sleep(500);
               await page.locator("#speakernotes-workspace").click();
               await t.sleep(300);
-              await page.keyboard.press("Meta+A");
-              if (!text) await page.keyboard.press("Delete");
+              // Select all notes (Meta+A selects nothing there): to the start, then to the end; delete.
+              await page.keyboard.press("Meta+ArrowUp");
+              await page.keyboard.press("Meta+Shift+ArrowDown");
+              await page.keyboard.press("Delete");
               const lines = text.split("\n");
               for (let i = 0; i < lines.length; i++) {
                 if (i) await page.keyboard.press("Enter");
