@@ -8,6 +8,12 @@ public import Foundation
 /// `MockOnboardingServices` runs the window alone (demo, tests).
 @MainActor
 public protocol OnboardingServices: AnyObject {
+    // Role
+    /// The role step's answer from an earlier run, if any.
+    var savedProfile: OnboardingProfile? { get }
+    /// Keeps the role step's answer (the onboarding state file).
+    func saveProfile(_ profile: OnboardingProfile)
+
     // Theme
     /// The colors of the user's own Ghostty config (the default choice).
     var ghosttyTheme: ThemeInput { get }
@@ -54,6 +60,8 @@ public protocol OnboardingServices: AnyObject {
 }
 
 public extension OnboardingServices {
+    var savedProfile: OnboardingProfile? { nil }
+    func saveProfile(_ profile: OnboardingProfile) {}
     var ghosttyHasOwnTheme: Bool { true }
     var hasAccountsStep: Bool { false }
     func canImportPasswords() async -> Bool { false }
