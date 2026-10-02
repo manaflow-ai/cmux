@@ -1,0 +1,42 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/agents",
+  "name": { "en": "Agent CLIs", "ja": "エージェントCLI" },
+  "version": "0.1.0",
+  "description": {
+    "en": "Agent CLIs on this Mac, cmux servers and the team VM: versions, updates, installs and sign-ins, run by cmux in a terminal you can see.",
+    "ja": "このMac、cmuxサーバー、チームVMのエージェントCLI。バージョン、アップデート、インストール、サインインを、cmuxが見えるターミナルで実行します。"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": ["agents", "developer-tools"],
+  "keywords": ["agents", "cli", "update", "version", "sign in"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "catalog": "catalog/agents-catalog.json",
+  "implements": {
+    "cmux.section/1": { "export": "renderSection", "title": { "en": "Agents", "ja": "エージェント" }, "symbol": "terminal", "options": { "defaultRegion": "bottom" } },
+    "cmux.pane/1": { "export": "renderPane", "title": { "en": "Agent CLIs", "ja": "エージェントCLI" }, "symbol": "terminal" }
+  },
+  "scopes": {
+    "machine:read": "List this Mac, your cmux servers and the team VM.",
+    "agent_cli:read": "See which agent CLIs are installed, their versions and sign-in state. Never a credential or an email."
+  },
+  "optionalScopes": {
+    "agent_cli:execute": "Run a CLI's own update, install or sign-in command in a terminal you can see, only when you tap.",
+    "actions:run": "Open the cmux Accounts sign-in on this Mac."
+  },
+  "strings": "strings/",
+  "variants": [
+    { "id": "variant", "title": { "en": "Agent CLIs design", "ja": "エージェントCLIのデザイン" }, "values": ["byCli", "byMachine", "matrix"], "default": "byCli" }
+  ],
+  "settings": {
+    "type": "object",
+    "properties": { "showMissing": { "type": "boolean", "default": true, "title": "Show agent CLIs that are not installed" } }
+  },
+  "activation": ["onInterface:cmux.section/1", "onInterface:cmux.pane/1", "onOp:agents.open", "onOp:agents.check_updates"],
+  "files": ["dist/", "assets/", "strings/", "catalog/"]
+}

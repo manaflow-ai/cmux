@@ -13,6 +13,10 @@ import Observation
 /// (`<machine>/<id>`) because daemon-local ids repeat across machines.
 final class ClosedTabTracker {
     private unowned let services: AppServices
+    /// Bumps after every change to the closed list or to the tabs it
+    /// watches, once the list is up to date: observers (Search Tabs, the
+    /// control snapshot) read the mirror and the closed list together.
+    let changes = ClosedTabChanges()
     /// Replaces the daemon path for reopening terminal tabs (tests). Nil
     /// uses the owning machine's daemon (`ClosedTerminalRestorer.live`).
     var restorer: ClosedTerminalRestorer?
@@ -111,10 +115,12 @@ final class ClosedTabTracker {
             return record
         }
         lastSeen = Dictionary(structure.tabs.map { ($0.record.tabID, $0.tab) }, uniquingKeysWith: { first, _ in first })
+        changes.bump()
     }
 
     func popLast() -> ClosedTabHistory.Record? {
-        history.popLast()
+        defer { changes.bump() }
+        return history.popLast()
     }
 
     /// Closed tabs, oldest first (history lists).
@@ -122,11 +128,13 @@ final class ClosedTabTracker {
 
     /// Takes one record out to reopen it.
     func take(_ tabID: String) -> ClosedTabHistory.Record? {
-        history.remove(tabID: tabID)
+        defer { changes.bump() }
+        return history.remove(tabID: tabID)
     }
 
     func clear(since: Date?) {
         history.removeAll(since: since)
+        changes.bump()
     }
 
     /// Reopens `record` at its old position in its old pane, else in `fallback`.
