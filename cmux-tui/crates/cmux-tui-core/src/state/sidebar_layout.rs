@@ -364,6 +364,7 @@ pub fn defaults() -> Document {
                 },
                 vec![
                     builtin("itm_settings", "settings", true),
+                    builtin("itm_customize", "customize", false),
                     builtin("itm_account", "account", false),
                 ],
             ),

@@ -39,6 +39,7 @@ fn defaults_match_the_app() {
     );
     assert_eq!(value["sections"][1]["content"], "workspaces");
     assert_eq!(value["sections"][2]["arrangement"], json!({"layout": "inline", "align": "fill"}));
+    assert_eq!(value["sections"][2]["items"][1]["id"], "itm_customize");
     assert_eq!(value["sections"][2]["items"][1]["shows_label"], false);
     assert_eq!(value["sections"][0]["look"], "built_in");
     let round: Document = serde_json::from_value(value).unwrap();
@@ -139,12 +140,13 @@ fn moves() {
         ok(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_bottom", "index": 1}));
     assert_eq!(
         find(&across, "sec_bottom").items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
-        ["itm_settings", "itm_home", "itm_account"]
+        ["itm_settings", "itm_home", "itm_customize", "itm_account"]
     );
     let within = ok(
         &d,
         json!({"kind": "item.move", "id": "itm_settings", "section": "sec_bottom", "index": 1}),
     );
+    assert_eq!(find(&within, "sec_bottom").items[0].id, "itm_customize");
     assert_eq!(find(&within, "sec_bottom").items[1].id, "itm_settings");
     assert_eq!(
         ok(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_top", "index": 0})),
@@ -294,7 +296,7 @@ fn limits_reset_and_unknown_refs() {
     );
     let label =
         ok(&defaults(), json!({"kind": "item.update", "id": "itm_account", "shows_label": true}));
-    assert!(find(&label, "sec_bottom").items[1].shows_label);
+    assert!(find(&label, "sec_bottom").items[2].shows_label);
 }
 
 #[test]
@@ -377,7 +379,7 @@ fn random_op(rng: &mut Rng, step: usize) -> Op {
         .pick(&["sec_top", "sec_workspaces", "sec_bottom", "sec_r0", "sec_r1", "sec_ghost"])
         .to_string();
     let item = rng
-        .pick(&["itm_home", "itm_settings", "itm_account", "itm_r0", "itm_r1", "itm_ghost"])
+        .pick(&["itm_home", "itm_settings", "itm_customize", "itm_account", "itm_r0", "itm_r1", "itm_ghost"])
         .to_string();
     let region = [Region::Top, Region::Middle, Region::Bottom][rng.below(3) as usize];
     let reference = rng.pick(&["home", "settings", "history", "ws_1"]).to_string();
