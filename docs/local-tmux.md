@@ -123,9 +123,15 @@ The `txt` entries show mapped executable and code files.
 If the mapped executable path has been replaced or removed, record that too; it
 is a possible confounding factor, not proof of the permission failure's cause.
 
-Outside the pane, use `tmux -S <socket-path>` to query the same server, or
-`tmux -L <socket-name>` for an explicitly named server. A plain `tmux ls`
-does not list every server. For the cmux local-tmux profile,
+Outside the pane, query the same server with an explicit read-only command:
+
+```sh
+tmux -S "<socket-path>" display-message -p 'socket=#{socket_path} server_pid=#{pid} server_version=#{version}'
+tmux -L "<socket-name>" display-message -p 'socket=#{socket_path} server_pid=#{pid} server_version=#{version}'
+```
+
+Use the `-L` form for an explicitly named server. A plain `tmux ls` does not
+list every server. For the cmux local-tmux profile,
 `cmux local-tmux list --json` includes `socket_path`; external tmux launchers
 may use a different socket.
 Do not infer that a session died from a query against another socket.
