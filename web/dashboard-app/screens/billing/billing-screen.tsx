@@ -48,6 +48,41 @@ export function BillingScreen({ search }: { search: BillingScreenSearch }) {
 }
 
 function PersonalBilling({ data }: { data: PersonalBillingJson }) {
+  // An App Store subscriber changes or cancels in the App Store; offering
+  // Stripe checkout here would bill them twice for one plan. A Stripe
+  // subscription that still bills them alongside it keeps its controls, so it
+  // can be cancelled or its payment fixed here.
+  if (data.planStatus.billingSource === "apple") {
+    return (
+      <>
+        <AppStoreBilling manageUrl={data.planStatus.manageUrl} />
+        {data.planStatus.billingManagement === "stripe" ? (
+          <div className="mt-3">
+            <StripePersonalBilling data={data} />
+          </div>
+        ) : null}
+      </>
+    );
+  }
+  return <StripePersonalBilling data={data} />;
+}
+
+function AppStoreBilling({ manageUrl }: { manageUrl: string | null }) {
+  const t = useTranslations("dashboard.billing.appStore");
+  return (
+    <div className="border border-border bg-background p-4 text-sm">
+      <p className="font-medium">{t("title")}</p>
+      <p className="mt-1 text-muted">{t("body")}</p>
+      {manageUrl ? (
+        <a href={manageUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block underline">
+          {t("manage")}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+function StripePersonalBilling({ data }: { data: PersonalBillingJson }) {
   const t = useTranslations("dashboard.billing");
   const locale = useLocale();
   const { planStatus: status, subscription } = data;

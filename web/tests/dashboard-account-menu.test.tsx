@@ -99,7 +99,7 @@ function sessionUser(): MenuUser {
   return {
     id: "user-lawrence",
     displayName: "Lawrence",
-    primaryEmail: "lawrence@example.com",
+    primaryEmail: "user@example.com",
     primaryEmailVerified: true,
     profileImageUrl: null,
     selectedTeamId: null,
@@ -112,7 +112,7 @@ describe("dashboard account menu", () => {
     const html = renderMenu(currentUser);
 
     expect(html).toContain("Lawrence");
-    expect(html).toContain("lawrence@example.com");
+    expect(html).toContain("user@example.com");
     expect(html).toContain('data-size="24"');
     expect(html).toContain('href="/dashboard/settings"');
     expect(html).toContain('href="/dashboard/billing"');

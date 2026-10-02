@@ -542,6 +542,11 @@
         "team": "Opprett et team",
         "banner": "Du bruker nå {plan}.",
         "bannerLink": "Plan og fakturering"
+      },
+      "appStore": {
+        "title": "Faktureres gjennom App Store",
+        "body": "Planen din ble kjøpt i cmux-appen for iPhone og faktureres av Apple. Endre eller avslutt den i App Store-abonnementene dine.",
+        "manage": "Administrer i App Store"
       }
     },
     "mobileDevices": {
@@ -1126,6 +1131,80 @@
       "revokeApiKeyConfirmTitle": "Tilbakekall denne API-nøkkelen?",
       "apiKeyUsageDetail": "Siste 30 dager: {completions} fullføringer · {tokens} tokens ({input} inn / {output} ut) · {value} API-ekvivalent",
       "apiKeyUsageUnavailable": "Bruk er ikke tilgjengelig",
+      "revokeApiKeyConfirmBody": "Klienter som bruker denne nøkkelen mister autentiseringen umiddelbart."
+    },
+    "cloud": {
+      "title": "Cloud-maskiner og Mac-tilgang",
+      "description": "Angi utgående nettverk for hver maskin, og se gjennom Mac-maskinene med WireGuard-tilgang til ditt private Cloud VM-nettverk. Paringer for iPhone og Iroh administreres separat.",
+      "macAccessTitle": "Mac-tilgang",
+      "machines": {
+        "title": "Maskiner",
+        "empty": "Du har ingen Cloud-maskiner.",
+        "personal": "personlig",
+        "team": "team",
+        "status": {
+          "provisioning": "starter",
+          "running": "kjører",
+          "failed": "mislyktes",
+          "paused": "satt på pause",
+          "destroyed": "slettet"
+        }
+      },
+      "network": {
+        "open": "Nettverk",
+        "title": "Utgående nettverk for {name}",
+        "description": "Velg hva denne maskinen kan nå. Endringer gjelder med en gang, uten omstart.",
+        "loading": "Laster inn nettverkspolicyen…",
+        "loadError": "Kunne ikke laste inn nettverkspolicyen for denne maskinen.",
+        "saveError": "Kunne ikke bruke denne nettverkspolicyen.",
+        "unsupported": "Denne maskinen støtter ikke kontroll av utgående nettverk.",
+        "retry": "Prøv igjen",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "brukt",
+          "pending": "tas i bruk",
+          "failed": "kunne ikke brukes"
+        },
+        "unsaved": "ulagrede endringer",
+        "refresh": "Oppdater",
+        "modeLabel": "Utgående tilgang",
+        "mode": {
+          "full": {
+            "label": "Fullt internett",
+            "description": "Enhver offentlig adresse."
+          },
+          "allowlist": {
+            "label": "Tillatelsesliste",
+            "description": "Bare forhåndsinnstillingene, domenene og IP-områdene du angir."
+          },
+          "none": {
+            "label": "Ikke internett",
+            "description": "Bare cmux-vertene nedenfor."
+          }
+        },
+        "presetsTitle": "Forhåndsinnstillinger",
+        "presetsNote": "Hver forhåndsinnstilling legger til eksakte vertsnavn. En tjeneste som bruker andre underdomener, kan trenge flere domener.",
+        "domainsTitle": "Domener",
+        "domainsNote": "Bare eksakte vertsnavn, bare HTTPS på port 443. Jokertegn støttes ikke ennå.",
+        "domainInput": "Domene",
+        "rangesTitle": "IP-områder",
+        "rangesNote": "Leverandørens brannmur håndhever disse utenfor maskinen. La porten stå tom for å tillate alle porter. En port krever en protokoll.",
+        "cidrInput": "IP-område (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokoll",
+        "anyProtocol": "alle",
+        "noteInput": "Notat (valgfritt)",
+        "allPorts": "alle porter",
+        "dnsLabel": "Tillat DNS",
+        "dnsNote": "Lar verktøy slå opp navnene som IP-områdene dine peker til. Domener trenger ikke DNS. Åpen DNS er en utgående kanal: En prosess kan sende data ut i navnene den slår opp.",
+        "requiredTitle": "Alltid tillatt",
+        "requiredNote": "cmux trenger disse vertene i alle moduser for å installere og oppdatere CLI-en på maskinen.",
+        "add": "Legg til",
+        "remove": "Fjern",
+        "discard": "Forkast endringer",
+        "close": "Lukk",
+        "apply": "Bruk"
+      },
       "revokeApiKeyConfirmBody": "Klienter som bruker denne nøkkelen mister autentiseringen umiddelbart.",
       "apiKeysEmptyTitle": "Ingen API-nøkler ennå",
       "apiKeysEmptyHint": "Opprett en for å autentisere en CodeRouter-klient.",
@@ -2844,6 +2923,12 @@
       "limitsTeam": "Teamkontoer kan ha opptil 5 aktive maskiner per betalt lisens.",
       "limitsMax": "Maskiner større enn 8 GB krever cmux Max. Max-maskiner går opptil 32 GB og 16 vCPU-er.",
       "limitsPricing": "Se prissiden for gjeldende priser. Det er ingen forbruksmåling og ingen fakturering for overforbruk.",
+      "agentUpdatesTitle": "Hold kodeagenter oppdatert",
+      "agentUpdatesDesc": "Når denne innstillingen er på, oppdaterer maskinen Claude Code, Codex, OpenCode, pi og agent-browser. Den sjekker etter at maskinen er opprettet og hver gang du kobler til, høyst én gang hver 24. time. Oppdateringen kjører frakoblet, så den blokkerer aldri tilkoblingen.",
+      "agentUpdatesSource": "Hvert verktøy kommer fra sin offisielle GitHub-release og verifiseres mot sha256-digesten til release-filen. npm brukes ikke. En release installeres først når den har vært offentlig i 3 dager, og en oppdatering installerer aldri en eldre versjon. En agent som kjører, beholder filene den startet med, og en mislykket oppdatering lar gjeldende versjon bli værende.",
+      "agentUpdatesStatus": "Resultatet av siste sjekk ligger i /etc/cmux/agent-updates.state, og oppdateringsloggen er /var/log/cmux-agent-updates.log. En mislykket sjekk kjøres på nytt ved neste tilkobling.",
+      "agentUpdatesToggle": "Arket New Machine slår dette på som standard. For å endre det på en eksisterende maskin høyreklikker du maskinen og velger Keep Agents Up to Date, eller kjører cmux vm agent-updates. cmux vm new beholder versjonene fra bildet med mindre du sender --agent-updates latest. Når du slår av oppdateringer, beholdes versjonene som allerede er installert.",
+      "agentUpdatesNetwork": "Oppdateringer bruker bare github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillater disse vertene i alle nettverksmoduser, også Allowlist og No internet, så en nettverkspolicy blokkerer aldri oppdateringer.",
       "resizeTitle": "Endre størrelse",
       "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 256 GB, minnet opptil 32 GB og CPU opptil 16 vCPU. Abonnementet ditt bestemmer det reelle maksimumet.",
       "pauseTitle": "Pause og gjenoppta",
@@ -5101,7 +5186,8 @@
   "pricing": {
     "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
     "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
-    "signedOutSignIn": "Logg inn"
+    "signedOutSignIn": "Logg inn",
+    "manageInAppStore": "Administrer i App Store"
   },
   "platforms": {
     "macos": "macOS",

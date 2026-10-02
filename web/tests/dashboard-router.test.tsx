@@ -208,7 +208,7 @@ describe("dashboard router", () => {
     const { html } = await render("/dashboard/cloud");
     expect(html).toContain('data-testid="dashboard-shell"');
     expect(html).toContain('data-testid="section-error"');
-    expect(html).toContain("Cloud Mac access");
+    expect(html).toContain("Cloud machines and Mac access");
     expect(html).toContain("Try again");
     expect(html).not.toContain('data-testid="dashboard-auth-recovery"');
   });

@@ -110,6 +110,7 @@ final class MachinesPanelViewModel: ObservableObject {
     var lockedMemoryOptionsMb: [Int]? { lastLimits?.lockedMemoryOptionsMb }
     var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
     var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }
+    var vcpusByMemoryMb: [String: Int]? { lastLimits?.vcpusByMemoryMb }
     private var authScopeObservers: [NSObjectProtocol] = []
     private var wakeObserver: NSObjectProtocol?
     private var lifecycleObserver: NSObjectProtocol?

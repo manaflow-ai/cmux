@@ -542,6 +542,11 @@
         "team": "Utwórz zespół",
         "banner": "Korzystasz teraz z {plan}.",
         "bannerLink": "Plan i rozliczenia"
+      },
+      "appStore": {
+        "title": "Rozliczane przez App Store",
+        "body": "Twój plan został kupiony w aplikacji cmux na iPhone’a i jest rozliczany przez Apple. Zmień go lub anuluj w subskrypcjach App Store.",
+        "manage": "Zarządzaj w App Store"
       }
     },
     "mobileDevices": {
@@ -1126,6 +1131,80 @@
       "revokeApiKeyConfirmTitle": "Unieważnić ten klucz API?",
       "apiKeyUsageDetail": "Ostatnie 30 dni: {completions} ukończeń · {tokens} tokenów ({input} wejście / {output} wyjście) · równowartość API {value}",
       "apiKeyUsageUnavailable": "Użycie niedostępne",
+      "revokeApiKeyConfirmBody": "Klienci używający tego klucza natychmiast stracą uwierzytelnianie."
+    },
+    "cloud": {
+      "title": "Maszyny Cloud i dostęp z Maca",
+      "description": "Ustaw sieć wychodzącą każdej maszyny i sprawdź komputery Mac z dostępem WireGuard do Twojej prywatnej sieci maszyn wirtualnych Cloud. Parowania iPhone i Iroh są zarządzane osobno.",
+      "macAccessTitle": "Dostęp z Maca",
+      "machines": {
+        "title": "Maszyny",
+        "empty": "Nie masz maszyn Cloud.",
+        "personal": "osobista",
+        "team": "zespół",
+        "status": {
+          "provisioning": "uruchamianie",
+          "running": "działa",
+          "failed": "błąd",
+          "paused": "wstrzymana",
+          "destroyed": "usunięta"
+        }
+      },
+      "network": {
+        "open": "Sieć",
+        "title": "Sieć wychodząca dla {name}",
+        "description": "Wybierz, z czym ta maszyna może się łączyć. Zmiany działają od razu, bez ponownego uruchamiania.",
+        "loading": "Wczytywanie zasad sieci…",
+        "loadError": "Nie można wczytać zasad sieci dla tej maszyny.",
+        "saveError": "Nie można zastosować tych zasad sieci.",
+        "unsupported": "Ta maszyna nie obsługuje kontroli sieci wychodzącej.",
+        "retry": "Spróbuj ponownie",
+        "appliedLabel": "Stan:",
+        "applied": {
+          "applied": "zastosowano",
+          "pending": "stosowanie",
+          "failed": "nie udało się zastosować"
+        },
+        "unsaved": "niezapisane zmiany",
+        "refresh": "Odśwież",
+        "modeLabel": "Dostęp wychodzący",
+        "mode": {
+          "full": {
+            "label": "Pełny internet",
+            "description": "Dowolny adres publiczny."
+          },
+          "allowlist": {
+            "label": "Lista dozwolonych",
+            "description": "Tylko podane przez Ciebie ustawienia wstępne, domeny i zakresy IP."
+          },
+          "none": {
+            "label": "Brak internetu",
+            "description": "Tylko hosty cmux wymienione poniżej."
+          }
+        },
+        "presetsTitle": "Ustawienia wstępne",
+        "presetsNote": "Każde ustawienie wstępne dodaje dokładne nazwy hostów. Usługa, która używa innych subdomen, może wymagać dodatkowych domen.",
+        "domainsTitle": "Domeny",
+        "domainsNote": "Tylko dokładne nazwy hostów, tylko HTTPS na porcie 443. Symbole wieloznaczne nie są jeszcze obsługiwane.",
+        "domainInput": "Domena",
+        "rangesTitle": "Zakresy IP",
+        "rangesNote": "Zapora dostawcy egzekwuje je poza maszyną. Pozostaw port pusty, aby zezwolić na wszystkie porty. Port wymaga protokołu.",
+        "cidrInput": "Zakres IP (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokół",
+        "anyProtocol": "dowolny",
+        "noteInput": "Notatka (opcjonalnie)",
+        "allPorts": "wszystkie porty",
+        "dnsLabel": "Zezwól na DNS",
+        "dnsNote": "Pozwala narzędziom rozwiązywać nazwy, na które wskazują Twoje zakresy IP. Domeny nie wymagają DNS. Otwarty DNS to kanał wychodzący: proces może wysyłać dane w nazwach, o które pyta.",
+        "requiredTitle": "Zawsze dozwolone",
+        "requiredNote": "cmux potrzebuje tych hostów w każdym trybie, aby instalować i aktualizować CLI na maszynie.",
+        "add": "Dodaj",
+        "remove": "Usuń",
+        "discard": "Odrzuć zmiany",
+        "close": "Zamknij",
+        "apply": "Zastosuj"
+      },
       "revokeApiKeyConfirmBody": "Klienci używający tego klucza natychmiast stracą uwierzytelnianie.",
       "apiKeysEmptyTitle": "Brak kluczy API",
       "apiKeysEmptyHint": "Utwórz klucz, aby uwierzytelnić klienta CodeRouter.",
@@ -2847,6 +2926,12 @@
       "limitsTeam": "Konta zespołowe mogą mieć do 5 aktywnych maszyn na każde płatne stanowisko.",
       "limitsMax": "Maszyny większe niż 8 GB wymagają cmux Max. Maszyny Max mają do 32 GB i 16 vCPU.",
       "limitsPricing": "Aktualne ceny znajdziesz na stronie z cennikiem. Nie ma pomiaru zużycia ani opłat za przekroczenia.",
+      "agentUpdatesTitle": "Aktualizuj agentów kodujących",
+      "agentUpdatesDesc": "Gdy to ustawienie jest włączone, maszyna aktualizuje Claude Code, Codex, OpenCode, pi i agent-browser. Sprawdza po utworzeniu maszyny i przy każdym połączeniu, nie częściej niż raz na 24 godziny. Aktualizacja działa w odłączonym procesie, więc nigdy nie blokuje połączenia.",
+      "agentUpdatesSource": "Każde narzędzie pochodzi z oficjalnego wydania na GitHubie i jest weryfikowane skrótem sha256 zasobu wydania. npm nie jest używany. Wydanie instaluje się dopiero po 3 dniach od publikacji, a aktualizacja nigdy nie instaluje starszej wersji. Działający agent zachowuje pliki, z którymi wystartował, a nieudana aktualizacja pozostawia bieżącą wersję.",
+      "agentUpdatesStatus": "Wynik ostatniego sprawdzenia jest w /etc/cmux/agent-updates.state, a dziennik aktualizacji w /var/log/cmux-agent-updates.log. Nieudane sprawdzenie zostanie powtórzone przy następnym połączeniu.",
+      "agentUpdatesToggle": "Arkusz New Machine domyślnie włącza to ustawienie. Aby zmienić je dla istniejącej maszyny, kliknij maszynę prawym przyciskiem i wybierz Keep Agents Up to Date albo uruchom cmux vm agent-updates. cmux vm new zachowuje wersje z obrazu, chyba że podasz --agent-updates latest. Wyłączenie aktualizacji zachowuje już zainstalowane wersje.",
+      "agentUpdatesNetwork": "Aktualizacje używają tylko github.com, api.github.com, objects.githubusercontent.com i release-assets.githubusercontent.com. cmux zezwala na te hosty w każdym trybie sieci, także Allowlist i No internet, więc polityka sieci nigdy nie blokuje aktualizacji.",
       "resizeTitle": "Zmiana rozmiaru",
       "resizeDesc": "Możesz powiększyć maszynę bez utraty danych. Kliknij maszynę prawym przyciskiem i wybierz Resize machine lub użyj cmux vm resize. Zmiana rozmiaru może tylko powiększyć maszynę. Dysk rośnie w krokach po 4 GB do 256 GB, pamięć do 32 GB, a CPU do 16 vCPU. Rzeczywiste maksimum wyznacza Twój plan.",
       "pauseTitle": "Wstrzymywanie i wznawianie",
@@ -5104,7 +5189,8 @@
   "pricing": {
     "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
     "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
-    "signedOutSignIn": "Zaloguj się"
+    "signedOutSignIn": "Zaloguj się",
+    "manageInAppStore": "Zarządzaj w App Store"
   },
   "platforms": {
     "macos": "macOS",

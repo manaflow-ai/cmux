@@ -430,7 +430,7 @@ struct TextBoxMentionCompletionTests {
         #expect(bareDollarQuery?.trigger == "$")
         #expect(bareDollarQuery?.query == "")
 
-        let emailPrompt = "mail lawrence@example.com"
+        let emailPrompt = "mail user@example.com"
         #expect(TextBoxMentionCompletionDetector.query(
             in: emailPrompt,
             selectedRange: NSRange(location: (emailPrompt as NSString).length, length: 0)

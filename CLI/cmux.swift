@@ -5912,6 +5912,12 @@ struct CMUXCLI {
             case "resize":
                 try runVMResizeCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
+            case "network":
+                try runVMNetworkCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+            case "agent-updates":
+                try runVMAgentUpdatesCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
             case "pause", "resume":
                 // Lifecycle, not sizing: pausing parks the machine (compute stops, the volume
                 // stays); resuming brings the daemon and its terminals back.
@@ -5975,7 +5981,12 @@ struct CMUXCLI {
                 let focus = explicitFocus ?? Self.defaultFocusForUserOpen()
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
                 let machineKind = try Self.cloudVMCreateKind(rem2, command: "vm new")
-                let (sizeOpt, rem3) = parseOption(rem2, name: "--size")
+                let (sizeOpt, rem2a) = parseOption(rem2, name: "--size")
+                let (networkPolicyOpt, rem2b) = parseOption(rem2a, name: "--network-policy")
+                let (networkModeOpt, rem2c) = parseOption(rem2b, name: "--network")
+                let (agentUpdatesOpt, rem3) = parseOption(rem2c, name: "--agent-updates")
+                let networkPolicy = try Self.parseVMCreateNetworkPolicy(json: networkPolicyOpt, mode: networkModeOpt)
+                let agentUpdates = try agentUpdatesOpt.map { try Self.parseVMAgentUpdatesSetting($0, command: "vm new") }
                 let memoryMb: Int?
                 if let sizeOpt {
                     guard let parsed = Self.parseCloudVMSize(sizeOpt) else {
@@ -5999,6 +6010,9 @@ struct CMUXCLI {
 
                         Known flags:
                           --size <4g|8g|16g|24g|32g|64g>  4g to 24g on Pro; 32g and 64g need cmux Max
+                          --network <full|allowlist|none>  outbound access (see `cmux vm network --help`)
+                          --network-policy <json>  full network policy object
+                          --agent-updates <latest|image>  \(String(localized: "cli.vm.new.agentUpdatesFlag", defaultValue: "latest keeps coding agents up to date; image (default) keeps the baked versions"))
                           --desktop, --base  \(String(localized: "cli.vm.help.legacyKindFlags", defaultValue: "accepted for older scripts; every machine has a screen"))
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
@@ -6042,13 +6056,19 @@ struct CMUXCLI {
                 // for runtime memory get it, and the backend applies the plan ceiling.
                 if let memoryMb { params["memory_mb"] = memoryMb }
                 if let machineName, !machineName.isEmpty { params["display_name"] = machineName }
+                if let networkPolicy { params["network_policy"] = networkPolicy.object }
+                if let agentUpdates { params["agent_updates"] = agentUpdates }
                 // Freestyle is the default and only deployed provider. It does not support
                 // persistent home volumes, so leave both volume flags out of this request.
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
                 // Store-based idempotency: retries of a failed create reuse the key; a
                 // successful create clears it, so the next `vm new` makes a new machine.
+                // A different network policy is a different request: it must not
+                // replay an in-flight create that carries the old one.
                 let idempotency = try Self.activeVMCreateIdempotency(
-                    image: imageOptRaw ?? "kind=\(machineKind.rawValue)",
+                    image: (imageOptRaw ?? "kind=\(machineKind.rawValue)")
+                        + (networkPolicy.map { " network=\($0.canonicalJSON)" } ?? "")
+                        + (agentUpdates.map { " agentUpdates=\($0)" } ?? ""),
                     provider: normalizedProvider,
                     workspace: targetWorkspaceOpt
                 )
@@ -18964,12 +18984,20 @@ struct CMUXCLI {
                 localized: "cli.cloud.domains.helpDescription",
                 defaultValue: "Publish VM ports on generated or custom domains."
             )
+            let networkDescription = String(
+                localized: "cli.vm.network.helpDescription",
+                defaultValue: "Show or change the machine's outbound network policy; see `cmux vm network --help`."
+            )
+            let agentUpdatesDescription = String(
+                localized: "cli.vm.agentUpdates.helpDescription",
+                defaultValue: "Show or change whether the machine keeps its coding agents up to date; see `cmux vm agent-updates --help`."
+            )
             let resizeDescription = String(
                 localized: "cli.vm.resize.helpDescription",
                 defaultValue: "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             `cmux vm <verb> --help` prints that verb's own usage.
 
@@ -19063,11 +19091,12 @@ struct CMUXCLI {
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
-              new [--size <4g|8g|16g|24g|32g|64g>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
+              new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
                                         \(String(localized: "cli.vm.help.newDevbox", defaultValue: "Create a new machine: the devbox with devtools,"))
                                         \(String(localized: "cli.vm.help.newDevboxScreen", defaultValue: "coding agents and a VNC screen. The server picks"))
                                         \(String(localized: "cli.vm.help.newDevboxImage", defaultValue: "the image for the size; --image <id> is an"))
                                         \(String(localized: "cli.vm.help.newDevboxOverride", defaultValue: "explicit override you normally omit."))
+                                        \(String(localized: "cli.vm.help.newSizesVcpu", defaultValue: "vCPUs follow --size: 4g 2, 8g 4, 16g 8, 24g 12, 32g 16, 64g 32."))
                                         --no-focus opens the machine without
                                         switching to its workspace (what the New
                                         Machine sheet does).
@@ -19086,6 +19115,10 @@ struct CMUXCLI {
               stats <id>                     CPU, memory, and disk right now (sleeping machines stay asleep)
               resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]
                                         \(resizeDescription)
+              network <id> [set|add-domain|remove-domain|add-range|remove-range|preset] ...
+                                        \(networkDescription)
+              agent-updates <id> [latest|image]
+                                        \(agentUpdatesDescription)
               tui <id> [--window <id|ref|index>] [--focus|--no-focus]
                                         Open a workspace attached through the machine's
                                         cmux-tui remote daemon (enrolls this Mac on first use).
@@ -31792,16 +31825,7 @@ struct CMUXCLI {
     }
 
     static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
-        guard let forkParent = environment[CodexForkSessionWatcher.parentSessionEnvironmentKey],
-              !forkParent.isEmpty else { return [] }
-        var arguments = ["--fork-parent", forkParent]
-        if let launchID = environment[CodexForkSessionWatcher.launchIDEnvironmentKey], !launchID.isEmpty {
-            arguments += ["--fork-launch-id", launchID]
-        }
-        if let ownerPID = environment["CMUX_CODEX_PID"], !ownerPID.isEmpty {
-            arguments += ["--fork-owner-pid", ownerPID]
-        }
-        return arguments
+        CodexForkMonitorArguments().make(environment: environment)
     }
 
     /// Watches the Codex rollout until the turn settles.
