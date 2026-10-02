@@ -735,6 +735,39 @@ mod tests {
     }
 
     #[test]
+    fn a_tabless_terminal_keeps_its_lifecycle_when_the_tree_is_republished() {
+        let mux = Mux::new_for_test("terminal-tabless-lifecycle", SurfaceOptions::default());
+        let scratch = mux.new_workspace(Some("scratch".into()), Some((80, 24))).unwrap();
+        let detached = mux.new_workspace(Some("detached".into()), Some((80, 24))).unwrap();
+        let detached_id = host_id(&mux, &detached);
+        let public_id = detached.terminal_public_id().cloned().unwrap().to_string();
+        close_workspace_of(&mux, &detached);
+        // Any later full projection (a tab drag, a sticky column) republishes
+        // the terminal whose last tab closed; clients decode `lifecycle` as
+        // required on every terminal record.
+        let projection = mux.resource_effect_projection().unwrap();
+        let records = format!("{:?}", projection.patch);
+        assert!(records.contains(&public_id), "the projection publishes the tab-less terminal");
+        for change in projection.changes.as_array().unwrap() {
+            if change["resource"] == "terminal" && change["kind"] != "delete" {
+                assert!(
+                    change["value"]["lifecycle"].is_string(),
+                    "terminal record without lifecycle: {change}"
+                );
+            }
+        }
+        mux.close_terminal_with_mutation(
+            &detached_id,
+            None,
+            None,
+            None,
+            &WorkspaceMutation::local("test-cleanup"),
+        )
+        .unwrap();
+        mux.close_surface(scratch.id).unwrap();
+    }
+
+    #[test]
     fn terminal_reap_ends_unplaced_terminals_after_grace_but_not_kept_ones() {
         let mux = Mux::new_for_test("terminal-reap", SurfaceOptions::default());
         let grace = mux.terminal_reap_grace();
