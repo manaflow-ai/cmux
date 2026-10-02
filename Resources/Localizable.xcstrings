@@ -271129,7 +271129,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 VM trial"
+            "value": "Not included"
           }
         },
         "ja": {
@@ -271483,55 +271483,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "50 per user"
+            "value": "5 per user"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ユーザーごとに 50"
+            "value": "ユーザーごとに 5"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每用户 50 个"
+            "value": "每用户 5 个"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "50 pro Benutzer"
+            "value": "5 pro Benutzer"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "50 par utilisateur"
+            "value": "5 par utilisateur"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "50 لكل مستخدم"
+            "value": "5 لكل مستخدم"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "50 por usuario"
+            "value": "5 por usuario"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每位使用者 50 個"
+            "value": "每位使用者 5 個"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자당 50개"
+            "value": "사용자당 5개"
           }
         }
       }
@@ -273093,7 +273093,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Local session history and one Cloud VM trial"
+            "value": "Local session history"
           }
         },
         "ja": {
@@ -292792,55 +292792,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud dev boxes, the iOS app, and cmux AI. $50/month, or $480/year."
+            "value": "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM, and the iOS app. $50/month."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$50、または年額$480。"
+            "value": "最大 5 台の Cloud VM（VM あたり最大 4 vCPU・8 GB RAM）と iOS アプリ。月額$50。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端开发机、iOS 应用与 cmux AI。每月 $50，或每年 $480。"
+            "value": "最多 5 台云端虚拟机（每台最多 4 个虚拟 CPU 和 8 GB 内存）与 iOS 应用。每月 $50。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-Entwicklerboxen, die iOS-App und cmux AI. 50 $/Monat oder 480 $/Jahr."
+            "value": "Bis zu 5 Cloud-VMs mit bis zu 4 vCPUs und 8 GB RAM pro VM sowie die iOS-App. 50 $/Monat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Machines de dev cloud, l’application iOS et l’IA cmux. 50 $/mois, ou 480 $/an."
+            "value": "Jusqu’à 5 VM cloud, jusqu’à 4 vCPU et 8 Go de RAM par VM, et l’application iOS. 50 $/mois."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "بيئات تطوير سحابية، وتطبيق iOS، ومساعد cmux الذكي. 50$ شهريًا، أو 480$ سنويًا."
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية، بحد أقصى 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة لكل جهاز، وتطبيق iOS. 50$ شهريًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Entornos de desarrollo en la nube, la aplicación para iOS y cmux AI. $50 al mes o $480 al año."
+            "value": "Hasta 5 VM en la nube, con hasta 4 vCPU y 8 GB de RAM por VM, y la aplicación para iOS. $50 al mes."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "雲端開發盒、iOS 應用程式和 cmux AI。每月 50 美元，或每年 480 美元。"
+            "value": "最多 5 台雲端虛擬機（每台最多 4 個虛擬 CPU 與 8 GB 記憶體）與 iOS 應用程式。每月 50 美元。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 개발 상자, iOS 앱 및 cmux AI. 월 $50 또는 연 $480."
+            "value": "최대 5개의 클라우드 VM(VM당 최대 vCPU 4개, RAM 8 GB)과 iOS 앱. 월 $50."
           }
         }
       }
@@ -522362,55 +522362,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"
+            "value": "Unlimited workspaces and the iOS app"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alles aus Pro: 50 Cloud-VMs, unbegrenzte Arbeitsbereiche, die iOS-App"
+            "value": "Unbegrenzte Arbeitsbereiche und die iOS-App"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tout Pro : 50 VM Cloud, espaces de travail illimités, application iOS"
+            "value": "Espaces de travail illimités et application iOS"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كل ما في Pro: 50 جهازاً سحابياً، ومساحات عمل غير محدودة، وتطبيق iOS"
+            "value": "مساحات عمل غير محدودة وتطبيق iOS"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Todo Pro: 50 máquinas virtuales Cloud, espacios de trabajo ilimitados y la app iOS"
+            "value": "Espacios de trabajo ilimitados y la app iOS"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "包含 Pro 所有功能：50 台雲端 VM、無限工作區、iOS 應用程式"
+            "value": "無限工作區與 iOS 應用程式"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "包含 Pro 所有功能：50 台云端 VM、无限工作区、iOS 应用"
+            "value": "无限工作区与 iOS 应用"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro의 모든 기능: Cloud VM 50대, 무제한 작업 공간, iOS 앱"
+            "value": "무제한 작업 공간과 iOS 앱"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro の全機能：50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
+            "value": "無制限のワークスペースと iOS アプリ"
           }
         }
       }
@@ -522657,55 +522657,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "32 GB RAM"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB Arbeitsspeicher"
+            "value": "32 GB Arbeitsspeicher"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 Go de RAM"
+            "value": "32 Go de RAM"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 غيغابايت من الذاكرة"
+            "value": "32 غيغابايت من الذاكرة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB de RAM"
+            "value": "32 GB de RAM"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 記憶體"
+            "value": "32 GB 記憶體"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 内存"
+            "value": "32 GB 内存"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 메모리"
+            "value": "32 GB 메모리"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB メモリ"
+            "value": "32 GB メモリ"
           }
         }
       }
@@ -523306,55 +523306,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "24 GB RAM"
+            "value": "8 GB RAM"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "24 GB Arbeitsspeicher"
+            "value": "8 GB Arbeitsspeicher"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "24 Go de RAM"
+            "value": "8 Go de RAM"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "24 غيغابايت من الذاكرة"
+            "value": "8 غيغابايت من الذاكرة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "24 GB de RAM"
+            "value": "8 GB de RAM"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "24 GB 記憶體"
+            "value": "8 GB 記憶體"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "24 GB 内存"
+            "value": "8 GB 内存"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "24 GB 메모리"
+            "value": "8 GB 메모리"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "24 GB メモリ"
+            "value": "8 GB メモリ"
           }
         }
       }
