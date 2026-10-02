@@ -11,7 +11,7 @@ const priceSchema = z.object({
   interval: z.enum(["month", "year"]),
 });
 
-const billingManagementSchema = z.enum(["stripe", "none"]);
+const billingManagementSchema = z.enum(["stripe", "external", "none"]);
 
 export const teamBillingViewSchema = z.discriminatedUnion("status", [
   z.object({
@@ -44,6 +44,8 @@ const personalBillingSchema = z.object({
     isPro: z.boolean(),
     planId: z.string(),
     billingManagement: billingManagementSchema,
+    billingSource: z.enum(["stripe", "apple", "none"]),
+    manageUrl: z.string().nullable(),
   }),
   subscription: z.object({
     plan: z.string().nullable(),

@@ -25,7 +25,10 @@ import {
   MAX_PLAN_ID,
   GO_PLAN_ID,
   resolveProPlanStatus,
+  type BillingManagementKind,
+  type PersonalBillingSource,
 } from "../../../services/billing/pro";
+import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "../../../services/billing/apple/config";
 import {
   buildAlternates,
   openGraphDefaults,
@@ -204,6 +207,23 @@ function PricingContent({
   };
 }) {
   const canManageBilling = snapshot.billingManagement === "stripe";
+  // An App Store subscriber never gets Stripe checkout for a personal plan:
+  // every personal action becomes "Manage in the App Store", plus Stripe's
+  // "Manage billing" while a Stripe subscription still bills them.
+  const appStoreAction = snapshot.billingSource === "apple"
+    ? (size?: "compact") => (
+        <div className="space-y-2">
+          <SecondaryLink href={APPLE_MANAGE_SUBSCRIPTIONS_URL} size={size}>
+            {t("manageInAppStore")}
+          </SecondaryLink>
+          {canManageBilling ? (
+            <SecondaryLink href="/api/billing/portal" size={size}>
+              {t("manageBilling")}
+            </SecondaryLink>
+          ) : null}
+        </div>
+      )
+    : null;
   // Max satisfies every "is Pro" check, so the Pro card must not call a Max
   // subscriber's plan current; only the Max card does.
   const isMax = snapshot.planId === MAX_PLAN_ID;
@@ -301,7 +321,7 @@ function PricingContent({
               ) : null
             }
           >
-            {isGo ? (
+            {appStoreAction ? appStoreAction() : isGo ? (
               <div className="space-y-2">
                 {canManageBilling ? (
                   <SecondaryLink href="/api/billing/portal">
@@ -338,7 +358,7 @@ function PricingContent({
           ) : null
         }
       >
-        {isProCurrent ? (
+        {appStoreAction ? appStoreAction() : isProCurrent ? (
           <div className="space-y-2">
             <SecondaryLink href="/api/billing/portal">
               {t("manageBilling")}
@@ -371,7 +391,7 @@ function PricingContent({
           isMax ? <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge> : null
         }
       >
-        {isMax ? (
+        {appStoreAction ? appStoreAction() : isMax ? (
           <div className="space-y-2">
             <SecondaryLink href="/api/billing/portal">
               {t("manageBilling")}
@@ -422,7 +442,7 @@ function PricingContent({
             {t("free.cta")}
           </PrimaryLink>
         ),
-        pro: isProCurrent ? (
+        pro: appStoreAction ? appStoreAction("compact") : isProCurrent ? (
           <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
         ) : (canManageBilling && !isGo) || isMax ? (
           <SecondaryLink href="/api/billing/portal" size="compact">
@@ -438,7 +458,7 @@ function PricingContent({
             {t("pro.cta")}
           </ProCtaLink>
         ),
-        max: isMax ? (
+        max: appStoreAction ? appStoreAction("compact") : isMax ? (
           <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
         ) : canManageBilling && !snapshot.isPro ? (
           <SecondaryLink href="/api/billing/portal" size="compact">
@@ -610,7 +630,9 @@ type PlanSnapshot = {
   authenticated: boolean;
   planId: "free" | "go" | "pro" | "max";
   isPro: boolean;
-  billingManagement: "stripe" | "none";
+  billingManagement: BillingManagementKind;
+  /** An App Store subscriber manages personal plans in the App Store. */
+  billingSource?: PersonalBillingSource;
 };
 
 /**
@@ -657,5 +679,6 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     planId: status.planId,
     isPro: status.isPro,
     billingManagement: status.billingManagement,
+    billingSource: status.billingSource,
   };
 }
