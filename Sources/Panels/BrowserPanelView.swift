@@ -304,6 +304,7 @@ struct BrowserPanelView: View {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var tasks = MainActorTaskStore<TaskKey>()
+    @State private var windowPresence = BrowserPanelWindowPresence()
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
     @State private var latestRemoteSuggestions: [String] = []
@@ -730,8 +731,9 @@ struct BrowserPanelView: View {
         performInitialBrowserPanelSetupIfNeeded()
         startOmnibarSuggestionRefreshConsumer()
         refreshBrowserChromeStyle()
-        panel.noteWebViewVisibility(
+        windowPresence.noteVisibility(
             isVisibleInUI && isCurrentPaneOwner,
+            of: panel,
             reason: "view.onAppear"
         )
         panel.refreshAppearanceDrivenColors()
@@ -879,8 +881,9 @@ struct BrowserPanelView: View {
 
     private func handlePanelVisibilityChange(_ visibleInUI: Bool) {
         let effectiveVisibility = visibleInUI && isCurrentPaneOwner
-        panel.noteWebViewVisibility(
+        windowPresence.noteVisibility(
             effectiveVisibility,
+            of: panel,
             reason: effectiveVisibility ? "view.visible" : "view.hidden"
         )
         if visibleInUI {
@@ -1149,6 +1152,9 @@ struct BrowserPanelView: View {
 
     var body: some View {
         browserPanelLifecycleView
+        .background(BrowserPanelWindowPresenceProbe(
+            presence: windowPresence, panel: panel, isVisible: isVisibleInUI && isCurrentPaneOwner
+        ))
         .onReceive(NotificationCenter.default.publisher(for: .commandPaletteVisibilityDidChange)) { notification in
             handleCommandPaletteVisibilityChange(notification)
         }
@@ -1937,42 +1943,22 @@ struct BrowserPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
-            if panel.shouldRenderWebView, panel.hasRecoverableWebContentTermination {
-                webContentRecoveryOverlay
+            if let prompt = panel.pageRecoveryPrompt {
+                BrowserPageRecoveryOverlay(prompt: prompt, backgroundColor: browserChromeBackgroundColor) {
+                    panel.performPageRecovery(prompt)
+                }
             }
         }
         .layoutPriority(1)
         .zIndex(0)
     }
 
-    private var webContentRecoveryOverlay: some View {
-        ZStack {
-            Color(nsColor: browserChromeBackgroundColor)
-                .opacity(0.92)
-            Button(action: {
-                panel.recoverTerminatedWebContent(reason: "overlayButton")
-            }) {
-                Label(
-                    String(localized: "browser.error.reload", defaultValue: "Reload"),
-                    systemImage: "arrow.clockwise"
-                )
-                .cmuxFont(size: 13, weight: .medium)
-                .padding(.horizontal, 6)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .safeHelp(String(localized: "browser.reload", defaultValue: "Reload"))
-            .accessibilityIdentifier("BrowserWebContentRecoveryButton")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private func triggerFocusFlashAnimation() {
         focusFlashAnimationGeneration &+= 1
         let generation = focusFlashAnimationGeneration
-        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
+        focusFlashOpacity = FocusFlashPattern.current.values.first ?? 0
 
-        for segment in FocusFlashPattern.segments {
+        for segment in FocusFlashPattern.current.segments {
             DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
                 guard focusFlashAnimationGeneration == generation else { return }
                 withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
@@ -7393,17 +7379,20 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private func schedulePortalLifecycleVisibilityUpdate(
         coordinator: Coordinator,
+        host: HostContainerView,
         generation: Int,
         visibleInUI: Bool,
         reason: String,
         requireDesiredVisibilityMatch: Bool = true
     ) {
         let browserPanel = panel
-        Task { @MainActor [weak coordinator] in
+        Task { @MainActor [weak coordinator, weak host] in
             guard let coordinator else { return }
             guard coordinator.attachGeneration == generation else { return }
             guard !requireDesiredVisibilityMatch ||
                 coordinator.desiredPortalVisibleInUI == visibleInUI else { return }
+            // A host outside a window may never reach one (#15069); `onDidMoveToWindow` reports it.
+            guard !visibleInUI || host?.window != nil else { return }
             browserPanel.noteWebViewVisibility(visibleInUI, reason: reason)
         }
     }
@@ -7660,6 +7649,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             let lifecycleReason = lifecycleVisibleInUI ? "portal.update.visible" : "portal.update.hidden"
             schedulePortalLifecycleVisibilityUpdate(
                 coordinator: coordinator,
+                host: host,
                 generation: generation,
                 visibleInUI: lifecycleVisibleInUI,
                 reason: lifecycleReason,
@@ -7706,6 +7696,10 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.refresh(
                 webView: webView,
                 reason: "portalHostBind.didMoveToWindow"
+            )
+            schedulePortalLifecycleVisibilityUpdate(
+                coordinator: coordinator, host: host, generation: generation,
+                visibleInUI: true, reason: "portal.didMoveToWindow.visible"
             )
             BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                 for: webView,

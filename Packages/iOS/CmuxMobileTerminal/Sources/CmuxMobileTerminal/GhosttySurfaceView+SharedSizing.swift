@@ -29,10 +29,12 @@ public struct TerminalSizingChipContent: Equatable, Sendable {
 /// outside the grid, a short fade on cut edges, and the size chip. Only the
 /// chip takes touches.
 ///
-/// Every color derives from the terminal theme the surface renders
-/// (``TerminalSizingPalette``: foreground mixed into background, nudged to
-/// 4.5:1 chip text and a 3:1 border), so the chrome reads on light, dark and
-/// custom themes. Cut edges fade the text into the theme background.
+/// The border, hatch and chip outline use the system separator, resolved in
+/// the appearance the terminal chrome uses for the theme
+/// (``TerminalSizingChromePalette``), so the bounds read as the same gray as
+/// the chrome's other lines. The hatch is that color, fainter, with no fill;
+/// the chip is filled with the theme background and only its text keeps a
+/// 4.5:1 floor. Cut edges fade the text into the theme background.
 @MainActor
 final class GhosttySurfaceSharedSizingLayers {
     /// Distance between hatch lines, in points.
@@ -48,7 +50,7 @@ final class GhosttySurfaceSharedSizingLayers {
     let hatchMask = CAShapeLayer()
     var fades: [CAGradientLayer] = []
     private(set) var chip: UIButton?
-    private var chipPalette: TerminalSizingPalette?
+    private var chipPalette: TerminalSizingChromePalette?
 
     init(host: CALayer) {
         let noActions: [String: any CAAction] = [
@@ -84,7 +86,7 @@ final class GhosttySurfaceSharedSizingLayers {
         in hostView: UIView,
         gridRect: CGRect?,
         viewportRect: CGRect,
-        palette: TerminalSizingPalette,
+        palette: TerminalSizingChromePalette,
         onTap: @escaping @MainActor () -> Void
     ) {
         guard let content, let gridRect else {
@@ -152,19 +154,19 @@ final class GhosttySurfaceSharedSizingLayers {
         return button
     }
 
-    /// The chip's opaque fill (so its text keeps 4.5:1 over terminal
-    /// content), text and outline.
-    static func applyChipColors(_ palette: TerminalSizingPalette, to button: UIButton) {
+    /// The chip's opaque theme-background fill (so its text keeps 4.5:1
+    /// over terminal content), text, and separator outline.
+    static func applyChipColors(_ palette: TerminalSizingChromePalette, to button: UIButton) {
         guard var configuration = button.configuration else { return }
-        configuration.baseForegroundColor = palette.uiColor(.glyph)
-        configuration.background.backgroundColor = palette.uiColor(.fill)
-        configuration.background.strokeColor = palette.uiColor(.line)
+        configuration.baseForegroundColor = palette.uiColor(palette.text)
+        configuration.background.backgroundColor = palette.uiColor(palette.chipFill)
+        configuration.background.strokeColor = palette.uiColor(palette.line)
         button.configuration = configuration
     }
 
     func apply(
         geometry: TerminalSizingBoundsGeometry,
-        palette: TerminalSizingPalette,
+        palette: TerminalSizingChromePalette,
         bounds: CGRect,
         scale: CGFloat
     ) {
@@ -184,7 +186,7 @@ final class GhosttySurfaceSharedSizingLayers {
         }
 
         let inset = TerminalSizingBoundsGeometry.borderWidth / 2
-        border.strokeColor = palette.uiColor(.line).cgColor
+        border.strokeColor = palette.uiColor(palette.line).cgColor
         border.path = Self.borderPath(edges: geometry.borderEdges, around: borderRect.insetBy(dx: inset, dy: inset))
 
         let maskPath = UIBezierPath()
@@ -192,7 +194,7 @@ final class GhosttySurfaceSharedSizingLayers {
             maskPath.append(UIBezierPath(rect: rect))
         }
         hatchMask.path = maskPath.cgPath
-        hatch.strokeColor = palette.uiColor(.hatch).cgColor
+        hatch.strokeColor = palette.uiColor(palette.hatch).cgColor
         hatch.path = geometry.hatchRects.isEmpty ? nil : Self.hatchPath(in: bounds)
 
         fades.forEach { $0.removeFromSuperlayer() }
@@ -292,7 +294,7 @@ extension GhosttySurfaceView {
         // visible, so no border, hatch or chip draws under the keyboard.
         let chromeViewport = sizingChromeViewportRect(for: viewportRect)
         let geometry = decoration.geometry(viewportRect: chromeViewport, renderRect: lastRenderRect)
-        let palette = TerminalSizingPalette(theme: terminalTheme)
+        let palette = TerminalSizingChromePalette(theme: terminalTheme)
         layers.apply(
             geometry: geometry,
             palette: palette,

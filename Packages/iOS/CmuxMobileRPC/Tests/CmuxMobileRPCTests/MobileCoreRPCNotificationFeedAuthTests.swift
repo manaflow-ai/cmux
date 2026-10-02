@@ -5,6 +5,7 @@ import Testing
 
 @Suite struct MobileCoreRPCNotificationFeedAuthTests {
     @Test(arguments: [
+        "feed.text",
         "notification.feed.list",
         "notification.feed.mark_read",
         "notification.feed.mark_unread",
