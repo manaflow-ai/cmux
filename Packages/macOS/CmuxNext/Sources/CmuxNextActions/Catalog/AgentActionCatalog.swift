@@ -20,6 +20,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 targets: [.pane], cliName: "agent toggle-dictation", mainMenu: .edit
             ),
             ActionDescriptor(
+                id: "agentPane.continueIn",
+                title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue in…", bundle: .module),
+                keywords: ["agent", "chat", "continue", "handoff", "claude", "codex", "acpmux"],
+                category: .agents, symbol: "arrow.turn.up.right", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // The named CLI handoff is owned by acpmux. This action is the
+                // user-facing chooser that invokes that same frontend flow.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
                 keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],

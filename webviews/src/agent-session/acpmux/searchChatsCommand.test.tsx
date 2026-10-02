@@ -97,3 +97,37 @@ test("the app's searchChats command toggles Search chats, and a pick selects the
     await act(async () => root.unmount());
   }
 });
+
+test("the palette names the app's Search chats shortcut as bound, and follows a rebind", async () => {
+  const host = dom.window as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    cmuxAcpmuxBridge?: {
+      command?(name: string): void;
+      applyShortcuts?(labels: Record<string, unknown>): void;
+    };
+  };
+  host.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "test" }) };
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const input = () => container.querySelector<HTMLInputElement>(".acpmux-search-input")!;
+  try {
+    await act(async () => root.render(createElement(AcpmuxApp)));
+    await act(async () => host.cmuxAcpmuxBridge!.command!("searchChats"));
+    // Before the host says, no shortcut is claimed.
+    expect(input().title).toBe("Search chats");
+    await act(async () => host.cmuxAcpmuxBridge!.applyShortcuts!({ "agentPane.searchChats": "⌘K" }));
+    expect(input().title).toBe("Search chats (⌘K)");
+    await act(async () => host.cmuxAcpmuxBridge!.applyShortcuts!({ "agentPane.searchChats": "⌥⌘P" }));
+    expect(input().title).toBe("Search chats (⌥⌘P)");
+    // Unbound in Settings: the host leaves the action out.
+    await act(async () => host.cmuxAcpmuxBridge!.applyShortcuts!({}));
+    expect(input().title).toBe("Search chats");
+    // New chat starts one in this pane, which no app shortcut does, so it claims none.
+    const newChat = [...container.querySelectorAll(".acpmux-search-row")].find(
+      (row) => row.querySelector(".acpmux-search-label")!.textContent === "New chat",
+    )!;
+    expect(newChat.querySelector(".acpmux-search-kbd")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

@@ -76,7 +76,7 @@ final class SettingsContentView: NSHostingView<SettingsRootView> {
     }
 
     private func applyColors() {
-        performWithTheme { window?.backgroundColor = Palette.windowBackground }
+        performWithTheme { window?.backgroundColor = Palette.utilityWindowBackground }
     }
 }
 

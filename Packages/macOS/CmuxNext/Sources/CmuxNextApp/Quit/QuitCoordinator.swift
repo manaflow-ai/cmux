@@ -103,6 +103,9 @@ final class QuitCoordinator {
                 // Remote-terminal tabs keep their last screen for the
                 // placeholder after relaunch (data-model.md 1.4).
                 await services.remoteTerminals.saveSnapshots()
+                // Browser tabs reopen at their recorded page (before any
+                // session ends, while the daemon still answers).
+                await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
