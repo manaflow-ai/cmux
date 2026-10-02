@@ -328,6 +328,73 @@ test("storage state: scoped to the current tab's site unless { all: true }", asy
   }
 });
 
+test("clearCookies: scoped to the current tab's site unless { all: true }", async () => {
+  const servers = await startFixtureServers();
+  const { primary, peer } = servers.origins;
+  try {
+    await withRepl(async ({ run, dir }) => {
+      const r = await run(`
+        const jar = async () => (await page.context().cookies()).map((c) => c.domain + " " + c.name).sort();
+        await page.goto("${primary}/set-cookie");
+        const other = await tabs.open("${peer}/set-cookie");
+        await page.context().addCookies([
+          { name: "a1", value: "1", url: "${primary}/" }, { name: "a2", value: "1", url: "${primary}/" },
+          { name: "b1", value: "1", url: "${peer}/" }, { name: "b2", value: "1", url: "${peer}/" },
+        ]);
+        const out = { start: await jar() };
+        await page.context().clearCookies({ name: "a1" });
+        out.byName = await jar();
+        await page.context().clearCookies({ name: /^(parity|b1)$/ });
+        out.byRegExp = await jar();
+        await other.context().clearCookies();
+        out.otherSite = await jar();
+        await page.context().clearCookies();
+        out.thisSite = await jar();
+        await page.context().addCookies([{ name: "a3", value: "1", url: "${primary}/" }, { name: "b3", value: "1", url: "${peer}/" }]);
+        await page.goto("about:blank");
+        try { await page.context().clearCookies(); } catch (e) { out.noSite = e.message; }
+        await page.context().clearCookies({ all: true });
+        out.all = await jar();
+        fs.writeFileSync("./clear.json", JSON.stringify(out));
+      `);
+      assert.equal(r.error, null);
+      const out = JSON.parse(fs.readFileSync(path.join(dir, "clear.json"), "utf8"));
+      const a = new URL(primary).hostname;
+      const b = new URL(peer).hostname;
+      const jar = (...names) => names.map(([host, name]) => `${host} ${name}`).sort();
+      assert.deepEqual(out.start, jar([a, "a1"], [a, "a2"], [a, "parity"], [b, "b1"], [b, "b2"], [b, "parity"]));
+      assert.deepEqual(out.byName, jar([a, "a2"], [a, "parity"], [b, "b1"], [b, "b2"], [b, "parity"]), "a name filter stays on the tab's site");
+      assert.deepEqual(out.byRegExp, jar([a, "a2"], [b, "b1"], [b, "b2"], [b, "parity"]), "a RegExp filter stays on the tab's site");
+      assert.deepEqual(out.otherSite, jar([a, "a2"]), "another tab clears its own site");
+      assert.deepEqual(out.thisSite, [], "no filter clears the tab's whole site");
+      assert.match(out.noSite, /clearCookies: .*\{ all: true \}/, "a tab with no site clears nothing");
+      assert.deepEqual(out.all, [], "{ all: true } clears every site");
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("cookies.clear: the dev driver never clears the whole profile without { all: true }", async () => {
+  const servers = await startFixtureServers();
+  const { primary, peer } = servers.origins;
+  const browser = await createDevBrowser();
+  try {
+    const driver = browser.driver();
+    await driver.call("cookies.set", { cookies: [{ name: "a", value: "1", url: `${primary}/` }, { name: "b", value: "1", url: `${peer}/` }] });
+    const names = async () => (await driver.call("cookies.get", {})).map((c) => c.name).sort();
+    await assert.rejects(driver.call("cookies.clear", {}), (e) => e.code === "invalid" && /\{ all: true \}/.test(e.message));
+    assert.deepEqual(await names(), ["a", "b"]);
+    await driver.call("cookies.clear", { site: new URL(peer).hostname });
+    assert.deepEqual(await names(), ["a"]);
+    await driver.call("cookies.clear", { all: true });
+    assert.deepEqual(await names(), []);
+  } finally {
+    await browser.close();
+    await servers.close();
+  }
+});
+
 test("storage state: registrable domains", () => {
   const d = T.registrableDomain;
   assert.equal(d("www.example.com"), "example.com");
