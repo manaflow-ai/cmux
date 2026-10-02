@@ -81,7 +81,9 @@ import Testing
         let format = try #require(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: false))
         var timeline = AnalyzerTimeline()
         let lead = timeline.leadIn(AVAudioPCMBuffer.noiseFloor(format, seconds: 1.5, pieces: 10))
-        #expect(lead.map { Self.seconds($0.bufferStartTime) } == (0..<10).map { Double($0) * 0.15 })
+        for (index, input) in lead.enumerated() {
+            #expect(CMTimeCompare(input.bufferStartTime ?? .invalid, CMTime(value: CMTimeValue(index * 2_400), timescale: 16_000)) == 0)
+        }
         let first = timeline.start(at: CMTime(value: 0, timescale: 16_000), frames: 1_600, sampleRate: 16_000)
         #expect(CMTimeCompare(first ?? .invalid, CMTime(value: 24_000, timescale: 16_000)) == 0)
         let next = timeline.start(at: CMTime(value: 1_600, timescale: 16_000), frames: 1_600, sampleRate: 16_000)
