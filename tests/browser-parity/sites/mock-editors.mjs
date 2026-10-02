@@ -205,22 +205,32 @@ function sheetEditor(file) {
     `<div id="docs-save-indicator-badge"><span id="save-badge">Saved to Drive</span></div><div id="waffle-grid-container"><input id="t-name-box" aria-label="Name Box" value="A1"><div class="cell-input" contenteditable="true" tabindex="0"></div></div>
 <script>
 let range = "A1";
+let cur = null;
+let buf = "";
 const box = document.getElementById("t-name-box");
 const cell = document.querySelector(".cell-input");
-box.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); range = box.value.toUpperCase(); cell.textContent = ""; cell.focus(); } });
-const saving = () => { const b = document.getElementById("save-badge"); b.textContent = "Saving…"; setTimeout(() => (b.textContent = "Saved to Drive"), 1000); };
-const write = (text) => { saving(); return post("cells", { range, tsv: text }); };
-// A real paste (the app) or typed text (the dev driver's paste) lands in the cell input.
-cell.addEventListener("paste", (e) => { e.preventDefault(); write(e.clipboardData.getData("text/plain")); });
-// The dev driver's paste arrives as typed text: collect it from beforeinput.
-let typed = "", timer = null;
-cell.addEventListener("beforeinput", (e) => {
-  if (e.inputType === "insertText") typed += e.data || "";
-  else if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") typed += "\\n";
-  else return;
+const ref = (r, c) => { let s = ""; for (c += 1; c > 0; c = Math.floor((c - 1) / 26)) s = String.fromCharCode(65 + ((c - 1) % 26)) + s; return s + (r + 1); };
+box.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
   e.preventDefault();
-  clearTimeout(timer);
-  timer = setTimeout(() => { const t = typed; typed = ""; write(t); }, 150);
+  range = box.value.toUpperCase();
+  const m = /^([A-Z]+)(\\d+)/.exec(range);
+  const c = [...m[1]].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+  cur = { r: Number(m[2]) - 1, c, start: c };
+  cell.textContent = "";
+  cell.focus();
+});
+const saving = () => { const b = document.getElementById("save-badge"); b.textContent = "Saving…"; setTimeout(() => (b.textContent = "Saved to Drive"), 1000); };
+const commit = () => { if (buf !== "" && cur) { saving(); post("cells", { range: ref(cur.r, cur.c), tsv: buf }); } buf = ""; };
+// As live: typed keys edit the cell; a whole string inserted at once
+// (Meta+V's paste or insertText in cmux) does not reach Sheets' cell editor.
+cell.addEventListener("beforeinput", (e) => {
+  e.preventDefault();
+  if (e.inputType === "insertText" && e.data && e.data.length === 1) buf += e.data;
+});
+cell.addEventListener("keydown", (e) => {
+  if (e.key === "Tab") { e.preventDefault(); commit(); cur.c++; }
+  else if (e.key === "Enter") { e.preventDefault(); commit(); cur.r++; cur.c = cur.start; }
 });
 cell.addEventListener("keydown", (e) => { if (e.key === "Delete" || e.key === "Backspace") { saving(); post("clear", { range }); } });
 </script>`,
