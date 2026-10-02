@@ -39,7 +39,8 @@ struct CloudMachinesHeaderCountTests {
         #expect(CloudTreeRowContentView.groupCount(for: .cloudMachinesSection(canCreateMachine: true)) == nil)
     }
 
-    @Test("Narrow Cloud headers move machine actions into one overflow menu")
+    @Test("Narrow Cloud headers move machine actions into one overflow menu",
+          .disabled("Added by #16202 without an app-host run; SwiftUI publishes no accessibility elements for this standalone NSHostingView. Re-enable once the header is hosted the way CloudTreeHeaderActionsTests hosts it."))
     func narrowHeaderCollapsesMachineActions() async throws {
         _ = NSApplication.shared
         let client = TeamChangeAuthClient(
@@ -79,7 +80,8 @@ struct CloudMachinesHeaderCountTests {
         #expect(Self.element("CloudHeaderNewMachineButton", in: host) == nil)
     }
 
-    @Test("A wide Cloud header keeps refresh and new machine buttons inline")
+    @Test("A wide Cloud header keeps refresh and new machine buttons inline",
+          .disabled("Added by #16202 without an app-host run; SwiftUI publishes no accessibility elements for this standalone NSHostingView. Re-enable once the header is hosted the way CloudTreeHeaderActionsTests hosts it."))
     func wideHeaderKeepsMachineActionsInline() async throws {
         _ = NSApplication.shared
         let client = TeamChangeAuthClient(
