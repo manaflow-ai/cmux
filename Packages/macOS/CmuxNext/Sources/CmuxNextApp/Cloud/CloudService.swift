@@ -119,7 +119,11 @@ final class CloudService {
             if let session = machines.session(machine.id) {
                 let wasLive = session.machine.status.isLive
                 session.machine = machine
-                if !wasLive, machine.status.isLive { session.connect() }
+                if wasLive, !machine.status.isLive {
+                    session.disconnect()
+                } else if !wasLive, machine.status.isLive {
+                    session.connect()
+                }
             } else {
                 addSession(machine)
             }
@@ -165,6 +169,18 @@ final class CloudService {
         try await api.deleteMachine(machineID)
         machines.remove(machineID)?.disconnect()
         logger.info("deleted machine \(machineID, privacy: .public)")
+    }
+
+    func pauseMachine(_ machineID: String) async throws {
+        try await api.pauseMachine(machineID)
+        await refresh()
+        logger.info("paused machine \(machineID, privacy: .public)")
+    }
+
+    func resumeMachine(_ machineID: String) async throws {
+        try await api.resumeMachine(machineID)
+        await refresh()
+        logger.info("resumed machine \(machineID, privacy: .public)")
     }
 
     func renameMachine(_ machineID: String, to name: String) async throws {
