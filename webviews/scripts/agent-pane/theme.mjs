@@ -4,6 +4,8 @@
 // Sources/CmuxNextAgentPane/AgentPaneTheme.swift: the harness must color the
 // pane as the app does.
 
+import fs from "node:fs";
+
 const rgb = (hex, alpha = 1) => ({
   r: ((hex >> 16) & 255) / 255,
   g: ((hex >> 8) & 255) / 255,
@@ -21,6 +23,20 @@ export const ghosttyDefault = {
   ].map((hex) => rgb(hex)),
   backgroundOpacity: 1,
 };
+
+/// A theme from Ghostty's theme files (Resources/ghostty/themes/<name>), read as Ghostty
+/// reads `palette = N=#rrggbb`, `background` and `foreground`. Missing entries keep the default's.
+export function ghosttyThemeFile(file) {
+  const theme = { ...ghosttyDefault, palette: [...ghosttyDefault.palette] };
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    const match = /^\s*(palette|background|foreground)\s*=\s*(?:(\d+)=)?#?([0-9a-fA-F]{6})\s*$/.exec(line);
+    if (!match) continue;
+    const color = rgb(parseInt(match[3], 16));
+    if (match[1] === "palette") theme.palette[Number(match[2])] = color;
+    else theme[match[1]] = color;
+  }
+  return theme;
+}
 
 const luminance = ({ r, g, b }) => {
   const linear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -79,6 +95,7 @@ export function themeTokens(input) {
     paneBorder: withAlpha(fg, isDark ? 0.07 : 0.09),
     shadow: mixed(bg, black, 0.85),
     danger: readable(palette[1], bg, 3),
+    attention: readable(palette[3], bg, 3),
   };
 }
 
@@ -105,6 +122,12 @@ export function agentPaneTheme(input) {
     // Labels on the accent: the page background, opaque so a translucent backdrop doesn't thin them.
     accentText: css(withAlpha(page, 1)),
     danger: css(t.danger),
+    warning: css(t.attention),
     shadow: css(t.shadow),
+    // The terminal's ANSI colors in order, for syntax colors that follow the theme.
+    // Each lifted to text contrast over the code card (the elevated surface).
+    palette: (input.palette.length >= 8 ? input.palette : ghosttyDefault.palette)
+      .slice(0, 16)
+      .map((color) => css(readable(color, t.elevatedBackground, 4.5))),
   };
 }

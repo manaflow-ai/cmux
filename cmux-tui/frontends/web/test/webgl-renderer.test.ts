@@ -1,5 +1,5 @@
 import type { ITerminalAddon } from "@xterm/xterm";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { retagWebglDisplayP3, tryLoadWebglRenderer } from "../src/lib/webglRenderer";
 
 vi.mock("@xterm/addon-webgl", () => ({
