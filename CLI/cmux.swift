@@ -31806,7 +31806,7 @@ struct CMUXCLI {
         var publishedUserInputCallIds = Set<String>()
         // Arm before every read. A write that lands after the read must wake
         // the wait below, not wait for the 30 second backstop.
-        let transcriptChanges = CodexTranscriptChangeWatcher(transcriptPath: transcriptPath, leasePath: leasePath)
+        let transcriptChanges = CodexTranscriptChangeWatcher()
         while Date() < deadline {
             if transcriptPath == nil {
                 transcriptPath = findCodexTranscriptPath(sessionId: sessionId, env: env)
