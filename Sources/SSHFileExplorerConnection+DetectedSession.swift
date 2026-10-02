@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 struct SSHFileExplorerConnection: Equatable, Sendable {
