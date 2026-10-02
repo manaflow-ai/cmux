@@ -5,7 +5,11 @@
 //!   identify, set client metadata, load `session.snapshot`, follow
 //!   `session.events`, reconnect with backoff.
 //! - [`Mirror`]: a read-only copy of the session tree with typed deltas.
-//! - [`attach`]: the seam terminal byte attachment will plug into (stage 2).
+//! - [`attach`]: the terminal byte attachment seam; [`DaemonAttacher`]
+//!   implements it on protocol-12 byte mode (`cmux::raw::ByteAttachment`),
+//!   one reader thread per attached view.
+//! - [`reattach`]: reconnect after an attachment ended ([`MirrorWatch`]
+//!   resolves the terminal's generation after a daemon restart).
 //!
 //! No async runtime, GPUI or CEF: plain owned Rust types, so other frontends
 //! (and a later C ABI) can reuse it.
@@ -33,19 +37,30 @@
 //! ensure` has `ensure_timeout`). The event stream itself waits without a
 //! deadline: it is event-driven, not polled, and ends when the daemon closes
 //! the socket or `stop` cancels it.
+//!
+//! Attachments have their own thread contract (see [`attach`]): one reader
+//! thread per attachment calls its sink; the attachment itself is
+//! `Send + Sync` and never reads.
 
 pub mod attach;
 pub mod client;
+mod daemon_attach;
 pub mod launcher;
 pub mod mirror;
+pub mod reattach;
 
 #[cfg(test)]
 mod fixture;
 #[cfg(test)]
 mod mirror_tests;
 
+pub use attach::{
+    AttachEnd, AttachError, AttachRequest, TerminalAttacher, TerminalAttachment, TerminalByteSink,
+};
 pub use client::{ConnectionInfo, DEFAULT_SESSION, DaemonClient, DaemonConfig, DaemonEvent};
 /// The cmux Rust SDK this crate is built on (re-exported so callers use the
 /// same IDs and snapshot types).
 pub use cmux;
+pub use daemon_attach::{DaemonAttacher, DaemonAttachment};
 pub use mirror::{Applied, Change, Mirror, MirrorChange, MirrorError};
+pub use reattach::{GenerationWait, MirrorWatch, reattach};

@@ -3,6 +3,7 @@ import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
+import { handleSsoDiscover } from "./sso-discover.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
 export { DomainDO } from "./domain-do.ts"
@@ -45,6 +46,7 @@ export default {
     // Webhook ingress: no bearer; each route verifies its own signature before any DO call.
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)
+    if (url.pathname === "/v1/sso/discover") return handleSsoDiscover(request, env)
     const providerHook = url.pathname.match(/^\/v1\/hooks\/(github|slack|linear)$/)
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)

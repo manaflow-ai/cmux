@@ -70,6 +70,53 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
+  [
+    "domain.rechecked",
+    {
+      name: "domain.rechecked",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team",
+      principals: ["system"],
+      params: Schema.Struct({ domain: Schema.String, record_value: Schema.String, ok: Schema.Boolean, at: Schema.Number }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: one weekly DNS re-check of a verified domain.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  ...(["sso.connection.secret_set", "sso.connection.activated"] as const).map(
+    (name) =>
+      [
+        name,
+        {
+          name,
+          owner: "cloud:TeamDO",
+          class: "mutation",
+          risk: "mutate-shared",
+          target: "team",
+          principals: ["system"],
+          params:
+            name === "sso.connection.secret_set"
+              ? Schema.Struct({ connection: Schema.String, generation: Schema.Number, by: Schema.optionalKey(Schema.String) })
+              : Schema.Struct({
+                  connection: Schema.String,
+                  authorization_endpoint: Schema.String,
+                  token_endpoint: Schema.String,
+                  jwks_uri: Schema.String,
+                  by: Schema.optionalKey(Schema.String),
+                  expected_updated_at: Schema.Number
+                }),
+          result: Schema.Unknown,
+          errors: [],
+          docs: name === "sso.connection.secret_set" ? "Internal: the connection's client secret was sealed (never in params)." : "Internal: discovery succeeded; the connection is active.",
+          cli: { path: "", visible: false },
+          mcp: { expose: "never", group: "internal" }
+        } as CloudOpDef
+      ] as const
+  ),
   ...(["domain.mark_verified", "domain.mark_released", "domain.mark_lost"] as const).map(
     (name) =>
       [
