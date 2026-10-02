@@ -6,14 +6,14 @@ import Testing
 /// borders at all anywhere in app." One switch, `appearance.borders`.
 @Suite struct BorderPolicyTests {
     @Test func defaultKeepsEveryLine() {
-        let policy = BorderPolicy(mode: .default)
+        let policy = Borders(mode: .default)
         #expect(policy.drawsLines)
         #expect(policy.width(1) == 1)
         #expect(policy.color(.red) == .red)
     }
 
     @Test func noneRemovesEveryLine() {
-        let policy = BorderPolicy(mode: .none)
+        let policy = Borders(mode: .none)
         #expect(!policy.drawsLines)
         #expect(policy.width(1) == 0)
         #expect(policy.width(3) == 0)

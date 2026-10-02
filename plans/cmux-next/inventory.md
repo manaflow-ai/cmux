@@ -168,7 +168,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | (more menu) | Screenshot Page/Section, Browser Theme, New/Rename Profile | — | C | BrowserPanelView:1567 |
 | saveFilePreview / toggleFileEditorWordWrap | Save File / Word Wrap | ⌘S / ⌥Z | K(M) | KSS:201 |
 | (file preview) | Open With ▸, Open Externally, Reveal in Finder | — | C | FilePreviewPanel:131 |
-| openDiffViewer / palette.openDirectoryDiffViewer | Diff Viewer / Directory Diff | ⌃⇧⌘D | PK | KSS:223 |
+| openDiffViewer / palette.openDirectoryDiffViewer | Diff Viewer / Directory Diff | ⌃⇧⌘G (was ⌃⇧⌘D; that is New Row now) | PK | KSS:223 |
 | diffViewer* (11) | j/k, ⌃D/⌃U, ⌃N/⌃P, G/gg, /, ]f/[f | vim-style | K | KSS:224-233 |
 | palette.vscodeServeWebStop / Restart | VS Code Inline Server | — | P | CV:8356 |
 

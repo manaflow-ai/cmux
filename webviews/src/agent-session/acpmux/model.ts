@@ -197,8 +197,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     }
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
-  // The 27px disclosure line.
-  if (row.kind === WORKED) return 35;
+  // The 27px disclosure line, and the live status lines in its place.
+  if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
@@ -387,7 +387,7 @@ export function visibleLayoutRange(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
-import { isFoldedCopy, WORKED } from "./conversation/turns";
+import { isFoldedCopy, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 

@@ -2342,7 +2342,7 @@
     {
       "cli" : "offered",
       "cli_name" : "tab new-webkit",
-      "context_menu" : "experimental",
+      "context_menu" : "secondaryEngine",
       "context_menus" : [
 
       ],
@@ -2360,7 +2360,7 @@
       ],
       "id" : "openBrowser.chromium",
       "mcp" : "offered",
-      "palette" : "offered"
+      "palette" : "duplicateOfDefault"
     },
     {
       "cli" : "offered",
@@ -4052,9 +4052,9 @@
     {
       "cli" : "offered",
       "cli_name" : "browser open-in-webkit",
-      "context_menu" : "offered",
+      "context_menu" : "secondaryEngine",
       "context_menus" : [
-        "tab"
+
       ],
       "id" : "browser.openInWebKit",
       "mcp" : "offered",
