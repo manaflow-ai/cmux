@@ -36,7 +36,7 @@ struct MiscActionBindingCoverageTests {
         let unported: [ActionID: String] = ["palette.mobileConnect": CloudStrings.mobilePairing]
         for (id, reason) in unported { #expect(reasons[id]! == reason) }
         for id: ActionID in ["newCloudMachine", "cloudKillMachine", "cloudPauseMachine", "cloudResumeMachine", "palette.cloud.deleteSnapshot", "palette.cloud.status", "palette.cloud.tools", "palette.cloud.handoff",
-                             "palette.cloud.promoteTemplate"] {
+                             "palette.cloud.promoteTemplate", "cloudSSH", "cloudExec"] {
             #expect([CloudStrings.noClient, CloudStrings.signInFirst, CloudStrings.localBackend].contains(reasons[id]!))
         }
     }
@@ -51,6 +51,14 @@ struct MiscActionBindingCoverageTests {
         let services = ActionBindingCoverageTests.boundServices()
         #expect(ActionBindingCoverageTests.run(services, "splitBrowserRight") == .refused("needs daemon capability frontend-browser-tabs-v1"))
         #expect(ActionBindingCoverageTests.run(services, "markAllNotificationsRead") == .refused("needs daemon capability notification-ack-v1"))
+    }
+
+    @Test func cloudExecRequiresAndTrimsItsCommand() throws {
+        let invocation = ActionInvocation(arguments: ["command": .string("  uname -a  ")])
+        #expect(try CloudHandlers.commandArgument(invocation) == "uname -a")
+        #expect(throws: ActionFailure.self) {
+            try CloudHandlers.commandArgument(ActionInvocation(arguments: ["command": .string("  ")]))
+        }
     }
 
     @Test func handlersRefuseWithoutATarget() {
@@ -73,5 +81,13 @@ struct MiscActionBindingCoverageTests {
         #expect(descriptor.surfacePlan.cli == .exempt(.guiOnly))
         #expect(descriptor.surfacePlan.contextMenu == .exempt(.guiOnly))
         #expect(ActionBindingCoverageTests.boundServices().registry.isBound("agentPane.continueIn"))
+    }
+    @Test func checkpointReviewNeedsTheFocusedPagesCapability() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let id: ActionID = "agentPane.createCheckpoint"
+        #expect(services.registry.isBound(id))
+        #expect(!services.registry.isAvailable(id, in: [.agentPaneFocused]))
+        #expect(!services.registry.isAvailable(id, in: [.checkpointCaptureAvailable]))
+        #expect(services.registry.isAvailable(id, in: [.agentPaneFocused, .checkpointCaptureAvailable]))
     }
 }

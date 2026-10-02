@@ -6,6 +6,7 @@ nonisolated enum SettingsWindowStrings {
     static var windowTitle: String { text("settingsWindow.title", "Settings") }
     static var searchPlaceholder: String { text("settingsWindow.search", "Search") }
     static var noResults: String { text("settingsWindow.noResults", "No settings match.") }
+    static var showSetting: String { text("settingsWindow.showSetting", "Go to Setting") }
     static var reset: String { text("settingsWindow.reset", "Reset") }
     static var managedByOrganization: String { text("settingsWindow.managed.device", "Managed by your organization") }
     static func managedByTeam(_ team: String) -> String { format("settingsWindow.managed.team", "Managed by %@", team) }
@@ -29,7 +30,10 @@ nonisolated enum SettingsWindowStrings {
     static func themeUse(_ spec: String) -> String { format("settingsWindow.themeUse", "Use “%@”", spec) }
     static var themePickerTitle: String { text("settingsWindow.themePicker", "Themes") }
     static var themeBody: String { text("settingsWindow.themeBody", "Colors come from your Ghostty theme and follow it live.") }
-    static var terminalBody: String { text("settingsWindow.terminalBody", "Fonts, colors, cursor and keybinds are Ghostty settings.") }
+    static var terminalBody: String {
+        text("settingsWindow.terminalBody.options", "Cursor, keybinds and other terminal options are Ghostty settings.")
+    }
+    static var moreThemes: String { text("settingsWindow.moreThemes", "More Themes") }
     static var ghosttyConfig: String { text("settingsWindow.ghosttyConfig", "Ghostty Config") }
     static var shellIntegration: String { text("settingsWindow.shellIntegration", "Shell Integration") }
     static var shellIntegrationUnknown: String { text("settingsWindow.shellIntegrationUnknown", "Set by the Ghostty config") }

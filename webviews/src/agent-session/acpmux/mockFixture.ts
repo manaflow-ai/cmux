@@ -37,14 +37,34 @@ export type SeedStep = ({ update: Update } | { mux: string; msg?: Record<string,
 
 export const LOCAL_HOST = "This Mac";
 
+/// Wide enough that the model picker's layers (provider, family, model) have something to show.
 export const claudeModels = [
   { id: "claude-opus-5-5", name: "Opus 5.5" },
   { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
   { id: "claude-haiku-4-5", name: "Haiku 4.5" },
+  { id: "claude-fable-1-5", name: "Fable 1.5" },
+  { id: "claude-opus-5", name: "Opus 5" },
+  { id: "claude-opus-4-6", name: "Opus 4.6" },
+  { id: "claude-opus-4-1", name: "Opus 4.1" },
+  { id: "claude-sonnet-5", name: "Sonnet 5" },
+  { id: "claude-sonnet-4-6", name: "Sonnet 4.6" },
+  { id: "claude-haiku-4", name: "Haiku 4" },
+  { id: "claude-fable-1", name: "Fable 1" },
 ];
+/// Codex's own series plus the open-weight models it runs through a local provider.
 export const codexModels = [
   { id: "gpt-6-astra", name: "GPT-6-Astra" },
   { id: "gpt-6-mini", name: "GPT-6 mini" },
+  { id: "gpt-6-nano", name: "GPT-6 nano" },
+  { id: "gpt-5.5-codex", name: "GPT-5.5-Codex" },
+  { id: "gpt-5.5", name: "GPT-5.5" },
+  { id: "gpt-5-mini", name: "GPT-5 mini" },
+  { id: "o4-mini", name: "o4-mini" },
+  { id: "o3", name: "o3" },
+  { id: "gpt-oss-120b", name: "gpt-oss-120b" },
+  { id: "gpt-oss-20b", name: "gpt-oss-20b" },
+  { id: "qwen3-coder", name: "Qwen3 Coder" },
+  { id: "devstral-2", name: "Devstral 2" },
 ];
 
 const claudeModes = {
@@ -374,14 +394,20 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
   };
 }
 
-/// A new chat in `cwd`: no turns yet.
-export function newSessionSummary(sessionId: string, cwd: string, now: number): Record<string, unknown> {
+/// A new chat in `cwd` on `harness` (Claude Code unless asked): no turns yet.
+export function newSessionSummary(
+  sessionId: string,
+  cwd: string,
+  now: number,
+  harness: MockSession["harness"] = "claude",
+): Record<string, unknown> {
+  const codex = harness === "codex";
   return {
     sessionId,
     title: "New chat",
-    name: "claude",
-    harness: "claude",
-    model: claudeModels[0]!.id,
+    name: harness,
+    harness,
+    model: (codex ? codexModels : claudeModels)[0]!.id,
     status: "idle",
     cwd,
     host: LOCAL_HOST,
@@ -389,8 +415,8 @@ export function newSessionSummary(sessionId: string, cwd: string, now: number): 
     branch: "main",
     updatedAt: now,
     turnCount: 0,
-    modes: claudeModes,
-    configOptions: effort("medium"),
+    modes: codex ? codexModes : claudeModes,
+    configOptions: effort(codex ? "high" : "medium"),
   };
 }
 

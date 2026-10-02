@@ -87,7 +87,7 @@ rust-file	cmux-tui/crates/cmux-tui/src/agent_hook_install.rs	3937	139
 rust-file	cmux-tui/crates/cmux-tui/src/app.rs	47141	1576
 rust-file	cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs	1139	54
 rust-file	cmux-tui/crates/cmux-tui/src/browser_input.rs	2025	101
-rust-file	cmux-tui/crates/cmux-tui/src/cli.rs	1069	39
+rust-file	cmux-tui/crates/cmux-tui/src/cli.rs	1067	39
 rust-file	cmux-tui/crates/cmux-tui/src/cli/command.rs	5305	151
 rust-file	cmux-tui/crates/cmux-tui/src/cli/wire.rs	1099	54
 rust-file	cmux-tui/crates/cmux-tui/src/config.rs	9939	338
@@ -115,7 +115,7 @@ rust-file	cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs	5630	114
 rust-file	cmux-tui/crates/cmux-wg/src/net.rs	1021	37
 rust-file	cmux-tui/crates/ghostty-vt/src/kitty.rs	1368	64
 rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	5941	287
-swift-type	CmuxNextApp/WindowManager	1163	0
+swift-type	CmuxNextApp/WindowManager	1162	0
 swift-type	CmuxNextDaemon/DaemonConnection	1481	0
 swift-type	CmuxNextTabs/TabStripView	2137	0
 swift-type	CmuxNextTerminal/TerminalSurfaceView	1118	0

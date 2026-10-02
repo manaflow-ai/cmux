@@ -65,7 +65,7 @@ public struct CloudPaths: Sendable {
     }
 
     /// `mac-<uuid>`, created once per installation.
-    func loadOrCreateDeviceID() throws -> String {
+    public func loadOrCreateDeviceID() throws -> String {
         if let text = try? String(contentsOf: deviceIDFile, encoding: .utf8) {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return trimmed }

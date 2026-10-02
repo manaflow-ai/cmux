@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b.
+// cmux-tui mux protocol 12, IR 4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -498,6 +498,16 @@ pub type ConversationOpResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSearchRequest {
+    pub limit: u32,
+    pub query: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationSearchResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationSnapshotRequest {
     pub conversation: String,
     pub tail: u32,
@@ -912,6 +922,15 @@ pub type GetBrowserProviderResult = T::BrowserProviderSnapshot;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GetCellPixelsRequest {
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetFrontendBrowserHistoryRequest {
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type GetFrontendBrowserHistoryResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2132,6 +2151,16 @@ pub type SetDefaultColorsResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetFrontendBrowserHistoryRequest {
+    pub history: Nullable<T::JsonValue>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type SetFrontendBrowserHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetPersonalTerminalRequest {
     pub session_id: String,
     pub terminal_key: String,
@@ -2901,6 +2930,10 @@ impl CmuxClient {
         self.execute(&CONVERSATION_OP_METADATA, &request)
     }
 
+    pub fn conversation_search(&mut self, request: ConversationSearchRequest) -> Result<ConversationSearchResult> {
+        self.execute(&CONVERSATION_SEARCH_METADATA, &request)
+    }
+
     pub fn conversation_snapshot(&mut self, request: ConversationSnapshotRequest) -> Result<ConversationSnapshotResult> {
         self.execute(&CONVERSATION_SNAPSHOT_METADATA, &request)
     }
@@ -3041,6 +3074,10 @@ impl CmuxClient {
 
     pub fn get_cell_pixels(&mut self, request: GetCellPixelsRequest) -> Result<T::GetCellPixelsResult> {
         self.execute(&GET_CELL_PIXELS_METADATA, &request)
+    }
+
+    pub fn get_frontend_browser_history(&mut self, request: GetFrontendBrowserHistoryRequest) -> Result<GetFrontendBrowserHistoryResult> {
+        self.execute(&GET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
     }
 
     pub fn get_frontend_projection(&mut self, request: GetFrontendProjectionRequest) -> Result<GetFrontendProjectionResult> {
@@ -3584,6 +3621,10 @@ impl CmuxClient {
             self.require_protocol_field("set-default-colors", 9)?;
         }
         self.execute(&SET_DEFAULT_COLORS_METADATA, &request)
+    }
+
+    pub fn set_frontend_browser_history(&mut self, request: SetFrontendBrowserHistoryRequest) -> Result<SetFrontendBrowserHistoryResult> {
+        self.execute(&SET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
     }
 
     pub fn set_personal_terminal(&mut self, request: SetPersonalTerminalRequest) -> Result<SetPersonalTerminalResult> {

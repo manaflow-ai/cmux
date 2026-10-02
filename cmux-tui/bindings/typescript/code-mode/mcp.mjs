@@ -9,6 +9,19 @@ const bundledCatalog = join(bundledRoot, "code-mode/resource-operations-v2.json"
 const root = await Bun.file(sourceCatalog).exists() ? sourceRoot : bundledRoot;
 const catalogPath = root === sourceRoot ? sourceCatalog : bundledCatalog;
 const catalog = await Bun.file(catalogPath).json();
+const sourceCloudCatalogPath = join(sourceRoot, "backend/catalog/cloud-operations.json");
+const bundledCloudCatalogPath = join(bundledRoot, "cloud-operations.json");
+const cloudCatalogPath = await Bun.file(sourceCloudCatalogPath).exists() ? sourceCloudCatalogPath : bundledCloudCatalogPath;
+const cloudCatalog = await Bun.file(cloudCatalogPath).exists() ? await Bun.file(cloudCatalogPath).json() : { operations: {} };
+const sourceRelayCatalogPath = join(sourceRoot, "backend/catalog/cloud-relay-operations.json");
+const bundledRelayCatalogPath = join(bundledRoot, "cloud-relay-operations.json");
+const relayCatalogPath = await Bun.file(sourceRelayCatalogPath).exists() ? sourceRelayCatalogPath : bundledRelayCatalogPath;
+const relayCatalog = await Bun.file(relayCatalogPath).exists() ? await Bun.file(relayCatalogPath).json() : { operations: {} };
+const allCatalogOperations = {
+  ...relayCatalog.operations,
+  ...catalog.operations,
+  ...cloudCatalog.operations,
+};
 const runner = root === sourceRoot
   ? join(root, "scripts/cmux-next/cmux-code-mode-runner")
   : join(root, "bin/cmux-code-mode-runner");
@@ -45,7 +58,7 @@ const tools = [
 
 function docs(query) {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const results = Object.entries(catalog.operations)
+  const results = Object.entries(allCatalogOperations)
     .filter(([name, descriptor]) => {
       const haystack = JSON.stringify([name, descriptor]).toLowerCase();
       return terms.every((term) => haystack.includes(term));

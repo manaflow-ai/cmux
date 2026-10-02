@@ -8574,11 +8574,14 @@ struct CMUXCLI {
         )
         defer { client.close() }
 
-        let response = try client.sendV2(method: "workspace.create", params: ["cwd": directory])
+        // Same focus rule as `cmux open <dir>`: shown and activated only
+        // when a person runs it (`defaultFocusForUserOpen`).
+        let focus = Self.defaultFocusForUserOpen()
+        let response = try client.sendV2(method: "workspace.create", params: ["cwd": directory, "focus": focus, "activate": focus])
         let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
         let okText = String(localized: "common.ok", defaultValue: "OK", bundle: .cmuxCLI)
         print(wsRef.isEmpty ? okText : "\(okText) \(wsRef)")
-        try activateApp()
+        if focus { try activateApp() }
     }
 
     private func directoryForPathOpen(_ path: String) throws -> String {

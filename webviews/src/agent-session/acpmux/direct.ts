@@ -20,6 +20,8 @@ export type AcpmuxHostConfig = {
   cwd?: string;
   /** Text the composer starts with. Shown, never sent by itself. */
   draft?: string;
+  /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
+  prompt?: string;
 };
 
 /** `session/new` params: the host's cwd when it gave one, else acpmux's default. */
@@ -36,7 +38,7 @@ export type EventRecord = {
   msg: Record<string, any>;
 };
 type Session = Record<string, any> & { sessionId: string };
-type Reply = { id: number; result?: any; error?: { message?: string; data?: unknown } };
+type Reply = { id: number; result?: any; error?: { message?: string; code?: unknown; data?: unknown } };
 type Notification = { method: string; params?: any };
 type Listener = (snapshot: AcpmuxSnapshot) => void;
 
@@ -415,7 +417,13 @@ export class AcpmuxDirectClient {
       if (!request) return;
       this.pending.delete(message.id);
       if (request.timer) clearTimeout(request.timer);
-      if (message.error) request.reject(new AcpmuxRpcError(message.error));
+      // The failure's code (`validation.invalid`, ...) rides along for callers that tell failures apart.
+      if (message.error)
+        request.reject(
+          Object.assign(new AcpmuxRpcError(message.error), {
+            code: (message.error.data as { code?: unknown } | undefined)?.code ?? message.error.code,
+          }),
+        );
       else request.resolve(message.result);
       return;
     }
@@ -527,9 +535,24 @@ export class AcpmuxDirectClient {
     );
   }
 
+  /// Whether the user trusts `cwd` (folderTrust.ts).
+  trustGet(cwd: string): Promise<unknown> {
+    return this.request("acp.trust.get", { cwd });
+  }
+
+  /// Records the user's trust in `cwd` in acpmux's own record, never the agents' config files (folderTrust.ts).
+  trustSet(cwd: string, level: string): Promise<unknown> {
+    return this.request("acp.trust.set", { cwd, level });
+  }
+
+  /// Files under `path` whose path matches `query`, best first (fileSearchModel.ts).
+  fileSearch(path: string | undefined, query: string, limit: number): Promise<unknown> {
+    return this.request("file.search", { ...(path ? { path } : {}), query, limit });
+  }
+
   /// The selected session's repository changes in one git scope (changes/model.ts).
-  gitScopeDiff(scope: string): Promise<unknown> {
-    return this.request("git.scope.diff", { sessionId: this.selectedSessionId, scope });
+  gitDiff(scope: string): Promise<unknown> {
+    return this.request("git.diff", { sessionId: this.selectedSessionId, scope, include_patch: true });
   }
 
   /// The selected session's branch, upstream and how far it is ahead and behind.
@@ -929,8 +952,13 @@ export class AcpmuxDirectClient {
   snapshot(): void {
     this.emit();
   }
+  /** A `session/new` in flight, so a Send during the first prompt's start joins it. */
+  private creating?: Promise<string | undefined>;
   async ensureSession(): Promise<string | undefined> {
-    if (!this.selectedSessionId) await this.create();
+    if (!this.selectedSessionId) {
+      this.creating ??= this.create().finally(() => (this.creating = undefined));
+      await this.creating;
+    }
     return this.selectedSessionId;
   }
   async send(text: string): Promise<string | undefined> {

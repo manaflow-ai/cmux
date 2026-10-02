@@ -838,13 +838,17 @@ describe("acpmux host handshake", () => {
         },
       },
     };
-    // The picker lists its models while open; open it once it exists and read the menu.
+    // The picker lists its models while open: open it once it exists, type "m" to list every
+    // model (ids m1, m2), and read the matches.
     const models = () => {
-      const button = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
+      const doc = dom.window.document;
+      const button = doc.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
       if (button && button.getAttribute("aria-expanded") !== "true") button.click();
-      return [...dom.window.document.querySelectorAll(".acpmux-model [role=option]")].map((option) =>
-        option.getAttribute("data-value"),
-      );
+      if (button && doc.querySelector(".acpmux-mp .acpmux-menu-search")?.textContent !== "m")
+        button.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }));
+      return [...doc.querySelectorAll('.acpmux-mp [data-key^="model:"]')]
+        .map((row) => row.getAttribute("data-key")!.slice("model:".length))
+        .sort();
     };
     const waitFor = async (done: () => boolean) => {
       for (let tries = 0; tries < 100 && !done(); tries += 1)
@@ -862,6 +866,84 @@ describe("acpmux host handshake", () => {
       await act(async () => CatalogSocket.held.splice(0).forEach((reply) => reply()));
       await waitFor(() => models().length === 2);
       expect(models()).toEqual(["m1", "m2"]);
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+      FakeSocket.made = [];
+    }
+  });
+
+  /// Onboarding's first task: the handshake's prompt starts the chat in its cwd without a Send press,
+  /// and the composer stays empty. Swift hands the prompt out once, so it survives a first connect
+  /// that fails (a daemon still starting) and is sent after the retry.
+  test("a seeded prompt creates the chat in its cwd and sends once, even after a failed connect", async () => {
+    const sent: { method: string; params: Record<string, unknown> }[] = [];
+    let readies = 0;
+    class PromptSocket extends FakeSocket {
+      constructor(url: URL) {
+        super(url);
+        // The first daemon connect fails before it opens.
+        if (FakeSocket.made.length === 1) {
+          Object.defineProperty(this, "onopen", { get: () => undefined, set: () => undefined });
+          queueMicrotask(() => this.onerror?.());
+        }
+      }
+      override send(raw: string) {
+        const { id, method, params } = JSON.parse(raw) as {
+          id: number;
+          method: string;
+          params: Record<string, unknown>;
+        };
+        sent.push({ method, params });
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [] }
+            : method === "session/new"
+              ? { sessionId: "s-new" }
+              : method === "_acpmux/attach"
+                ? { session: { sessionId: "s-new", harness: "codex" }, events: [] }
+                : {};
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = PromptSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string }) {
+            if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            readies += 1;
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                newSession: true,
+                cwd: "/tmp/first-task",
+                ...(readies === 1 ? { prompt: "Leave a note on my Desktop" } : {}),
+              },
+            });
+          },
+        },
+      },
+    };
+    const prompts = () => sent.filter((message) => message.method === "session/prompt");
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      for (let tries = 0; tries < 100 && prompts().length === 0; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(readies).toBe(2);
+      expect(sent.find((message) => message.method === "session/new")?.params.cwd).toBe("/tmp/first-task");
+      expect(prompts().map((message) => message.params.sessionId)).toEqual(["s-new"]);
+      expect(prompts()[0]!.params.prompt).toEqual([{ type: "text", text: "Leave a note on my Desktop" }]);
+      expect(dom.window.document.querySelector("textarea")?.value ?? "").toBe("");
     } finally {
       await act(async () => root.unmount());
       globals.WebSocket = realSocket;
@@ -1402,7 +1484,7 @@ describe("acpmux turn diff", () => {
       () => Promise.resolve({ scope: "staged", files: [] }),
     ];
     host.cmuxAcpmuxActions = {
-      "git.scope.diff": (params) => {
+      "git.diff": (params) => {
         asked.push(params);
         return answers.shift()!();
       },
@@ -1490,7 +1572,7 @@ describe("acpmux turn diff", () => {
       expect(document.activeElement).toBe(items()[0]);
       // A scope that fails to load says so and offers Retry; Retry asks again and shows its files.
       await click(items()[1]!);
-      expect(asked).toEqual([{ scope: "uncommitted" }]);
+      expect(asked).toEqual([{ scope: "uncommitted", include_patch: true }]);
       expect(items()).toEqual([]);
       expect(document.activeElement).toBe(pill);
       expect(pill.querySelector("strong")?.textContent).toBe("Uncommitted");
@@ -1505,7 +1587,10 @@ describe("acpmux turn diff", () => {
       retryButton.focus();
       expect(document.activeElement).toBe(retryButton);
       await click(retryButton);
-      expect(asked).toEqual([{ scope: "uncommitted" }, { scope: "uncommitted" }]);
+      expect(asked).toEqual([
+        { scope: "uncommitted", include_patch: true },
+        { scope: "uncommitted", include_patch: true },
+      ]);
       // Retry leaves as the load starts; focus moves to the scope pill, not the page.
       expect(document.activeElement).toBe(pill);
       expect(panel.querySelector('[role="alert"]')).toBeNull();
@@ -1532,7 +1617,7 @@ describe("acpmux turn diff", () => {
       expect(document.activeElement?.textContent).toBe("Staged");
       await key(document.activeElement!, "Enter");
       await settle();
-      expect(asked.at(-1)).toEqual({ scope: "staged" });
+      expect(asked.at(-1)).toEqual({ scope: "staged", include_patch: true });
       expect(asked.length).toBe(4);
       expect(panel.querySelector("output strong")?.textContent).toBe("No changes");
       // Last turn is the transcript's own files again, without asking the host.
