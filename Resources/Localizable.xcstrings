@@ -301266,6 +301266,482 @@
         }
       }
     },
+    "settings.app.reorderOnNotification.mode.agentActivity": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نشاط الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivnost agenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentaktivitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenaktivität"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Activity"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actividad de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activité des agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attività degli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのアクティビティ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 활동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentaktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktywność agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atividade dos agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активность агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กิจกรรมของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan etkinliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активність агентів"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理活动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理活動"
+          }
+        }
+      }
+    },
+    "settings.app.reorderOnNotification.mode.notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإشعارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifikationer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur notification"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiadomienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уведомления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirimler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сповіщення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        }
+      }
+    },
+    "settings.app.reorderOnNotification.mode.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "settings.app.reorderOnNotification.modeSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينقل مساحات العمل إلى الأعلى عندما تتلقى إشعارًا. مع نشاط الوكيل، ينقلها أيضًا عندما ترسل مطالبة أو ينهي وكيل دورة أو يحتاج إلى إدخال أو يفشل، لكن ليس أبدًا أثناء وجود المؤشر فوق الشريط الجانبي. الإيقاف يحافظ على ثبات مواضع الاختصارات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomjera radne prostore na vrh kada prime obavještenje. Aktivnost agenata ih pomjera i kada pošaljete upit ili agent završi potez, treba unos ili ne uspije, ali nikad dok je pokazivač iznad bočne trake. Isključeno čuva stabilne pozicije prečica."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytter arbejdsområder til toppen, når de modtager en notifikation. Agentaktivitet flytter dem også, når du sender en prompt eller en agent afslutter en tur, har brug for input eller fejler, men aldrig mens markøren er over sidepanelet. Fra holder genvejspositionerne stabile."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verschiebt Workspaces nach oben, wenn sie eine Benachrichtigung erhalten. Mit Agentenaktivität auch dann, wenn Sie einen Prompt senden oder ein Agent einen Durchlauf beendet, eine Eingabe braucht oder fehlschlägt, aber nie, während der Zeiger über der Seitenleiste ist. Aus hält die Positionen der Tastenkürzel stabil."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move workspaces to the top when they receive a notification. Agent Activity also moves them when you send a prompt or an agent finishes a turn, needs input, or fails, but never while you point at the sidebar. Off keeps shortcut positions stable."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mueve los espacios de trabajo arriba cuando reciben una notificación. Con Actividad de agentes, también cuando envías un prompt o un agente termina un turno, necesita una respuesta o falla, pero nunca mientras el puntero está sobre la barra lateral. Desactivado mantiene estables las posiciones de los atajos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Place les espaces de travail en haut lorsqu’ils reçoivent une notification. Avec Activité des agents, aussi lorsque vous envoyez un prompt ou qu’un agent termine un tour, attend une saisie ou échoue, mais jamais pendant que le pointeur survole la barre latérale. Désactivé garde les positions des raccourcis stables."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta gli spazi di lavoro in cima quando ricevono una notifica. Attività degli agenti li sposta anche quando invii un prompt o un agente termina un turno, attende un input o fallisce, ma mai mentre il puntatore è sulla barra laterale. Disattivato mantiene stabili le posizioni delle scorciatoie."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知を受け取ったワークスペースを先頭に移動します。「エージェントのアクティビティ」では、プロンプトを送信したときや、エージェントがターンを終えたとき、入力を待っているとき、失敗したときにも移動しますが、ポインタがサイドバー上にある間は移動しません。「オフ」ではショートカットの位置が変わりません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림을 받으면 워크스페이스를 맨 위로 옮깁니다. 에이전트 활동을 선택하면 프롬프트를 보내거나 에이전트가 턴을 마치거나 입력이 필요하거나 실패할 때도 옮기지만, 포인터가 사이드바 위에 있을 때는 옮기지 않습니다. 끔은 단축키 위치를 고정합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytter arbeidsområder til toppen når de mottar et varsel. Agentaktivitet flytter dem også når du sender en ledetekst eller en agent fullfører en runde, trenger input eller feiler, men aldri mens pekeren er over sidefeltet. Av holder snarveisposisjonene stabile."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przenosi obszary robocze na górę, gdy otrzymają powiadomienie. Aktywność agentów przenosi je także, gdy wyślesz prompt lub agent zakończy turę, potrzebuje danych lub zakończy się błędem, ale nigdy, gdy wskaźnik jest nad paskiem bocznym. Wyłączone zachowuje stałe pozycje skrótów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move os espaços de trabalho para o topo quando recebem uma notificação. Atividade dos agentes também os move quando você envia um prompt ou um agente termina um turno, precisa de uma resposta ou falha, mas nunca enquanto o ponteiro está sobre a barra lateral. Desativado mantém as posições dos atalhos estáveis."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемещает рабочие области наверх, когда они получают уведомление. «Активность агентов» также перемещает их, когда вы отправляете запрос или агент завершает ход, ждёт ввода или завершается с ошибкой, но никогда, пока указатель находится над боковой панелью. «Выкл.» сохраняет позиции сочетаний клавиш."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้ายเวิร์กสเปซขึ้นด้านบนเมื่อได้รับการแจ้งเตือน กิจกรรมของเอเจนต์จะย้ายเมื่อคุณส่งพรอมต์หรือเอเจนต์จบรอบ ต้องการข้อมูล หรือล้มเหลวด้วย แต่จะไม่ย้ายขณะที่ตัวชี้อยู่เหนือแถบด้านข้าง ปิดจะคงตำแหน่งของทางลัดไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirim aldıklarında çalışma alanlarını en üste taşır. Ajan etkinliği, bir istem gönderdiğinizde, bir ajan turunu bitirdiğinde, girdi beklediğinde veya başarısız olduğunda da taşır, ancak işaretçi kenar çubuğunun üzerindeyken asla taşımaz. Kapalı, kısayol konumlarını sabit tutar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переміщує робочі області вгору, коли вони отримують сповіщення. «Активність агентів» також переміщує їх, коли ви надсилаєте запит або агент завершує хід, чекає на введення або завершується з помилкою, але ніколи, поки вказівник над бічною панеллю. «Вимкнено» зберігає позиції скорочень."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区收到通知时移到顶部。选择“代理活动”时，你发送提示词或代理完成一轮、需要输入或失败时也会移动，但指针停在侧边栏上时绝不移动。关闭可让快捷键位置保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區收到通知時移到頂部。選擇「代理活動」時，你送出提示詞或代理完成一輪、需要輸入或失敗時也會移動，但指標停在側邊欄上時絕不移動。關閉可讓快捷鍵位置保持不變。"
+          }
+        }
+      }
+    },
     "settings.app.reorderOnNotification.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -569713,1245 +570189,6 @@
         }
       }
     },
-    "command.whatsNew.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "What's New in cmux"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neuigkeiten in cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nouveautés de cmux"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ما الجديد في cmux"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novedades de cmux"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 新功能"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 新功能"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux의 새로운 기능"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux の新機能"
-          }
-        }
-      }
-    },
-    "menu.help.whatsNew": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "What's New in cmux"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neuigkeiten in cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nouveautés de cmux"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ما الجديد في cmux"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novedades de cmux"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 新功能"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 新功能"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux의 새로운 기능"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux の新機能"
-          }
-        }
-      }
-    },
-    "whatsNew.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "What's New in cmux"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neuigkeiten in cmux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nouveautés de cmux"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ما الجديد في cmux"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novedades de cmux"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 新功能"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 新功能"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux의 새로운 기능"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux の新機能"
-          }
-        }
-      }
-    },
-    "sidebar.help.whatsNew": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "What's New"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neuigkeiten"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nouveautés"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ما الجديد"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novedades"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新功能"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新功能"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새로운 기능"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新機能"
-          }
-        }
-      }
-    },
-    "sidebar.help.whatsNew.unseen": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New highlights"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neue Highlights"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nouveautés à découvrir"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أبرز الميزات الجديدة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novedades destacadas"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新重點"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新亮点"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새로운 주요 기능"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいハイライト"
-          }
-        }
-      }
-    },
-    "whatsNew.afterUpdates": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "After updates:"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nach Updates:"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Après les mises à jour :"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "بعد التحديثات:"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tras las actualizaciones:"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新後："
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新后："
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "업데이트 후:"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アップデート後:"
-          }
-        }
-      }
-    },
-    "whatsNew.done": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Done"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fertig"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminé"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تم"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Listo"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "完成"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "完成"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "완료"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "完了"
-          }
-        }
-      }
-    },
-    "whatsNew.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No highlights for this version yet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Für diese Version gibt es noch keine Highlights."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aucune nouveauté pour cette version pour l'instant."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لا توجد ميزات بارزة لهذا الإصدار بعد."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Todavía no hay novedades para esta versión."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此版本尚無重點內容。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此版本暂无亮点内容。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 버전의 주요 기능이 아직 없습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このバージョンのハイライトはまだありません。"
-          }
-        }
-      }
-    },
-    "whatsNew.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't load what's new."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neuigkeiten konnten nicht geladen werden."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de charger les nouveautés."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر تحميل المستجدات."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudieron cargar las novedades."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法載入新功能。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法加载新功能。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새로운 기능을 불러올 수 없습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新機能を読み込めませんでした。"
-          }
-        }
-      }
-    },
-    "whatsNew.fullChangelog": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Read the full changelog"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vollständiges Änderungsprotokoll lesen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lire le journal des modifications complet"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "قراءة سجل التغييرات الكامل"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leer el registro de cambios completo"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "閱讀完整更新日誌"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "阅读完整更新日志"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전체 변경 이력 보기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "変更履歴をすべて読む"
-          }
-        }
-      }
-    },
-    "whatsNew.openChangelog": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Changelog"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Änderungsprotokoll öffnen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrir le journal des modifications"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فتح سجل التغييرات"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir registro de cambios"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開啟更新日誌"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "打开更新日志"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "변경 이력 열기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "変更履歴を開く"
-          }
-        }
-      }
-    },
-    "whatsNew.retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Try Again"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erneut versuchen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réessayer"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة المحاولة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reintentar"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試一次"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重试"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 시도"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
-          }
-        }
-      }
-    },
-    "whatsNew.tryIt": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Try it"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ausprobieren"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "À essayer"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جرّبها"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pruébalo"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "試試看"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "试一试"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용해 보기"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "試してみる"
-          }
-        }
-      }
-    },
-    "settings.app.whatsNew": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "What's New After Updates"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neuigkeiten nach Updates"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nouveautés après les mises à jour"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ما الجديد بعد التحديثات"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novedades tras actualizar"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新後的新功能"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新后的新功能"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "업데이트 후 새로운 기능"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アップデート後の新機能"
-          }
-        }
-      }
-    },
-    "settings.app.whatsNew.off": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Off"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aus"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Désactivé"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إيقاف"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desactivado"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "끔"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフ"
-          }
-        }
-      }
-    },
-    "settings.app.whatsNew.quiet": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quiet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dezent"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Discret"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "هادئ"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Discreto"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "低調"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "低调"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "조용히"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "控えめ"
-          }
-        }
-      }
-    },
-    "settings.app.whatsNew.sheet": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Once"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einmal zeigen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher une fois"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عرض مرة واحدة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar una vez"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示一次"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示一次"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "한 번 표시"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一度だけ表示"
-          }
-        }
-      }
-    },
-    "settings.app.whatsNew.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nothing after updates. Help > What's New in cmux still opens the recap."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nach Updates passiert nichts. Hilfe > Neuigkeiten in cmux öffnet die Übersicht weiterhin."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rien après les mises à jour. Aide > Nouveautés de cmux ouvre toujours le récapitulatif."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لن يُفتح شيء بعد التحديثات. ويمكنك فتح الملخص من قائمة المساعدة > ما الجديد في cmux."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nada tras las actualizaciones. Ayuda > Novedades de cmux sigue abriendo el resumen."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新後不顯示任何內容。「輔助說明 > cmux 新功能」仍可開啟摘要。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新后不显示任何内容。“帮助 > cmux 新功能”仍可打开摘要。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "업데이트 후 아무것도 표시하지 않습니다. 도움말 > cmux의 새로운 기능에서 요약을 계속 열 수 있습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アップデート後は何も表示しません。「ヘルプ > cmux の新機能」からいつでも概要を開けます。"
-          }
-        }
-      }
-    },
-    "settings.app.whatsNew.subtitleQuiet": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A dot on the sidebar help button marks new highlights. Nothing opens on its own."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein Punkt auf der Hilfe-Schaltfläche der Seitenleiste markiert neue Highlights. Nichts öffnet sich von selbst."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un point sur le bouton d'aide de la barre latérale signale les nouveautés. Rien ne s'ouvre tout seul."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تشير نقطة على زر المساعدة في الشريط الجانبي إلى الميزات الجديدة. لا يُفتح شيء تلقائيًا."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un punto en el botón de ayuda de la barra lateral marca las novedades. Nada se abre por sí solo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "側邊欄說明按鈕上的圓點代表有新重點。不會自動開啟任何內容。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "侧边栏帮助按钮上的圆点表示有新亮点。不会自动打开任何内容。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바 도움말 버튼의 점이 새로운 주요 기능을 알려 줍니다. 자동으로 열리는 것은 없습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーのヘルプボタンに点が付き、新しいハイライトを知らせます。自動では何も開きません。"
-          }
-        }
-      }
-    },
-    "settings.app.whatsNew.subtitleSheet": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open the recap once after the first launch of a new version."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Übersicht einmal nach dem ersten Start einer neuen Version öffnen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrir le récapitulatif une fois après le premier lancement d'une nouvelle version."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فتح الملخص مرة واحدة بعد أول تشغيل لإصدار جديد."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir el resumen una vez tras el primer inicio de una nueva versión."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新版本首次啟動後開啟一次摘要。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新版本首次启动后打开一次摘要。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 버전을 처음 실행한 후 요약을 한 번 엽니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいバージョンの初回起動後に概要を一度だけ開きます。"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.app.whats-new": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.whatsNew whats new release notes changelog highlights update recap off quiet sheet show once"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.whatsNew whats new release notes changelog highlights update recap off quiet sheet show once Neuigkeiten Änderungsprotokoll Update Übersicht aus dezent einmal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.whatsNew whats new release notes changelog highlights update recap off quiet sheet show once nouveautés journal des modifications mise à jour récapitulatif désactivé discret une fois"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.whatsNew whats new release notes changelog highlights update recap off quiet sheet show once ما الجديد سجل التغييرات تحديث ملخص إيقاف هادئ مرة واحدة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.whatsNew whats new release notes changelog highlights update recap off quiet sheet show once novedades registro de cambios actualización resumen desactivado discreto una vez"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.whatsNew whats new release notes changelog highlights update recap off quiet sheet show once 新功能 更新日誌 更新 摘要 關閉 低調 顯示一次"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.whatsNew whats new release notes changelog highlights update recap off quiet sheet show once 新功能 更新日志 更新 摘要 关闭 低调 显示一次"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.whatsNew whats new release notes changelog highlights update recap off quiet sheet show once 새로운 기능 변경 이력 업데이트 요약 끔 조용히 한 번"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "app.whatsNew whats new release notes changelog highlights update recap off quiet sheet show once 新機能 変更履歴 アップデート 概要 オフ 控えめ 一度だけ"
-          }
-        }
-      }
-    },
     "cli.session.help": {
       "extractionState": "manual",
       "localizations": {
@@ -571778,6 +571015,360 @@
         }
       }
     },
+    "settings.app.showAgentUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض استخدام الوكيل في الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Nutzung in der Seitenleiste anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Agent Usage in Sidebar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar el uso del agente en la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’utilisation des agents dans la barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにエージェントの使用状況を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 에이전트 사용량 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在侧边栏显示代理用量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊欄顯示代理用量"
+          }
+        }
+      }
+    },
+    "settings.app.showAgentUsage.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُلحق النموذج ونسبة نافذة السياق المستخدمة بإدخالات حالة Claude Code وCodex، بالإضافة إلى تكلفة API تقديرية لـ Claude Code. التكلفة تقدير مبني على أسعار API المعلنة، وليست فاتورة اشتراكك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hängt Modell und belegtes Kontextfenster an die Statuseinträge von Claude Code und Codex an, für Claude Code zusätzlich die geschätzten API-Kosten. Die Kosten sind eine Schätzung nach API-Listenpreisen, nicht deine Abo-Rechnung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Append the model and context window used to Claude Code and Codex status entries, plus an estimated API cost for Claude Code. The cost is an API list-price estimate, not your subscription bill."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade el modelo y la ventana de contexto usada a las entradas de estado de Claude Code y Codex, además de un coste estimado de la API para Claude Code. El coste es una estimación según los precios de lista de la API, no la factura de tu suscripción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoute le modèle et la part de la fenêtre de contexte utilisée aux entrées d’état de Claude Code et Codex, ainsi qu’un coût API estimé pour Claude Code. Le coût est une estimation d’après les tarifs API publics, pas votre facture d’abonnement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code と Codex のステータス項目にモデルと使用中のコンテキストウィンドウを追加し、Claude Code には推定 API コストも表示します。コストは API の定価に基づく推定値で、サブスクリプションの請求額ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 및 Codex 상태 항목에 모델과 사용 중인 컨텍스트 창을 덧붙이고, Claude Code에는 예상 API 비용도 표시합니다. 비용은 API 정가 기준의 추정치이며 구독 요금이 아닙니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 和 Codex 的状态条目后附加模型和已用的上下文窗口，并为 Claude Code 附加估算的 API 费用。费用是根据 API 公开价格估算的，并非你的订阅账单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Claude Code 與 Codex 的狀態項目後附加模型與已用的上下文視窗，並為 Claude Code 附加估算的 API 費用。費用是依 API 公開價格估算，並非你的訂閱帳單。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.show-agent-usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex وكيل استخدام نموذج نافذة السياق رموز نسبة تكلفة سعر تقدير الشريط الجانبي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex Agent Nutzung Modell Kontextfenster Token Prozent Kosten Preis Schätzung Seitenleiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex agente uso modelo ventana de contexto tokens porcentaje coste precio estimación barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex agent utilisation modèle fenêtre de contexte jetons pourcentage coût prix estimation barre latérale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex エージェント 使用状況 モデル コンテキストウィンドウ トークン パーセント コスト 料金 推定 サイドバー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 에이전트 사용량 모델 컨텍스트 창 토큰 퍼센트 비용 가격 추정 사이드바"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 代理 用量 模型 上下文窗口 令牌 百分比 费用 价格 估算 侧边栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 代理 用量 模型 上下文視窗 權杖 百分比 費用 價格 估算 側邊欄"
+          }
+        }
+      }
+    },
+    "sidebar.agentUsage.estimatedCost": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حوالي %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ca. %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aprox. %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "env. %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "약 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "约 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約 %@"
+          }
+        }
+      }
+    },
+    "sidebar.agentUsage.estimatedCostAtLeast": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حوالي %@+"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ca. %@+"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~%@+"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aprox. %@+"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "env. %@+"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約%@+"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "약 %@+"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "约 %@+"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "約 %@+"
+          }
+        }
+      }
+    },
+    "sidebar.agentUsage.costHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التكلفة تقدير مبني على أسعار API المعلنة، وليست فاتورة اشتراكك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kosten sind eine Schätzung nach API-Listenpreisen, nicht deine Abo-Rechnung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cost is an API list-price estimate, not your subscription bill."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El coste es una estimación según los precios de lista de la API, no la factura de tu suscripción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le coût est une estimation d’après les tarifs API publics, pas votre facture d’abonnement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コストは API の定価に基づく推定値で、サブスクリプションの請求額ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비용은 API 정가 기준의 추정치이며 구독 요금이 아닙니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "费用是根据 API 公开价格估算的，并非你的订阅账单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "費用是依 API 公開價格估算，並非你的訂閱帳單。"
+          }
+        }
+      }
+    },
     "cli.restore.notice.routedLauncherUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -571837,478 +571428,297 @@
         }
       }
     },
-    "settings.app.reorderOnNotification.mode.agentActivity": {
+    "settings.app.compactAgentStatus": {
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Agent Status"
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "نشاط الوكيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktivnost agenata"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentaktivitet"
+            "value": "حالة الوكيل المختصرة"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentenaktivität"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent Activity"
+            "value": "Kompakter Agentenstatus"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actividad de agentes"
+            "value": "Estado de agente compacto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activité des agents"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attività degli agenti"
+            "value": "Statut d’agent compact"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントのアクティビティ"
+            "value": "エージェント状態のコンパクト表示"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트 활동"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentaktivitet"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktywność agentów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atividade dos agentes"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Активность агентов"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กิจกรรมของเอเจนต์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajan etkinliği"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Активність агентів"
+            "value": "간결한 에이전트 상태"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理活动"
+            "value": "精简代理状态"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "代理活動"
+            "value": "精簡代理狀態"
           }
         }
       }
     },
-    "settings.app.reorderOnNotification.mode.notifications": {
+    "settings.app.compactAgentStatus.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a workspace's agent, unread and pull request state as one colored icon before the title instead of separate rows. Hover the icon for details."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الإشعارات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obavještenja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifikationer"
+            "value": "إظهار حالة الوكيل والعناصر غير المقروءة وطلب السحب لمساحة العمل كأيقونة ملونة واحدة قبل العنوان بدلاً من صفوف منفصلة. مرّر المؤشر فوق الأيقونة لعرض التفاصيل."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Benachrichtigungen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifications"
+            "value": "Agenten-, Ungelesen- und Pull-Request-Status eines Workspace als ein farbiges Symbol vor dem Titel anzeigen statt in eigenen Zeilen. Details erscheinen, wenn du den Zeiger über das Symbol bewegst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notificaciones"
+            "value": "Mostrar el estado del agente, lo no leído y la pull request de un espacio de trabajo como un único icono de color antes del título, en lugar de filas separadas. Pasa el cursor sobre el icono para ver los detalles."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sur notification"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifiche"
+            "value": "Afficher l’état de l’agent, des éléments non lus et de la pull request d’un espace de travail sous forme d’une seule icône colorée avant le titre, au lieu de lignes distinctes. Survolez l’icône pour voir les détails."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知"
+            "value": "ワークスペースのエージェント、未読、プルリクエストの状態を、個別の行ではなくタイトルの前の色付きアイコン1つで示します。詳細はアイコンにポインタを合わせると表示されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "알림"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Varsler"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Powiadomienia"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notificações"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Уведомления"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การแจ้งเตือน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bildirimler"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сповіщення"
+            "value": "워크스페이스의 에이전트, 읽지 않음, 풀 리퀘스트 상태를 별도의 줄이 아니라 제목 앞의 색상 아이콘 하나로 나타냅니다. 자세한 내용은 아이콘 위에 포인터를 올려 확인하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知"
+            "value": "用标题前的单个彩色图标表示工作区的代理、未读和拉取请求状态，而不是各自占一行。将指针悬停在图标上可查看详细信息。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知"
+            "value": "以標題前的單一彩色圖示表示工作區的代理、未讀與拉取請求狀態，而非各自佔一行。將游標移到圖示上可查看詳細資訊。"
           }
         }
       }
     },
-    "settings.app.reorderOnNotification.mode.off": {
+    "settings.search.alias.setting.app.compact-agent-status": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إيقاف"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Isključeno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fra"
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex مختصر وكيل حالة أيقونة سطر العنوان"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aus"
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex kompakt Agent Status Symbol Titelzeile"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off"
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desactivado"
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compacto agente estado icono línea de título"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Désactivé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disattivato"
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compact agent statut icône ligne de titre"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフ"
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex コンパクト エージェント 状態 アイコン タイトル行"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "끔"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Av"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wyłączone"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desativado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выкл."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kapalı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вимкнено"
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 간결 에이전트 상태 아이콘 제목 줄"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭"
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精简 代理 状态 图标 标题行"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉"
+            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精簡 代理 狀態 圖示 標題列"
           }
         }
       }
     },
-    "settings.app.reorderOnNotification.modeSubtitle": {
+    "sidebar.agentStatus.glyph.tooltip": {
       "extractionState": "manual",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ينقل مساحات العمل إلى الأعلى عندما تتلقى إشعارًا. مع نشاط الوكيل، ينقلها أيضًا عندما ترسل مطالبة أو ينهي وكيل دورة أو يحتاج إلى إدخال أو يفشل، لكن ليس أبدًا أثناء وجود المؤشر فوق الشريط الجانبي. الإيقاف يحافظ على ثبات مواضع الاختصارات."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pomjera radne prostore na vrh kada prime obavještenje. Aktivnost agenata ih pomjera i kada pošaljete upit ili agent završi potez, treba unos ili ne uspije, ali nikad dok je pokazivač iznad bočne trake. Isključeno čuva stabilne pozicije prečica."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flytter arbejdsområder til toppen, når de modtager en notifikation. Agentaktivitet flytter dem også, når du sender en prompt eller en agent afslutter en tur, har brug for input eller fejler, men aldrig mens markøren er over sidepanelet. Fra holder genvejspositionerne stabile."
+            "value": "%1$@: %2$@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verschiebt Workspaces nach oben, wenn sie eine Benachrichtigung erhalten. Mit Agentenaktivität auch dann, wenn Sie einen Prompt senden oder ein Agent einen Durchlauf beendet, eine Eingabe braucht oder fehlschlägt, aber nie, während der Zeiger über der Seitenleiste ist. Aus hält die Positionen der Tastenkürzel stabil."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move workspaces to the top when they receive a notification. Agent Activity also moves them when you send a prompt or an agent finishes a turn, needs input, or fails, but never while you point at the sidebar. Off keeps shortcut positions stable."
+            "value": "%1$@: %2$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mueve los espacios de trabajo arriba cuando reciben una notificación. Con Actividad de agentes, también cuando envías un prompt o un agente termina un turno, necesita una respuesta o falla, pero nunca mientras el puntero está sobre la barra lateral. Desactivado mantiene estables las posiciones de los atajos."
+            "value": "%1$@: %2$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Place les espaces de travail en haut lorsqu’ils reçoivent une notification. Avec Activité des agents, aussi lorsque vous envoyez un prompt ou qu’un agent termine un tour, attend une saisie ou échoue, mais jamais pendant que le pointeur survole la barre latérale. Désactivé garde les positions des raccourcis stables."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sposta gli spazi di lavoro in cima quando ricevono una notifica. Attività degli agenti li sposta anche quando invii un prompt o un agente termina un turno, attende un input o fallisce, ma mai mentre il puntatore è sulla barra laterale. Disattivato mantiene stabili le posizioni delle scorciatoie."
+            "value": "%1$@ : %2$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知を受け取ったワークスペースを先頭に移動します。「エージェントのアクティビティ」では、プロンプトを送信したときや、エージェントがターンを終えたとき、入力を待っているとき、失敗したときにも移動しますが、ポインタがサイドバー上にある間は移動しません。「オフ」ではショートカットの位置が変わりません。"
+            "value": "%1$@：%2$@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "알림을 받으면 워크스페이스를 맨 위로 옮깁니다. 에이전트 활동을 선택하면 프롬프트를 보내거나 에이전트가 턴을 마치거나 입력이 필요하거나 실패할 때도 옮기지만, 포인터가 사이드바 위에 있을 때는 옮기지 않습니다. 끔은 단축키 위치를 고정합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flytter arbeidsområder til toppen når de mottar et varsel. Agentaktivitet flytter dem også når du sender en ledetekst eller en agent fullfører en runde, trenger input eller feiler, men aldri mens pekeren er over sidefeltet. Av holder snarveisposisjonene stabile."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przenosi obszary robocze na górę, gdy otrzymają powiadomienie. Aktywność agentów przenosi je także, gdy wyślesz prompt lub agent zakończy turę, potrzebuje danych lub zakończy się błędem, ale nigdy, gdy wskaźnik jest nad paskiem bocznym. Wyłączone zachowuje stałe pozycje skrótów."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move os espaços de trabalho para o topo quando recebem uma notificação. Atividade dos agentes também os move quando você envia um prompt ou um agente termina um turno, precisa de uma resposta ou falha, mas nunca enquanto o ponteiro está sobre a barra lateral. Desativado mantém as posições dos atalhos estáveis."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перемещает рабочие области наверх, когда они получают уведомление. «Активность агентов» также перемещает их, когда вы отправляете запрос или агент завершает ход, ждёт ввода или завершается с ошибкой, но никогда, пока указатель находится над боковой панелью. «Выкл.» сохраняет позиции сочетаний клавиш."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ย้ายเวิร์กสเปซขึ้นด้านบนเมื่อได้รับการแจ้งเตือน กิจกรรมของเอเจนต์จะย้ายเมื่อคุณส่งพรอมต์หรือเอเจนต์จบรอบ ต้องการข้อมูล หรือล้มเหลวด้วย แต่จะไม่ย้ายขณะที่ตัวชี้อยู่เหนือแถบด้านข้าง ปิดจะคงตำแหน่งของทางลัดไว้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bildirim aldıklarında çalışma alanlarını en üste taşır. Ajan etkinliği, bir istem gönderdiğinizde, bir ajan turunu bitirdiğinde, girdi beklediğinde veya başarısız olduğunda da taşır, ancak işaretçi kenar çubuğunun üzerindeyken asla taşımaz. Kapalı, kısayol konumlarını sabit tutar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Переміщує робочі області вгору, коли вони отримують сповіщення. «Активність агентів» також переміщує їх, коли ви надсилаєте запит або агент завершує хід, чекає на введення або завершується з помилкою, але ніколи, поки вказівник над бічною панеллю. «Вимкнено» зберігає позиції скорочень."
+            "value": "%1$@: %2$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作区收到通知时移到顶部。选择“代理活动”时，你发送提示词或代理完成一轮、需要输入或失败时也会移动，但指针停在侧边栏上时绝不移动。关闭可让快捷键位置保持不变。"
+            "value": "%1$@：%2$@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作區收到通知時移到頂部。選擇「代理活動」時，你送出提示詞或代理完成一輪、需要輸入或失敗時也會移動，但指標停在側邊欄上時絕不移動。關閉可讓快捷鍵位置保持不變。"
+            "value": "%1$@：%2$@"
+          }
+        }
+      }
+    },
+    "sidebar.compactStatus.profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملف الشخصي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定檔"
           }
         }
       }
@@ -573076,301 +572486,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "포커스:\n  --focus                 새 워크스페이스로 전환합니다\n  --no-focus              백그라운드에서 엽니다"
-          }
-        }
-      }
-    },
-    "settings.app.compactAgentStatus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compact Agent Status"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حالة الوكيل المختصرة"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kompakter Agentenstatus"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estado de agente compacto"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Statut d’agent compact"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェント状態のコンパクト表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "간결한 에이전트 상태"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "精简代理状态"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "精簡代理狀態"
-          }
-        }
-      }
-    },
-    "settings.app.compactAgentStatus.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show a workspace's agent, unread and pull request state as one colored icon before the title instead of separate rows. Hover the icon for details."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار حالة الوكيل والعناصر غير المقروءة وطلب السحب لمساحة العمل كأيقونة ملونة واحدة قبل العنوان بدلاً من صفوف منفصلة. مرّر المؤشر فوق الأيقونة لعرض التفاصيل."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenten-, Ungelesen- und Pull-Request-Status eines Workspace als ein farbiges Symbol vor dem Titel anzeigen statt in eigenen Zeilen. Details erscheinen, wenn du den Zeiger über das Symbol bewegst."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar el estado del agente, lo no leído y la pull request de un espacio de trabajo como un único icono de color antes del título, en lugar de filas separadas. Pasa el cursor sobre el icono para ver los detalles."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’état de l’agent, des éléments non lus et de la pull request d’un espace de travail sous forme d’une seule icône colorée avant le titre, au lieu de lignes distinctes. Survolez l’icône pour voir les détails."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースのエージェント、未読、プルリクエストの状態を、個別の行ではなくタイトルの前の色付きアイコン1つで示します。詳細はアイコンにポインタを合わせると表示されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "워크스페이스의 에이전트, 읽지 않음, 풀 리퀘스트 상태를 별도의 줄이 아니라 제목 앞의 색상 아이콘 하나로 나타냅니다. 자세한 내용은 아이콘 위에 포인터를 올려 확인하세요."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用标题前的单个彩色图标表示工作区的代理、未读和拉取请求状态，而不是各自占一行。将指针悬停在图标上可查看详细信息。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以標題前的單一彩色圖示表示工作區的代理、未讀與拉取請求狀態，而非各自佔一行。將游標移到圖示上可查看詳細資訊。"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.app.compact-agent-status": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex مختصر وكيل حالة أيقونة سطر العنوان"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex kompakt Agent Status Symbol Titelzeile"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compacto agente estado icono línea de título"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex compact agent statut icône ligne de titre"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex コンパクト エージェント 状態 アイコン タイトル行"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 간결 에이전트 상태 아이콘 제목 줄"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精简 代理 状态 图标 标题行"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex 精簡 代理 狀態 圖示 標題列"
-          }
-        }
-      }
-    },
-    "sidebar.agentStatus.glyph.tooltip": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ : %2$@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：%2$@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@: %2$@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：%2$@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@：%2$@"
-          }
-        }
-      }
-    },
-    "sidebar.compactStatus.profile": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profile"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الملف الشخصي"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profil"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Perfil"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profil"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プロファイル"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프로필"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "配置文件"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定檔"
           }
         }
       }
@@ -588768,6 +587883,419 @@
         }
       }
     },
+    "socket.sidebar.closeSurface.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface has a running process; retry with --force"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي السطح على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche hat einen laufenden Prozess; erneut mit --force versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La superficie tiene un proceso en ejecución; vuelve a intentarlo con --force"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La surface a un processus en cours d’exécution ; réessayez avec --force"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスでプロセスが実行中です。--force を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면에서 실행 중인 프로세스가 있습니다. --force로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在运行的进程；请使用 --force 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在執行的程序；請使用 --force 重試"
+          }
+        }
+      }
+    },
+    "socket.sidebar.closeSurface.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to close surface"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إغلاق السطح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche konnte nicht geschlossen werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cerrar la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la fermeture de la surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを閉じられませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면을 닫지 못했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法关闭此表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法關閉表面"
+          }
+        }
+      }
+    },
+    "socket.surface.close.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface has a running process; retry with force=true"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي السطح على عملية قيد التشغيل؛ أعد المحاولة باستخدام force=true"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche hat einen laufenden Prozess; erneut mit force=true versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La superficie tiene un proceso en ejecución; vuelve a intentarlo con force=true"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La surface a un processus en cours d’exécution ; réessayez avec force=true"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスでプロセスが実行中です。force=true を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면에서 실행 중인 프로세스가 있습니다. force=true로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在运行的进程；请使用 force=true 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此表面有正在執行的程序；請使用 force=true 重試"
+          }
+        }
+      }
+    },
+    "socket.surface.close.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to close surface"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إغلاق السطح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Oberfläche konnte nicht geschlossen werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cerrar la superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la fermeture de la surface"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェスを閉じられませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표면을 닫지 못했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法关闭此表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法關閉表面"
+          }
+        }
+      }
+    },
+    "socket.tabAction.close.confirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One or more surfaces have a running process; retry with force=true"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سطح واحد أو أكثر يحتوي على عملية قيد التشغيل؛ أعد المحاولة باستخدام force=true"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mindestens eine Oberfläche hat einen laufenden Prozess; erneut mit force=true versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una o más superficies tienen un proceso en ejecución; vuelve a intentarlo con force=true"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une ou plusieurs surfaces ont un processus en cours d’exécution ; réessayez avec force=true"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つ以上のサーフェスでプロセスが実行中です。force=true を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나 이상의 표면에서 프로세스가 실행 중입니다. force=true로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个或多个表面有正在运行的进程；请使用 force=true 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個或多個表面有正在執行的程序；請使用 force=true 重試"
+          }
+        }
+      }
+    },
+    "cli.socket.error.workspaceCloseConfirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace has a running process; retry with --force"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي مساحة العمل على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich mit laufendem Prozess; erneut mit --force versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El espacio de trabajo tiene un proceso en ejecución; vuelve a intentarlo con --force"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’espace de travail a un processus en cours d’exécution ; réessayez avec --force"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースでプロセスが実行中です。--force を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스에서 프로세스가 실행 중입니다. --force로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作区有正在运行的进程；请使用 --force 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作區有正在執行的程序；請使用 --force 重試"
+          }
+        }
+      }
+    },
+    "cli.socket.error.windowCloseConfirmationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One or more workspaces or Dock surfaces have a running process; retry with --force"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحتوي مساحة عمل واحدة أو أكثر أو أسطح Dock على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mindestens ein Workspace oder eine Dock-Oberfläche hat einen laufenden Prozess; erneut mit --force versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uno o más espacios de trabajo o superficies del Dock tienen un proceso en ejecución; vuelve a intentarlo con --force"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un ou plusieurs espaces de travail ou surfaces du Dock ont un processus en cours d’exécution ; réessayez avec --force"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つ以上のワークスペースまたは Dock サーフェスでプロセスが実行中です。--force を指定して再試行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나 이상의 워크스페이스 또는 Dock 표면에서 실행 중인 프로세스가 있습니다. --force로 다시 시도하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个或多个工作区或 Dock 表面有正在运行的进程；请使用 --force 重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個或多個工作區或 Dock 表面有正在執行的程序；請使用 --force 重試"
+          }
+        }
+      }
+    },
     "command.copyWorkingDirectory.title": {
       "extractionState": "manual",
       "localizations": {
@@ -590183,419 +589711,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "필터 지우기"
-          }
-        }
-      }
-    },
-    "socket.sidebar.closeSurface.confirmationRequired": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Surface has a running process; retry with --force"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تحتوي السطح على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Oberfläche hat einen laufenden Prozess; erneut mit --force versuchen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La superficie tiene un proceso en ejecución; vuelve a intentarlo con --force"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La surface a un processus en cours d’exécution ; réessayez avec --force"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サーフェスでプロセスが実行中です。--force を指定して再試行してください"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "표면에서 실행 중인 프로세스가 있습니다. --force로 다시 시도하세요"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此表面有正在运行的进程；请使用 --force 重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此表面有正在執行的程序；請使用 --force 重試"
-          }
-        }
-      }
-    },
-    "socket.sidebar.closeSurface.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed to close surface"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذر إغلاق السطح"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Oberfläche konnte nicht geschlossen werden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo cerrar la superficie"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Échec de la fermeture de la surface"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サーフェスを閉じられませんでした"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "표면을 닫지 못했습니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法关闭此表面"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法關閉表面"
-          }
-        }
-      }
-    },
-    "socket.surface.close.confirmationRequired": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Surface has a running process; retry with force=true"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تحتوي السطح على عملية قيد التشغيل؛ أعد المحاولة باستخدام force=true"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Oberfläche hat einen laufenden Prozess; erneut mit force=true versuchen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La superficie tiene un proceso en ejecución; vuelve a intentarlo con force=true"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La surface a un processus en cours d’exécution ; réessayez avec force=true"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サーフェスでプロセスが実行中です。force=true を指定して再試行してください"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "표면에서 실행 중인 프로세스가 있습니다. force=true로 다시 시도하세요"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此表面有正在运行的进程；请使用 force=true 重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此表面有正在執行的程序；請使用 force=true 重試"
-          }
-        }
-      }
-    },
-    "socket.surface.close.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed to close surface"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذر إغلاق السطح"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Oberfläche konnte nicht geschlossen werden"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo cerrar la superficie"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Échec de la fermeture de la surface"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サーフェスを閉じられませんでした"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "표면을 닫지 못했습니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法关闭此表面"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法關閉表面"
-          }
-        }
-      }
-    },
-    "socket.tabAction.close.confirmationRequired": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "One or more surfaces have a running process; retry with force=true"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "سطح واحد أو أكثر يحتوي على عملية قيد التشغيل؛ أعد المحاولة باستخدام force=true"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mindestens eine Oberfläche hat einen laufenden Prozess; erneut mit force=true versuchen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Una o más superficies tienen un proceso en ejecución; vuelve a intentarlo con force=true"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Une ou plusieurs surfaces ont un processus en cours d’exécution ; réessayez avec force=true"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 つ以上のサーフェスでプロセスが実行中です。force=true を指定して再試行してください"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "하나 이상의 표면에서 프로세스가 실행 중입니다. force=true로 다시 시도하세요"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一个或多个表面有正在运行的进程；请使用 force=true 重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一個或多個表面有正在執行的程序；請使用 force=true 重試"
-          }
-        }
-      }
-    },
-    "cli.socket.error.workspaceCloseConfirmationRequired": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace has a running process; retry with --force"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تحتوي مساحة العمل على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arbeitsbereich mit laufendem Prozess; erneut mit --force versuchen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El espacio de trabajo tiene un proceso en ejecución; vuelve a intentarlo con --force"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L’espace de travail a un processus en cours d’exécution ; réessayez avec --force"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースでプロセスが実行中です。--force を指定して再試行してください"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "워크스페이스에서 프로세스가 실행 중입니다. --force로 다시 시도하세요"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此工作区有正在运行的进程；请使用 --force 重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此工作區有正在執行的程序；請使用 --force 重試"
-          }
-        }
-      }
-    },
-    "cli.socket.error.windowCloseConfirmationRequired": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "One or more workspaces or Dock surfaces have a running process; retry with --force"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تحتوي مساحة عمل واحدة أو أكثر أو أسطح Dock على عملية قيد التشغيل؛ أعد المحاولة باستخدام --force"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mindestens ein Workspace oder eine Dock-Oberfläche hat einen laufenden Prozess; erneut mit --force versuchen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uno o más espacios de trabajo o superficies del Dock tienen un proceso en ejecución; vuelve a intentarlo con --force"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un ou plusieurs espaces de travail ou surfaces du Dock ont un processus en cours d’exécution ; réessayez avec --force"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 つ以上のワークスペースまたは Dock サーフェスでプロセスが実行中です。--force を指定して再試行してください"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "하나 이상의 워크스페이스 또는 Dock 표면에서 실행 중인 프로세스가 있습니다. --force로 다시 시도하세요"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一个或多个工作区或 Dock 表面有正在运行的进程；请使用 --force 重试"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一個或多個工作區或 Dock 表面有正在執行的程序；請使用 --force 重試"
           }
         }
       }
@@ -607620,360 +606735,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "瀏覽側邊欄範本…"
-          }
-        }
-      }
-    },
-    "settings.app.showAgentUsage": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "عرض استخدام الوكيل في الشريط الجانبي"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent-Nutzung in der Seitenleiste anzeigen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Agent Usage in Sidebar"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar el uso del agente en la barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’utilisation des agents dans la barre latérale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーにエージェントの使用状況を表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바에 에이전트 사용량 표시"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在侧边栏显示代理用量"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在側邊欄顯示代理用量"
-          }
-        }
-      }
-    },
-    "settings.app.showAgentUsage.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يُلحق النموذج ونسبة نافذة السياق المستخدمة بإدخالات حالة Claude Code وCodex، بالإضافة إلى تكلفة API تقديرية لـ Claude Code. التكلفة تقدير مبني على أسعار API المعلنة، وليست فاتورة اشتراكك."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hängt Modell und belegtes Kontextfenster an die Statuseinträge von Claude Code und Codex an, für Claude Code zusätzlich die geschätzten API-Kosten. Die Kosten sind eine Schätzung nach API-Listenpreisen, nicht deine Abo-Rechnung."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Append the model and context window used to Claude Code and Codex status entries, plus an estimated API cost for Claude Code. The cost is an API list-price estimate, not your subscription bill."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Añade el modelo y la ventana de contexto usada a las entradas de estado de Claude Code y Codex, además de un coste estimado de la API para Claude Code. El coste es una estimación según los precios de lista de la API, no la factura de tu suscripción."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajoute le modèle et la part de la fenêtre de contexte utilisée aux entrées d’état de Claude Code et Codex, ainsi qu’un coût API estimé pour Claude Code. Le coût est une estimation d’après les tarifs API publics, pas votre facture d’abonnement."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code と Codex のステータス項目にモデルと使用中のコンテキストウィンドウを追加し、Claude Code には推定 API コストも表示します。コストは API の定価に基づく推定値で、サブスクリプションの請求額ではありません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Claude Code 및 Codex 상태 항목에 모델과 사용 중인 컨텍스트 창을 덧붙이고, Claude Code에는 예상 API 비용도 표시합니다. 비용은 API 정가 기준의 추정치이며 구독 요금이 아닙니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 Claude Code 和 Codex 的状态条目后附加模型和已用的上下文窗口，并为 Claude Code 附加估算的 API 费用。费用是根据 API 公开价格估算的，并非你的订阅账单。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 Claude Code 與 Codex 的狀態項目後附加模型與已用的上下文視窗，並為 Claude Code 附加估算的 API 費用。費用是依 API 公開價格估算，並非你的訂閱帳單。"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.app.show-agent-usage": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex وكيل استخدام نموذج نافذة السياق رموز نسبة تكلفة سعر تقدير الشريط الجانبي"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex Agent Nutzung Modell Kontextfenster Token Prozent Kosten Preis Schätzung Seitenleiste"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex agente uso modelo ventana de contexto tokens porcentaje coste precio estimación barra lateral"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex agent utilisation modèle fenêtre de contexte jetons pourcentage coût prix estimation barre latérale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex エージェント 使用状況 モデル コンテキストウィンドウ トークン パーセント コスト 料金 推定 サイドバー"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 에이전트 사용량 모델 컨텍스트 창 토큰 퍼센트 비용 가격 추정 사이드바"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 代理 用量 模型 上下文窗口 令牌 百分比 费用 价格 估算 侧边栏"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentUsage agent usage model context window tokens percent cost price estimate spend claude codex 代理 用量 模型 上下文視窗 權杖 百分比 費用 價格 估算 側邊欄"
-          }
-        }
-      }
-    },
-    "sidebar.agentUsage.estimatedCost": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حوالي %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ca. %@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "~%@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "aprox. %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "env. %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "約%@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "약 %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "约 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "約 %@"
-          }
-        }
-      }
-    },
-    "sidebar.agentUsage.estimatedCostAtLeast": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حوالي %@+"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ca. %@+"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "~%@+"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "aprox. %@+"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "env. %@+"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "約%@+"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "약 %@+"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "约 %@+"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "約 %@+"
-          }
-        }
-      }
-    },
-    "sidebar.agentUsage.costHelp": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التكلفة تقدير مبني على أسعار API المعلنة، وليست فاتورة اشتراكك."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Kosten sind eine Schätzung nach API-Listenpreisen, nicht deine Abo-Rechnung."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cost is an API list-price estimate, not your subscription bill."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El coste es una estimación según los precios de lista de la API, no la factura de tu suscripción."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le coût est une estimation d’après les tarifs API publics, pas votre facture d’abonnement."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コストは API の定価に基づく推定値で、サブスクリプションの請求額ではありません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "비용은 API 정가 기준의 추정치이며 구독 요금이 아닙니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "费用是根据 API 公开价格估算的，并非你的订阅账单。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "費用是依 API 公開價格估算，並非你的訂閱帳單。"
           }
         }
       }

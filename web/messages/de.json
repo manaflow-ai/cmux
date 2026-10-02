@@ -2039,7 +2039,6 @@
         },
         "app": {
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
-          "whatsNew": "Wie cmux nach einem Update Neuigkeiten zeigt. off zeigt nichts, quiet markiert die Hilfe-Schaltfläche der Seitenleiste mit einem Punkt, bis du die Übersicht öffnest, und sheet öffnet die Übersicht einmal nach dem ersten Start einer neuen Version. Hilfe > Neuigkeiten in cmux öffnet sie jederzeit.",
           "windowTitleTemplate": "Optionale Vorlage für den NSWindow-Titel. Leer behält das bestehende Standardtitelverhalten von cmux bei, einschließlich Fallback auf das aktuelle Verzeichnis. Unterstützte Platzhalter: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Nur in DEBUG-Builds verwendeter Anzeigename beim Öffnen neuer Fenster. Ein leerer Wert verwendet die Systemeinstellung.",
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",
