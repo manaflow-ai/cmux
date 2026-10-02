@@ -49,7 +49,7 @@ struct FeedWireTests {
         #expect(decline.op == "feed.cancel")
         #expect(decline.params["reason"] as? String == "declined")
         let all = try #require(FeedWireEncode.op(FeedIntent(key: "k3", kind: .markAllRead(before: Date()), at: Date()), unreadBefore: { _ in ["fi_a", "fi_b"] }))
-        #expect(all.params["items"] as? [String] == ["fi_a", "fi_b"])
+        #expect(all.params["all"] as? Bool == true)
         #expect(FeedWireEncode.op(FeedIntent(key: "k4", kind: .markAllRead(before: Date()), at: Date()), unreadBefore: { _ in [] }) == nil)
     }
 
