@@ -19,9 +19,19 @@ pub mod bundle {
     include!(concat!(env!("OUT_DIR"), "/js_bundle.rs"));
 }
 
-/// The page agent bundle (manifest `agent` list) as one script.
+/// The page agent bundle, installed in every frame's agent world. Recipe
+/// from #15570 (tests/browser-parity/lib/dev-driver.mjs agentInstallSource):
+/// Playwright's injected script is a CommonJS module whose `InjectedScript`
+/// factory page-agent.js reads.
 pub fn agent_bundle() -> String {
-    bundle::AGENT_SCRIPTS.iter().map(|(_, source)| *source).collect::<Vec<_>>().join("\n;\n")
+    let source = |name: &str| {
+        bundle::AGENT_SCRIPTS.iter().find(|(file, _)| *file == name).map(|(_, s)| *s).unwrap_or("")
+    };
+    format!(
+        "(() => {{\nconst module = {{}};\n{}\n;const __cmuxInjectedScriptFactory = module.exports.InjectedScript;\n{}\n}})()",
+        source("vendor/playwright-injected.js"),
+        source("page-agent.js")
+    )
 }
 
 /// Default limits of one session.
@@ -295,7 +305,10 @@ mod tests {
         // module, and page-agent.js reads its factory.
         let bundle = agent_bundle();
         assert!(bundle.starts_with("(() => {\nconst module = {};\n"), "{}", &bundle[..80]);
-        assert!(bundle.contains(";const __cmuxInjectedScriptFactory = module.exports.InjectedScript;\n"));
+        assert!(
+            bundle
+                .contains(";const __cmuxInjectedScriptFactory = module.exports.InjectedScript;\n")
+        );
         assert!(bundle.trim_end().ends_with("})()"));
         assert!(!bundle::GUIDE.is_empty());
     }
