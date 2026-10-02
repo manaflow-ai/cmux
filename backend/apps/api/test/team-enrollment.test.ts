@@ -85,6 +85,20 @@ describe("enrollment and audit reducer (TeamDO)", () => {
     expect(ok(teamDomain.reduce(s, "team.device.release", { install: INST }, ctx(OWNER))).state.managed_devices?.[INST]).toBeUndefined()
   })
 
+  it("only admins release a token-enrolled install; agents never release (review, decision a)", async () => {
+    const h = await tokenHash("release-rules")
+    let s = ok(teamDomain.reduce(baseState(), "team.enrollment_token.create", { label: "MDM", token_hash: h }, ctx())).state as TeamState
+    s = ok(teamDomain.reduce(s, "team.device.enroll", { token_hash: h }, asInstall(MEMBER, INST))).state as TeamState
+    s = ok(teamDomain.reduce(s, "team.device.enroll", {}, asInstall(MEMBER, INST2))).state as TeamState
+    // The member's own MDM-enrolled install: refused (the profile's enrollment is the admin's).
+    expect(teamDomain.reduce(s, "team.device.release", { install: INST }, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // An agent, even of the device's user and on an accepted install: refused.
+    expect(teamDomain.reduce(s, "team.device.release", { install: INST2 }, ctx(MEMBER, { kind: "agent", agent: "agent_x", install: INST2 }))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // The member's own accepted install: allowed. An admin: allowed for any.
+    expect(teamDomain.reduce(s, "team.device.release", { install: INST2 }, ctx(MEMBER)).ok).toBe(true)
+    expect(teamDomain.reduce(s, "team.device.release", { install: INST }, ctx(OWNER)).ok).toBe(true)
+  })
+
   it("every admin action appends one record to a hash chain that verifies, and tampering breaks it", async () => {
     let s = baseState()
     const records: Array<AuditRecord> = []
