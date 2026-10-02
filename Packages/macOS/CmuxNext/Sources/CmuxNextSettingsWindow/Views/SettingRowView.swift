@@ -7,12 +7,19 @@ import SwiftUI
 struct SettingRowView: View {
     let model: SettingsWindowModel
     let descriptor: SettingDescriptor
+    /// Search results: the title is a link that opens the row on its page.
+    var onOpen: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.space1) {
             HStack(spacing: Metrics.space4) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(descriptor.title)
+                    if let onOpen {
+                        SettingsJumpTitle(title: descriptor.title, action: onOpen)
+                            .accessibilityIdentifier("cmux.settings.open.\(descriptor.id)")
+                    } else {
+                        Text(descriptor.title)
+                    }
                     if let help = descriptor.help {
                         Text(help).font(SettingsStyle.caption).foregroundStyle(SettingsStyle.secondary)
                             .fixedSize(horizontal: false, vertical: true)
