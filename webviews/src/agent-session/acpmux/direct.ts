@@ -434,7 +434,7 @@ export class AcpmuxDirectClient {
           if (this.streamingAssistantMessageId === oldMessageId) { this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; }
         }
       }
-      else if (event.kind === "turn_end" || event.kind === "turn_result") { this.turnOpen = false; if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) { row.streaming = false; row.version += 1; } } this.rows.delete("typing"); if (event.kind === "turn_result") this.rows.set(`summary-${event.seq}`, { id: `summary-${event.seq}`, version: 1, at: event.at, kind: "turnSummary", durationMs: undefined, toolCount: [...this.rows.values()].filter((row) => row.kind === "activity").length, status: String(msg.status ?? "completed"), error: msg.errorText }); this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; }
+      else if (event.kind === "turn_end" || event.kind === "turn_result") { this.turnOpen = false; if (this.streamingAssistant) { const row = this.rows.get(this.streamingAssistant); if (row) { row.streaming = false; row.version += 1; } } this.rows.delete("typing"); if (event.kind === "turn_result") this.rows.set(`summary-${event.seq}`, { id: `summary-${event.seq}`, version: 1, at: event.at, kind: "turnSummary", ...this.turnTotals(event.at), status: String(msg.status ?? "completed"), error: msg.errorText }); this.streamingAssistant = undefined; this.streamingAssistantMessageId = undefined; this.streamingActivity = undefined; }
       else this.reduceLiveState(event);
       return;
     }
@@ -472,6 +472,16 @@ export class AcpmuxDirectClient {
     if (row) this.rows.set(row.id, { ...row, version: row.version + 1, streaming: false });
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
+  }
+
+  /// The tool calls and time since the turn's user message.
+  private turnTotals(endedAt: number): { durationMs?: number; toolCount: number } {
+    const rows = [...this.rows.values()].sort((a, b) => a.at - b.at);
+    let start = rows.length;
+    while (start > 0 && rows[start - 1]!.kind !== "user") start -= 1;
+    const user = rows[start - 1];
+    const toolCount = rows.slice(start).reduce((sum, row) => sum + (row.kind === "activity" ? row.toolCount ?? 0 : 0), 0);
+    return { durationMs: user ? Math.max(0, endedAt - user.at) : undefined, toolCount };
   }
 
   private emit(connection = "connected"): void {
