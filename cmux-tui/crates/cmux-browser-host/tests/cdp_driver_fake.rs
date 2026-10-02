@@ -668,13 +668,16 @@ fn unknown_methods_and_browser_level_raw_cdp_are_refused() {
 fn a_request_filter_intercepts_and_decides_every_request() {
     let h = Harness::new();
     let target = h.open(None);
-    let filter: cmux_browser_host::driver::RequestFilter = std::sync::Arc::new(|url: &str| {
+    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|url: &str| {
         url.contains("evil.test").then(|| "not in session.allowedDomains (example.com)".to_owned())
     });
     let mark = h.mark();
     assert!(h.driver.set_request_filter(Some(filter)));
     let enabled = h.sent_since(mark);
-    assert!(enabled.iter().any(|(m, p)| m == "Fetch.enable" && p["patterns"][0]["urlPattern"] == "*"), "{enabled:?}");
+    assert!(
+        enabled.iter().any(|(m, p)| m == "Fetch.enable" && p["patterns"][0]["urlPattern"] == "*"),
+        "{enabled:?}"
+    );
     let session = format!("S{}", &target[1..]);
     let mark = h.mark();
     for (id, url) in [("r1", "https://evil.test/beacon"), ("r2", "https://example.com/app.js")] {
@@ -684,8 +687,17 @@ fn a_request_filter_intercepts_and_decides_every_request() {
     loop {
         let sent = h.sent_since(mark);
         if sent.len() >= 2 {
-            assert!(sent.contains(&("Fetch.failRequest".to_string(), json!({"requestId": "r1", "errorReason": "BlockedByClient"}))), "{sent:?}");
-            assert!(sent.contains(&("Fetch.continueRequest".to_string(), json!({"requestId": "r2"}))), "{sent:?}");
+            assert!(
+                sent.contains(&(
+                    "Fetch.failRequest".to_string(),
+                    json!({"requestId": "r1", "errorReason": "BlockedByClient"})
+                )),
+                "{sent:?}"
+            );
+            assert!(
+                sent.contains(&("Fetch.continueRequest".to_string(), json!({"requestId": "r2"}))),
+                "{sent:?}"
+            );
             break;
         }
         assert!(std::time::Instant::now() < deadline, "no decisions sent: {sent:?}");

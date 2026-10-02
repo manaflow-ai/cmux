@@ -83,7 +83,10 @@ impl DomainPattern {
     /// secret typing does; otherwise http and https, as navigation checks do.
     pub fn matches(&self, url: &Url, secure: bool) -> bool {
         let scheme = url.scheme();
-        let Some(host) = url.host_str().map(str::to_ascii_lowercase) else {
+        // `evil.com.` is the same site as `evil.com` (fully qualified name).
+        let Some(host) =
+            url.host_str().map(|h| h.strip_suffix('.').unwrap_or(h).to_ascii_lowercase())
+        else {
             return false;
         };
         let scheme_ok = match &self.scheme {

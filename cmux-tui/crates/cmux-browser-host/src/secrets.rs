@@ -83,6 +83,11 @@ impl Vault {
         Ok(())
     }
 
+    /// Whether `name` was set by agent code (`None`: no such secret).
+    pub fn agent_known(&self, name: &str) -> Option<bool> {
+        self.entries.get(name).map(|entry| entry.agent_known)
+    }
+
     pub fn delete(&mut self, name: &str) -> bool {
         self.entries.remove(name).is_some()
     }

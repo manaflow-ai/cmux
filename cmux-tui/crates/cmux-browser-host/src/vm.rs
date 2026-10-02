@@ -226,7 +226,9 @@ fn run(
         interrupt_at.store(at.min(interrupt_at.load(Ordering::Relaxed)), Ordering::Relaxed);
     };
     let restore_deadline = |interrupt_at: &AtomicU64, running: &Option<Running>| {
-        let at = running.as_ref().map_or(u64::MAX, |r| r.deadline.duration_since(base).as_millis() as u64);
+        let at = running
+            .as_ref()
+            .map_or(u64::MAX, |r| r.deadline.duration_since(base).as_millis() as u64);
         interrupt_at.store(at, Ordering::Relaxed);
     };
     let mut running: Option<Running> = None;
@@ -417,7 +419,8 @@ fn install(
     native.set("sessionId", config.session_id.clone()).map_err(js)?;
     native.set("cwd", config.cwd.clone()).map_err(js)?;
     native.set("capabilities", config.capabilities.clone()).map_err(js)?;
-    native.set("tmpdir", std::env::temp_dir().display().to_string()).map_err(js)?;
+    let sandbox = crate::fs_sandbox::FsSandbox::new(&config.cwd);
+    native.set("tmpdir", sandbox.tmp().display().to_string()).map_err(js)?;
     native.set("homedir", std::env::var("HOME").unwrap_or_else(|_| "/".into())).map_err(js)?;
     let resources: HashMap<String, String> = config.resources.iter().cloned().collect();
     native
@@ -429,7 +432,6 @@ fn install(
             .map_err(js)?,
         )
         .map_err(js)?;
-    let sandbox = crate::fs_sandbox::FsSandbox::new(&config.cwd);
     native
         .set(
             "fs",

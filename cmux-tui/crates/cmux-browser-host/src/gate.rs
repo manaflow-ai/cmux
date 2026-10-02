@@ -25,7 +25,7 @@ pub struct Grants {
 
 pub struct Gate {
     driver: Arc<dyn Driver>,
-    policy: Mutex<Policy>,
+    policy: Arc<Mutex<Policy>>,
     vault: Mutex<Vault>,
     grants: Grants,
     /// Navigations the policy refused (`session.blockedNavigations()`).
@@ -43,7 +43,7 @@ impl Gate {
     pub fn new(driver: Arc<dyn Driver>, grants: Grants) -> Gate {
         Gate {
             driver,
-            policy: Mutex::new(Policy::default()),
+            policy: Arc::new(Mutex::new(Policy::default())),
             vault: Mutex::new(Vault::default()),
             grants,
             log: Mutex::new(Vec::new()),
@@ -57,7 +57,28 @@ impl Gate {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .set(Writer::Owner, layer, lock)
-            .map_err(|e| DriverError::new(ErrorCode::Forbidden, e.0))
+            .map_err(|e| DriverError::new(ErrorCode::Forbidden, e.0))?;
+        self.sync_request_filter();
+        Ok(())
+    }
+
+    /// Hands the engine a request filter while any policy layer is active,
+    /// so requests the page makes itself (script navigation, links, popups,
+    /// redirects, fetch) are decided before they are sent.
+    fn sync_request_filter(&self) {
+        let active = {
+            let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
+            policy.base().is_active() || policy.agent().is_active()
+        };
+        let filter: Option<crate::driver::RequestFilter> = active.then(|| {
+            let policy = self.policy.clone();
+            let filter: crate::driver::RequestFilter = Arc::new(move |url: &str| {
+                let parsed = url::Url::parse(url).ok()?;
+                policy.lock().unwrap_or_else(PoisonError::into_inner).subresource_refusal(&parsed)
+            });
+            filter
+        });
+        self.driver.set_request_filter(filter);
     }
 
     /// Owner-side secrets (`browser.secrets.load`): values never enter the VM.
@@ -110,9 +131,7 @@ impl Gate {
                     "cdp: raw CDP needs the browser.cdp grant for this session",
                 ));
             }
-            "session.configure"
-                if params.get("contentRules").is_some_and(|rules| !rules.is_null()) =>
-            {
+            "session.configure" if params.get("contentRules").is_some() => {
                 return Err(Self::refuse(
                     "session.configure: content rules come from the host's domain policy",
                 ));
@@ -145,6 +164,16 @@ impl Gate {
         else {
             return Ok(());
         };
+        if self.vault.lock().unwrap_or_else(PoisonError::into_inner).agent_known(&name)
+            == Some(false)
+        {
+            // A user secret could be read back from the page by agent code;
+            // it is typed only into a sealed, freshly reloaded tab
+            // (browser-host.md decision 8), which is not built yet.
+            return Err(Self::refuse(format!(
+                "locator.type: secret {name:?} is typed only into a sealed tab, which this host cannot make yet"
+            )));
+        }
         if self.grants.raw_cdp {
             // Raw CDP can rewrite the agent world that reports focus.
             return Err(Self::refuse(format!(
@@ -185,6 +214,7 @@ impl VmHost for Gate {
             Ok(value) => Ok(self.mask_value(&value)),
             Err(mut error) => {
                 error.message = self.mask(&error.message);
+                error.error_name = error.error_name.map(|name| self.mask(&name));
                 Err(error)
             }
         }
@@ -202,6 +232,17 @@ impl VmHost for Gate {
                     .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect())
                     .unwrap_or_default();
                 let totp = options["totp"].as_bool().unwrap_or(false);
+                if self
+                    .vault
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .agent_known(&secret_name)
+                    == Some(false)
+                {
+                    return Err(format!(
+                        "secrets.set: {secret_name} is a user secret; agent code cannot replace it"
+                    ));
+                }
                 self.vault
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
@@ -219,6 +260,17 @@ impl VmHost for Gate {
             }
             "secretDelete" => {
                 let secret_name = arg(0).as_str().unwrap_or("").to_owned();
+                if self
+                    .vault
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .agent_known(&secret_name)
+                    == Some(false)
+                {
+                    return Err(format!(
+                        "secrets.delete: {secret_name} is a user secret; agent code cannot delete it"
+                    ));
+                }
                 Ok(json!(
                     self.vault.lock().unwrap_or_else(PoisonError::into_inner).delete(&secret_name)
                 ))
@@ -248,7 +300,10 @@ impl VmHost for Gate {
                 }
                 let lock = change.get("lock").and_then(Value::as_bool).unwrap_or(false);
                 policy.set(Writer::Agent, layer, lock).map_err(|e| e.0)?;
-                Ok(effective(&policy))
+                let answer = effective(&policy);
+                drop(policy);
+                self.sync_request_filter();
+                Ok(answer)
             }
             "policyGet" => {
                 Ok(effective(&self.policy.lock().unwrap_or_else(PoisonError::into_inner)))

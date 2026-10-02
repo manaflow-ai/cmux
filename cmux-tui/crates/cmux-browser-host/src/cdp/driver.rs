@@ -31,6 +31,11 @@ pub(super) struct Inner {
     events: Mutex<mpsc::Sender<DriverEvent>>,
     state: Mutex<State>,
     changed: Condvar,
+    /// The request filter (`set_request_filter`), shared with the worker
+    /// that decides paused requests.
+    pub(super) request_filter: Arc<Mutex<Option<crate::driver::RequestFilter>>>,
+    /// Paused requests to decide: (session, request id, URL).
+    pub(super) paused: Mutex<mpsc::Sender<(String, String, String)>>,
 }
 
 impl CdpDriver {
@@ -51,12 +56,16 @@ impl CdpDriver {
                 }
             })
             .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
+        let request_filter = Arc::new(Mutex::new(None));
+        let paused = super::requests::start_worker(conn.clone(), request_filter.clone())?;
         let inner = Arc::new(Inner {
             conn: conn.clone(),
             agent_source: agent_source.into(),
             events: Mutex::new(event_tx),
             state: Mutex::new(State::default()),
             changed: Condvar::new(),
+            request_filter,
+            paused: Mutex::new(paused),
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -138,6 +147,11 @@ impl Driver for CdpDriver {
     fn capabilities(&self) -> Vec<&'static str> {
         vec!["cdp"]
     }
+
+    fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
+        self.inner.set_request_filter(filter);
+        true
+    }
 }
 
 /// A ready tab's session.
@@ -152,6 +166,10 @@ impl Inner {
     }
 
     fn handle_event(self: &Arc<Self>, event: CdpEvent) {
+        if event.method == "Fetch.requestPaused" {
+            self.request_paused(&event);
+            return;
+        }
         let applied = self.lock().apply(&event);
         self.changed.notify_all();
         if !applied.events.is_empty() {
@@ -231,8 +249,11 @@ impl Inner {
                 ("Emulation.setFocusEmulationEnabled", json!({"enabled": true})),
                 // Out-of-process iframes attach as child sessions of this page.
                 ("Target.setAutoAttach", auto_attach),
-                ("Runtime.runIfWaitingForDebugger", json!({})),
-            ],
+            ]
+            .into_iter()
+            .chain(self.fetch_enable_step())
+            .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
+            .collect(),
             INTERNAL_TIMEOUT,
         );
         if let Some(Ok(tree)) = results.get(1) {
@@ -263,8 +284,11 @@ impl Inner {
                     json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
                 ),
                 ("Target.setAutoAttach", auto_attach),
-                ("Runtime.runIfWaitingForDebugger", json!({})),
-            ],
+            ]
+            .into_iter()
+            .chain(self.fetch_enable_step())
+            .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
+            .collect(),
             INTERNAL_TIMEOUT,
         );
         results.into_iter().find_map(Result::err).map_or(Ok(()), Err)

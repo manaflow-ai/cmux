@@ -208,10 +208,14 @@ fn dropping_the_session_stops_its_thread() {
 #[test]
 fn timers_that_spin_after_an_evaluation_are_interrupted() {
     let (vm, _) = session(0);
-    let first = vm.eval("setTimeout(() => { for (;;) {} }, 10); return 'scheduled';", Duration::from_secs(5));
+    let first = vm
+        .eval("setTimeout(() => { for (;;) {} }, 10); return 'scheduled';", Duration::from_secs(5));
     assert_eq!(lines(&first), vec!["\"scheduled\""]);
     let started = Instant::now();
-    let next = vm.eval("await new Promise((r) => setTimeout(r, 50)); return 'alive';", Duration::from_secs(20));
+    let next = vm.eval(
+        "await new Promise((r) => setTimeout(r, 50)); return 'alive';",
+        Duration::from_secs(20),
+    );
     assert_eq!(lines(&next), vec!["\"alive\""], "{next:?}");
     assert!(started.elapsed() < Duration::from_secs(20));
 }
@@ -219,7 +223,8 @@ fn timers_that_spin_after_an_evaluation_are_interrupted() {
 #[test]
 fn zero_delay_repeating_timers_do_not_starve_input() {
     let (vm, _) = session(0);
-    let first = vm.eval("__cmuxNative.setTimer(777, 0, true); return 'spinning';", Duration::from_secs(5));
+    let first =
+        vm.eval("__cmuxNative.setTimer(777, 0, true); return 'spinning';", Duration::from_secs(5));
     assert_eq!(lines(&first), vec!["\"spinning\""]);
     let next = vm.eval("return 'answered';", Duration::from_secs(5));
     assert_eq!(lines(&next), vec!["\"answered\""]);
@@ -235,6 +240,10 @@ fn huge_timer_delays_do_not_crash_the_session() {
 #[test]
 fn eval_options_reach_the_runtime() {
     let (vm, _) = session(0);
-    let out = vm.eval_with("return globalThis.lastOptions;", Duration::from_secs(5), &json!({"maxOutput": 0}));
+    let out = vm.eval_with(
+        "return globalThis.lastOptions;",
+        Duration::from_secs(5),
+        &json!({"maxOutput": 0}),
+    );
     assert_eq!(lines(&out), vec![r#""{\"maxOutput\":0}""#]);
 }

@@ -45,28 +45,55 @@ fn normalize(path: &Path) -> PathBuf {
 }
 
 impl FsSandbox {
+    /// A sandbox whose temporary directory is its own, next to nothing else.
     pub fn new(root: impl Into<PathBuf>) -> FsSandbox {
         let root = root.into();
+        let tmp = std::env::temp_dir().join("cmux-browser-host").join(format!(
+            "{}-{}",
+            std::process::id(),
+            normalize(&root).display().to_string().replace('/', "_")
+        ));
+        FsSandbox::with_tmp(root, tmp)
+    }
+
+    /// A sandbox over `root` plus a temporary directory `tmp` (both created).
+    pub fn with_tmp(root: impl Into<PathBuf>, tmp: impl Into<PathBuf>) -> FsSandbox {
+        let (root, tmp) = (root.into(), tmp.into());
         let _ = std::fs::create_dir_all(&root);
+        let _ = std::fs::create_dir_all(&tmp);
+        // Canonical forms, so `/var` and `/private/var` (macOS) compare equal.
         let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| normalize(p));
-        FsSandbox { root: canonical(&root), tmp: canonical(&std::env::temp_dir()) }
+        FsSandbox { root: canonical(&root), tmp: canonical(&tmp) }
+    }
+
+    /// The session's temporary directory (`__cmuxNative.tmpdir`).
+    pub fn tmp(&self) -> &Path {
+        &self.tmp
     }
 
     /// The absolute path for `path`, or `EACCES` when it leaves the sandbox.
+    /// The deepest existing ancestor is canonicalized (symlinks resolved)
+    /// and the missing rest appended, so no link on the way can point out.
     fn resolve(&self, path: &str) -> Result<PathBuf, Value> {
         let joined =
             if Path::new(path).is_absolute() { PathBuf::from(path) } else { self.root.join(path) };
-        let mut full = normalize(&joined);
-        // Resolve symlinks of the existing part so a link cannot point out.
-        if let Ok(real) = full.canonicalize() {
-            full = real;
-        } else if let (Some(parent), Some(name)) = (full.parent(), full.file_name())
-            && let Ok(real) = parent.canonicalize()
-        {
-            full = real.join(name);
-        }
-        if full.starts_with(&self.root) || full.starts_with(&self.tmp) {
-            Ok(full)
+        let full = normalize(&joined);
+        let mut existing = full.as_path();
+        let mut rest: Vec<&std::ffi::OsStr> = Vec::new();
+        let resolved = loop {
+            if let Ok(real) = existing.canonicalize() {
+                break rest.iter().rev().fold(real, |acc, part| acc.join(part));
+            }
+            match (existing.parent(), existing.file_name()) {
+                (Some(parent), Some(name)) => {
+                    rest.push(name);
+                    existing = parent;
+                }
+                _ => break full.clone(),
+            }
+        };
+        if resolved.starts_with(&self.root) || resolved.starts_with(&self.tmp) {
+            Ok(resolved)
         } else {
             Err(err("EACCES", format!("{path} is outside the session's files")))
         }
@@ -243,7 +270,11 @@ mod tests {
     use super::*;
 
     fn sandbox() -> (FsSandbox, PathBuf, PathBuf) {
-        let base = std::env::temp_dir().join(format!("fs-sandbox-{}-{}", std::process::id(), std::thread::current().name().unwrap_or("t").replace("::", "-")));
+        let base = std::env::temp_dir().join(format!(
+            "fs-sandbox-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("t").replace("::", "-")
+        ));
         let _ = std::fs::remove_dir_all(&base);
         let root = base.join("root");
         let outside = base.join("outside");
@@ -267,7 +298,8 @@ mod tests {
     fn the_temp_root_is_the_sessions_own() {
         let (fs, _root, _outside) = sandbox();
         let shared = std::env::temp_dir().join("not-this-session.txt");
-        let read = fs.call("writeFile", &json!({"path": shared.display().to_string(), "base64": ""}));
+        let read =
+            fs.call("writeFile", &json!({"path": shared.display().to_string(), "base64": ""}));
         assert_eq!(read["error"]["code"], "EACCES", "{read}");
         let tmp = fs.call("resolve", &json!({"path": "."}));
         assert!(tmp["ok"].is_string());
