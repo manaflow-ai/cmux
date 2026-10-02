@@ -17,7 +17,7 @@ enum ImportCountsText {
 /// One browser profile: the browser's icon with the profile's picture on
 /// it, the browser and profile names, and on the right a checkbox, the
 /// running kind, or what came over. Clicking anywhere on the row toggles it;
-/// an editable row shows the shared hover and pressed fill (`OnboardingHover`).
+/// an editable row shows the shared hover and pressed fill (`ChromeHover`).
 final class ImportProfileRow: NSView {
     static let height: CGFloat = 44
     private let toggle: () -> Void
@@ -26,7 +26,7 @@ final class ImportProfileRow: NSView {
     private let detail = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
     private let mark = NSImageView()
     private var editable = true
-    private(set) lazy var hover = OnboardingHover(self)
+    private(set) lazy var hover = ChromeHover(self, tracking: .activeInKeyWindow)
 
     init(profile: BrowserSourceProfile, appURL: URL?, toggle: @escaping () -> Void) {
         self.toggle = toggle
@@ -119,7 +119,7 @@ final class ImportProfileRow: NSView {
 
     func update(checked: Bool, editable: Bool, state: ImportStepModel.RowState) {
         self.editable = editable
-        if !editable { hover.state = OnboardingHover.State() }
+        if !editable { hover.state = ChromeHover.State() }
         box.state = checked ? .on : .off
         box.isEnabled = editable
         var showsBox = false
