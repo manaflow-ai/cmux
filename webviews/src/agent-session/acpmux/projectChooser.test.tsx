@@ -109,8 +109,40 @@ test("typing filters by name or path, Enter starts a chat in the highlighted pro
   expect(picked).toEqual(["/Users/me/code/notes"]);
 });
 
+test("the highlight stays on its project when a busy chat moves another folder to the top", async () => {
+  await render({ cwd: "/Users/me/code/cmux" });
+  await act(async () => pill()!.click());
+  await key("ArrowDown");
+  expect(options()).toEqual(["cmux *", "notes >"]);
+  await render({ cwd: "/Users/me/code/cmux" }, [
+    ...sessions,
+    { sessionId: "e", cwd: "/Users/me/code/zed", updatedAt: 9 },
+  ]);
+  expect(options()).toEqual(["zed", "cmux *", "notes >"]);
+  await key("Enter");
+  expect(picked).toEqual(["/Users/me/code/notes"]);
+});
+
+test("from a cloud chat, the local project at the same path is another place to start a chat", async () => {
+  await render({ cwd: "/Users/me/code/cmux", host: "devbox", hostKind: "cloud" });
+  expect(pill()!.textContent).toBe("cmux");
+  await act(async () => pill()!.click());
+  expect(options()).toEqual(["cmux >", "notes"]);
+  await key("Enter");
+  expect(picked).toEqual(["/Users/me/code/cmux"]);
+});
+
 test("a click picks, and Escape or a click outside closes the menu", async () => {
   await render({ cwd: "/Users/me/code/cmux" });
+  // The pill's mousedown keeps focus in the field, so a second click closes rather than reopens.
+  await act(async () => pill()!.click());
+  const down = new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  await act(async () => {
+    pill()!.dispatchEvent(down);
+  });
+  expect(down.defaultPrevented).toBe(true);
+  await act(async () => pill()!.click());
+  expect(doc.querySelector("[role=listbox]")).toBeNull();
   await act(async () => pill()!.click());
   await key("Escape");
   expect(doc.querySelector("[role=listbox]")).toBeNull();

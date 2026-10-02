@@ -43,7 +43,8 @@ export function ComposerContext({
       {choosing ? (
         <ProjectChooser
           projects={projects}
-          current={summary?.cwd?.replace(/\/+$/, "")}
+          // A cloud chat's folder is on its machine, so even at the same path the local project is another place.
+          current={summary?.host && summary.hostKind !== "local" ? undefined : summary?.cwd?.replace(/\/+$/, "")}
           currentLabel={project}
           icon={<FolderIcon />}
           onPick={onProject}

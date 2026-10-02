@@ -30,7 +30,8 @@ export function ProjectChooser({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
+  // The highlighted project, by folder: the list re-sorts as chats update while the menu is open.
+  const [active, setActive] = useState<string | undefined>(undefined);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
@@ -43,16 +44,14 @@ export function ProjectChooser({
       return words.every((word) => text.includes(word));
     });
   }, [projects, query]);
-  const selected = Math.min(active, Math.max(shown.length - 1, 0));
+  const selected = Math.max(
+    0,
+    shown.findIndex((project) => project.cwd === active),
+  );
 
   const show = () => {
     setQuery("");
-    setActive(
-      Math.max(
-        0,
-        projects.findIndex((project) => project.cwd === current),
-      ),
-    );
+    setActive(current);
     setOpen(true);
   };
   const close = (refocus: boolean) => {
@@ -87,7 +86,8 @@ export function ProjectChooser({
       close(true);
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (shown.length > 0) setActive((selected + (event.key === "ArrowDown" ? 1 : -1) + shown.length) % shown.length);
+      if (shown.length > 0)
+        setActive(shown[(selected + (event.key === "ArrowDown" ? 1 : -1) + shown.length) % shown.length]!.cwd);
     } else if (event.key === "Enter") {
       event.preventDefault();
       pick(shown[selected]);
@@ -111,6 +111,11 @@ export function ProjectChooser({
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         title={current ? `${PROJECT_LABELS.project}: ${current}` : undefined}
+        // WebKit doesn't focus a clicked button, so its mousedown would blur the open search
+        // field and close the menu before this click reopened it.
+        onMouseDown={(event) => {
+          if (open) event.preventDefault();
+        }}
         onClick={() => (open ? close(true) : show())}
       >
         {icon}
@@ -137,7 +142,7 @@ export function ProjectChooser({
               autoComplete="off"
               onChange={(event) => {
                 setQuery(event.target.value);
-                setActive(0);
+                setActive(undefined);
               }}
               onKeyDown={keyDown}
             />
@@ -159,7 +164,7 @@ export function ProjectChooser({
                 aria-checked={project.cwd === current}
                 className={`acpmux-menu-item${index === selected ? " acpmux-menu-active" : ""}`}
                 title={project.cwd}
-                onPointerMove={() => setActive(index)}
+                onPointerMove={() => setActive(project.cwd)}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   pick(project);
