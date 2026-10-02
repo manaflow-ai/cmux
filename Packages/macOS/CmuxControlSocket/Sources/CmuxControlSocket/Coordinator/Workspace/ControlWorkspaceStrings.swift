@@ -13,6 +13,8 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     public let closeProtected: String
     /// The `workspace.close` local-teardown failure message.
     public let closeFailed: String
+    /// The active-process safety message for `workspace.close`.
+    public let closeConfirmationRequired: String
     /// `socket.workspace.reorderMany.missingOrder`.
     public let reorderManyMissingOrder: String
     /// `socket.workspace.reorderMany.duplicateWorkspace`.
@@ -55,6 +57,7 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     public init(
         closeProtected: String,
         closeFailed: String,
+        closeConfirmationRequired: String = "Workspace has a running process; retry with force=true",
         reorderManyMissingOrder: String,
         reorderManyDuplicateWorkspace: String,
         workspaceNotFound: String,
@@ -68,6 +71,7 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     ) {
         self.closeProtected = closeProtected
         self.closeFailed = closeFailed
+        self.closeConfirmationRequired = closeConfirmationRequired
         self.reorderManyMissingOrder = reorderManyMissingOrder
         self.reorderManyDuplicateWorkspace = reorderManyDuplicateWorkspace
         self.workspaceNotFound = workspaceNotFound

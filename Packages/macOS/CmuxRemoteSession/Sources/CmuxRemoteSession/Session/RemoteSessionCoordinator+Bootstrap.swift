@@ -305,14 +305,7 @@ extension RemoteSessionCoordinator {
                 debugLog("remote.build.cached path=\(cacheURL.path)")
                 return cacheURL
             }
-            let download = try manifestRepository.downloadBinary(
-                entry: entry,
-                version: manifest.appVersion,
-                releaseURL: manifest.releaseURL
-            )
-            if download.usedLiveManifestChecksumFallback {
-                debugLog("remote.download.checksum-fallback: embedded manifest checksum stale, live manifest matched for \(entry.assetName)")
-            }
+            let download = try manifestRepository.downloadBinary(entry: entry, version: manifest.appVersion)
             debugLog("remote.build.downloaded path=\(download.binaryURL.path)")
             return download.binaryURL
         }

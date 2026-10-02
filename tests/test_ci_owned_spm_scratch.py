@@ -77,6 +77,22 @@ class Scratch(unittest.TestCase):
             run.return_value = unittest.mock.Mock(stdout="Xcode 26.7\n", stderr="")
             self.assertNotEqual(old, scratch.toolchain_fingerprint(Path("/a")))
 
+    def test_the_fingerprint_covers_the_vendored_bonsplit_commit(self):
+        # A package test object compiled against one bonsplit must never link
+        # against another: SwiftPM's mtime check does not see a submodule that
+        # moved back to older sources, and a stale object then fails to link.
+        bonsplit = {"commit": "a" * 40}
+
+        def run(command, **kwargs):
+            if "rev-parse" in command:
+                return unittest.mock.Mock(stdout=bonsplit["commit"] + "\n", stderr="")
+            return unittest.mock.Mock(stdout="Xcode 26.6\n", stderr="")
+
+        with unittest.mock.patch.object(scratch.subprocess, "run", side_effect=run):
+            old = scratch.toolchain_fingerprint(Path("/a"))
+            bonsplit["commit"] = "b" * 40
+            self.assertNotEqual(old, scratch.toolchain_fingerprint(Path("/a")))
+
     def test_only_owned_runners_and_an_existing_store(self):
         self.assertEqual(scratch.link(self.workspace, self.store, "blacksmith-6vcpu-1", fingerprint="x"), [])
         self.assertEqual(scratch.link(self.workspace, self.store / "missing", RUNNER, fingerprint="x"), [])

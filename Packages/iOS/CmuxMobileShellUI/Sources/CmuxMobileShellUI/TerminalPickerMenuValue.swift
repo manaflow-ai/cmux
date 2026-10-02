@@ -14,6 +14,10 @@ struct TerminalPickerMenuValue: Equatable {
     let hasActiveBrowser: Bool
     let browserStreamRows: [BrowserStreamPickerRow]
     let supportsBrowserStream: Bool
+    /// Whether the current connection has published an authoritative browser
+    /// capability snapshot. A missing capability while reconnecting is unknown,
+    /// not evidence that the Mac needs an update.
+    let browserStreamSupportKnown: Bool
     let activeBrowserStreamPanelID: String?
     /// The streamed tab the phone-local browser shows "On iPhone", if any.
     let onDeviceBrowserStreamPanelID: String?
@@ -27,6 +31,9 @@ struct TerminalPickerMenuValue: Equatable {
     /// Whether the workspace belongs to an SSH computer rather than a cmux
     /// Mac, which names its browser section.
     let isSSHComputer: Bool
+    /// Cloud workspaces use the native browser through System VPN and do not
+    /// publish the paired-Mac browser capability snapshot.
+    let isExternalHost: Bool
 
     init(
         liveTerminals: [MobileTerminalPreview],
@@ -38,13 +45,15 @@ struct TerminalPickerMenuValue: Equatable {
         hasActiveBrowser: Bool,
         browserStreamRows: [BrowserStreamPickerRow] = [],
         supportsBrowserStream: Bool = false,
+        browserStreamSupportKnown: Bool = false,
         activeBrowserStreamPanelID: String? = nil,
         onDeviceBrowserStreamPanelID: String? = nil,
         simulatorStreamRows: [SimulatorStreamPickerRow] = [],
         supportsSimulatorStream: Bool = false,
         activeSimulatorStreamPanelID: String? = nil,
         sshTabLayout: MobileSSHTabLayout? = nil,
-        isSSHComputer: Bool = false
+        isSSHComputer: Bool = false,
+        isExternalHost: Bool = false
     ) {
         let resolvedRows = liveTerminals.map(TerminalPickerMenuRow.init)
             + liveSurfaces.filter { !$0.kind.isTerminal }.map(TerminalPickerMenuRow.init)
@@ -60,6 +69,7 @@ struct TerminalPickerMenuValue: Equatable {
         self.hasActiveBrowser = hasActiveBrowser
         self.browserStreamRows = browserStreamRows
         self.supportsBrowserStream = supportsBrowserStream
+        self.browserStreamSupportKnown = browserStreamSupportKnown
         self.activeBrowserStreamPanelID = activeBrowserStreamPanelID
         self.onDeviceBrowserStreamPanelID = onDeviceBrowserStreamPanelID
         self.simulatorStreamRows = simulatorStreamRows
@@ -67,13 +77,14 @@ struct TerminalPickerMenuValue: Equatable {
         self.activeSimulatorStreamPanelID = activeSimulatorStreamPanelID
         self.sshTabLayout = sshTabLayout
         self.isSSHComputer = isSSHComputer
+        self.isExternalHost = isExternalHost
     }
 
     /// The streamed-browser section's title, by the kind of computer the
     /// tabs run on: "Mac Browsers" for a cmux Mac, "Browsers" for an SSH
     /// computer (its tabs are not on a Mac).
     var browserSectionTitle: String {
-        isSSHComputer
+        isSSHComputer || isExternalHost
             ? L10n.string("mobile.ssh.browserStream.menuTitle", defaultValue: "Browsers")
             : L10n.string("mobile.browserStream.menuTitle", defaultValue: "Mac Browsers")
     }
@@ -106,6 +117,12 @@ struct TerminalPickerMenuValue: Equatable {
     /// up and it is not a streamed tab shown "On iPhone".
     var checksNewBrowser: Bool {
         hasActiveBrowser && checkedBrowserStreamPanelID == nil
+    }
+
+    /// The update hint is valid only after a connected Mac has reported its
+    /// capabilities. Reconnect teardown clears those capabilities temporarily.
+    var showsBrowserStreamUpdateHint: Bool {
+        !isExternalHost && browserStreamSupportKnown && !supportsBrowserStream
     }
 
     var terminalRows: [TerminalPickerMenuRow] {

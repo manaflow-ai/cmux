@@ -167,8 +167,15 @@ struct CloudTreeCompactLayoutTests {
         // Sections insets the whole machine identity 6pt inside its band.
         // Preserve that decoration while comparing the shared icon column.
         let bandInset: CGFloat = style.machineBand ? 6 : 0
+        // Every row lays its title out on the same magnified column, but that
+        // column can fall between backing pixels (37.5pt in sections at 150%),
+        // so each title snaps to one neighbour or the other, and a heavier title
+        // crosses the ink threshold a pixel early. Ink edges are whole pixels:
+        // round the allowance to that grid, as `iconLabelSpacing` does.
+        let pixelsPerPoint = fixture.window.backingScaleFactor
+        let tolerance = (CGFloat(percent) / 100 * pixelsPerPoint).rounded() / pixelsPerPoint
         for start in starts.dropFirst() {
-            #expect(abs(start - starts[0] - bandInset) <= CGFloat(percent) / 100,
+            #expect(abs(start - starts[0] - bandInset) <= tolerance,
                     "Every machine state reserves the same title column as a folder: \(starts)")
         }
     }

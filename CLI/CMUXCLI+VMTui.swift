@@ -831,6 +831,13 @@ extension CMUXCLI {
                                  [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open]
                                  [--focus|--no-focus] [--json] [-- <command...>]
                cmux surface resume …   (restart metadata; see `cmux surface resume --help`)
+               cmux surface size [--surface <id|ref>] [--json]
+               cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols N --rows N] [--surface <id|ref>]
+               cmux surface size-to-me [--surface <id|ref>]
+               cmux surface size-counts <true|false|auto> [--participant <id>] [--surface <id|ref>]
+               cmux surface participants [--surface <id|ref>] [--json]
+               cmux surface disconnect-participant <participant-id> [--surface <id|ref>]
+               cmux surface disconnect-others [--surface <id|ref>]
 
         Surfaces are terminals, VNC displays and browsers on This Mac or on a cloud machine;
         panes project them. `surface ls` is the catalog (same as `cmux vm tree`, including
@@ -841,6 +848,9 @@ extension CMUXCLI {
                --pane + a side splits that pane on that side; --tab adds a tab to it; else
                the workspace's focused pane. A local terminal moves to the destination
                (it can only be shown once).
+        size*, participants, disconnect-*:  shared terminal sizing. A terminal viewed from
+               several devices has one grid; the policy picks who sets it, and any client
+               but this one can be disconnected (it can reattach from its device).
         new-terminal:  creates a terminal on the machine (a cloud one lands in its cmux-tui
                session, --remote-workspace picks which) and opens it unless --no-open.
         --focus / --no-focus:  focus the opened pane, or open it in the background.
@@ -1532,8 +1542,8 @@ extension CMUXCLI {
             facts.append(String(format: String(localized: "cli.vm.tree.disk", defaultValue: "%.0f GB disk"), diskMb / 1024))
         }
         let linkState = (machine["link_state"] as? String) ?? ((machine["link"] as? [String: Any])?["state"] as? String) ?? ""
-        let linkError = ((machine["link_error"] as? String) ?? ((machine["link"] as? [String: Any])?["error"] as? String))
-            .flatMap { $0.isEmpty ? nil : $0 }
+        let linkError = ((machine["link_error_message"] as? String) ?? ((machine["link"] as? [String: Any])?["error_message"] as? String) ?? (machine["link_error"] as? String) ?? ((machine["link"] as? [String: Any])?["error"] as? String))
+            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         if !linkState.isEmpty, linkState != "n/a" {
             facts.append(String(format: String(localized: "cli.vm.tree.link", defaultValue: "link %@"), linkState))
         }
