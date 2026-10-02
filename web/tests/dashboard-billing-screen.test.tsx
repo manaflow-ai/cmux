@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createTranslator, type AbstractIntlMessages } from "use-intl/core";
 
-import { stripeCustomers, stripeSubscriptions } from "../db/schema";
+import { appleSubscriptions, stripeCustomers, stripeSubscriptions } from "../db/schema";
 import baseEnMessages from "../messages/en.json";
 import jaMessages from "../messages/ja.json";
 import { withAccountMutationLeaseSupport } from
@@ -24,6 +24,7 @@ let currentUser: typeof proUser | null = null;
 let subscriptionRows: Array<Record<string, unknown>> = [];
 let subscriptionResults: Array<Array<Record<string, unknown>>> = [];
 let customerRows: Array<Record<string, unknown>> = [];
+let appleRows: Array<Record<string, unknown>> = [];
 
 const proUser = {
   id: "user-pro",
@@ -111,6 +112,7 @@ function resetFixtures() {
   subscriptionRows = [];
   subscriptionResults = [];
   customerRows = [];
+  appleRows = [];
   proUser.clientReadOnlyMetadata = {};
   proUser.selectedTeam = null;
   proUser.listTeams.mockClear();
@@ -334,6 +336,31 @@ describe("dashboard billing screen", () => {
     expect(html).not.toContain("Cancel plan");
   });
 
+  test("an App Store-only subscriber gets the App Store notice and no Stripe portal", async () => {
+    appleRows = [appleMaxRow()];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("Billed through the App Store");
+    expect(html).toContain('href="https://apps.apple.com/account/subscriptions"');
+    expect(html).not.toContain('href="/api/billing/portal"');
+  });
+
+  test("keeps Stripe management beside the App Store notice when both bill the user", async () => {
+    // Apple Max outranks the Stripe Pro plan, but Stripe still charges for Pro.
+    appleRows = [appleMaxRow()];
+    subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false, status: "past_due" })];
+    customerRows = [{ id: "cus_123" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("Billed through the App Store");
+    expect(html).toContain(
+      "Your latest payment failed. Update your payment method to keep your plan active.",
+    );
+    expect(html).toContain('href="/api/billing/portal"');
+  });
+
   test("renders a past-due banner that links to the Stripe portal", async () => {
     subscriptionRows = [stripeSubscriptionRow({
       cancelAtPeriodEnd: false,
@@ -535,10 +562,19 @@ describe("dashboard billing screen", () => {
   }
 });
 
+function appleMaxRow() {
+  return {
+    originalTransactionId: "otx-apple", planId: "max", status: "active", environment: "Production",
+    bundleId: "com.cmux.app", expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), gracePeriodExpiresAt: null,
+    autoRenewEnabled: true,
+  };
+}
+
 function selectableResult(table: unknown) {
   const rows = () => {
     if (table === stripeSubscriptions) return subscriptionResults.length ? subscriptionResults.shift()! : subscriptionRows;
     if (table === stripeCustomers) return customerRows;
+    if (table === appleSubscriptions) return appleRows;
     return [];
   };
   return {
