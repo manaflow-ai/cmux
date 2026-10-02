@@ -609734,7 +609734,6 @@
             "value": "雲端上的持久 Linux 電腦，會以一般的 cmux 工作區開啟。"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -609801,7 +609800,7 @@
             "value": "Persistent cloud computers that open as regular cmux workspaces."
           }
         }
-}
+      }
     },
     "cloud.enable.cancel": {
       "extractionState": "manual",
@@ -609860,7 +609859,6 @@
             "value": "取消"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -609927,7 +609925,7 @@
             "value": "Cancel"
           }
         }
-}
+      }
     },
     "cloud.enable.requiresPro.title": {
       "extractionState": "manual",
@@ -609986,7 +609984,6 @@
             "value": "Cloud Machines 需要 cmux Pro"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -610053,7 +610050,7 @@
             "value": "Use Cloud Machines"
           }
         }
-}
+      }
     },
     "cloud.enable.loading.title": {
       "extractionState": "manual",
@@ -610112,7 +610109,6 @@
             "value": "正在設定 Cloud Machines…"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -610179,7 +610175,7 @@
             "value": "Setting up Cloud Machines…"
           }
         }
-}
+      }
     },
     "cloud.enable.signIn.subtitle": {
       "extractionState": "manual",
@@ -610238,7 +610234,6 @@
             "value": "登入 cmux 帳戶後再試一次 Cloud 設定。"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -610305,7 +610300,7 @@
             "value": "Sign in to your cmux account, then retry Cloud setup."
           }
         }
-}
+      }
     },
     "cloud.enable.benefit.files": {
       "extractionState": "manual",
@@ -610364,7 +610359,6 @@
             "value": "檔案和已安裝的工具會在各次工作階段之間保留在機器上。"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -610431,7 +610425,7 @@
             "value": "Files and installed tools stay on the machine between sessions."
           }
         }
-}
+      }
     },
     "cloud.enable.unavailable.subtitle": {
       "extractionState": "manual",
@@ -610490,7 +610484,6 @@
             "value": "Cloud Machines 目前在此 Mac 上無法使用。"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -610557,7 +610550,7 @@
             "value": "Cloud Machines are unavailable on this Mac right now."
           }
         }
-}
+      }
     },
     "cloud.enable.failed.subtitle": {
       "extractionState": "manual",
@@ -610616,7 +610609,6 @@
             "value": "無法連線至 Cloud 服務。請檢查連線後重試。"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -610683,7 +610675,7 @@
             "value": "The Cloud service could not be reached. Check your connection and retry."
           }
         }
-}
+      }
     },
     "cloud.enable.benefit.reattach": {
       "extractionState": "manual",
@@ -610742,7 +610734,6 @@
             "value": "在任何已登入的 Mac 上，從上次離開的地方繼續。"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -610809,7 +610800,7 @@
             "value": "Pick up where you left off from any Mac you sign in on."
           }
         }
-}
+      }
     },
     "cloud.enable.title": {
       "extractionState": "manual",
@@ -610868,7 +610859,6 @@
             "value": "使用 Cloud Machines"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -610935,7 +610925,7 @@
             "value": "Use Cloud Machines"
           }
         }
-}
+      }
     },
     "cloud.enable.planChecking": {
       "extractionState": "manual",
@@ -610949,115 +610939,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "جارٍ التحقق من خطة cmux الخاصة بك…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "cmux-Plan wird geprüft…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "Comprobando tu plan de cmux…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "Vérification de votre forfait cmux…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "cmux プランを確認中…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "cmux 요금제를 확인하는 중…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "正在检查你的 cmux 方案…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "正在檢查您的 cmux 方案…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "Provjera vašeg cmux plana…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "Tjekker din cmux-plan…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "Verifica del tuo piano cmux…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "កំពុងពិនិត្យមើលគម្រោង cmux របស់អ្នក…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "Sjekker cmux-abonnementet ditt…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "Sprawdzanie planu cmux…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "Verificando seu plano cmux…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "Проверка вашего плана cmux…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "กำลังตรวจสอบแผน cmux ของคุณ…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "cmux planınız kontrol ediliyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Checking your cmux plan…"
+            "value": "Перевірка вашого плану cmux…"
           }
         }
       }
@@ -611119,7 +611109,6 @@
             "value": "需要付費的 cmux 方案。"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -611186,7 +611175,7 @@
             "value": "Requires a cmux Pro plan."
           }
         }
-}
+      }
     },
     "cloud.enable.cancelled.subtitle": {
       "extractionState": "manual",
@@ -611245,7 +611234,6 @@
             "value": "Cloud 尚未啟用。準備好後可再次開始設定。"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -611312,7 +611300,7 @@
             "value": "Cancel"
           }
         }
-}
+      }
     },
     "cloud.enable.signIn.title": {
       "extractionState": "manual",
@@ -611371,7 +611359,6 @@
             "value": "登入以使用 Cloud Machines"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -611438,7 +611425,7 @@
             "value": "Sign in to use Cloud Machines"
           }
         }
-}
+      }
     },
     "cloud.enable.benefit.agents": {
       "extractionState": "manual",
@@ -611497,7 +611484,6 @@
             "value": "合上筆電後，代理程式和終端機仍會繼續執行。"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -611564,7 +611550,7 @@
             "value": "Agents and terminals keep running after you close your laptop."
           }
         }
-}
+      }
     },
     "cloud.enable.upgrade": {
       "extractionState": "manual",
@@ -611623,7 +611609,6 @@
             "value": "升級至 Pro"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -611690,7 +611675,7 @@
             "value": "Upgrade to Pro"
           }
         }
-}
+      }
     },
     "cloud.enable.action": {
       "extractionState": "manual",
@@ -611749,7 +611734,6 @@
             "value": "啟用 Cloud"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -611816,7 +611800,7 @@
             "value": "Enable Cloud"
           }
         }
-}
+      }
     },
     "cloud.enable.requiresPro.subtitle": {
       "extractionState": "manual",
@@ -611875,7 +611859,6 @@
             "value": "此帳戶的方案不包含 Cloud 機器存取權。"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -611942,7 +611925,7 @@
             "value": "This account’s plan does not include Cloud machine access."
           }
         }
-}
+      }
     },
     "cloud.enable.failed.title": {
       "extractionState": "manual",
@@ -612001,7 +611984,6 @@
             "value": "Cloud 設定暫時無法使用"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -612068,7 +612050,7 @@
             "value": "Cloud setup is temporarily unavailable"
           }
         }
-}
+      }
     },
     "cloud.enable.signIn.action": {
       "extractionState": "manual",
@@ -612252,7 +612234,6 @@
             "value": "cmux 正在準備共用的 Cloud 連線。這可能需要一些時間。"
           }
         },
-
         "bs": {
           "stringUnit": {
             "state": "translated",
@@ -612319,7 +612300,7 @@
             "value": "cmux is preparing the shared Cloud connection. This can take a moment."
           }
         }
-}
+      }
     },
     "settings.cloudMachines.enable.title": {
       "extractionState": "manual",
