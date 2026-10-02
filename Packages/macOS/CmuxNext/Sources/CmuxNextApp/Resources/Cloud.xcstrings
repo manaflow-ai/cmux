@@ -4716,6 +4716,125 @@
           }
         }
       }
+    },
+    "cloud.failed.filePathRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass an absolute Cloud file path without '..'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pass an absolute Cloud file path without '..'."
+          }
+        }
+      }
+    },
+    "cloud.failed.fileContentsRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass file contents to write."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pass file contents to write."
+          }
+        }
+      }
+    },
+    "cloud.failed.publicKeyRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass an Ed25519 SSH public key for the transfer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pass an Ed25519 SSH public key for the transfer."
+          }
+        }
+      }
+    },
+    "cloud.result.filesTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Files"
+          }
+        }
+      }
+    },
+    "cloud.result.fileContentsTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud File Contents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud File Contents"
+          }
+        }
+      }
+    },
+    "cloud.result.fileStatTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud File Details"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud File Details"
+          }
+        }
+      }
+    },
+    "cloud.result.scpTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud File Transfer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud File Transfer"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

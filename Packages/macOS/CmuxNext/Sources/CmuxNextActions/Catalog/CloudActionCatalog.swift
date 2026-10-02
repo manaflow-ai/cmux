@@ -81,6 +81,55 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 cliName: "cloud exec", startsTerminal: true
             ),
             ActionDescriptor(
+                id: "cloudFilesList",
+                title: String(localized: "action.cloudFilesList", defaultValue: "List Cloud Files…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "directory", "ls"], category: .cloud, symbol: "folder",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], targets: [.machine],
+                cliName: "cloud files-list"
+            ),
+            ActionDescriptor(
+                id: "cloudFileRead",
+                title: String(localized: "action.cloudFileRead", defaultValue: "Read Cloud File…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "read"], category: .cloud, symbol: "doc.text",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], targets: [.machine],
+                cliName: "cloud file-read"
+            ),
+            ActionDescriptor(
+                id: "cloudFileWrite",
+                title: String(localized: "action.cloudFileWrite", defaultValue: "Write Cloud File…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "write"], category: .cloud, symbol: "square.and.pencil",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString, CatalogArgument.contentsString], targets: [.machine],
+                cliName: "cloud file-write"
+            ),
+            ActionDescriptor(
+                id: "cloudFileMkdir",
+                title: String(localized: "action.cloudFileMkdir", defaultValue: "Create Cloud Directory…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "mkdir"], category: .cloud, symbol: "folder.badge.plus",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], targets: [.machine],
+                cliName: "cloud file-mkdir"
+            ),
+            ActionDescriptor(
+                id: "cloudFileRemove",
+                title: String(localized: "action.cloudFileRemove", defaultValue: "Remove Cloud File…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "rm"], category: .cloud, symbol: "trash",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString, CatalogArgument.confirmBool], targets: [.machine],
+                cliName: "cloud file-remove", destructive: true
+            ),
+            ActionDescriptor(
+                id: "cloudFileStat",
+                title: String(localized: "action.cloudFileStat", defaultValue: "Cloud File Details…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "stat"], category: .cloud, symbol: "info.circle",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], targets: [.machine],
+                cliName: "cloud file-stat"
+            ),
+            ActionDescriptor(
+                id: "cloudPrepareSCP",
+                title: String(localized: "action.cloudPrepareSCP", defaultValue: "Prepare Cloud File Transfer…", bundle: .module),
+                keywords: ["vm", "cloud", "files", "scp", "ssh"], category: .cloud, symbol: "arrow.up.arrow.down",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.publicKeyString], targets: [.machine],
+                cliName: "cloud prepare-scp"
+            ),
+            ActionDescriptor(
                 id: "cloudNewTerminal",
                 title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal on Machine", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "apple.terminal", surfaces: [.contextMenu],
