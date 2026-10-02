@@ -32,7 +32,7 @@ struct WindowBackgroundOverrideTests {
         #expect(frosted.backgroundOpacity == 0.7)
         #expect(WindowBackdrop(frosted).material == .glass(.regular), "the opacity alone keeps Ghostty's glass")
 
-        let glass = Self.tokens(["appearance": ["backgroundBlur": "frosted"]], ghostty: Self.ghostty(opacity: 0.9, blur: -1))
+        let glass = Self.tokens(["appearance": ["backgroundBlur": "frosted"]], ghostty: Self.ghostty(opacity: 0.9, blur: 0))
         #expect(WindowBackdrop(glass).material == .frosted)
         #expect(glass.backgroundOpacity == 0.9)
     }
@@ -46,6 +46,9 @@ struct WindowBackgroundOverrideTests {
         let translucent = Self.tokens(.object([:]), ghostty: Self.ghostty(opacity: 0.85, blur: 20))
         #expect(translucent.backgroundOpacity == 0.85)
         #expect(WindowBackdrop(translucent).material == .frosted)
+        // background-blur = false stays plainly see-through, not frosted.
+        let seeThrough = Self.tokens(.object([:]), ghostty: Self.ghostty(opacity: 0.85, blur: 0))
+        #expect(WindowBackdrop(seeThrough).material == .translucent)
     }
 
     @Test func aMaterialAloneTurnsTranslucencyOn() {
@@ -54,11 +57,17 @@ struct WindowBackgroundOverrideTests {
         #expect(WindowBackdrop(tokens).material == .frosted)
     }
 
-    @Test func noneKeepsTheWindowOpaque() {
+    /// `none` drops the blur and keeps the resolved opacity.
+    @Test func noneIsPlainlySeeThrough() {
         let tokens = Self.tokens(["appearance": ["backgroundOpacity": 0.5, "backgroundBlur": "none"]],
                                  ghostty: Self.ghostty(opacity: 0.8, blur: -1))
-        #expect(tokens.backgroundOpacity == 1)
-        #expect(WindowBackdrop(tokens).material == .opaque)
+        #expect(tokens.backgroundOpacity == 0.5)
+        #expect(WindowBackdrop(tokens).material == .translucent)
+        let ghosttys = Self.tokens(["appearance": ["backgroundBlur": "none"]], ghostty: Self.ghostty(opacity: 0.8, blur: 20))
+        #expect(ghosttys.backgroundOpacity == 0.8)
+        #expect(WindowBackdrop(ghosttys).material == .translucent)
+        let opaque = Self.tokens(["appearance": ["backgroundBlur": "none"]])
+        #expect(WindowBackdrop(opaque).material == .opaque, "none alone does not turn translucency on")
     }
 
     /// The terminal side: the same override becomes Ghostty config lines, so
@@ -70,8 +79,10 @@ struct WindowBackgroundOverrideTests {
             == ["background-opacity = 0.6", "background-blur = macos-glass-regular"])
         #expect(GhosttyRuntime.backgroundOverrideLines(WindowBackgroundOverride(material: .glassClear), configuredOpacity: 0.8, configuredBlur: 0)
             == ["background-blur = macos-glass-clear"])
-        #expect(GhosttyRuntime.backgroundOverrideLines(WindowBackgroundOverride(material: .solid), configuredOpacity: 0.8, configuredBlur: 20)
-            == ["background-opacity = 1.0", "background-blur = 0"])
+        #expect(GhosttyRuntime.backgroundOverrideLines(WindowBackgroundOverride(material: .unblurred), configuredOpacity: 0.8, configuredBlur: 20)
+            == ["background-blur = 0"])
+        #expect(GhosttyRuntime.backgroundOverrideLines(WindowBackgroundOverride(material: .frosted), configuredOpacity: 0.8, configuredBlur: 0)
+            == ["background-blur = \(WindowBackgroundOverride.defaultFrostedRadius)"])
         #expect(GhosttyRuntime.backgroundOverrideLines(WindowBackgroundOverride(), configuredOpacity: 0.8, configuredBlur: 20).isEmpty)
         #expect(GhosttyRuntime.backgroundOverrideLines(override, configuredOpacity: 0.6, configuredBlur: -1).isEmpty)
         #expect(GhosttyRuntimeSurfacePolicy.override(configuredOpacity: 0.6, opacityCells: false) == "background-opacity = 0")

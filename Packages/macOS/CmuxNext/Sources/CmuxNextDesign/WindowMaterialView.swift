@@ -69,7 +69,7 @@ public final class WindowMaterialView: NSView {
 
     private static func makeMaterialView(_ material: WindowMaterial) -> NSView? {
         switch material {
-        case .opaque:
+        case .opaque, .translucent:
             return nil
         case .frosted:
             let effect = NSVisualEffectView()

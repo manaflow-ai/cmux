@@ -22,6 +22,11 @@ public nonisolated struct WindowBackgroundOverride: Hashable, Sendable {
     /// asks for translucency, and at opacity 1 the tint would hide it.
     public static let defaultTranslucentOpacity = 0.8
 
+    /// The blur radius ``WindowMaterialChoice/frosted`` gives a config with
+    /// none (Ghostty's radius for `background-blur = true`), so the window
+    /// reads as frosted rather than plainly see-through.
+    public static let defaultFrostedRadius = 20
+
     /// - Parameter opacity: `appearance.backgroundOpacity`; nil (the
     ///   default) keeps the Ghostty config's.
     /// - Parameter material: `appearance.backgroundBlur`; nil (the default)
@@ -45,7 +50,7 @@ public nonisolated struct WindowBackgroundOverride: Hashable, Sendable {
         case .frosted?: blur = max(backgroundBlur, 0)
         case .glass?: blur = -1
         case .glassClear?: blur = -2
-        case .solid?: return (1, 0)
+        case .unblurred?: return (1, 0)
         }
         if let opacity { return (opacity, blur) }
         if material != nil, backgroundOpacity >= 1 { return (Self.defaultTranslucentOpacity, blur) }

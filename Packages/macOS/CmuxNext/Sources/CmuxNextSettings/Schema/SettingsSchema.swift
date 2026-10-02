@@ -138,7 +138,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(WindowMaterialChoice.frosted.rawValue, SettingsText.text("settings.choice.frosted", "Frosted")),
                     SettingChoice(WindowMaterialChoice.glass.rawValue, SettingsText.text("settings.choice.glass", "Glass")),
                     SettingChoice(WindowMaterialChoice.glassClear.rawValue, SettingsText.text("settings.choice.glassClear", "Clear Glass")),
-                    SettingChoice(WindowMaterialChoice.solid.rawValue, SettingsText.text("settings.choice.none", "None")),
+                    SettingChoice(WindowMaterialChoice.unblurred.rawValue, SettingsText.text("settings.choice.none", "None")),
                 ]),
                 default: nil, defaultLabel: ghostty,
                 keywords: ["blur", "vibrancy", "liquid glass", "background-blur", "transparency"]

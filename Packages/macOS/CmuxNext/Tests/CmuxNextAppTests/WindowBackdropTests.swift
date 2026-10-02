@@ -4,8 +4,9 @@ import Testing
 @testable import CmuxNextTerminal
 
 /// The window behind the terminal: opaque for an opaque config, otherwise
-/// one material (Ghostty's glass styles as Liquid Glass, everything else
-/// frosted) and a non-opaque window at Ghostty's 0.001 white.
+/// one material (Ghostty's glass styles as Liquid Glass, a blur radius as
+/// frosted, no blur as plain see-through) and a non-opaque window at
+/// Ghostty's 0.001 white.
 struct WindowBackdropTests {
     @Test func opaqueConfigKeepsAnOpaqueWindow() {
         let backdrop = WindowBackdrop(backgroundOpacity: 1, backgroundBlur: 20)
@@ -13,14 +14,15 @@ struct WindowBackdropTests {
         #expect(backdrop.material == .opaque)
     }
 
-    @Test func translucentConfigIsFrosted() {
+    @Test func translucentConfigWithABlurIsFrosted() {
         let backdrop = WindowBackdrop(backgroundOpacity: 0.8, backgroundBlur: 20)
         #expect(!backdrop.isOpaque)
         #expect(backdrop.material == .frosted)
         // Ghostty uses white at 0.001, not clear, so the window keeps its
         // shadow and hit testing like Terminal.app.
         #expect(backdrop.windowBackgroundAlpha == 0.001)
-        #expect(WindowBackdrop(backgroundOpacity: 0.8, backgroundBlur: 0).material == .frosted)
+        // No blur (`background-blur = false`): plainly see-through.
+        #expect(WindowBackdrop(backgroundOpacity: 0.8, backgroundBlur: 0).material == .translucent)
     }
 
     /// macOS glass styles (`background-blur = macos-glass-*`, -1/-2) make the

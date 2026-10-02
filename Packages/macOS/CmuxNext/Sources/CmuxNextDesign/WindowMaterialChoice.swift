@@ -7,7 +7,7 @@ public nonisolated enum WindowMaterialChoice: String, CaseIterable, Hashable, Se
     case glass
     /// Liquid Glass, clear style (Ghostty's `macos-glass-clear`).
     case glassClear = "glass-clear"
-    /// `"none"`: no material, so the window is opaque whatever the opacity
-    /// says.
-    case solid = "none"
+    /// `"none"`: no blur. A translucent window is plainly see-through
+    /// (``WindowMaterial/translucent``); at opacity 1 it is opaque.
+    case unblurred = "none"
 }

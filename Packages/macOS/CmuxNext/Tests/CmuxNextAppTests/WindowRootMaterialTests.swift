@@ -50,7 +50,7 @@ struct WindowRootMaterialTests {
         return found
     }
 
-    @Test(arguments: [(0.8, 0, "frosted"), (0.8, 20, "frosted"), (1.0, -1, "glass"), (0.6, -2, "glass")])
+    @Test(arguments: [(0.8, 20, "frosted"), (0.5, 1, "frosted"), (1.0, -1, "glass"), (0.6, -2, "glass")])
     func aTranslucentRootHostsExactlyOneMaterialAtTheBottom(opacity: Double, blur: Int, kind: String) throws {
         let (root, room) = makeRoot(input(opacity: opacity, blur: blur))
         let materials = rootMaterialViews(root)
@@ -72,6 +72,18 @@ struct WindowRootMaterialTests {
         withExtendedLifetime(room) {}
     }
 
+    /// A translucent config with no blur is plainly see-through: no
+    /// material view, the tint at the opacity, and a clear root layer.
+    @Test func aSeeThroughRootHostsOnlyTheTint() throws {
+        let (root, room) = makeRoot(input(opacity: 0.7, blur: 0))
+        #expect(root.backdrop.material == .translucent)
+        #expect(rootMaterialViews(root).isEmpty)
+        #expect(root.layer?.backgroundColor == nil)
+        let tint = try #require(root.backdropView.tintColor)
+        #expect(abs(tint.alpha - 0.7) < 0.001)
+        withExtendedLifetime(room) {}
+    }
+
     @Test func anOpaqueRootHostsNoMaterialAndPaintsSolid() throws {
         let (root, room) = makeRoot(input(opacity: 1, blur: 20))
         #expect(rootMaterialViews(root).isEmpty)
@@ -85,7 +97,7 @@ struct WindowRootMaterialTests {
     /// notification.
     @Test func reduceTransparencyMakesTheRootOpaque() throws {
         let reduce = Flag(true)
-        let (root, room) = makeRoot(input(opacity: 0.7, blur: 0), reduceTransparency: reduce)
+        let (root, room) = makeRoot(input(opacity: 0.7, blur: 20), reduceTransparency: reduce)
         #expect(rootMaterialViews(root).isEmpty)
         #expect(root.backdrop.material == .opaque)
         #expect(try #require(root.layer?.backgroundColor).alpha == 1, "solid, not the translucent background")
@@ -99,7 +111,7 @@ struct WindowRootMaterialTests {
 
     /// A theme change swaps the one material; it never stacks a second.
     @Test func aThemeChangeSwapsTheMaterial() {
-        let (root, room) = makeRoot(input(opacity: 0.8, blur: 0))
+        let (root, room) = makeRoot(input(opacity: 0.8, blur: 20))
         room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: input(opacity: 0.8, blur: -1), animated: false)
         root.themeDidChange()
         #expect(rootMaterialViews(root).count == 1)
@@ -107,6 +119,7 @@ struct WindowRootMaterialTests {
         room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: input(opacity: 1, blur: 0), animated: false)
         root.themeDidChange()
         #expect(rootMaterialViews(root).isEmpty)
+        withExtendedLifetime(room) {}
     }
 
     /// The window over a material is non-opaque with Ghostty's 0.001 white,

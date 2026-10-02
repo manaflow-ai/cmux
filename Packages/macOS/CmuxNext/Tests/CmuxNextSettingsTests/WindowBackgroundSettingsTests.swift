@@ -21,7 +21,7 @@ import Testing
 
     @Test func readsTheOpacityAndEveryMaterial() throws {
         #expect(try parse(#"{"appearance": {"backgroundOpacity": 0.65}}"#).windowBackground.opacity == 0.65)
-        let expected: [String: WindowMaterialChoice] = ["frosted": .frosted, "glass": .glass, "glass-clear": .glassClear, "none": .solid]
+        let expected: [String: WindowMaterialChoice] = ["frosted": .frosted, "glass": .glass, "glass-clear": .glassClear, "none": .unblurred]
         for (text, choice) in expected {
             let snapshot = try parse(#"{"appearance": {"backgroundBlur": "\#(text)"}}"#)
             #expect(snapshot.windowBackground.material == choice, "\(text)")

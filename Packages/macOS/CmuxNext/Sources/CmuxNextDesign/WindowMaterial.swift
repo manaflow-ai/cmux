@@ -21,9 +21,19 @@ public nonisolated enum WindowMaterial: Hashable, Sendable {
     /// `macos-glass-clear` (-2).
     case glass(GlassStyle)
     /// A behind-window blur (`NSVisualEffectView`, `.behindWindow`,
-    /// `.active`): every other translucent window. The default look.
+    /// `.active`): a translucent window with a `background-blur` radius, or
+    /// `appearance.backgroundBlur = "frosted"`.
     case frosted
+    /// Plain see-through: no material view, only the theme tint at the
+    /// resolved opacity. A translucent window with no blur
+    /// (`background-blur = false`, or `appearance.backgroundBlur = "none"`).
+    case translucent
 
     /// Whether the window root hosts a material view for this material.
-    public var hasMaterialView: Bool { self != .opaque }
+    public var hasMaterialView: Bool {
+        switch self {
+        case .frosted, .glass: true
+        case .opaque, .translucent: false
+        }
+    }
 }
