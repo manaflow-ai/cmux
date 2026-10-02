@@ -76,4 +76,5 @@ export const previewFixtures: PreviewFixture[] = [
   { id: "streaming-replay", label: "Live streaming replay", snapshot: { ...codex.snapshot, rows: [] }, replay: codex.replay },
   { id: "synthetic-5000", label: "5,000 row fling", snapshot: syntheticSnapshot() },
   { id: "permission-queue", label: "Permission and queue", snapshot: permissionSnapshot() },
+  { id: "turn-running", label: "Turn in progress", snapshot: { ...codex.snapshot, isWorking: true } },
 ];

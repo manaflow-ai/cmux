@@ -37,7 +37,7 @@ export type AcpmuxSnapshot = {
   protocolVersion: number;
   rows: AcpmuxRow[];
   sessions: { sessionId: string; displayTitle?: string; title?: string; name?: string; status?: string; model?: string }[];
-  summary?: { sessionId: string; title?: string; name?: string; harness?: string; model?: string; effort?: string; status?: string; modes?: { availableModes: { id: string; name?: string }[]; currentModeId?: string }; configOptions?: { id: string; name?: string; category?: string; currentValue?: string; options: { value: string; name?: string }[] }[]; promptCapabilities?: { image?: boolean; embeddedContext?: boolean } };
+  summary?: { sessionId: string; title?: string; name?: string; harness?: string; model?: string; effort?: string; status?: string; modes?: { availableModes: { id: string; name?: string }[]; currentModeId?: string }; configOptions?: { id: string; name?: string; category?: string; currentValue?: string; options: { value: string; name?: string }[] }[]; promptCapabilities?: { image?: boolean; embeddedContext?: boolean }; steering?: boolean };
   connection: string;
   sessionId?: string;
   isWorking: boolean;

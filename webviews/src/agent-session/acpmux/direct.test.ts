@@ -452,6 +452,25 @@ describe("direct client session state", () => {
     expect(texts().at(-1)).toBe("Compare\n\na.txt\n```txt\nx\n```");
   });
 
+  test("steering an agent that reports it sends a steer prompt without stopping the turn", async () => {
+    ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/attach" ? { ...attachReply(params.sessionId), session: { sessionId: "a", status: "running", steering: true } } : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    const client = await connect();
+    expect(latest().summary?.steering).toBe(true);
+    await client.steer("use v2");
+    const sent = ScriptedSocket.current.sent.filter((request) => request.method === "session/cancel" || request.method === "session/prompt");
+    expect(sent.map((request) => request.method)).toEqual(["session/prompt"]);
+    expect(sent[0]!.params._meta.acpmux).toEqual({ promptId: expect.any(String), steer: true });
+  });
+
+  test("steering any other agent stops the turn first, so the prompt runs next instead of waiting in the queue", async () => {
+    ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/attach" ? { ...attachReply(params.sessionId), session: { sessionId: "a", status: "running" } } : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
+    const client = await connect();
+    await client.steer("use v2");
+    const sent = ScriptedSocket.current.sent.filter((request) => request.method === "session/cancel" || request.method === "session/prompt");
+    expect(sent.map((request) => request.method)).toEqual(["session/cancel", "session/prompt"]);
+    expect(sent[1]!.params._meta.acpmux.steer).toBeUndefined();
+  });
+
   test("the agent's prompt capabilities reach the snapshot", async () => {
     ScriptedSocket.respond = ({ method, params }) => method === "_acpmux/attach" ? { ...attachReply(params.sessionId), session: { sessionId: "a", agentCapabilities: { promptCapabilities: { image: false } } } } : method === "_acpmux/watch" ? { sessions: [{ sessionId: "a" }] } : {};
     await connect();
