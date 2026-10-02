@@ -95,12 +95,35 @@ import Testing
         #expect(recorder.runs.first?.target == target)
     }
 
-    @Test func returnOnTheUntouchedNameKeepsIt() throws {
-        let (controller, data, recorder) = makeController("renameWorkspace")
-        let (target, title) = try menuTarget(.workspace, in: data)
-        controller.registry.perform("renameWorkspace", invocation: ActionInvocation(target: target))
+    /// The prefill is a snapshot: Return on the untouched name renames
+    /// nothing, so a rename made meanwhile (another window, the CLI) is not
+    /// reverted, and a fallback title is never saved as a real name.
+    @Test(arguments: renames)
+    func returnOnTheUntouchedNameRenamesNothing(_ id: ActionID, _ kind: ActionTargetKind) throws {
+        let (controller, data, recorder) = makeController(id)
+        let (target, _) = try menuTarget(kind, in: data)
+        var dismissed = 0
+        controller.model.onDismiss = { dismissed += 1 }
+        controller.registry.perform(id, invocation: ActionInvocation(target: target))
         controller.model.handle(.submit)
-        #expect(recorder.runs.first?["name"] == .string(title))
+        #expect(recorder.runs.isEmpty, "\(id) ran on the untouched name")
+        #expect(dismissed == 1, "\(id) closes")
+    }
+
+    /// The palette's own Rename Workspace… and Rename Tab… rows skip an
+    /// untouched name the same way.
+    @Test func thePalettesOwnRenameRowsSkipAnUntouchedName() async {
+        for query in ["rename workspace", "rename tab"] {
+            let (controller, data, _) = makeController("renameWorkspace")
+            let model = controller.model
+            model.reset(to: controller.commandsPage())
+            model.query = query
+            await model.settle()
+            model.handle(.submit)
+            #expect(model.isTextInput, "\(query)")
+            model.handle(.submit)
+            #expect(!data.events.contains { $0.hasPrefix("renameWorkspace:") || $0.hasPrefix("renameTab:") }, "\(query)")
+        }
     }
 
     /// One Escape closes the prompt: it never just clears the name.
