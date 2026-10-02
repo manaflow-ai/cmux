@@ -444,10 +444,10 @@ impl Hub {
                 if offered.len() != 1 {
                     return Err(RpcError::invalid_params(format!("option {o:?} was not uniquely offered for permission {permission_id}")));
                 }
-                let is_allow = matches!(offered[0]["kind"].as_str(), Some("allow_once" | "allow_always"));
+                let is_reject = matches!(offered[0]["kind"].as_str(), Some("reject_once" | "reject_always"));
                 let denied = self.policy_for(session,cfg.permission_policy) == PermissionPolicy::DenyAll
                     || session.meta().permission_rules.as_ref().and_then(|r|super::rules::decide(r,&p.request)) == Some(super::rules::RuleDecision::Deny);
-                if is_allow && denied {
+                if !is_reject && denied {
                     return Err(RpcError::new(-32000,"policy_changed").with_data(json!({"reason":"policy_changed"})));
                 }
             }
