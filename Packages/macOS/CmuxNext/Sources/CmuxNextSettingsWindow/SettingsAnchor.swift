@@ -79,10 +79,10 @@ public enum SettingsCardID: String, CaseIterable, Sendable {
     /// (English, like the schema's keywords).
     var keywords: [String] {
         switch self {
-        case .theme: ["theme", "themes", "colors", "colours", "color scheme", "ghostty", "room theme", "workspace theme", "terminal theme"]
+        case .theme: ["theme", "themes", "colors", "colours", "color scheme", "ghostty", "space theme", "room theme", "workspace theme", "terminal theme"]
         case .terminal: ["ghostty", "config", "font", "cursor", "keybinds", "shell integration", "shell"]
         case .accounts: ["accounts", "sign in", "login", "provider", "coderouter", "claude", "codex"]
-        case .rooms: ["rooms", "room", "profiles"]
+        case .rooms: ["spaces", "space", "rooms", "room", "profiles"]
         case .browserProfiles: ["browser", "profiles", "profile", "cookies", "logins", "new profile", "extensions"]
         case .machines: ["machines", "ssh", "cloud", "remote", "devbox", "server"]
         case .advanced: ["advanced", "cmux.json", "settings file", "show in finder", "reset all", "problems", "diagnostics"]
