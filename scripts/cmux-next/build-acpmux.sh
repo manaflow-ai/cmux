@@ -24,6 +24,13 @@ USAGE
 cached_only=0
 print_path=0
 output=""
+source_checkout=""
+build_root=""
+cleanup() {
+  [[ -z "$source_checkout" ]] || rm -rf "$source_checkout"
+  [[ -z "$build_root" ]] || rm -rf "$build_root"
+}
+trap cleanup EXIT
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output) output="${2:?missing path after --output}"; shift 2 ;;
@@ -109,7 +116,6 @@ if [[ "$source_mode" == pinned ]]; then
     exit 1
   }
   source_checkout="$(mktemp -d "${TMPDIR:-/tmp}/cmux-acpmux-src.XXXXXX")"
-  trap 'rm -rf "$source_checkout"' EXIT
   git -C "$source_checkout" init -q
   git -C "$source_checkout" remote add origin "$repository"
   echo "==> fetching acpmux source $pinned_commit"
@@ -129,15 +135,14 @@ for arch in $archs; do
 done
 
 build_root="$(mktemp -d "${TMPDIR:-/tmp}/cmux-acpmux-build.XXXXXX")"
-trap 'rm -rf "$build_root"' EXIT
 mkdir -p "$cache_dir"
 built_slices=()
 for arch in $archs; do
   target="$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin"
   target_dir="$build_root/$target"
   echo "==> building acpmux ($source_mode $pinned_commit, $target)"
-  CARGO_TARGET_DIR="$target_dir" cargo build --manifest-path "$source_root/cmux-tui/Cargo.toml" \
-    --locked --release --package acpmux --target "$target"
+  (cd "$source_root/cmux-tui" && CARGO_TARGET_DIR="$target_dir" cargo build \
+    --locked --release --package acpmux --target "$target")
   slice="$target_dir/$target/release/acpmux"
   [[ -x "$slice" ]] || { echo "error: cargo did not produce $slice" >&2; exit 1; }
   built_slices+=("$slice")
