@@ -28,8 +28,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
     private var startupObservation: Task<Void, Never>?
-    /// The room theme: the whole window (sidebar, chrome, and every
-    /// workspace without its own theme).
+    /// The room theme: every workspace without its own theme. The window's
+    /// own chrome (sidebar, titlebar, backdrop) draws in the shown
+    /// workspace's colors, so it always matches the content beside it.
     let themeScope = ThemeScope(level: .room)
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
@@ -158,6 +159,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let view = connectingView ?? DaemonConnectingView(frame: .zero)
         connectingView = view
         root.show(view)
+        themeScope.show(nil)
         guard startupObservation == nil else { return }
         let daemon = services.daemon
         startupObservation = Task { [weak self, weak view] in
@@ -191,6 +193,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // One synchronous swap: the old view leaves (its panes stay mounted,
         // paused) and the new one draws in the same frame.
         root.show(controller.contentView)
+        themeScope.show(controller.themeScope, animated: true)
         services.themes.contentDidShow(controller)
         trimParked()
         startupObservation?.cancel()
