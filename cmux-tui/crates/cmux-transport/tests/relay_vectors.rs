@@ -28,7 +28,7 @@ fn valid_vectors_round_trip() {
         let bytes = hex(field(line, "hex").expect("hex field"));
         let frame = RelayFrame::decode(&bytes).expect("valid vector decodes");
         let kind = match field(line, "kind").expect("kind field") {
-            "datagram" => FrameKind::Datagram,
+            "datagrams" => FrameKind::Datagrams,
             "candidates" => FrameKind::Candidates,
             "wake" => FrameKind::Wake,
             other => panic!("unknown kind {other}"),
@@ -57,9 +57,28 @@ fn invalid_vectors_are_refused() {
             RelayFrameError::Version(_) => expected == "version",
             RelayFrameError::Kind(_) => expected == "kind",
             RelayFrameError::TooLarge(_) => expected == "too_large",
+            RelayFrameError::BadBatch => expected == "bad_batch",
         };
         assert!(matches, "vector expected {expected}, got {error:?}");
         checked += 1;
     }
     assert!(checked >= 3, "vector file lost its invalid cases");
+}
+
+#[test]
+fn batches_round_trip_in_order() {
+    let peer = PeerId([7; 16]);
+    let first = [4u8, 0, 0, 0, 1, 2];
+    let second = [1u8; 148];
+    let frame = RelayFrame::datagrams(peer, &[&first, &second]).expect("fits");
+    let decoded = RelayFrame::decode(&frame.encode().expect("encodes")).expect("decodes");
+    assert_eq!(decoded.split_datagrams().expect("valid batch"), vec![&first[..], &second[..]]);
+}
+
+#[test]
+fn batches_that_do_not_fit_are_refused() {
+    let big = vec![0u8; 9000];
+    let error = RelayFrame::datagrams(PeerId([0; 16]), &[&big, &big]).expect_err("over 16 KiB");
+    assert!(matches!(error, RelayFrameError::TooLarge(_)));
+    assert_eq!(RelayFrame::datagrams(PeerId([0; 16]), &[]), Err(RelayFrameError::BadBatch));
 }
