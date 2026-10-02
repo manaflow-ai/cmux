@@ -456,9 +456,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// across Macs (the Feed tab's rows).
     public internal(set) var agentFeedItems: [MobileAgentFeedItem] = [] {
         didSet {
+            agentFeedRevision &+= 1
             agentFeedNeedsInputCount = agentFeedItems.lazy.filter(\.effectiveNeedsInput).count
         }
     }
+    /// Increments when the retained Feed snapshot changes. The Feed child uses
+    /// this scalar to avoid comparing every payload in `onChange`.
+    public private(set) var agentFeedRevision: UInt64 = 0
     /// The agent feed's current loading and capability state. Shares the
     /// notification feed's status vocabulary.
     public internal(set) var agentFeedStatus: MobileNotificationFeedStatus = .idle

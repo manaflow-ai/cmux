@@ -2,41 +2,10 @@
 import CmuxMobileShellModel
 import Foundation
 
-/// One Feed row prepared outside `body`: the immutable item plus every
-/// derived string the row renders, so row bodies do no string work during
-/// scroll (the same discipline as `NotificationFeedRowModel`).
-struct AgentFeedRowModel: Identifiable, Equatable, Sendable {
-    let item: MobileAgentFeedItem
-    let presentation: AgentFeedRowPresentation
-    /// Metadata-only events are excluded before SwiftUI builds a list row.
-    let hasVisibleContent: Bool
-
-    init(item: MobileAgentFeedItem) {
-        self.item = item
-        let presentation = AgentFeedRowPresentation(item: item)
-        self.presentation = presentation
-        hasVisibleContent = (item.kind == .todos && presentation.headline != nil)
-            || (item.kind == .question && item.status.isPending && !item.questions.isEmpty)
-            || presentation.quotedUserMessage != nil
-            || presentation.outputText != nil
-            || presentation.toolLine != nil
-            || presentation.resolutionLabel != nil
-            || (item.needsInput && (item.kind != .question || !item.questions.isEmpty))
-            || item.supportsTerminalReply
-    }
-
-    var id: MobileAgentFeedItemID { item.id }
-
-    /// `presentation` is a pure derivation of `item`.
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.item == rhs.item
-    }
-}
-
 /// Reuses derived row presentations when a refreshed snapshot keeps the same
-/// item value. Feed snapshots are full retained histories, so rebuilding every
-/// presentation for one new event makes the main actor do work proportional to
-/// the entire history.
+/// item revision. Feed snapshots are full retained histories, so rebuilding
+/// every presentation for one new event makes the main actor do work
+/// proportional to the entire history.
 private struct AgentFeedRowModelCacheKey: Equatable, Sendable {
     /// `updatedAt` is the Mac's revision for the immutable event payload.
     /// Local fields below can change without a new Mac event revision.
@@ -60,6 +29,39 @@ private struct AgentFeedRowModelCacheKey: Equatable, Sendable {
         requestID = item.requestID
         userReply = item.userReply
         triagedNeedsInput = item.triagedNeedsInput
+    }
+}
+
+/// One Feed row prepared outside `body`: the immutable item plus every
+/// derived string the row renders, so row bodies do no string work during
+/// scroll (the same discipline as `NotificationFeedRowModel`).
+struct AgentFeedRowModel: Identifiable, Equatable, Sendable {
+    let item: MobileAgentFeedItem
+    let presentation: AgentFeedRowPresentation
+    /// Metadata-only events are excluded before SwiftUI builds a list row.
+    let hasVisibleContent: Bool
+    private let equalityKey: AgentFeedRowModelCacheKey
+
+    init(item: MobileAgentFeedItem) {
+        self.item = item
+        equalityKey = AgentFeedRowModelCacheKey(item: item)
+        let presentation = AgentFeedRowPresentation(item: item)
+        self.presentation = presentation
+        hasVisibleContent = (item.kind == .todos && presentation.headline != nil)
+            || (item.kind == .question && item.status.isPending && !item.questions.isEmpty)
+            || presentation.quotedUserMessage != nil
+            || presentation.outputText != nil
+            || presentation.toolLine != nil
+            || presentation.resolutionLabel != nil
+            || (item.needsInput && (item.kind != .question || !item.questions.isEmpty))
+            || item.supportsTerminalReply
+    }
+
+    var id: MobileAgentFeedItemID { item.id }
+
+    /// `presentation` is a pure derivation of `item`.
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.equalityKey == rhs.equalityKey
     }
 }
 

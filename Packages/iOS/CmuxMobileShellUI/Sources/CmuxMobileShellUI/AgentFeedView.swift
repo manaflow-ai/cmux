@@ -13,6 +13,7 @@ enum AgentFeedFilter: Hashable, Sendable {
 /// the Notifications tab, which stays a read/unread notification list.
 struct AgentFeedView: View {
     let items: [MobileAgentFeedItem]
+    let itemsRevision: UInt64
     let status: MobileNotificationFeedStatus
     let pendingReplyRequestIDs: Set<String>
     let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
@@ -29,6 +30,7 @@ struct AgentFeedView: View {
 
     init(
         items: [MobileAgentFeedItem],
+        itemsRevision: UInt64 = 0,
         status: MobileNotificationFeedStatus,
         pendingReplyRequestIDs: Set<String>,
         pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>,
@@ -39,6 +41,7 @@ struct AgentFeedView: View {
         searchText: String = ""
     ) {
         self.items = items
+        self.itemsRevision = itemsRevision
         self.status = status
         self.pendingReplyRequestIDs = pendingReplyRequestIDs
         self.pendingTerminalReplyItemIDs = pendingTerminalReplyItemIDs
@@ -111,8 +114,8 @@ struct AgentFeedView: View {
             now = Date()
             await actions.refresh()
         }
-        .onChange(of: items) { _, newItems in
-            projection.update(items: newItems)
+        .onChange(of: itemsRevision) { _, _ in
+            projection.update(items: items)
         }
         .onChange(of: searchText) { _, newSearchText in
             projection.searchText = newSearchText
