@@ -22,6 +22,18 @@ nonisolated enum PinnedDaemonBinary {
 /// restore, and the empty-workspace guard.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: PinnedDaemonBinary.url != nil, "needs the pinned cmux-tui"))
 struct FirstLaunchTests {
+    /// Returns once `store` has a tab or `limit` passes, whichever is first.
+    private static func firstTab(in store: DaemonStore, within limit: Duration) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                for await count in Observations({ Self.tabs(store) }) where count > 0 { return }
+            }
+            group.addTask { try? await Task.sleep(for: limit) }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
     private static func tabs(_ store: DaemonStore) -> Int {
         store.workspaces.reduce(0) { $0 + $1.screens.reduce(0) { $0 + $1.panes.reduce(0) { $0 + $1.tabs.count } } }
     }
@@ -43,19 +55,16 @@ struct FirstLaunchTests {
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
-        // A launch whose restore starts late, as when the whole test process
-        // stalls (CI runs saw every test stall for 24-41 s). Slow is not wrong.
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(21))
-            services.windows.restoreWhenLoaded()
-        }
+        services.windows.restoreWhenLoaded()
         let store = services.daemon.store
         defer { try? FileManager.default.removeItem(at: root) }
 
-        // However long a stalled process takes; the suite's time limit bounds it.
-        for await count in Observations({ Self.tabs(store) }) where count > 0 { break }
+        // No wall-clock deadline tight enough to trip on a stalled test process
+        // (CI runs saw every test stall for 24-41 s); a launch that never makes a
+        // tab still ends here, so the daemon below is always shut down.
+        await Self.firstTab(in: store, within: .seconds(90))
         // Give a duplicate create-terminal time to land; test-only wait.
-        try await Task.sleep(for: .seconds(2))
+        try? await Task.sleep(for: .seconds(2))
         let workspaces = store.workspaces.count
         let tabs = Self.tabs(store)
 
