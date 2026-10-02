@@ -238,8 +238,9 @@ the CLI requests that came with the merge, with the decision taken.
 11. `send`/`read-screen` on a remote-terminal tab need the daemon side of
     `remote-terminal-tabs-v1`, which is not in cmux-tui yet.
 12. Done: session-qualified ids (`build-box:ws_…`) and `--all-sessions`.
-13. Done: `cmux tab new` reports the created tab and terminal (an earlier `created: []`
-    was a slow snapshot, not a missing path).
+13. `action.run`'s `created` list is sometimes empty (`cmux tab new` under load): the
+    reply maps created handles through the control snapshot at settle time, which can
+    lag the store. Map from the store, or wait for the snapshot that contains them.
 14. With an explicit `--app-socket` but a different app's `CMUX_*` environment, the daemon
     is found from the environment, not from the named app.
 15. v2 `session.identify` and `capabilities` on `client.metadata.update` (SDK clients
