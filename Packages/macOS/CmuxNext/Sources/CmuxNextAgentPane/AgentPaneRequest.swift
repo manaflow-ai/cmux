@@ -1,3 +1,4 @@
+import CmuxNextDictation
 public import Foundation
 
 /// A request the page posts to `window.webkit.messageHandlers.agentSession`:
@@ -20,6 +21,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case openTab(AgentPaneTabKind, text: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
+    /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
+    /// or `dictation.openSettings` with `{permission}`.
+    case dictation(AgentPaneDictationCommand)
     case unsupported(String)
 
     public static let maximumPacingFrames = 640
@@ -60,6 +64,16 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)
+            } else {
+                self = .unsupported(method)
+            }
+        case "dictation.toggle": self = .dictation(.toggle)
+        case "dictation.start": self = .dictation(.start)
+        case "dictation.stop": self = .dictation(.stop)
+        case "dictation.cancel": self = .dictation(.cancel)
+        case "dictation.openSettings":
+            if let raw = params?["permission"] as? String, let permission = DictationPermission(rawValue: raw) {
+                self = .dictation(.openSettings(permission))
             } else {
                 self = .unsupported(method)
             }

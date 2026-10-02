@@ -22,6 +22,7 @@ import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
 import { Composer } from "./Composer";
 import { ComposerPickers } from "./ComposerPickers";
+import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { SessionSidebar } from "./SessionSidebar";
 import { turnFiles, turnRows } from "./diff";
 import { DiffPanel } from "./DiffPanel";
@@ -898,21 +899,25 @@ function AcpmuxPane() {
                   {header.status && <span className="acpmux-status">{header.status}</span>}
                 </div>
               </header>
-              <VirtualTranscript
-                rows={transcriptRows}
-                canLoadOlder={snapshot.canLoadOlder}
-                expanded={expanded}
-                registry={registry}
-                onOpenDiff={openDiff}
-                onToggleActivity={(id) =>
-                  setExpanded((current) => {
-                    const next = new Set(current);
-                    if (next.has(id)) next.delete(id);
-                    else next.add(id);
-                    return next;
-                  })
-                }
-              />
+              {isNewChat(snapshot) ? (
+                <EmptyState project={projectName(snapshot.summary?.cwd)} />
+              ) : (
+                <VirtualTranscript
+                  rows={transcriptRows}
+                  canLoadOlder={snapshot.canLoadOlder}
+                  expanded={expanded}
+                  registry={registry}
+                  onOpenDiff={openDiff}
+                  onToggleActivity={(id) =>
+                    setExpanded((current) => {
+                      const next = new Set(current);
+                      if (next.has(id)) next.delete(id);
+                      else next.add(id);
+                      return next;
+                    })
+                  }
+                />
+              )}
               {diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}
             </div>
             {snapshot.queue.length > 0 && (

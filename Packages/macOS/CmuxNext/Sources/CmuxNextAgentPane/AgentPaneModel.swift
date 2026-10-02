@@ -24,6 +24,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onOpenTab: ((AgentPaneTabKind, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
+    /// Gets the composer's dictation requests (the pane's mic).
+    @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
 
@@ -71,6 +73,10 @@ public final class AgentPaneModel {
         case .editShortcut(let kind):
             guard let onEditShortcut else { return Self.unsupported("shortcut.edit") }
             onEditShortcut(kind)
+            return AgentPaneReply.success()
+        case .dictation(let command):
+            guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
+            onDictation(command)
             return AgentPaneReply.success()
         case .unsupported(let method):
             return Self.unsupported(method)

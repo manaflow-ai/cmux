@@ -107,3 +107,8 @@
 .acpmux-newtab-empty{margin:0;padding:18px 4px;color:var(--acpmux-composer-dim)}
 @container (max-width:640px){.acpmux-newtab-hint{display:none}.acpmux-newtab-recent ul{grid-template-columns:repeat(2,minmax(0,1fr))}}@container (max-width:540px){.acpmux-newtab-kind kbd{display:none}}
 @container (max-width:460px){.acpmux-newtab-kind>span{display:none}.acpmux-newtab-recent ul{grid-template-columns:minmax(0,1fr)}}
+/* New chat (EmptyState.tsx): Codex's centered hero, smaller and muted, in place of the empty transcript. */
+.acpmux-empty{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:0 24px 6%;box-sizing:border-box;text-align:center;font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+.acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
+.acpmux-empty-title{margin:0;max-width:560px;font-size:20px;line-height:28px;font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
+.acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
