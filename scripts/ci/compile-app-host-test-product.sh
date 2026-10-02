@@ -55,6 +55,11 @@ CANONICAL_BUILD_ROOT="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
 # it, so it reaches only these builds. A build database written in one mode
 # reruns every task in the other, so the mode is part of the fingerprint.
 XCBUILD_FILE_SYSTEM_MODE=checksum-only
+# Keep compiler metadata independent of the producer's canonical root. Test
+# fixtures that need source files use cmuxTestSourceURL(), which resolves
+# #fileID against the matching runtime alias because Swift's #filePath literal
+# does not honor -file-prefix-map.
+FILE_PATH_ROOT=/private/tmp/cmux-test-source
 
 fingerprint() {
   local derived_data="$1"
@@ -66,7 +71,7 @@ fingerprint() {
     && [ "${derived_data%/*}" = "$CANONICAL_BUILD_ROOT" ] \
     && [ "${derived_data##*/}" != "" ]; then
     {
-      echo "canonical-v1"
+      echo "canonical-v2"
       xcodebuild -version
       printf 'derived-data=%s\n' "${derived_data##*/}"
       printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
@@ -239,7 +244,7 @@ build() {
     COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES
     'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
     CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO
-    'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))'
+    'OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -file-prefix-map -Xfrontend '"$CANONICAL_BUILD_ROOT=$FILE_PATH_ROOT"' -Xfrontend -debug-prefix-map -Xfrontend '"$CANONICAL_BUILD_ROOT=$FILE_PATH_ROOT"' $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))'
     CMUX_CI_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately
     # A clean build has no module for Xcode's Copy tasks to install (#14371).
     'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)'

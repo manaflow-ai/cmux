@@ -27,11 +27,19 @@ public struct DarwinProcessEnumerator {
     }
 
     /// Captures topology with at most three PID-buffer attempts.
+    ///
+    /// A PID list that still fills its buffer after the last attempt, or that
+    /// cannot be read at all, is reported through ``DarwinProcessListing/isTruncated``.
     /// - Returns: Unique records with explicit truncation and missing-edge metadata.
     public func capture() -> DarwinProcessListing {
         let initialCount = Int(listPIDs(nil, 0))
         guard initialCount > 0 else {
-            return DarwinProcessListing(processes: [], isComplete: false, missingProcessCount: 0)
+            return DarwinProcessListing(
+                processes: [],
+                isComplete: false,
+                missingProcessCount: 0,
+                isTruncated: true
+            )
         }
         // A bounded retry absorbs normal fork/exit churn. Exhausting it is an
         // incomplete sample, never evidence that the unseen subtree is empty.
@@ -75,7 +83,8 @@ public struct DarwinProcessEnumerator {
         return DarwinProcessListing(
             processes: processes,
             isComplete: listingComplete && missingCount == 0,
-            missingProcessCount: missingCount
+            missingProcessCount: missingCount,
+            isTruncated: !listingComplete
         )
     }
 }

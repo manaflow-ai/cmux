@@ -426,7 +426,7 @@
         "memberReadOnly": "Nur Team-Admins können diesen Tarif ändern.",
         "grantedBody": "Das cmux-Team hat {team} Team-Zugang gewährt. Es gibt kein Abonnement zu verwalten.",
         "seatsUsed": "{members} von {seats} belegt",
-        "overSeat": "{team} hat {members} Mitglieder und {seats} bezahlte Plätze. Beitreten funktioniert weiterhin; füge Plätze hinzu, um alle abzudecken.",
+        "overSeat": "{team} hat {members} Mitglieder und {seats} bezahlte Plätze. Die Plätze folgen der Mitgliederzahl, das Abonnement wird automatisch angepasst.",
         "addSeats": "Plätze hinzufügen"
       },
       "teamList": {
@@ -942,7 +942,7 @@
         "featurePrioritySupport": "Priorisierter Support",
         "chooseFree": "Kostenlos fortfahren",
         "chooseTeam": "Upgrade auf Team (${price}/Platz/Monat)",
-        "upgradeLater": "Plätze sind flexibel: Du kannst mehr Personen einladen, als du bezahlst, und später Plätze hinzufügen.",
+        "upgradeLater": "Die Plätze folgen der Mitgliederzahl: jedes Mitglied wird berechnet, und die Summe ändert sich, wenn jemand beitritt oder geht.",
         "inviteTitle": "Personen zu {team} einladen",
         "inviteDescription": "Optional. Du kannst Personen auch später über die Mitgliederseite des Teams einladen.",
         "inviteByEmail": "Per E-Mail einladen",
@@ -2034,6 +2034,7 @@
           "suppressSubagentNotifications": "Unterdrücke sichtbare Abschlussbenachrichtigungen und Statusänderungen von verschachtelten Codex- oder Claude-Unteragenten, während ihre Ereignisse in der Feed-Telemetrie bleiben.",
           "workspaceAutoNaming": "Opt-in: KI-basierte automatische Benennung von Workspaces und Tabs aus dem Gesprächsinhalt der Agenten. Wenn aktiviert, fasst cmux unterstützte Agent-Sitzungen mit dem eigenen Binary des jeweiligen Agenten zu kurzen Titeln zusammen; manuelle Umbenennungen haben immer Vorrang.",
           "autoNamingAgent": "Welcher Agent für jede Sitzung automatische Namen erzeugt. „auto“ (Standard) benennt jede Sitzung mit ihrem eigenen Agenten; ein beliebiger Agent-Slug (claude, codex, grok, opencode, pi, omp, …) überschreibt die Benennung für alle Sitzungen, auch für die anderer Agenten. Nicht ansteuerbare oder nicht installierte Agenten greifen auf den eigenen Agenten der Sitzung zurück, sodass die Benennung nie fehlschlägt.",
+          "agentAutoResume": "Sendet `continue` mit Backoff an einen von cmux gestarteten Agenten, dessen Zug mit einem wiederholbaren Upstream-Fehler endete (Modell ausgelastet, überlastet oder Verbindung verloren). Züge, die auf eine Person warten, werden nie fortgesetzt.",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
@@ -2086,6 +2087,7 @@
           "compactStatusIcons": "SF-Symbol-Namen, die das compactAgentStatus-Symbol je Zustand ersetzen, zum Beispiel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Nicht gesetzte Zustände behalten das eingebaute Symbol, und ein Name, der nicht darstellbar ist, fällt darauf zurück.",
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze.",
+          "showAgentUsage": "Ergänzt den Statuseintrag von Claude Code oder Codex um die Nutzung des Coding-Agenten: Modell und verbrauchtes Kontextfenster sowie bei Claude Code die geschätzten API-Kosten (Hauptthread und Subagenten) zu den veröffentlichten Anthropic-Listenpreisen. Die Kosten sind eine Schätzung und nicht Ihre Abonnementrechnung; Batch- und Priority-Stufen, Partnerpreise, Fast Mode und Gebühren für Server-Tools sind nicht berücksichtigt.",
           "beta": {
             "conversations": {
               "enabled": "Die zusammengefasste Konversationsansicht in der Seitenleistenauswahl anzeigen."

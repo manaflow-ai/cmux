@@ -2122,7 +2122,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         let remotePath = RemoteSessionCoordinator.remoteDropPath(for: fileURL, uuid: uuid)
 
-        XCTAssertEqual(remotePath, "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.png")
+        XCTAssertEqual(
+            remotePath,
+            "~/.cache/cmux/paste/00000000-0000-0000-0000-000000000000/" +
+                "cmux-paste-12345678-1234-1234-1234-1234567890ab.png"
+        )
     }
 
     @MainActor

@@ -103,47 +103,10 @@ test -n "$framework_source"
 rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
 test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
-# Tests also read fixtures via compiled #filePath; manifest relocation alone
-# cannot repair those strings when the product was built at the canonical root.
-# The receipt's `derived` is the DerivedData the product was compiled into,
-# <root>/derived-data-compile-admission, at /private/tmp/cmux-ci or, for an
-# owned Mac's second compile slot, /private/tmp/cmux-ci-<n>. Packaging
-# re-stamps the receipt from the job's workspace, so its `checkout` never
-# names the root, but `derived` is the same path at both stamps. The
-# product's #filePath strings point at that root, so alias this checkout
-# there rather than at this runner's own.
-producer_derived="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("derived", ""))' \
-  "$CMUX_DERIVED_DATA_PATH/Build/Products/cmux-test-products.json")"
-case "$producer_derived" in
-  /private/tmp/cmux-ci/derived-data-compile-admission \
-  | /private/tmp/cmux-ci-[0-9]/derived-data-compile-admission \
-  | /private/tmp/cmux-ci-[0-9][0-9]/derived-data-compile-admission)
-    export CMUX_CI_CANONICAL_ROOT="${producer_derived%/derived-data-compile-admission}"
-    ;;
-esac
-# On an owned Mac several jobs share the canonical roots, and the alias below
-# replaces <root>/src. glaeda's helper holds that root's lock for the rest of
-# this job (released when it ends), so a consumer never swaps the tree of a
-# compile running there. Ephemeral runners have no helper and no neighbours.
-root_lock=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
-canonical_root_ready=true
-if [ -x "$root_lock" ]; then
-  if "$root_lock" take "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}" --wait 0 >/dev/null; then
-    :
-  else
-    status=$?
-    if [ "$status" -ne 1 ]; then
-      echo "restore-app-host-test-product: canonical root helper failed (exit $status)" >&2
-      exit "$status"
-    fi
-    canonical_root_ready=false
-    export CMUX_CI_ROOT_LOCK_SKIPPED=true
-    unset CMUX_CI_CANONICAL_ROOT
-    echo "restore-app-host-test-product: canonical root is busy; running tests from this job's DerivedData" >&2
-  fi
+# Source-backed test fixtures resolve #fileID through this stable runtime
+# location, so consumers can alias their checkout without the producer root.
+export CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source
+if [ -n "${GITHUB_ENV:-}" ]; then
+  echo "CMUX_CI_RUNTIME_SOURCE_ROOT=$CMUX_CI_RUNTIME_SOURCE_ROOT" >> "$GITHUB_ENV"
 fi
-if [ "$canonical_root_ready" = true ]; then
-  scripts/ci/canonical-build-root.sh --runtime-source "$PWD"
-else
-  echo "restore-app-host-test-product: skipped canonical source alias until root-independent file paths land" >&2
-fi
+scripts/ci/canonical-build-root.sh --runtime-source "$PWD"
