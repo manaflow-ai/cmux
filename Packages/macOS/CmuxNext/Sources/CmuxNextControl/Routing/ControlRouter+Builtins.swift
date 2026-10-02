@@ -91,7 +91,7 @@ extension ControlRouter {
 
     static func list(_ params: [String: JSONValue], catalog: ControlCatalog) -> JSONValue {
         let category = params["category"]?.stringValue?.lowercased()
-        let noun = params["noun"]?.stringValue?.lowercased()
+        let noun = params["noun"]?.stringValue?.lowercased().map(ControlCatalog.renamedCLIName)
         let availableOnly = params["available_only"]?.boolValue ?? false
         let actions = catalog.actions.filter { action in
             if let category, action.category.lowercased() != category { return false }

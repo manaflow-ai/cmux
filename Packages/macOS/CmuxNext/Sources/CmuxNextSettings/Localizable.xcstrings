@@ -12321,127 +12321,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rooms & Profiles"
+            "value": "Spaces & Profiles"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ルームとプロファイル"
+            "value": "スペースとプロファイル"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الغرف والملفات الشخصية"
+            "value": "المساحات والملفات الشخصية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sobe i profili"
+            "value": "Prostori i profili"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rum og profiler"
+            "value": "Områder og profiler"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Räume und Profile"
+            "value": "Spaces und Profile"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salas y perfiles"
+            "value": "Espacios y perfiles"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salles et profils"
+            "value": "Espaces et profils"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stanze e profili"
+            "value": "Spazi e profili"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទប់ និងប្រវត្តិរូប"
+            "value": "លំហ និងប្រវត្តិរូប"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "룸 및 프로필"
+            "value": "스페이스 및 프로필"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rom og profiler"
+            "value": "Områder og profiler"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokoje i profile"
+            "value": "Obszary i profile"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salas e perfis"
+            "value": "Espaços e perfis"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Комнаты и профили"
+            "value": "Области и профили"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ห้องและโปรไฟล์"
+            "value": "พื้นที่และโปรไฟล์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odalar ve Profiller"
+            "value": "Alanlar ve Profiller"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Кімнати та профілі"
+            "value": "Простори та профілі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phòng và hồ sơ"
+            "value": "Không gian và hồ sơ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "房间与配置文件"
+            "value": "空间与配置文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "房間與設定檔"
+            "value": "空間與設定檔"
           }
         }
       }

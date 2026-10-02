@@ -3806,127 +3806,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No rooms yet."
+            "value": "No spaces yet."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ルームはまだありません。"
+            "value": "スペースはまだありません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد غرف بعد."
+            "value": "لا توجد مساحات بعد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Još nema soba."
+            "value": "Još nema prostora."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen rum endnu."
+            "value": "Ingen områder endnu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noch keine Räume."
+            "value": "Noch keine Spaces."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aún no hay salas."
+            "value": "Aún no hay espacios."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucune salle pour l’instant."
+            "value": "Aucun espace pour l’instant."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ancora nessuna stanza."
+            "value": "Ancora nessuno spazio."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនទាន់មានបន្ទប់ទេ។"
+            "value": "មិនទាន់មានលំហទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아직 룸이 없습니다."
+            "value": "아직 스페이스가 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen rom ennå."
+            "value": "Ingen områder ennå."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak pokoi."
+            "value": "Brak obszarów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhuma sala ainda."
+            "value": "Nenhum espaço ainda."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Комнат пока нет."
+            "value": "Областей пока нет."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยังไม่มีห้อง"
+            "value": "ยังไม่มีพื้นที่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Henüz oda yok."
+            "value": "Henüz alan yok."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Кімнат ще немає."
+            "value": "Просторів ще немає."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa có phòng nào."
+            "value": "Chưa có không gian nào."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "还没有房间。"
+            "value": "还没有空间。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚無房間。"
+            "value": "尚無空間。"
           }
         }
       }
@@ -3937,127 +3937,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rooms need a newer cmux-tui on this Mac."
+            "value": "Spaces need a newer cmux-tui on this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ルームを使うには、この Mac に新しい cmux-tui が必要です。"
+            "value": "スペースを使うには、この Mac に新しい cmux-tui が必要です。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تتطلب الغرف إصدارًا أحدث من cmux-tui على جهاز Mac هذا."
+            "value": "تتطلب المساحات إصدارًا أحدث من cmux-tui على جهاز Mac هذا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sobe zahtijevaju noviji cmux-tui na ovom Macu."
+            "value": "Prostori zahtijevaju noviji cmux-tui na ovom Macu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rum kræver en nyere cmux-tui på denne Mac."
+            "value": "Områder kræver en nyere cmux-tui på denne Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Räume brauchen ein neueres cmux-tui auf diesem Mac."
+            "value": "Spaces brauchen ein neueres cmux-tui auf diesem Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las salas requieren un cmux-tui más reciente en este Mac."
+            "value": "Los espacios requieren un cmux-tui más reciente en este Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les salles nécessitent un cmux-tui plus récent sur ce Mac."
+            "value": "Les espaces nécessitent un cmux-tui plus récent sur ce Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le stanze richiedono un cmux-tui più recente su questo Mac."
+            "value": "Gli spazi richiedono un cmux-tui più recente su questo Mac."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទប់ត្រូវការ cmux-tui ថ្មីជាងនេះលើ Mac នេះ។"
+            "value": "លំហត្រូវការ cmux-tui ថ្មីជាងនេះលើ Mac នេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "룸을 사용하려면 이 Mac에 최신 cmux-tui가 필요합니다."
+            "value": "스페이스를 사용하려면 이 Mac에 최신 cmux-tui가 필요합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rom krever en nyere cmux-tui på denne Macen."
+            "value": "Områder krever en nyere cmux-tui på denne Macen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokoje wymagają nowszego cmux-tui na tym Macu."
+            "value": "Obszary wymagają nowszego cmux-tui na tym Macu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "As salas exigem um cmux-tui mais recente neste Mac."
+            "value": "Os espaços exigem um cmux-tui mais recente neste Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для комнат нужна более новая версия cmux-tui на этом Mac."
+            "value": "Для областей нужна более новая версия cmux-tui на этом Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ห้องต้องใช้ cmux-tui เวอร์ชันใหม่กว่าบน Mac เครื่องนี้"
+            "value": "พื้นที่ต้องใช้ cmux-tui เวอร์ชันใหม่กว่าบน Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odalar bu Mac’te daha yeni bir cmux-tui gerektirir."
+            "value": "Alanlar bu Mac’te daha yeni bir cmux-tui gerektirir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для кімнат потрібна новіша версія cmux-tui на цьому Mac."
+            "value": "Для просторів потрібна новіша версія cmux-tui на цьому Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phòng cần cmux-tui mới hơn trên máy Mac này."
+            "value": "Không gian cần cmux-tui mới hơn trên máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "房间需要此 Mac 上装有更新版本的 cmux-tui。"
+            "value": "空间需要此 Mac 上装有更新版本的 cmux-tui。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "房間需要此 Mac 上安裝較新版本的 cmux-tui。"
+            "value": "空間需要此 Mac 上安裝較新版本的 cmux-tui。"
           }
         }
       }
@@ -5771,127 +5771,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Room"
+            "value": "Space"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الغرفة"
+            "value": "المساحة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Soba"
+            "value": "Prostor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rum"
+            "value": "Område"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Raum"
+            "value": "Space"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sala"
+            "value": "Espacio"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Salle"
+            "value": "Espace"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stanza"
+            "value": "Spazio"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ルーム"
+            "value": "スペース"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ទប់"
+            "value": "លំហ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "룸"
+            "value": "스페이스"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rom"
+            "value": "Område"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokój"
+            "value": "Obszar"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sala"
+            "value": "Espaço"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Комната"
+            "value": "Область"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ห้อง"
+            "value": "พื้นที่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oda"
+            "value": "Alan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Кімната"
+            "value": "Простір"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Phòng"
+            "value": "Không gian"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "房间"
+            "value": "空间"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "房間"
+            "value": "空間"
           }
         }
       }

@@ -147,9 +147,9 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(menus: [p(.sidebarSection, .identity, 220, folder: .appearance)])
             ),
             ActionDescriptor(
-                id: "sidebar.section.toggleRoomScope", title: t("action.sidebar.section.toggleRoomScope", "Show Only in This Room"),
+                id: "sidebar.section.toggleSpaceScope", title: t("action.sidebar.section.toggleSpaceScope", "Show Only in This Space"),
                 keywords: ["sidebar", "section", "room", "scope", "all rooms"], category: .sidebar, symbol: "circle.grid.2x2",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar toggle-section-room",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar toggle-section-space",
                 surfacePlan: plan(menus: [p(.sidebarSection, .identity, 300, folder: .options)])
             ),
             ActionDescriptor(
