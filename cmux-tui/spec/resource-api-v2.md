@@ -110,7 +110,9 @@ A closed tab, screen, or workspace is recorded where every close path meets,
 in the transaction of its resource patch; a terminal that exits on its own
 and anything inside an ephemeral workspace leave no record. The daemon closes
 ephemeral workspaces at its next start and ends the terminals only they
-showed. `closed.reopen` and `saved_tab_group.reopen` compose several
+showed. `workspace.create {ephemeral: true}` writes the flag in the transaction
+that creates the workspace, so no read and no `session.events` change shows it
+without `extra.ephemeral`; the flag is part of the request's fingerprint. `closed.reopen` and `saved_tab_group.reopen` compose several
 creations; the request's key records the whole result, so a retry replays it.
 
 ## Selectors

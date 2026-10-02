@@ -14036,15 +14036,19 @@ impl Mux {
             expected_revision,
             mutation,
             true,
+            false,
         )
     }
 
+    /// Stage an empty workspace for a resource effect. `ephemeral` marks it
+    /// in the same transaction, so no reader sees it without the flag.
     fn create_empty_workspace_for_resource_effect(
         &self,
         name: Option<String>,
         requested_key: Option<String>,
         public_id: WorkspacePublicId,
         mutation: &WorkspaceMutation,
+        ephemeral: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         self.create_empty_workspace_with_mutation_inner(
             name,
@@ -14054,6 +14058,7 @@ impl Mux {
             None,
             mutation,
             false,
+            ephemeral,
         )
     }
 
@@ -14067,6 +14072,7 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         project_resource: bool,
+        ephemeral: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
@@ -14084,11 +14090,14 @@ impl Mux {
         let ws_id = self.next_id();
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
-        let fingerprint = serde_json::json!({
+        let mut fingerprint = serde_json::json!({
             "op": "create-workspace",
             "name": requested_name,
             "requested_key": requested_key,
         });
+        if ephemeral {
+            fingerprint["ephemeral"] = Value::Bool(true);
+        }
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             let workspace = commit.result["workspace"]
                 .as_u64()
@@ -14149,7 +14158,11 @@ impl Mux {
                     &result,
                 )?
             } else {
-                registry.commit_for_resource_effect(
+                let marked = workspace_public_id.as_str().to_string();
+                let mark = move |tx: &rusqlite::Transaction<'_>| {
+                    crate::state::store::mark_workspace_ephemeral(tx, &marked)
+                };
+                registry.commit_for_resource_effect_with(
                     mutation,
                     &fingerprint,
                     expected_generation,
@@ -14159,6 +14172,9 @@ impl Mux {
                     &desired,
                     Some(&workspace_public_id),
                     &result,
+                    ephemeral.then_some(
+                        &mark as crate::workspace_registry::RegistryTransactionWrite<'_>,
+                    ),
                 )?
             };
             let committed_workspace = commit.result["workspace"]
@@ -17849,6 +17865,7 @@ impl Mux {
                     None,
                     WorkspacePublicId::random()?,
                     &WorkspaceMutation::local("cmux-tui-layout-workspace"),
+                    false,
                 )?
                 .workspace,
                 true,

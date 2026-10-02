@@ -280,8 +280,9 @@ impl Mux {
         correlation_key: &str,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+        ephemeral: bool,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let fingerprint = json!({
+        let mut fingerprint = json!({
             "operation":"workspace.create",
             "selectors":&selectors,
             "fields":{
@@ -289,6 +290,9 @@ impl Mux {
                 "name":&name,
             },
         });
+        if ephemeral {
+            fingerprint["fields"]["ephemeral"] = Value::Bool(true);
+        }
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
@@ -445,6 +449,10 @@ impl Mux {
         {
             *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
         }
+        let marked = public_id.as_str().to_string();
+        let mark = move |tx: &rusqlite::Transaction<'_>| {
+            crate::state::store::mark_workspace_ephemeral(tx, &marked)
+        };
         let (commit, workspace_revision) = registry.commit_resource_creation_patch(
             correlation_key,
             mutation,
@@ -455,6 +463,7 @@ impl Mux {
             &created_path,
             &plan.deltas,
             plan.workspace_ledger.as_ref(),
+            ephemeral.then_some(&mark as crate::workspace_registry::RegistryTransactionWrite<'_>),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
         // Push the same coarse tree event a terminal-bearing create emits
@@ -4443,6 +4452,7 @@ impl Mux {
                             Some(workspace_key),
                             workspace_public_id,
                             &workspace_mutation,
+                            false,
                         )?;
                         self.create_browser_surface_in_workspace(
                             placement.workspace,
@@ -4682,11 +4692,15 @@ impl Mux {
     ) -> anyhow::Result<CreatedTerminalEffect> {
         let (workspace_key, workspace_public_id, workspace_mutation) =
             self.effect_workspace_reservation(intent)?;
+        // `workspace.create {ephemeral: true}` stages the flag with the
+        // workspace row; the request's fields are part of its fingerprint.
+        let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
         let placement = self.create_empty_workspace_for_resource_effect(
             workspace_name,
             Some(workspace_key),
             workspace_public_id,
             &workspace_mutation,
+            ephemeral,
         )?;
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
     }

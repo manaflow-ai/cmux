@@ -159,7 +159,7 @@ const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
 /// An extra write that runs inside a workspace-registry commit transaction.
-type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
+pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedWorkspaceRegistrySchema {
@@ -3486,6 +3486,38 @@ impl WorkspaceRegistry {
         active_workspace: Option<&WorkspacePublicId>,
         result: &Value,
     ) -> anyhow::Result<RegistryCommit> {
+        self.commit_for_resource_effect_with(
+            mutation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            event_kind,
+            workspace_key,
+            workspaces,
+            active_workspace,
+            result,
+            None,
+        )
+    }
+
+    /// [`Self::commit_for_resource_effect`] that also writes `extra` (state
+    /// rows such as the ephemeral flag) in the staging transaction, so the
+    /// resource projection that later publishes the workspace already sees
+    /// them.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_for_resource_effect_with(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        event_kind: &str,
+        workspace_key: &str,
+        workspaces: &[RegistryWorkspace],
+        active_workspace: Option<&WorkspacePublicId>,
+        result: &Value,
+        extra: Option<RegistryTransactionWrite<'_>>,
+    ) -> anyhow::Result<RegistryCommit> {
         self.commit_workspace_registry(
             mutation,
             fingerprint,
@@ -3497,7 +3529,7 @@ impl WorkspaceRegistry {
             active_workspace,
             result,
             false,
-            None,
+            extra,
         )
     }
 

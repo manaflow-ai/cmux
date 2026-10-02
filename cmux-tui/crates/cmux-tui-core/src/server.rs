@@ -27260,6 +27260,7 @@ mod tests {
                 "bootstrap-receipt-00000001",
                 None,
                 &WorkspaceMutation::new("bootstrap-create", "chrome-gui").unwrap(),
+                false,
             )
             .unwrap();
         assert!(!created.replayed);
