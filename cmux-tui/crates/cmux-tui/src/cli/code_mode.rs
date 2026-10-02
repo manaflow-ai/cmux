@@ -44,11 +44,7 @@ pub(super) fn help() -> &'static str {
 }
 
 pub(super) fn run(plan: Plan) -> i32 {
-    let runner = std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(|dir| dir.join("cmux-code-mode-run")))
-        .filter(|path| path.is_file())
-        .unwrap_or_else(|| PathBuf::from("cmux-code-mode-run"));
+    let runner = resolve_runner(std::env::current_exe().ok());
     let mut command = Command::new(runner);
     command.arg(&plan.script).args(&plan.args);
     command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
@@ -67,9 +63,33 @@ pub(super) fn run(plan: Plan) -> i32 {
     }
 }
 
+fn resolve_runner(current_exe: Option<PathBuf>) -> PathBuf {
+    current_exe
+        .and_then(|path| path.parent().map(|dir| dir.join("cmux-code-mode-runner")))
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| PathBuf::from("cmux-code-mode-runner"))
+}
+
 fn exit_code(status: ExitStatus) -> i32 {
     status.code().unwrap_or_else(|| {
         eprintln!("cmux run: runner terminated");
         1
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_runner;
+    use std::fs;
+
+    #[test]
+    fn resolves_the_installed_runner_name() {
+        let root =
+            std::env::temp_dir().join(format!("cmux-code-mode-runner-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let installed = root.join("cmux-code-mode-runner");
+        fs::write(&installed, b"#!/bin/sh\n").unwrap();
+        assert_eq!(resolve_runner(Some(root.join("cmux"))), installed);
+        fs::remove_dir_all(root).unwrap();
+    }
 }
