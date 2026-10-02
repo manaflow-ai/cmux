@@ -78,6 +78,8 @@ function Picker({ label, className, button, sections, align, warnUnrestricted = 
     const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
     setActive(Math.max(current, 0));
     setOpen(true);
+    // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt.
+    trigger.current?.focus();
   };
   const close = () => { setOpen(false); trigger.current?.focus(); };
   const pick = (index: number) => {

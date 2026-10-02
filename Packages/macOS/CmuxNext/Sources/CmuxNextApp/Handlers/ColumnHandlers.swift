@@ -38,7 +38,7 @@ enum ColumnHandlers {
 
     /// The targeted column (`column:<id>`), else the targeted or focused
     /// pane's column. Refuses outside columns mode.
-    private static func column(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> (WorkspaceContentController, LayoutColumn)? {
+    static func column(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> (WorkspaceContentController, LayoutColumn)? {
         if let target = invocation.target, target.kind == .column {
             for window in ctx.services.windows.controllers {
                 guard let content = window.content else { continue }

@@ -169,6 +169,16 @@ describe("acpmux composer send button", () => {
     expect(stops).toBe(1);
   });
 
+  test("keyboard focus on Send moves to Stop when the turn starts", async () => {
+    await render(snapshot());
+    await act(async () => typeInto(textarea(), "go"));
+    (send() as HTMLButtonElement).focus();
+    await act(async () => { doc.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    await render(snapshot({}, true));
+    expect(send().getAttribute("aria-label")).toBe("Stop");
+    expect(doc.activeElement).toBe(send());
+  });
+
   test("Stop ignores a click that lands right after a send, such as a double-click's second", async () => {
     await render(snapshot());
     await act(async () => typeInto(textarea(), "go"));

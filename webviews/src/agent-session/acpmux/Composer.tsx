@@ -44,6 +44,17 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
+  // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
+  const refocusSend = useRef(false);
+  const sendButton = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    if (!refocusSend.current) return;
+    const focused = document.activeElement;
+    // The user moved on before the turn started: leave their focus alone.
+    if (focused && focused !== document.body && focused !== sendButton.current) { refocusSend.current = false; return; }
+    sendButton.current?.focus();
+    if (snapshot.isWorking) refocusSend.current = false;
+  });
   const commands = snapshot.commands;
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
@@ -71,6 +82,7 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     if (!prompt) return;
     edit("", 0);
     sentAt.current = Date.now();
+    refocusSend.current = document.activeElement?.classList.contains("acpmux-send") ?? false;
     onSend(prompt);
   };
   const stopTurn = () => { if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop(); };
@@ -110,8 +122,8 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
         onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown} />
       {accessory}
       {stop
-        ? <button key="stop" type="button" className="acpmux-send acpmux-cancel" aria-label={COMPOSER_LABELS.stop} title={COMPOSER_LABELS.stop} onClick={stopTurn}><StopIcon /></button>
-        : <button key="send" type="submit" className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`} aria-label={COMPOSER_LABELS.send} title={COMPOSER_LABELS.send}><ArrowUpIcon /></button>}
+        ? <button key="stop" ref={sendButton} type="button" className="acpmux-send acpmux-cancel" aria-label={COMPOSER_LABELS.stop} title={COMPOSER_LABELS.stop} onClick={stopTurn}><StopIcon /></button>
+        : <button key="send" ref={sendButton} type="submit" className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`} aria-label={COMPOSER_LABELS.send} title={COMPOSER_LABELS.send}><ArrowUpIcon /></button>}
     </div>
     <div className="acpmux-composer-meta"><Chips snapshot={snapshot} /></div>
   </form>;

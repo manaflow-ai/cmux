@@ -95,6 +95,27 @@ final class PaneHostView: NSView {
         reporter.paneFrameInWindowDidChange()
     }
 
+    /// Clips the host to `rect` (its own coordinates) where a docked sticky
+    /// column covers it; nil removes the clip.
+    func setStripClip(_ rect: CGRect?) {
+        guard let layer else { return }
+        guard let rect else {
+            if layer.mask != nil { layer.mask = nil }
+            return
+        }
+        let mask = layer.mask ?? {
+            let mask = CALayer()
+            mask.backgroundColor = NSColor.black.cgColor
+            layer.mask = mask
+            return mask
+        }()
+        guard mask.frame != rect else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        mask.frame = rect
+        CATransaction.commit()
+    }
+
     func setChrome(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, border: PaneOverlayView.Border,
                    attention: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
         chrome.update(showsRing: showsRing, dim: dim, focusRing: focusRing, border: border,
