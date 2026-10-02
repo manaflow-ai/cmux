@@ -26,6 +26,18 @@ extension ControlRouter {
     /// Checks target and arguments against the schema.
     static func validatedRequest(for action: ControlActionInfo, params: [String: JSONValue], knownKinds: [String]) throws -> ControlActionRequest {
         var request = ControlActionRequest(actionID: action.id)
+        if let origin = params["origin"], !origin.isNull {
+            guard let name = origin.stringValue, ["user", "cli", "mcp", "script", "remote"].contains(name) else {
+                throw ControlError.invalidParams(ControlStrings.text("control.error.origin", "origin must be user, cli, mcp, script or remote"))
+            }
+            request.origin = name
+        }
+        if let focus = params["focus"], !focus.isNull {
+            guard let value = focus.boolValue else {
+                throw ControlError.invalidParams(ControlStrings.text("control.error.focusShape", "focus must be true or false"))
+            }
+            request.focus = value
+        }
         if let rawTarget = params["target"], !rawTarget.isNull {
             request.target = try target(from: rawTarget, allowedKinds: action.targets, knownKinds: knownKinds, action: action.id)
         }

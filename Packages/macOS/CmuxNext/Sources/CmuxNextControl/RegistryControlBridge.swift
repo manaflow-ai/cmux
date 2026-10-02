@@ -88,7 +88,9 @@ public final class RegistryControlBridge: ControlActionExecutor {
         if let reason = registry.unavailableReason(for: id) { return .refused(reason) }
         let invocation = ActionInvocation(
             target: request.target.flatMap(Self.actionTarget),
-            arguments: request.arguments.compactMapValues(Self.actionValue)
+            arguments: request.arguments.compactMapValues(Self.actionValue),
+            origin: ActionOrigin(rawValue: request.origin) ?? .cli,
+            focusRequested: request.focus
         )
         guard registry.isAvailable(id, for: invocation) else { return .unavailable }
         guard action.isEnabled() else { return .disabled }

@@ -183,6 +183,12 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
+/// `cli` when a person runs the command at a terminal, else `script`.
+fn action_origin() -> &'static str {
+    use std::io::IsTerminal;
+    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() { "cli" } else { "script" }
+}
+
 /// An action argument's name from its flag: the catalog names arguments in
 /// camelCase (`--keep-sessions` is `keepSessions`).
 fn argument_name(flag: &str) -> String {
@@ -323,6 +329,10 @@ pub(super) fn run_action(
         params.insert("cli".into(), json!(true));
     }
     params.insert("wait".into(), json!(true));
+    // Who asked (action origin): a person at a terminal, else a script. Only
+    // a run with `focus: true` (`--focus`) may move the app's focus,
+    // selection, shown workspace or key window.
+    params.insert("origin".into(), json!(action_origin()));
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -333,6 +343,11 @@ pub(super) fn run_action(
             "wait" | "no-wait" | "interactive" => {
                 let key = if name == "interactive" { "interactive" } else { "wait" };
                 params.insert(key.into(), json!(name != "no-wait"));
+                index += 1;
+                continue;
+            }
+            "focus" => {
+                params.insert("focus".into(), json!(true));
                 index += 1;
                 continue;
             }
@@ -738,6 +753,25 @@ mod tests {
     }
 
     #[test]
+    fn focus_asks_the_app_to_move_the_view() {
+        let (_, params) = call(
+            parse(&args(&["tab", "move-to-new-workspace", "--target", "tab_1", "--focus"]))
+                .unwrap()
+                .unwrap_or_else(|| {
+                    run_action(
+                        "tab move-to-new-workspace",
+                        &args(&["--target", "tab_1", "--focus"]),
+                        ActionName::Cli,
+                    )
+                    .unwrap()
+                }),
+        );
+        assert_eq!(params["focus"], true);
+        assert_eq!(params["origin"], "script");
+        assert!(params.get("args").is_none());
+    }
+
+    #[test]
     fn action_flags_name_camel_case_arguments_and_bare_flags_are_true() {
         let (_, params) = call(
             parse(&args(&["app", "quit", "--keep-sessions", "--browser-profile", "work"]))
@@ -753,17 +787,23 @@ mod tests {
     fn unknown_words_run_the_action_with_that_cli_name() {
         let (method, params) = call(parse(&args(&["app", "new-window"])).unwrap().unwrap());
         assert_eq!(method, "action.run");
-        assert_eq!(params, json!({ "action": "app new-window", "cli": true, "wait": true }));
+        assert_eq!(
+            params,
+            json!({ "action": "app new-window", "cli": true, "wait": true, "origin": "script" })
+        );
     }
 
     #[test]
     fn action_runs_wait_by_default_and_no_wait_opts_out() {
         let (_, params) = call(parse(&args(&["action", "run", "window.new"])).unwrap().unwrap());
-        assert_eq!(params, json!({ "action": "window.new", "wait": true }));
+        assert_eq!(params, json!({ "action": "window.new", "wait": true, "origin": "script" }));
         let command = parse(&args(&["action", "run", "window.new", "--no-wait"])).unwrap().unwrap();
         let AppCommand::Call { timeout, .. } = &command else { panic!("expected a call") };
         assert_eq!(*timeout, READ_TIMEOUT);
-        assert_eq!(call(command).1, json!({ "action": "window.new", "wait": false }));
+        assert_eq!(
+            call(command).1,
+            json!({ "action": "window.new", "wait": false, "origin": "script" })
+        );
     }
 
     #[test]
@@ -903,6 +943,7 @@ mod tests {
                 "action": "tab.rename",
                 "target": "tab_0123",
                 "wait": true,
+                "origin": "script",
                 "args": { "title": "Build", "keep_case": "true" },
             })
         );
