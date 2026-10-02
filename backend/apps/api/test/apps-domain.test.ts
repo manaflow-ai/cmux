@@ -1,6 +1,6 @@
 import { idFactory, type Origin, type Principal, type ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
-import { emptyApps, reduceApps, releaseSelector, type AppsSlice, type InstallsOwner } from "../src/domains/app-installs.ts"
+import { emptyApps, reduceApps, releaseSelector, requestApproval, type AppsSlice, type InstallsOwner } from "../src/domains/app-installs.ts"
 import { latestOf, makeAppDomain, parseGithubRepo, resolveRelease, type AppState } from "../src/domains/app.ts"
 import { compareVersions, maxSatisfying, satisfies } from "../src/domains/semver.ts"
 import { prefixTsQuery } from "../src/app-store.ts"
@@ -183,7 +183,7 @@ const user: InstallsOwner = { scope: "user", scopeId: alice.user!, canManage: tr
 const team: InstallsOwner = { scope: "team", scopeId: alice.team!, canManage: true }
 
 const apply = (s: AppsSlice, p: Principal, op: string, params: Record<string, unknown>, opts: { owner?: InstallsOwner; origin?: Origin; now?: number } = {}) => {
-  const r = reduceApps(s, op, params, ctx(p, opts.now ?? T0, opts.origin ?? "cli"), opts.owner ?? user)
+  const r = reduceApps(s, op, params, ctx(p, opts.now ?? T0, opts.origin ?? "user"), opts.owner ?? user)
   if (!r.ok) throw Object.assign(new Error(r.message), { code: r.code, details: r.details })
   return r
 }
@@ -236,7 +236,7 @@ describe("installs and grants", () => {
 
   it("grant.set stays within the version's scopes and only from the user's own client", () => {
     const s = apply(emptyApps, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }).state
-    expect(code(() => apply(s, alice, "app.grant.set", { app: APP, scopes: ["workspace:read", "notification:post"] }))).toBe("auth.forbidden")
+    expect(code(() => apply(s, alice, "app.grant.set", { app: APP, scopes: ["workspace:read", "notification:post"] }, { origin: "cli" }))).toBe("auth.forbidden")
     expect(code(() => apply(s, aliceInstall, "app.grant.set", { app: APP, scopes: ["workspace:read"] }, { origin: "user" }))).toBe("auth.forbidden")
     expect(code(() => apply(s, alice, "app.grant.set", { app: APP, scopes: ["workspace:write"] }, { origin: "user" }))).toBe("scope.invalid")
     const g = apply(s, alice, "app.grant.set", { app: APP, scopes: ["workspace:read", "notification:post"] }, { origin: "user" })
@@ -253,74 +253,90 @@ describe("installs and grants", () => {
   })
 })
 
-describe("agent approvals (D48)", () => {
-  it("an agent's install (agent principal or origin mcp) waits for approval and installs nothing", () => {
-    for (const [p, origin] of [[agent, "cli"], [aliceInstall, "mcp"]] as const) {
-      const r = apply(emptyApps, p, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }, { origin })
-      const v = r.value as { status: string; approval: { id: string; status: string; added: Array<string>; expires_at: number; requested_by: { origin: string } } }
-      expect(v.status).toBe("approval_required")
-      expect(v.approval).toMatchObject({ status: "pending", added: ["workspace:read"], expires_at: T0 + 10 * 60_000, requested_by: { origin } })
-      expect(r.state.installs).toEqual({})
-      expect(r.outbox ?? []).toEqual([])
-    }
+/** Seeds an agent's pending request through the (currently unreachable) approval path. */
+const ask = (s: AppsSlice, kind: "install" | "update", rel: ReturnType<typeof release>, scopes: Array<string>, opts: { owner?: InstallsOwner; now?: number; p?: Principal } = {}) => {
+  const r = requestApproval(s, opts.owner ?? user, ctx(opts.p ?? agent, opts.now ?? T0, "mcp"), kind, rel as never, scopes, scopes.filter((x) => !(s.installs[rel.app]?.scopes_granted ?? []).includes(x)), "*")
+  if (!r.ok) throw Object.assign(new Error(r.message), { code: r.code })
+  return { state: r.state, id: (r.value as { approval: { id: string } }).approval.id, value: r.value as any, changed: r.changed }
+}
+
+describe("phase 1: installs only from the user's own client (app.install.user_only)", () => {
+  const install = { app: APP, scopes: ["workspace:read"], resolved: release() }
+  it("app.install: origin cli and mcp are refused, origin user installs, an agent principal is refused even as user", () => {
+    expect(code(() => apply(emptyApps, aliceInstall, "app.install", install, { origin: "cli" }))).toBe("app.install.user_only")
+    expect(code(() => apply(emptyApps, aliceInstall, "app.install", install, { origin: "mcp" }))).toBe("app.install.user_only")
+    expect(code(() => apply(emptyApps, alice, "app.install", install, { origin: "cli" }))).toBe("app.install.user_only")
+    expect(code(() => apply(emptyApps, agent, "app.install", install, { origin: "user" }))).toBe("app.install.user_only")
+    const r = apply(emptyApps, aliceInstall, "app.install", install, { origin: "user" })
+    expect(r.value).toMatchObject({ status: "installed" })
+    expect(Object.keys(r.state.approvals)).toEqual([])
   })
 
-  it("the user approves with the release re-resolved at decision time; agents and MCP cannot decide", () => {
-    const req = apply(emptyApps, agent, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() })
-    const id = (req.value as { approval: { id: string } }).approval.id
-    expect(releaseSelector(req.state, "app.approval.decide", { approval: id })).toEqual({ app: APP, version: "1.0.0" })
-    expect(code(() => apply(req.state, aliceInstall, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }))).toBe("auth.forbidden")
-    expect(code(() => apply(req.state, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }, { origin: "mcp" }))).toBe("auth.forbidden")
-    expect(code(() => apply(req.state, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release("1.0.0", { yanked: true }) }))).toBe("app.yanked")
-    const ok = apply(req.state, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }, { origin: "user", now: T0 + 1000 })
+  it("app.update: growing scopes needs origin user; an update within the granted scopes does not", () => {
+    const s = apply(emptyApps, alice, "app.install", install).state
+    for (const origin of ["cli", "mcp"] as const) {
+      expect(code(() => apply(s, aliceInstall, "app.update", { app: APP, accept_scopes: ["notification:post"], resolved: release("1.0.1") }, { origin }))).toBe("app.install.user_only")
+      expect(apply(s, aliceInstall, "app.update", { app: APP, resolved: release("1.0.1") }, { origin }).value).toMatchObject({ status: "installed", install: { version: "1.0.1" } })
+    }
+    expect(code(() => apply(s, agent, "app.update", { app: APP, accept_scopes: ["notification:post"], resolved: release("1.0.1") }, { origin: "cli" }))).toBe("app.install.user_only")
+    expect(apply(s, alice, "app.update", { app: APP, accept_scopes: ["notification:post"], resolved: release("1.0.1") }, { origin: "user" }).state.installs[APP]!.scopes_granted).toEqual(["notification:post", "workspace:read"])
+  })
+
+  it("app.approval.decide: origin cli and mcp are refused, origin user decides", () => {
+    const { state, id } = ask(emptyApps, "install", release(), ["workspace:read"])
+    expect(code(() => apply(state, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }, { origin: "cli" }))).toBe("app.install.user_only")
+    expect(code(() => apply(state, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }, { origin: "mcp" }))).toBe("app.install.user_only")
+    expect(code(() => apply(state, aliceInstall, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }, { origin: "user" }))).toBe("auth.forbidden")
+    expect(apply(state, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }, { origin: "user" }).value).toMatchObject({ approval: { status: "approved" } })
+  })
+})
+
+describe("agent approvals (D48; unreachable until the actor stamp, rules kept tested)", () => {
+  it("a request records requester, scopes and expiry and installs nothing", () => {
+    const { state, value } = ask(emptyApps, "install", release(), ["workspace:read"])
+    expect(value).toMatchObject({ status: "approval_required", approval: { status: "pending", added: ["workspace:read"], expires_at: T0 + 10 * 60_000, requested_by: { origin: "mcp" }, base_version: null } })
+    expect(state.installs).toEqual({})
+  })
+
+  it("the user approves with the release re-resolved at decision time", () => {
+    const req = ask(emptyApps, "install", release(), ["workspace:read"])
+    expect(releaseSelector(req.state, "app.approval.decide", { approval: req.id })).toEqual({ app: APP, version: "1.0.0" })
+    expect(code(() => apply(req.state, alice, "app.approval.decide", { approval: req.id, decision: "approve", resolved: release("1.0.0", { yanked: true }) }))).toBe("app.yanked")
+    const ok = apply(req.state, alice, "app.approval.decide", { approval: req.id, decision: "approve", resolved: release() }, { now: T0 + 1000 })
     expect(ok.value).toMatchObject({ approval: { status: "approved", decided_by: alice.identity }, install: { app: APP, installed_by: agent.identity } })
     expect(ok.outbox?.map((o) => o.kind)).toEqual(["app_install.upsert"])
-    expect(code(() => apply(ok.state, alice, "app.approval.decide", { approval: id, decision: "deny" }))).toBe("approval.decided")
+    expect(code(() => apply(ok.state, alice, "app.approval.decide", { approval: req.id, decision: "deny" }))).toBe("approval.decided")
   })
 
-  it("deny installs nothing; an expired request cannot be approved", () => {
-    const req = apply(emptyApps, agent, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() })
-    const id = (req.value as { approval: { id: string } }).approval.id
-    const denied = apply(req.state, alice, "app.approval.decide", { approval: id, decision: "deny" })
+  it("deny installs nothing; expiry is recorded", () => {
+    const req = ask(emptyApps, "install", release(), ["workspace:read"])
+    const denied = apply(req.state, alice, "app.approval.decide", { approval: req.id, decision: "deny" })
     expect(denied.state.installs).toEqual({})
-    expect(denied.state.approvals[id]!.status).toBe("denied")
-    // Expiry is recorded, so a waiting agent sees the request end.
-    const late = apply(req.state, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }, { now: T0 + 10 * 60_000 })
+    expect(denied.state.approvals[req.id]!.status).toBe("denied")
+    const late = apply(req.state, alice, "app.approval.decide", { approval: req.id, decision: "approve", resolved: release() }, { now: T0 + 10 * 60_000 })
     expect(late.value).toMatchObject({ approval: { status: "expired" }, install: null })
-    expect(late.state.installs).toEqual({})
-    expect(code(() => apply(late.state, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }))).toBe("approval.decided")
+    expect(code(() => apply(late.state, alice, "app.approval.decide", { approval: req.id, decision: "approve", resolved: release() }))).toBe("approval.decided")
   })
 
   it("an identical pending request is returned again, and at most 20 wait", () => {
-    const first = apply(emptyApps, agent, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() })
-    const again = apply(first.state, agent, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }, { now: T0 + 1000 })
+    const first = ask(emptyApps, "install", release(), ["workspace:read"])
+    const again = ask(first.state, "install", release(), ["workspace:read"], { now: T0 + 1000 })
     expect(again.changed).toBe(false)
-    expect((again.value as { approval: { id: string } }).approval.id).toBe((first.value as { approval: { id: string } }).approval.id)
+    expect(again.id).toBe(first.id)
     let s = first.state
-    for (let i = 1; i < 20; i++) s = apply(s, agent, "app.install", { app: `acme/app${i}`, scopes: ["workspace:read"], resolved: release("1.0.0", { app: `acme/app${i}` }) }).state
-    expect(code(() => apply(s, agent, "app.install", { app: "acme/one-more", scopes: ["workspace:read"], resolved: release("1.0.0", { app: "acme/one-more" }) }))).toBe("approval.limit")
-    // Expired requests stop counting.
-    expect(apply(s, agent, "app.install", { app: "acme/one-more", scopes: ["workspace:read"], resolved: release("1.0.0", { app: "acme/one-more" }) }, { now: T0 + 11 * 60_000 }).value).toMatchObject({ status: "approval_required" })
+    for (let i = 1; i < 20; i++) s = ask(s, "install", release("1.0.0", { app: `acme/app${i}` }), ["workspace:read"]).state
+    expect(code(() => ask(s, "install", release("1.0.0", { app: "acme/one-more" }), ["workspace:read"]))).toBe("approval.limit")
+    expect(ask(s, "install", release("1.0.0", { app: "acme/one-more" }), ["workspace:read"], { now: T0 + 11 * 60_000 }).value).toMatchObject({ status: "approval_required" })
   })
 
   it("approving a request whose install changed since is refused as stale", () => {
     const s = apply(emptyApps, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }).state
-    const req = apply(s, agent, "app.update", { app: APP, accept_scopes: ["notification:post"], resolved: release("1.0.1") })
-    const id = (req.value as { approval: { id: string; base_version: string } }).approval.id
-    expect((req.value as { approval: { base_version: string } }).approval.base_version).toBe("1.0.0")
+    const req = ask(s, "update", release("1.0.1"), ["notification:post", "workspace:read"])
+    expect(req.value.approval.base_version).toBe("1.0.0")
     const newer = apply(req.state, alice, "app.update", { app: APP, resolved: release("1.1.0") }).state
-    expect(code(() => apply(newer, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release("1.0.1") }))).toBe("approval.stale")
+    expect(code(() => apply(newer, alice, "app.approval.decide", { approval: req.id, decision: "approve", resolved: release("1.0.1") }))).toBe("approval.stale")
     const removed = apply(req.state, alice, "app.remove", { app: APP }).state
-    expect(code(() => apply(removed, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release("1.0.1") }))).toBe("approval.stale")
-  })
-
-  it("an agent's update that grows scopes needs approval; one that does not applies", () => {
-    const s = apply(emptyApps, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }).state
-    const same = apply(s, agent, "app.update", { app: APP, resolved: release("1.0.1") })
-    expect(same.value).toMatchObject({ status: "installed", install: { version: "1.0.1" } })
-    const grow = apply(s, agent, "app.update", { app: APP, accept_scopes: ["notification:post"], resolved: release("1.0.1") })
-    expect(grow.value).toMatchObject({ status: "approval_required", approval: { kind: "update", added: ["notification:post"] } })
-    expect(grow.state.installs[APP]!.version).toBe("1.0.0")
+    expect(code(() => apply(removed, alice, "app.approval.decide", { approval: req.id, decision: "approve", resolved: release("1.0.1") }))).toBe("approval.stale")
   })
 })
 
@@ -342,10 +358,9 @@ describe("team installs and the team app policy", () => {
     const ok = apply(open, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }, { owner: team })
     expect(ok.outbox?.[0]?.payload).toMatchObject({ scope_kind: "team", scope_id: alice.team })
     // The policy tightens after an agent asked: the approval is refused at decision time.
-    const req = apply(open, agent, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }, { owner: team })
-    const id = (req.value as { approval: { id: string } }).approval.id
+    const req = ask(open, "install", release(), ["workspace:read"], { owner: team })
     const tightened = apply(req.state, alice, "app.policy.set", { blocklist: [APP] }, { owner: team }).state
-    expect(code(() => apply(tightened, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }, { owner: team }))).toBe("policy.denied")
+    expect(code(() => apply(tightened, alice, "app.approval.decide", { approval: req.id, decision: "approve", resolved: release() }, { owner: team }))).toBe("policy.denied")
   })
 
   it("a team admits unverified apps only when its policy lists the tier", () => {
@@ -397,10 +412,13 @@ describe("invariant: a grant never leaves its version's scopes (random op sequen
           ["app.approval.decide", { approval: Object.keys(s.approvals)[rnd(Math.max(1, Object.keys(s.approvals).length))] ?? "appr_x", decision: rnd(2) ? "approve" : "deny", resolved: rel }]
         ]
         const [op, params] = ops[rnd(ops.length)]!
-        const r = reduceApps(s, op, params, ctx(actor, now, actor === agent ? "cli" : "user"), user)
+        const r =
+          actor === agent && op === "app.install"
+            ? requestApproval(s, user, ctx(agent, now, "mcp"), "install", rel as never, params.scopes as Array<string>, params.scopes as Array<string>, "*")
+            : reduceApps(s, op, params, ctx(actor, now, actor === agent ? "cli" : "user"), user)
         if (r.ok) {
           // An agent alone never adds an install or grows a grant.
-          if (actor === agent && op !== "app.remove") {
+          if (actor === agent && op !== "app.remove" && op !== "app.install") {
             for (const [app, i] of Object.entries(r.state.installs)) {
               const before = s.installs[app]
               if (!before) expect(op).toBe("never: agent created an install")

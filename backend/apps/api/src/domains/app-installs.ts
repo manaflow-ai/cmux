@@ -159,7 +159,24 @@ const pruneApprovals = (approvals: Readonly<Record<string, AppApproval>>, now: n
 
 type Result = ReduceResult<AppsSlice>
 
-const approvalRequired = (slice: AppsSlice, owner: InstallsOwner, ctx: ReduceContext, kind: AppApproval["kind"], r: ResolvedRelease, scopes: ReadonlyArray<string>, added: ReadonlyArray<string>, range: string): Result => {
+/**
+ * Lawrence's decision (2026-10-02): until owners stamp the actor (identity
+ * spec section 6), only the user's own client installs or grows an app's
+ * scopes. `origin` is client-declared, so an agent could otherwise claim to
+ * be the user. Every install, scope-growing update and approval decision
+ * needs origin `user` from a principal that is not an agent.
+ */
+export const userOnly = (p: Principal, origin: string) =>
+  origin === "user" && !isAgentActor(p, origin)
+    ? undefined
+    : reject("app.install.user_only", "install apps and grant them new permissions from the cmux App Store (palette) or the web store; agents and the CLI cannot do this yet")
+
+/**
+ * The agent approval request (D48). Unreachable while `userOnly` blocks
+ * agent-initiated installs; it reopens when the actor stamp lands. Exported
+ * so its rules stay tested.
+ */
+export const requestApproval = (slice: AppsSlice, owner: InstallsOwner, ctx: ReduceContext, kind: AppApproval["kind"], r: ResolvedRelease, scopes: ReadonlyArray<string>, added: ReadonlyArray<string>, range: string): Result => {
   const p = ctx.principal
   const pending = Object.values(slice.approvals).filter((a) => a.status === "pending" && a.expires_at > ctx.now)
   const baseVersion = slice.installs[r.app]?.version ?? null
@@ -205,6 +222,8 @@ export const reduceApps = (slice: AppsSlice, op: string, params: unknown, ctx: R
       const d = decodeParams<typeof AppInstallOp.params.Type>(AppInstallOp, params)
       if (!d.ok) return d
       const v = d.value
+      const blocked = userOnly(p, ctx.origin)
+      if (blocked) return blocked
       const r = resolvedOf(params)
       if (r === "invalid") return reject("operation.failed", "the release lookup returned an invalid record")
       if (!r) return reject("selector.not_found", v.version_range ? `no published version of ${v.app} matches ${v.version_range}` : `app ${v.app} not found`)
@@ -219,7 +238,8 @@ export const reduceApps = (slice: AppsSlice, op: string, params: unknown, ctx: R
       if (cur && cur.version === r.version && sameSet(cur.scopes_granted, v.scopes) && cur.version_range === range) {
         return { ok: true, state: slice, value: { status: "installed", install: cur }, changed: false }
       }
-      if (agent) return approvalRequired(slice, owner, ctx, "install", r, v.scopes, v.scopes.filter((s) => !(cur?.scopes_granted ?? []).includes(s)), range)
+      // Unreachable behind userOnly; reopens with the actor stamp.
+      if (agent) return requestApproval(slice, owner, ctx, "install", r, v.scopes, v.scopes.filter((s) => !(cur?.scopes_granted ?? []).includes(s)), range)
       return applyInstall(slice, owner, makeInstall(owner, r, v.scopes, range, cur, p.identity, ctx.now))
     }
     case "app.update": {
@@ -246,7 +266,12 @@ export const reduceApps = (slice: AppsSlice, op: string, params: unknown, ctx: R
       const needed = r.scopes.filter((s) => !granted.includes(s))
       if (needed.length > 0) return reject("scope.consent_required", `${r.app}@${r.version} needs ${needed.join(", ")}; pass them in accept_scopes after the user agrees`, { added: needed })
       const growth = granted.filter((s) => !cur.scopes_granted.includes(s))
-      if (agent && growth.length > 0) return approvalRequired(slice, owner, ctx, "update", r, granted, growth, cur.version_range)
+      if (growth.length > 0) {
+        const blocked = userOnly(p, ctx.origin)
+        if (blocked) return blocked
+      }
+      // Unreachable behind userOnly; reopens with the actor stamp.
+      if (agent && growth.length > 0) return requestApproval(slice, owner, ctx, "update", r, granted, growth, cur.version_range)
       return applyInstall(slice, owner, makeInstall(owner, r, granted, cur.version_range, cur, p.identity, ctx.now))
     }
     case "app.remove": {
@@ -272,7 +297,9 @@ export const reduceApps = (slice: AppsSlice, op: string, params: unknown, ctx: R
     case "app.approval.decide": {
       const d = decodeParams<typeof AppApprovalDecide.params.Type>(AppApprovalDecide, params)
       if (!d.ok) return d
-      if (p.kind !== "session" || agent) return reject("auth.forbidden", "approvals are decided by a person in their own client, never by an agent")
+      const blocked = userOnly(p, ctx.origin)
+      if (blocked) return blocked
+      if (p.kind !== "session") return reject("auth.forbidden", "approvals are decided by a person in their own client, never by an agent")
       const a = slice.approvals[d.value.approval]
       if (!a) return reject("selector.not_found", "approval not found")
       if (a.status !== "pending") return reject("approval.decided", `this request was already ${a.status}`, { status: a.status })

@@ -27,6 +27,8 @@ const call = async (path: string, token: string, body: unknown) => {
 }
 const op = (token: string, name: string, params: unknown, opts: { key?: string; origin?: string } = {}) =>
   call("/v1/ops", token, { op: name, params, idempotency_key: opts.key ?? crypto.randomUUID(), origin: opts.origin ?? "cli" })
+/** The App Store in the user's own client (phase 1: the only origin that installs). */
+const userOp = (token: string, name: string, params: unknown, opts: { key?: string } = {}) => op(token, name, params, { ...opts, origin: "user" })
 const read = (token: string, name: string, params: unknown) => call("/v1/read", token, { op: name, params })
 
 const manifest = (id: string, version: string) => ({
@@ -69,41 +71,44 @@ describe("app store over the API (workerd)", { timeout: 60_000 }, () => {
     expect((await read(tok, "app.info", { app: "acme/does-not-exist" })).status).toBe(400)
 
     // Unverified needs the explicit warning; then install, and the same key replays.
-    expect((await op(tok, "app.install", { app, scopes: ["workspace:read"] })).json.error.code).toBe("app.unverified")
+    expect((await userOp(tok, "app.install", { app, scopes: ["workspace:read"] })).json.error.code).toBe("app.unverified")
     const key = crypto.randomUUID()
     const params = { app, version_range: "^1", scopes: ["workspace:read"], accept_unverified: true }
-    const first = await op(tok, "app.install", params, { key })
+    const first = await userOp(tok, "app.install", params, { key })
     expect(first.json).toMatchObject({ ok: true, value: { status: "installed", install: { version: "1.1.0", scopes_granted: ["workspace:read"] } } })
-    const again = await op(tok, "app.install", params, { key })
+    const again = await userOp(tok, "app.install", params, { key })
     expect(again.json.replayed).toBe(true)
     expect(again.json.value).toEqual(first.json.value)
-    expect((await op(tok, "app.install", { ...params, scopes: [] }, { key })).json.error.code).toBe("idempotency.conflict")
+    expect((await userOp(tok, "app.install", { ...params, scopes: [] }, { key })).json.error.code).toBe("idempotency.conflict")
 
-    // An MCP client's scope growth becomes an approval; the person approves from their client.
-    const grow = await op(tok, "app.update", { app, accept_scopes: ["notification:post"] }, { origin: "mcp" })
-    expect(grow.json.value).toMatchObject({ status: "approval_required", approval: { kind: "update", added: ["notification:post"], status: "pending" } })
+    // Phase 1: the CLI and MCP clients cannot install or grow scopes; the App Store (origin user) can.
+    for (const origin of ["cli", "mcp"]) {
+      const r = await op(tok, "app.install", params, { origin })
+      expect(r.json.error).toMatchObject({ code: "app.install.user_only", retryable: false })
+      expect(r.json.error.message).toMatch(/App Store/)
+      expect((await op(tok, "app.update", { app, accept_scopes: ["notification:post"] }, { origin })).json.error.code).toBe("app.install.user_only")
+    }
+    const grown = await userOp(tok, "app.update", { app, accept_scopes: ["notification:post"] })
+    expect(grown.json.value.install.scopes_granted).toEqual(["notification:post", "workspace:read"])
     const listed = await read(tok, "app.list", {})
     expect(listed.json.value.installs.map((i: any) => i.app)).toEqual([app])
-    expect(listed.json.value.approvals.map((a: any) => a.id)).toEqual([grow.json.value.approval.id])
+    expect(listed.json.value.approvals).toEqual([])
     expect(listed.json.value.policy).toEqual({ allowed_tiers: null, allowlist: null, blocklist: [] })
-    expect((await op(tok, "app.approval.decide", { approval: grow.json.value.approval.id, decision: "approve" }, { origin: "mcp" })).json.error.code).toBe("auth.forbidden")
-    const decided = await op(tok, "app.approval.decide", { approval: grow.json.value.approval.id, decision: "approve" }, { origin: "user" })
-    expect(decided.json.value.install.scopes_granted).toEqual(["notification:post", "workspace:read"])
 
     // Yank: an exact install of the yanked version is refused; ranges skip it.
     const y = await op(tok, "app.version.yank", { app, version: "1.1.0", reason: "crashes on start" })
     expect(y.json.value.latest_version).toBe("1.0.0")
     expect((await op(tok, "app.update", { app, version: "1.1.0" })).json.error.code).toBe("app.yanked")
-    expect((await op(tok, "app.install", { app, version_range: "1.1.0", scopes: ["workspace:read"], accept_unverified: true })).json.error.code).toBe("selector.not_found")
+    expect((await userOp(tok, "app.install", { app, version_range: "1.1.0", scopes: ["workspace:read"], accept_unverified: true })).json.error.code).toBe("selector.not_found")
 
     // Team install in the personal team (unverified needs the tier in the team policy), then the policy blocks it.
-    expect((await op(tok, "app.install", { app, scope: "team", scopes: ["workspace:read"], accept_unverified: true, version_range: "1.0.0" })).json.error.code).toBe("policy.denied")
+    expect((await userOp(tok, "app.install", { app, scope: "team", scopes: ["workspace:read"], accept_unverified: true, version_range: "1.0.0" })).json.error.code).toBe("policy.denied")
     expect((await op(tok, "app.policy.set", { allowed_tiers: ["community", "unverified"] })).json.ok).toBe(true)
-    const t1 = await op(tok, "app.install", { app, scope: "team", scopes: ["workspace:read"], accept_unverified: true, version_range: "1.0.0" })
+    const t1 = await userOp(tok, "app.install", { app, scope: "team", scopes: ["workspace:read"], accept_unverified: true, version_range: "1.0.0" })
     expect(t1.json).toMatchObject({ ok: true, stream: expect.stringMatching(/^team:/), value: { status: "installed", install: { scope: "team", version: "1.0.0" } } })
     expect((await op(tok, "app.policy.set", { blocklist: [app] })).json.ok).toBe(true)
     expect((await op(tok, "app.remove", { app, scope: "team" })).json.value).toEqual({ app, removed: true })
-    expect((await op(tok, "app.install", { app, scope: "team", scopes: ["workspace:read"], accept_unverified: true })).json.error.code).toBe("policy.denied")
+    expect((await userOp(tok, "app.install", { app, scope: "team", scopes: ["workspace:read"], accept_unverified: true })).json.error.code).toBe("policy.denied")
     const teamList = await read(tok, "app.list", { scope: "team" })
     expect(teamList.json.value.policy.blocklist).toEqual([app])
     expect(teamList.json.value.installs).toEqual([])
@@ -151,7 +156,7 @@ describe("app store over the API (workerd)", { timeout: 60_000 }, () => {
     await op(tok, "user.ensure", {})
     expect((await op(tok, "app.version.yank", { version: "1.0.0", reason: "x" })).status).toBe(400)
     // A forged release is replaced by the owner's lookup (here: nothing published).
-    const forged = await op(tok, "app.install", {
+    const forged = await userOp(tok, "app.install", {
       app: "nobody/nothing",
       scopes: [],
       resolved: { app: "nobody/nothing", version: "1.0.0", tier: "first-party", publisher_team: "team_aaaaaaaaaaaaaaaaaaaa", scopes: [], optional_scopes: [], engines: { cmux: "*" }, bundle_url: "https://evil", bundle_sha256: "c".repeat(64), yanked: false, app_revision: "1" }

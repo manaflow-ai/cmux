@@ -18,10 +18,15 @@ import { Revision } from "./schemas.ts"
 
 /**
  * App store ops (spec app-platform.md section 11, contract v1 "Store ops").
- * CLI path `apps <verb>` (the Rust CLI reserves `app` for the running cmux app). MCP: search/info/list/install/update by default,
+ * CLI path `apps <verb>` (the Rust CLI reserves `app` for the running cmux app). MCP: search/info/list by default,
  * remove opt-in, everything that publishes, grants, yanks or decides never.
  *
- * Agents (D48): when the actor is an agent (an `agent` principal or a request
+ * Phase 1 (Lawrence, 2026-10-02): app.install, scope-growing app.update and
+ * app.approval.decide answer `app.install.user_only` unless origin is
+ * `user` (the App Store in the app or the web store); not MCP tools. The
+ * approval path below stays in code and reopens when owners stamp the actor.
+ *
+ * Agents (D48, later): when the actor is an agent (an `agent` principal or a request
  * with origin `mcp`), `app.install` and any `app.update` that grows the scope
  * set do not apply; they return `{status: "approval_required", approval}` and
  * store the request in the owner. A human decides it with the session-only
@@ -110,10 +115,10 @@ export const AppInstallOp = def({
     accept_unverified: Schema.optionalKey(Schema.Boolean)
   }),
   result: AppInstallOutcome,
-  errors: [...mutationErrors, "selector.not_found", "app.yanked", "app.unverified", "scope.invalid", "policy.denied", "approval.limit"],
-  docs: "Install an app: the newest non-yanked version in `version_range` (default any), granting `scopes` (every required scope, plus any optional ones). Team installs (risk mutate-shared) need a team admin and pass the team app policy. An agent's install returns `approval_required` and waits for the user; an identical pending request is returned again, and at most 20 wait per owner.",
+  errors: [...mutationErrors, "app.install.user_only", "selector.not_found", "app.yanked", "app.unverified", "scope.invalid", "policy.denied", "approval.limit"],
+  docs: "Install an app: the newest non-yanked version in `version_range` (default any), granting `scopes` (every required scope, plus any optional ones). Team installs (risk mutate-shared) need a team admin and pass the team app policy. Phase 1: origin user only (the App Store); other origins and agents get app.install.user_only.",
   cli: { path: "apps install", visible: true },
-  mcp: { expose: "default", group: "app" }
+  mcp: { expose: "never", group: "app" }
 })
 
 export const AppUpdate = def({
@@ -132,10 +137,10 @@ export const AppUpdate = def({
     scope: ScopeParam
   }),
   result: AppInstallOutcome,
-  errors: [...mutationErrors, "selector.not_found", "app.yanked", "scope.consent_required", "scope.invalid", "policy.denied", "approval.limit"],
-  docs: "Move an installed app to `version` (default: newest non-yanked in its range). New required scopes must be in `accept_scopes`. An agent's update that grows the scope set returns `approval_required`.",
+  errors: [...mutationErrors, "app.install.user_only", "selector.not_found", "app.yanked", "scope.consent_required", "scope.invalid", "policy.denied", "approval.limit"],
+  docs: "Move an installed app to `version` (default: newest non-yanked in its range). New required scopes must be in `accept_scopes`. Phase 1: an update that grows the scope set needs origin user (else app.install.user_only).",
   cli: { path: "apps update", visible: true },
-  mcp: { expose: "default", group: "app" }
+  mcp: { expose: "never", group: "app" }
 })
 
 export const AppRemove = def({
@@ -183,7 +188,7 @@ export const AppApprovalDecide = def({
   principals: ["session"],
   params: Schema.Struct({ approval: ApprovalId, decision: Schema.Literals(["approve", "deny"]), scope: ScopeParam }),
   result: Schema.Struct({ approval: AppApproval, install: Schema.NullOr(AppInstall) }),
-  errors: [...mutationErrors, "selector.not_found", "approval.decided", "approval.stale", "app.yanked", "policy.denied"],
+  errors: [...mutationErrors, "app.install.user_only", "selector.not_found", "approval.decided", "approval.stale", "app.yanked", "policy.denied"],
   docs: "Approve or deny an agent's pending app install or scope growth. Human sessions only, never from an MCP client. An expired request is marked expired (status in the result); a request whose install changed since is refused as stale.",
   cli: { path: "apps approval decide", visible: true },
   mcp: { expose: "never", group: "app" }

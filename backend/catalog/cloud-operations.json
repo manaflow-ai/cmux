@@ -2445,6 +2445,7 @@
         ]
       },
       "errors": [
+        "app.install.user_only",
         "app.yanked",
         "approval.decided",
         "approval.stale",
@@ -3427,6 +3428,7 @@
         ]
       },
       "errors": [
+        "app.install.user_only",
         "app.unverified",
         "app.yanked",
         "approval.limit",
@@ -3464,10 +3466,10 @@
         "visible": true
       },
       "mcp": {
-        "expose": "default",
+        "expose": "never",
         "group": "app"
       },
-      "docs": "Install an app: the newest non-yanked version in `version_range` (default any), granting `scopes` (every required scope, plus any optional ones). Team installs (risk mutate-shared) need a team admin and pass the team app policy. An agent's install returns `approval_required` and waits for the user; an identical pending request is returned again, and at most 20 wait per owner.",
+      "docs": "Install an app: the newest non-yanked version in `version_range` (default any), granting `scopes` (every required scope, plus any optional ones). Team installs (risk mutate-shared) need a team admin and pass the team app policy. Phase 1: origin user only (the App Store); other origins and agents get app.install.user_only.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -5399,6 +5401,7 @@
         ]
       },
       "errors": [
+        "app.install.user_only",
         "app.yanked",
         "approval.limit",
         "auth.forbidden",
@@ -5436,10 +5439,10 @@
         "visible": true
       },
       "mcp": {
-        "expose": "default",
+        "expose": "never",
         "group": "app"
       },
-      "docs": "Move an installed app to `version` (default: newest non-yanked in its range). New required scopes must be in `accept_scopes`. An agent's update that grows the scope set returns `approval_required`.",
+      "docs": "Move an installed app to `version` (default: newest non-yanked in its range). New required scopes must be in `accept_scopes`. Phase 1: an update that grows the scope set needs origin user (else app.install.user_only).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
