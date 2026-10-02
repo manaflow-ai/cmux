@@ -12,17 +12,24 @@ struct AnalyzerTimeline {
     private var end: CMTime?
 
     /// The start time to give a buffer of `frames` frames at `sampleRate`
-    /// that was captured at `time`. A buffer without a time resets the
-    /// timeline.
+    /// that was captured at `time`. A buffer without a time keeps none: the
+    /// analyzer places it right after the previous one, so the timeline
+    /// moves on by its length. A rate that is not positive (never the case
+    /// for a valid format) resets the timeline.
     mutating func start(at time: CMTime?, frames: AVAudioFrameCount, sampleRate: Double) -> CMTime? {
-        guard let time, sampleRate > 0 else {
+        guard sampleRate > 0 else {
             end = nil
             return time
         }
+        let rate = CMTimeScale(min(sampleRate.rounded(), Double(Int32.max)))
+        let length = CMTime(value: CMTimeValue(frames), timescale: rate)
+        guard let time else {
+            end = end.map { CMTimeAdd($0, length) }
+            return nil
+        }
         var start = time
         if let end, CMTimeCompare(start, end) < 0 { start = end }
-        let rate = CMTimeScale(min(sampleRate.rounded(), Double(Int32.max)))
-        end = CMTimeAdd(start, CMTime(value: CMTimeValue(frames), timescale: rate))
+        end = CMTimeAdd(start, length)
         return start
     }
 
