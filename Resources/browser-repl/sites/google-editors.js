@@ -144,8 +144,12 @@
       // The button renders a moment after the editor; wait for it.
       async sharing(page) {
         const label = await t.waitIn(page, () => {
-          const b = document.querySelector("#docs-titlebar-share-client-button, [role='button'][aria-label^='Share.'], [aria-label^='Share. '], [data-tooltip^='Share.']");
-          return b ? (b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || "").trim() || null : null;
+          // The first element whose label describes sharing (the id sits on an unlabeled wrapper).
+          for (const b of document.querySelectorAll("#docs-titlebar-share-client-button, #docs-titlebar-share-client-button *, [aria-label^='Share'], [data-tooltip^='Share']")) {
+            const label = (b.getAttribute("aria-label") || b.getAttribute("data-tooltip") || "").trim();
+            if (/^Share\b/.test(label)) return label;
+          }
+          return null;
         }, undefined, { timeout: 15000, what: "the Share button" }).catch(() => "");
         return label || "";
       },
