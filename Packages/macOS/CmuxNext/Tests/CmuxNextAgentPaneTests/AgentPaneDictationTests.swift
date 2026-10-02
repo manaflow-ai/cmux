@@ -232,6 +232,19 @@ private actor SilentEngine: SpeechTranscribing {
         #expect(scripts.last?.contains("\"text\":\"half a phrase\"") == true)
     }
 
+    /// An extra modifier pressed during the hold does not keep the release
+    /// from stopping.
+    @Test func releasingWithAnExtraModifierDownStillStops() async throws {
+        let engine = SilentEngine()
+        let dictation = Self.pane(engine)
+        dictation.toggle(from: try Self.key(.keyDown, at: 100))
+        await until { dictation.phase == .listening }
+        dictation.flagsChanged(try Self.key(.flagsChanged, at: 100.5, modifiers: [.control, .command, .option]))
+        #expect(dictation.phase == .listening)
+        dictation.keyUp(try Self.key(.keyUp, at: 101, modifiers: [.control, .command, .option]))
+        await until { dictation.phase == .idle && !dictation.holdsResources }
+    }
+
     /// A quick tap that lets go of a modifier first is still a tap.
     @Test func aQuickTapReleasingAModifierFirstKeepsListening() async throws {
         let engine = SilentEngine()

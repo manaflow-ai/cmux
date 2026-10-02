@@ -45,3 +45,28 @@ export const WorkingIcon = () => (
     <path d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63" strokeWidth={1.5} />
   </Glyph>
 );
+
+/** A session on a cloud machine. */
+export const CloudIcon = () => (
+  <Glyph>
+    <path d="M4.6 12.25h7a2.65 2.65 0 0 0 .35-5.28A4 4 0 0 0 4.3 6.3a3 3 0 0 0 .3 5.95Z" />
+  </Glyph>
+);
+
+/** A session on a branch: the atlas branch glyph. */
+export const BranchIcon = () => (
+  <Glyph>
+    <circle cx="5" cy="3.75" r="1.5" />
+    <circle cx="5" cy="12.25" r="1.5" />
+    <circle cx="11" cy="5.5" r="1.5" />
+    <path d="M5 5.25v5.5M11 7c0 2.4-2 3.1-6 3.75" />
+  </Glyph>
+);
+
+/** A session in its own git worktree: a folder with a branch fork. */
+export const WorktreeIcon = () => (
+  <Glyph>
+    <path d="M2.5 4.5c0-.6.4-1 1-1h2.6l1.4 1.5h5c.6 0 1 .4 1 1v5.5c0 .6-.4 1-1 1h-9c-.6 0-1-.4-1-1Z" />
+    <path d="M7 7.5v3M7 9c1.6 0 2.5-.5 2.5-1.5" />
+  </Glyph>
+);

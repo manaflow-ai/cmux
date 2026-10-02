@@ -63,7 +63,7 @@ final class AgentPaneDictation {
     init(
         evaluate: @escaping (String) -> Void,
         microphone: DictationMicrophone = .shared,
-        makeSession: @escaping () -> DictationSession = { DictationSession() }
+        makeSession: @escaping () -> DictationSession = { AgentPaneDictation.defaultSession() }
     ) {
         self.evaluate = evaluate
         self.microphone = microphone
@@ -71,6 +71,15 @@ final class AgentPaneDictation {
     }
 
     var phase: DictationPhase { session?.phase ?? .idle }
+
+    /// The on-device engine. Debug builds hear a recorded clip instead when
+    /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one (machines without a microphone).
+    static func defaultSession() -> DictationSession {
+        #if DEBUG
+        if let recorded = DictationSession.recorded() { return recorded }
+        #endif
+        return DictationSession()
+    }
 
     func handle(_ command: AgentPaneDictationCommand) {
         switch command {
@@ -125,7 +134,7 @@ final class AgentPaneDictation {
         // A plain key-up while the hold is armed means the chord's own
         // release went elsewhere (a prompt, another app): a later "v" typed
         // in the composer, not push-to-talk ending.
-        release(at: event.timestamp, stops: Self.chord(event.modifierFlags) == held.chord)
+        release(at: event.timestamp, stops: Self.chord(event.modifierFlags).isSuperset(of: held.chord))
     }
 
     /// A modifier of the chord came up before the key: that is the release.
