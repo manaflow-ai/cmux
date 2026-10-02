@@ -51,8 +51,13 @@ struct HostListControl: View {
                 TextField(SettingsWindowStrings.hostPlaceholder, text: $draft)
                     .textFieldStyle(.roundedBorder).frame(width: Metrics.sidebarWidth * 0.75)
                     .onSubmit(add)
-                Button(SettingsWindowStrings.add, action: add).buttonStyle(SettingsButtonStyle())
-                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button {
+                    add()
+                } label: {
+                    Text(SettingsWindowStrings.add).fixedSize(horizontal: true, vertical: false)
+                }
+                .buttonStyle(SettingsButtonStyle())
+                .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
     }

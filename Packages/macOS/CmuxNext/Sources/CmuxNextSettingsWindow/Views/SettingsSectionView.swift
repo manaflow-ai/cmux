@@ -68,7 +68,7 @@ private struct FlowActions: View {
     let actions: [ActionID]
 
     var body: some View {
-        HStack(spacing: Metrics.space4) {
+        HStack(alignment: .top, spacing: Metrics.space4) {
             ForEach(actions, id: \.self) { id in
                 Button(model.actionTitle(id) ?? id.rawValue) { model.perform(id) }
                     .buttonStyle(SettingsButtonStyle())

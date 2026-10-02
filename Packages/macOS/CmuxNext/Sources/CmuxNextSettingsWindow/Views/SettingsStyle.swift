@@ -34,6 +34,20 @@ enum SettingsStyle {
     static var rowHeight: CGFloat { Metrics.sidebarRowHeight + Metrics.space2 }
     static var corner: CGFloat { Metrics.itemCornerRadius }
     static var cardCorner: CGFloat { Metrics.panelCornerRadius }
+
+    /// Content begins below AppKit's native full-size titlebar safe area.
+    /// Keep this inset separate from the titlebar height: the hosting view
+    /// already accounts for that area when it lays out its root view.
+    static var contentTopInset: CGFloat { Metrics.space6 }
+
+    /// Settings rows reserve one visual column for their control. Keeping
+    /// that column stable makes menus, toggles and sliders line up across
+    /// cards while still leaving enough room for wrapped help text.
+    static var controlColumnWidth: CGFloat {
+        Metrics.density == .compact ? 220 : 252
+    }
+
+    static var cardStroke: Color { separator.opacity(0.55) }
 }
 
 /// A rounded group of rows under a small heading.
@@ -50,6 +64,10 @@ struct SettingsCard<Content: View>: View {
             VStack(spacing: 0) { content }
                 .padding(.vertical, Metrics.space2)
                 .background(SettingsStyle.card, in: RoundedRectangle(cornerRadius: SettingsStyle.cardCorner, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: SettingsStyle.cardCorner, style: .continuous)
+                        .stroke(SettingsStyle.cardStroke, lineWidth: 0.5)
+                }
         }
     }
 }
@@ -66,6 +84,10 @@ struct SettingsButtonStyle: ButtonStyle {
             .padding(.vertical, Metrics.space2)
             .background(configuration.isPressed ? SettingsStyle.selection : SettingsStyle.hover,
                         in: RoundedRectangle(cornerRadius: SettingsStyle.corner, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: SettingsStyle.corner, style: .continuous)
+                    .stroke(SettingsStyle.cardStroke, lineWidth: 0.5)
+            }
             .contentShape(Rectangle())
     }
 }

@@ -27,7 +27,7 @@ struct SettingsRootView: View {
                     }
                 }
                 .padding(.horizontal, Metrics.space6 + Metrics.space4)
-                .padding(.top, Metrics.titlebarHeight)
+                .padding(.top, SettingsStyle.contentTopInset)
                 .padding(.bottom, Metrics.space6)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -72,7 +72,7 @@ struct SettingsSidebar: View {
             Spacer()
         }
         .padding(.horizontal, Metrics.space4)
-        .padding(.top, Metrics.titlebarHeight + Metrics.space2)
+        .padding(.top, SettingsStyle.contentTopInset)
     }
 }
 

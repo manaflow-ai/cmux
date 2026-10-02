@@ -42,6 +42,12 @@ struct SettingRowView: View {
         .padding(.horizontal, Metrics.space5)
         .padding(.vertical, Metrics.space2)
         .frame(minHeight: SettingsStyle.rowHeight)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(SettingsStyle.separator.opacity(0.28))
+                .frame(height: 0.5)
+                .padding(.horizontal, Metrics.space5)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("cmux.settings.row.\(descriptor.id)")
     }
@@ -53,6 +59,13 @@ struct SettingControl: View {
     let descriptor: SettingDescriptor
 
     var body: some View {
+        control
+            .frame(minWidth: SettingsStyle.controlColumnWidth, alignment: .trailing)
+            .layoutPriority(1)
+    }
+
+    @ViewBuilder
+    private var control: some View {
         switch descriptor.kind {
         case .choice(let choices): ChoiceControl(model: model, descriptor: descriptor, choices: choices)
         case .choiceOrNumber(let choices, let number): ChoiceOrNumberControl(model: model, descriptor: descriptor, choices: choices, number: number)
