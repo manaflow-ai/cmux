@@ -5273,9 +5273,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "Accedi a cmux",
-    "signInSubtitle": "Un solo account per l'app, Cloud e la dashboard.",
+    "signInSubtitle": "Un solo account per l'app, cloud e la dashboard.",
     "signUpTitle": "Crea il tuo account cmux",
-    "signUpSubtitle": "Un solo account per l'app, Cloud e la dashboard.",
+    "signUpSubtitle": "Un solo account per l'app, cloud e la dashboard.",
     "continueWithProvider": "Continua con {provider}",
     "signInWithPasskey": "Accedi con una passkey",
     "orContinueWith": "Oppure continua con",

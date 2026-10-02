@@ -5270,9 +5270,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "cmux에 로그인",
-    "signInSubtitle": "앱, Cloud, 대시보드를 하나의 계정으로.",
+    "signInSubtitle": "앱, cloud, 대시보드를 하나의 계정으로.",
     "signUpTitle": "cmux 계정 만들기",
-    "signUpSubtitle": "앱, Cloud, 대시보드를 하나의 계정으로.",
+    "signUpSubtitle": "앱, cloud, 대시보드를 하나의 계정으로.",
     "continueWithProvider": "{provider}(으)로 계속",
     "signInWithPasskey": "패스키로 로그인",
     "orContinueWith": "또는 다음으로 계속",

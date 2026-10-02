@@ -5343,9 +5343,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "Вхід у cmux",
-    "signInSubtitle": "Один обліковий запис для застосунку, Cloud і панелі керування.",
+    "signInSubtitle": "Один обліковий запис для застосунку, cloud і панелі керування.",
     "signUpTitle": "Створіть обліковий запис cmux",
-    "signUpSubtitle": "Один обліковий запис для застосунку, Cloud і панелі керування.",
+    "signUpSubtitle": "Один обліковий запис для застосунку, cloud і панелі керування.",
     "continueWithProvider": "Продовжити через {provider}",
     "signInWithPasskey": "Увійти з ключем доступу",
     "orContinueWith": "Або продовжити через",

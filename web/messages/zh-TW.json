@@ -5272,9 +5272,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "登入 cmux",
-    "signInSubtitle": "一個帳號即可使用應用程式、Cloud 和主控台。",
+    "signInSubtitle": "一個帳號即可使用應用程式、cloud 和主控台。",
     "signUpTitle": "建立 cmux 帳號",
-    "signUpSubtitle": "一個帳號即可使用應用程式、Cloud 和主控台。",
+    "signUpSubtitle": "一個帳號即可使用應用程式、cloud 和主控台。",
     "continueWithProvider": "使用 {provider} 繼續",
     "signInWithPasskey": "使用通行密鑰登入",
     "orContinueWith": "或繼續使用",

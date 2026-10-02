@@ -5275,9 +5275,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "Se connecter à cmux",
-    "signInSubtitle": "Un seul compte pour l'app, Cloud et le tableau de bord.",
+    "signInSubtitle": "Un seul compte pour l'app, cloud et le tableau de bord.",
     "signUpTitle": "Créer votre compte cmux",
-    "signUpSubtitle": "Un seul compte pour l'app, Cloud et le tableau de bord.",
+    "signUpSubtitle": "Un seul compte pour l'app, cloud et le tableau de bord.",
     "continueWithProvider": "Continuer avec {provider}",
     "signInWithPasskey": "Se connecter avec une clé d'accès",
     "orContinueWith": "Ou continuer avec",

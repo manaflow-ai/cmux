@@ -5273,9 +5273,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "Entre no cmux",
-    "signInSubtitle": "Uma conta para o app, o Cloud e o painel.",
+    "signInSubtitle": "Uma conta para o app, o cloud e o painel.",
     "signUpTitle": "Crie sua conta cmux",
-    "signUpSubtitle": "Uma conta para o app, o Cloud e o painel.",
+    "signUpSubtitle": "Uma conta para o app, o cloud e o painel.",
     "continueWithProvider": "Continuar com {provider}",
     "signInWithPasskey": "Entrar com uma chave de acesso",
     "orContinueWith": "Ou continuar com",
