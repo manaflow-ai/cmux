@@ -18,12 +18,17 @@ fn fake_profile() -> HarnessProfile {
     }
 }
 
-/// A hub with two harnesses of different families (`fake` and `mirror`), in
-/// memory or, with `dir`, on disk so a second hub can reopen it.
+/// A hub with harnesses of different families (`fake`, `mirror`, and
+/// `slowpoke`, which takes five seconds to start), in memory or, with
+/// `dir`, on disk so a second hub can reopen it.
 fn handoff_hub(dir: Option<&std::path::Path>) -> (Arc<Hub>, Config) {
     let mut agents = BTreeMap::new();
     agents.insert("fake".to_owned(), fake_profile());
     agents.insert("mirror".to_owned(), fake_profile());
+    let mut slow = fake_profile();
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    slow.argv = vec!["sh".into(), "-c".into(), format!("sleep 5; exec python3 {fake}")];
+    agents.insert("slowpoke".to_owned(), slow);
     let mut cfg =
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.permission_policy = PermissionPolicy::ApproveAll;
@@ -85,6 +90,12 @@ async fn prepare_is_idempotent_and_creates_one_unprompted_target_in_the_source_c
     assert_eq!(again["handoffId"], h["handoffId"]);
     assert_eq!(again["target"]["sessionId"], h["target"]["sessionId"]);
     assert_eq!(hub.sessions().len(), sessions + 1, "one target for one handoffKey");
+    // The same key for another harness is a conflict, not the old record.
+    let e =
+        call(&mut c, method::MUX_HANDOFF_PREPARE, prepare(&src, "fake", "k1")).await.unwrap_err();
+    assert_eq!(reason(&e), "key_conflict", "{e}");
+    assert_eq!(e["code"], -32602);
+    assert_eq!(e["data"]["handoff"]["handoffId"], h["handoffId"]);
 
     let target = str_of(&h, "/target/sessionId");
     assert_eq!(h["source"]["sessionId"], src);
@@ -119,6 +130,15 @@ async fn prepare_is_idempotent_and_creates_one_unprompted_target_in_the_source_c
         assert!(coverage.iter().any(|c| c["item"] == "checkpoint"), "{coverage:?}");
     }
     assert!(h.get("coverage").is_none(), "coverage lives on each session");
+
+    // Enforcement compares acpmux policies; the harness mode is only detail.
+    assert_eq!(h["source"]["enforcement"]["policy"], "approve-all", "{h}");
+    assert_eq!(h["target"]["enforcement"]["policy"], "approve-all", "{h}");
+    let mut p = prepare(&src, "mirror", "k-narrower");
+    p["policy"] = json!("narrower");
+    let n = call(&mut c, method::MUX_HANDOFF_PREPARE, p).await.unwrap();
+    assert_eq!(n["target"]["enforcement"]["policy"], "approve-edits", "{n}");
+    assert!(str_of(&n, "/target/enforcement/detail").contains("mode normal"), "{n}");
 }
 
 #[tokio::test]
@@ -309,9 +329,13 @@ async fn start_delivers_once_and_a_retry_with_the_same_prompt_id_reconciles() {
 
     let mut retry = start.clone();
     retry["promptId"] = json!(id);
-    let again = call(&mut c, method::MUX_HANDOFF_START, retry).await.unwrap();
+    let again = call(&mut c, method::MUX_HANDOFF_START, retry.clone()).await.unwrap();
     assert_eq!(again["outcome"], "already_started", "{again}");
     assert_eq!(again["turnId"], turn_id);
+    // A retry is answered from the record before its capsule is checked.
+    retry["capsule"]["text"] = json!("x".repeat(65_537));
+    let big = call(&mut c, method::MUX_HANDOFF_START, retry).await.unwrap();
+    assert_eq!(big["outcome"], "already_started", "{big}");
     assert_eq!(user_messages(&hub, target), 1, "the capsule reaches the target once");
     assert_eq!(hub.resolve(target).unwrap().meta().turn_count, 1);
 
@@ -434,10 +458,124 @@ async fn initialize_advertises_handoff_and_summaries_carry_enforcement() {
     let e = &s["_meta"]["acpmux"]["enforcement"];
     assert_eq!(e["label"], "native_policy", "{s}");
     assert_eq!(e["isolation"], "unverified");
-    assert!(e["policy"].is_string(), "{e}");
+    assert_eq!(e["policy"], "approve-all", "the acpmux permission policy: {e}");
+    assert!(str_of(e, "/detail").contains("mode normal"), "the harness mode is detail: {e}");
     assert!(s["_meta"]["acpmux"].get("coverage").is_none(), "coverage exists only in a handoff");
     let all = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
     for summary in all["sessions"].as_array().unwrap() {
         assert_eq!(summary["enforcement"]["label"], "native_policy", "{summary}");
     }
+}
+
+#[tokio::test]
+async fn a_draft_key_replay_answers_with_its_own_write() {
+    let (hub, _) = handoff_hub(None);
+    let mut c = connect(&hub).await;
+    let src = new_session(&mut c, "replay").await;
+    let h = call(&mut c, method::MUX_HANDOFF_PREPARE, prepare(&src, "mirror", "k-replay"))
+        .await
+        .unwrap();
+    let id = str_of(&h, "/handoffId").to_owned();
+    let draft = |revision: u64, key: &str, text: &str| json!({"handoffId": id, "revision": revision, "draftKey": key, "capsule": {"text": text}});
+    call(&mut c, method::MUX_HANDOFF_DRAFT, draft(1, "d1", "mine")).await.unwrap();
+    let d2 = call(&mut c, method::MUX_HANDOFF_DRAFT, draft(2, "d2", "theirs")).await.unwrap();
+    assert_eq!(d2["revision"], 3, "{d2}");
+    // A lost acknowledgement for d1 reads back d1, not the newer d2.
+    let replay = call(&mut c, method::MUX_HANDOFF_DRAFT, draft(1, "d1", "mine")).await.unwrap();
+    assert_eq!(replay["revision"], 2, "{replay}");
+    assert_eq!(replay["capsule"]["text"], "mine", "{replay}");
+    assert_eq!(replay["state"], "draft");
+    let got = call(&mut c, method::MUX_HANDOFF_GET, json!({"handoffId": id})).await.unwrap();
+    assert_eq!(got["revision"], 3, "the replay writes nothing: {got}");
+    assert_eq!(got["capsule"]["text"], "theirs");
+}
+
+/// Whether the response to `id` already arrived (other lines are dropped).
+fn responded(c: &mut TestClient, id: i64) -> bool {
+    while let Ok(line) = c.rx.try_recv() {
+        if let Message::Response { id: rid, .. } = Message::parse(&line).unwrap()
+            && rid == json!(id)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+#[tokio::test]
+async fn a_slow_prepare_does_not_hold_up_another_handoff() {
+    let (hub, _) = handoff_hub(None);
+    let mut c = connect(&hub).await;
+    let fast_src = new_session(&mut c, "fast-src").await;
+    let slow_src = new_session(&mut c, "slow-src").await;
+    let mut slow = connect(&hub).await;
+    let slow_id =
+        slow.send(method::MUX_HANDOFF_PREPARE, prepare(&slow_src, "slowpoke", "k-slow")).await;
+    // The slow prepare is now starting its harness, which takes five seconds.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let fast = call(&mut c, method::MUX_HANDOFF_PREPARE, prepare(&fast_src, "mirror", "k-fast"))
+        .await
+        .unwrap();
+    assert_eq!(fast["state"], "draft", "{fast}");
+    assert!(!responded(&mut slow, slow_id), "the fast prepare waited for the slow one");
+    let (r, _) = slow.response(slow_id).await;
+    assert_eq!(r.unwrap()["state"], "draft");
+}
+
+#[tokio::test]
+async fn a_repeat_prepare_adopts_the_target_it_tagged() {
+    let (hub, _) = handoff_hub(None);
+    let mut c = connect(&hub).await;
+    let src = new_session(&mut c, "adopt-src").await;
+    // A target that a prepare created and tagged before its record was saved.
+    let orphan = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "mirror", "name": "orphan"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    c.request(method::MUX_TAG, json!({"sessionId": orphan, "set": {"handoffKey": "k-adopt"}}))
+        .await
+        .unwrap();
+    let sessions = hub.sessions().len();
+    let h = call(&mut c, method::MUX_HANDOFF_PREPARE, prepare(&src, "mirror", "k-adopt"))
+        .await
+        .unwrap();
+    assert_eq!(h["target"]["sessionId"], orphan, "{h}");
+    assert_eq!(hub.sessions().len(), sessions, "no second target");
+    // A target this prepare creates carries the key too.
+    let fresh = call(&mut c, method::MUX_HANDOFF_PREPARE, prepare(&src, "mirror", "k-tagged"))
+        .await
+        .unwrap();
+    let target = hub.resolve(str_of(&fresh, "/target/sessionId")).unwrap();
+    assert_eq!(hub.session_summary(&target)["tags"]["handoffKey"], "k-tagged");
+}
+
+#[tokio::test]
+async fn a_start_refused_before_the_target_records_it_returns_to_draft() {
+    let (hub, _) = handoff_hub(None);
+    let mut c = connect(&hub).await;
+    let src = new_session(&mut c, "refused").await;
+    let mut p = prepare(&src, "mirror", "k-refused");
+    p["checkpoint"] = attested("abc123");
+    let h = call(&mut c, method::MUX_HANDOFF_PREPARE, p).await.unwrap();
+    let id = str_of(&h, "/handoffId");
+    let target_id = str_of(&h, "/target/sessionId");
+    // The target's agent stops and its harness disappears: the prompt is
+    // refused before the target records it.
+    hub.detach_child(&hub.resolve(target_id).unwrap()).await;
+    hub.config.write().await.harnesses.remove("mirror");
+    let start = json!({"handoffId": id, "revision": 1, "capsule": {"text": h["capsule"]["text"]}});
+    let e = call(&mut c, method::MUX_HANDOFF_START, start).await.unwrap_err();
+    assert_ne!(reason(&e), "already_started", "{e}");
+    assert_eq!(user_messages(&hub, target_id), 0);
+    let got = call(&mut c, method::MUX_HANDOFF_GET, json!({"handoffId": id})).await.unwrap();
+    assert_eq!(got["state"], "draft", "{got}");
+    assert_eq!(got["promptId"], id, "a retry keeps the same promptId");
+    let d = call(&mut c, method::MUX_HANDOFF_DISCARD, json!({"handoffId": id})).await.unwrap();
+    assert_eq!(d["discarded"], true, "{d}");
 }
