@@ -2714,12 +2714,16 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 .last
         )
         let uploadedRemotePath = try XCTUnwrap(firstSCPDestination.split(separator: ":", maxSplits: 1).last)
+        let uploadedFileName = try XCTUnwrap(uploadedRemotePath.split(separator: "/").last)
+        // The first ssh call prepares the private paste directory; cleanup runs
+        // after the failed copy and addresses the file through "$HOME/...".
         let cleanupInvocation = try XCTUnwrap(
-            invocations.first(where: { $0.executable == "/usr/bin/ssh" })
+            invocations.last(where: { $0.executable == "/usr/bin/ssh" })
         )
         let cleanupCommand = cleanupInvocation.arguments.joined(separator: " ")
 
-        XCTAssertTrue(cleanupCommand.contains(String(uploadedRemotePath)))
+        XCTAssertTrue(cleanupCommand.contains("rm -f --"), cleanupCommand)
+        XCTAssertTrue(cleanupCommand.contains(String(uploadedFileName)), cleanupCommand)
     }
 
     func testDetectsForegroundSSHSessionForTTY() {
