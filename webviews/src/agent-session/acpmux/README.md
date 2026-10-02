@@ -37,4 +37,10 @@ For showcase captures rather than scores, `worked-turn` has no reference: it rep
 bun run compare:agent-pane worked-turn --theme "Catppuccin Mocha" --open
 ```
 
+`workspace` opens the mock daemon's seeded workspace as it is (`mockFixture.ts`: the populated sidebar and its worked session) in a 1440×900 window, with no recorded script or prompt. Use it for whole-window captures:
+
+```sh
+bun run compare:agent-pane workspace --theme "Catppuccin Mocha" --open
+```
+
 `--theme NAME` reads a Ghostty theme from `Resources/ghostty/themes`, `--anchor TEXT` scrolls to other text, and `--open` opens the turn's fold. Code blocks color their syntax from the theme's ANSI colors (`palette`, as `--agent-ansi-0` to `--agent-ansi-15`), falling back to Codex's colors when a host sends none.

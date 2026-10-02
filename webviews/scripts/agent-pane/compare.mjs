@@ -57,6 +57,12 @@ const scenarios = {
     pane: { x: 0, y: 0, width: 1200, height: 1000 },
     anchor: { text: "The reconnect test fails about one run in five", top: 72 },
   },
+  // The mock daemon's seeded workspace as it opens (mockFixture.ts): the populated sidebar
+  // and its worked session, with no recorded script or prompt. A whole-window capture.
+  workspace: {
+    scale: 2,
+    pane: { x: 0, y: 0, width: 1440, height: 900 },
+  },
 };
 
 const args = process.argv.slice(2);
@@ -102,7 +108,7 @@ try {
 }
 
 async function run(browser, name, scenario) {
-  const fixture = JSON.parse(fs.readFileSync(path.join(here, scenario.fixture), "utf8"));
+  const fixture = scenario.fixture ? JSON.parse(fs.readFileSync(path.join(here, scenario.fixture), "utf8")) : undefined;
   const referencePath = scenario.reference && path.join(atlas, scenario.reference);
   if (referencePath && !fs.existsSync(referencePath))
     throw new Error(`${referencePath} not found; pass --atlas <codex-atlas-clone checkout>`);
@@ -119,18 +125,22 @@ async function run(browser, name, scenario) {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     await page.addInitScript(
-      ({ steps, endAtMs }) => {
-        window.cmuxAcpmuxMockScript = { steps, endAtMs };
-        window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
+      (script) => {
+        if (script) window.cmuxAcpmuxMockScript = script;
+        window.cmuxAcpmuxActions = {
+          ready: async () => ({ protocolVersion: 1, transport: "mock" }),
+        };
       },
-      { steps: fixture.steps, endAtMs: fixture.endAtMs },
+      fixture && { steps: fixture.steps, endAtMs: fixture.endAtMs },
     );
     await page.goto(url, { waitUntil: "networkidle" });
     // Swift applies the theme once the page has loaded.
     await page.waitForFunction(() => window.cmuxAcpmuxBridge && window.cmuxAcpmuxActions?.["chat.send"]);
     await page.evaluate((theme) => window.cmuxAcpmuxBridge.applyTheme(theme), agentPaneTheme(terminalTheme));
-    // The mock daemon answers the prompt once the recorded turn has finished.
-    await page.evaluate((prompt) => window.cmuxAcpmuxActions["chat.send"]({ text: prompt }), fixture.prompt);
+    // The mock daemon answers the prompt once the recorded turn has finished; without a
+    // fixture the seeded workspace already holds a finished turn.
+    if (fixture)
+      await page.evaluate((prompt) => window.cmuxAcpmuxActions["chat.send"]({ text: prompt }), fixture.prompt);
     // The turn is drawn once its closing row is: wait for React to commit it.
     await page.waitForFunction(() => document.querySelector('.acpmux-scroll [data-row-id^="summary-"]'));
     await page.evaluate(() => document.fonts.ready);
@@ -139,7 +149,8 @@ async function run(browser, name, scenario) {
       await page.waitForFunction(() => document.querySelector('.cv-worked[aria-expanded="true"]'));
       await settle(page);
     }
-    const anchor = anchorText ? { ...scenario.anchor, text: anchorText } : scenario.anchor;
+    // A scenario without its own anchor (workspace) scrolls `--anchor` text to the top of the pane.
+    const anchor = anchorText ? { top: 0, ...scenario.anchor, text: anchorText } : scenario.anchor;
     if (anchor) await scrollToAnchor(page, { ...anchor, edge: !referencePath || Boolean(anchorText) });
     await settle(page);
     const shot = PNG.sync.read(await page.screenshot({ animations: "disabled", caret: "hide" }));
@@ -162,7 +173,9 @@ async function run(browser, name, scenario) {
     const actual = crop(shot, compare.x, compare.y);
     const { width, height } = expected;
     const diff = new PNG({ width, height });
-    const mismatched = pixelmatch(expected.data, actual.data, diff.data, width, height, { threshold: 0.1 });
+    const mismatched = pixelmatch(expected.data, actual.data, diff.data, width, height, {
+      threshold: 0.1,
+    });
     // At 0.1 two near-black backgrounds count as equal; the strict score shows color casts too.
     const strict = pixelmatch(expected.data, actual.data, null, width, height, { threshold: 0.02 });
     const side = new PNG({ width: width * 2, height });
