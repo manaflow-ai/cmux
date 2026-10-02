@@ -510,6 +510,8 @@ export class AcpmuxDirectClient {
   snapshot(): void { this.emit(); }
   /** The session this pane shows, if any. */
   get selectedSession(): string | undefined { return this.selectedSessionId; }
+  /** The selected session's ACP events as acpmux recorded them, oldest first, for the inspector. */
+  sessionEvents(): EventRecord[] { return this.events.slice(); }
   async ensureSession(): Promise<string | undefined> {
     if (!this.selectedSessionId) await this.create();
     return this.selectedSessionId;
