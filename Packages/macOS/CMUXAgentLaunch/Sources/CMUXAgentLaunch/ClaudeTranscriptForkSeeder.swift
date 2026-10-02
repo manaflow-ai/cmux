@@ -94,7 +94,7 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
             ) { return location }
         }
         guard let projectNames = try? fileManager.contentsOfDirectory(atPath: projectsRoot) else { return nil }
-        for projectName in projectNames.sorted() {
+        for projectName in projectNames {
             let projectPath = (projectsRoot as NSString).appendingPathComponent(projectName)
             if let location = transcriptLocation(
                 projectPath: projectPath, sessionID: sessionID, fileManager: fileManager
