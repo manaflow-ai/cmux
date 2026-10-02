@@ -1411,9 +1411,9 @@ extension CMUXCLI {
         let key: String
     }
 
-    private struct VMRunCreateIdempotencyRecord: Codable {
+    struct VMRunCreateIdempotencyRecord: Codable, Equatable {
         let key: String
-        var createdAt: TimeInterval
+        let createdAt: TimeInterval
         var ownerPID: Int32
         var uncertain: Bool
     }
@@ -1423,6 +1423,21 @@ extension CMUXCLI {
     }
 
     private static let vmRunCreateIdempotencyTTLSeconds: TimeInterval = 30 * 60
+
+    /// Reusing an ambiguous create key must not extend its original safety
+    /// window. Keeping the mint timestamp as the TTL anchor prevents a stale
+    /// backend key from being replayed forever by repeated `vm run` retries.
+    static func vmRunCreateRecordAfterReuse(
+        _ record: VMRunCreateIdempotencyRecord,
+        ownerPID: Int32
+    ) -> VMRunCreateIdempotencyRecord {
+        VMRunCreateIdempotencyRecord(
+            key: record.key,
+            createdAt: record.createdAt,
+            ownerPID: ownerPID,
+            uncertain: false
+        )
+    }
 
     /// Provisions a pool VM and retains its idempotency key across ambiguous replies.
     private func createPoolVM(memoryMb: Int?, client: SocketClient) throws -> String {
@@ -1525,9 +1540,7 @@ extension CMUXCLI {
         }.filter { !$0.value.isEmpty }
 
         if var reusable = store.records[signature]?.first(where: { $0.uncertain || !Self.processExists($0.ownerPID) }) {
-            reusable.createdAt = now
-            reusable.ownerPID = getpid()
-            reusable.uncertain = false
+            reusable = Self.vmRunCreateRecordAfterReuse(reusable, ownerPID: getpid())
             store.records[signature] = (store.records[signature] ?? []).map { record in
                 record.key == reusable.key ? reusable : record
             }
