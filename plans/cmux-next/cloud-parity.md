@@ -72,3 +72,17 @@ Global flags: `--api-key`, `--team`, `--proxy`, `--output pretty|json`, `-h`, `-
 4. Domains/TLS, then identities/tokens, then read-only account/team/billing views and skill/auth parity.
 
 Spec constraints carried forward: cloud D21 maps `idle_policy` to Freestyle `idleTimeoutSeconds` (automation/pool 300 seconds; interactive 3600 seconds when link keepalives do not count, otherwise explicit pause); network policy is one team document compiled to provider rules; agent egress uses the gateway/proxy with short-lived credentials and no secret in a guest. Any spec change belongs as a proposal here for Lawrence to apply.
+
+## Code-mode typed Cloud relay
+
+The code-mode execute path must consume Cloud through the same typed catalog and host router as the palette, CLI, and MCP. It must not open a second Cloud socket or receive a Freestyle bearer token inside bwrap. The owner relay obtains credentials outside the sandbox, calls the backend's typed Cloud client, and returns the catalog's typed result envelope. `backend/catalog/cloud-operations.json` is the Cloud operation source; generated code-mode declarations and `cmux_docs` entries are derived from it alongside the cmux-tui catalog extension.
+
+The relay slice order is:
+
+1. Add the catalog and host-broker envelope for machine reads and lifecycle mutations, including create/list/get/update/start/pause/resize/delete and snapshots. Pause and resume are owned Cloud operations in this relay and use the same idle-policy and permission checks as the app handlers. The backend uses a fake Freestyle driver and recorded fixtures in local mode for tests.
+2. Add `vm.exec` and `vm.attach` routing. Exec returns the typed exit/stdout/stderr result; attach opens the normal machine-tagged terminal pane through the existing daemon link. CLI, MCP, palette, and code mode invoke the same router action and argument schema.
+3. Add SCP and filesystem operations through backend routes and typed results. Generate ephemeral transfer keys server-side or through the approved host broker, enforce host-key and expiry checks, and keep all file operations in ordinary machine-tagged panes/file actions.
+4. Add VPC, WireGuard tunnel, and firewall operations from `spec/network-policy.md`, then domains/TLS, identities/tokens, and read-only account/team/billing views. Each group gets catalog entries before UI surfaces.
+5. Keep CUA behind its separately authenticated `cua-host` relay. It is not part of the Cloud bearer-token path or the first Cloud relay slice.
+
+Tests use the fake Freestyle driver and recorded fixtures behind the backend in local mode. No live credentials or production machines are required; a live test team is only needed if a backend integration check cannot be represented by those fixtures.
