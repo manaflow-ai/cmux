@@ -1,7 +1,8 @@
-import type { Principal, RejectFrame } from "@cmux/ownership"
+import type { Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import type { Body, Run } from "@cmux/protocol"
 import { dispatchable, dueFires, publicRun, schedulerDomain, type SchedulerState } from "./domains/scheduler.ts"
 import type { Env } from "./env.ts"
+import type { DeliverResult } from "./ingress/automation-hook.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 
 /** What a run's Workflow instance receives. The body is the version that fired. */
@@ -12,6 +13,8 @@ export interface AutomationRunParams {
   readonly automation_version: number
   readonly trigger: Run["trigger"]
   readonly body: Body
+  /** What triggered the run, when it carries data (a webhook delivery's body). */
+  readonly input?: unknown
 }
 
 export interface RunReport {
@@ -48,6 +51,9 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       ...(p.install ? { install: p.install } : {}),
       ...(p.display_name ? { display_name: p.display_name } : {})
     }))
+    // Trigger payloads wait here between the delivery and the Workflow start. They are
+    // inputs, not entity state: never in events, snapshots or the ledger.
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS run_inputs (run TEXT PRIMARY KEY, json TEXT NOT NULL, created_at INTEGER NOT NULL)`)
   }
 
   protected read(state: SchedulerState, op: string, params: unknown, principal: Principal): ReadResult {
@@ -68,6 +74,14 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
           .slice(0, limit)
           .map(publicRun)
         return { ok: true, value: { runs }, revision: "" }
+      }
+      case "automation.webhook.get": {
+        const params2 = (params ?? {}) as { automation?: unknown; trigger?: unknown }
+        const a = typeof params2.automation === "string" ? state.automations[params2.automation] : undefined
+        const t = a?.triggers.find((x) => x.id === params2.trigger)
+        if (!a || !t || t.spec.type !== "webhook") return { ok: false, code: "selector.not_found", message: "webhook trigger not found" }
+        // The Worker adds the path and the derived secret; the DO only proves the trigger exists in this team.
+        return { ok: true, value: { owner: a.owner, automation: a.id, trigger: t.id }, revision: "" }
       }
       default:
         return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
@@ -117,13 +131,15 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     for (const run of dispatchable(engine.currentState)) {
       const key = dispatchKey(run.id)
       if ((this.retryAt(key) ?? 0) > now) continue
+      const stored = this.ctx.storage.sql.exec<{ json: string }>(`SELECT json FROM run_inputs WHERE run = ?`, run.id).toArray()[0]
       const params: AutomationRunParams = {
         owner: run.owner,
         run: run.id,
         automation: run.automation,
         automation_version: run.automation_version,
         trigger: run.trigger,
-        body: run.body
+        body: run.body,
+        ...(stored ? { input: JSON.parse(stored.json) as unknown } : {})
       }
       try {
         await this.env.AUTOMATION_RUN.create({ id: run.id, params })
@@ -135,8 +151,33 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       }
       const r = rejected(this.submitSystem("run.dispatched", { run: run.id }, key))
       if (r) this.failed(key, now, `${r.code}: ${r.message}`)
-      else this.retry.delete(key)
+      else {
+        this.retry.delete(key)
+        this.ctx.storage.sql.exec(`DELETE FROM run_inputs WHERE run = ?`, run.id)
+      }
     }
+  }
+
+  /**
+   * A verified webhook delivery (the Worker checked the signature first). The
+   * ledger key `deliver:<automation>:<trigger>:<delivery>` makes a redelivery a
+   * replay. Never creates storage for a team that has no scheduler yet.
+   */
+  async deliverWebhook(entity: string, trigger: string, delivery: string, input: unknown): Promise<DeliverResult> {
+    const bound = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
+    if (!bound || bound.entity !== entity) return { status: "unknown" }
+    const engine = this.bind(entity)
+    const a = Object.values(engine.currentState.automations).find((x) => x.triggers.some((t) => t.id === trigger && t.spec.type === "webhook"))
+    if (!a) return { status: "unknown" }
+    const res = this.submitSystem("automation.deliver", { automation: a.id, trigger, delivery_id: delivery }, `deliver:${a.id}:${trigger}:${delivery}`)
+    const out = res.frames.find((f): f is ResultFrame => f.t === "result")
+    if (!out) return { status: "disabled" }
+    const value = out.value as { id?: string; state?: string; stale?: boolean }
+    if (value.stale) return { status: "disabled" }
+    if (out.replayed) return { status: "duplicate", ...(value.id ? { run: value.id } : {}) }
+    if (value.state === "skipped") return { status: "skipped", ...(value.id ? { run: value.id } : {}) }
+    if (value.id) this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO run_inputs (run, json, created_at) VALUES (?, ?, ?)`, value.id, JSON.stringify(input ?? null), Date.now())
+    return { status: "accepted", ...(value.id ? { run: value.id } : {}) }
   }
 
   /** RPC from a run's Workflow. One key per (run, state, step): a retried step replays. */

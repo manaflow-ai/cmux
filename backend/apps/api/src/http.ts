@@ -17,6 +17,7 @@ import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { authenticate, mintAccessToken, publicJwks, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
+import { automationHookPath, automationHookSecret } from "./ingress/automation-hook.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 
@@ -174,6 +175,19 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (!r.ok) {
           if (r.code === "selector.not_found" || r.code === "validation.invalid") return yield* new BadRequest({ code: r.code, message: r.message })
           return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+        }
+        // A webhook trigger's secret is derived in the Worker, never stored in the DO.
+        if (payload.op === "automation.webhook.get") {
+          const v = r.value as { owner: string; automation: string; trigger: string }
+          const secret = yield* Effect.promise(() => automationHookSecret(env, v.owner, v.trigger))
+          const value = {
+            automation: v.automation,
+            trigger: v.trigger,
+            path: automationHookPath(v.owner, v.trigger),
+            secret,
+            scheme: "x-cmux-signature: v1=hex(HMAC-SHA256(secret, x-cmux-timestamp + '.' + body)); optional x-cmux-delivery for dedupe"
+          }
+          return { op: payload.op, value, stream: route.stream, revision: r.revision }
         }
         return { op: payload.op, value: r.value, stream: route.stream, revision: r.revision }
       })

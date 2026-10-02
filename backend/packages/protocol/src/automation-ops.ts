@@ -1,6 +1,8 @@
 import { Schema } from "effect"
 import {
   Automation,
+  AutomationId,
+  TriggerId,
   AutomationCreateParams,
   AutomationDeliverParams,
   AutomationFireParams,
@@ -124,6 +126,27 @@ export const AutomationRunsList = def({
   mcp: { expose: "default", group: "automation" }
 })
 
+export const AutomationWebhookGet = def({
+  name: "automation.webhook.get",
+  owner: "cloud:SchedulerDO",
+  class: "read",
+  risk: "read",
+  target: "automation",
+  principals: ["session", "install"],
+  params: Schema.Struct({ automation: AutomationId, trigger: TriggerId }),
+  result: Schema.Struct({
+    automation: AutomationId,
+    trigger: TriggerId,
+    path: Schema.String,
+    secret: Schema.String,
+    scheme: Schema.String
+  }),
+  errors: ["auth.unauthenticated", "auth.forbidden", "selector.not_found"],
+  docs: "Read a webhook trigger's endpoint path and signing secret (HMAC-SHA256 over '<x-cmux-timestamp>.<body>', header x-cmux-signature: v1=<hex>).",
+  cli: { path: "automation webhook", visible: true },
+  mcp: { expose: "never", group: "automation" }
+})
+
 export const automationOps = [
   AutomationCreate,
   AutomationUpdate,
@@ -131,7 +154,8 @@ export const automationOps = [
   AutomationRunNow,
   AutomationList,
   AutomationGet,
-  AutomationRunsList
+  AutomationRunsList,
+  AutomationWebhookGet
 ] as const
 
 const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>

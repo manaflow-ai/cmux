@@ -42,7 +42,7 @@ export const MAX_FINISHED_RUNS = 200
 export const TERMINAL: ReadonlySet<RunState> = new Set(["succeeded", "failed", "cancelled", "skipped", "dead"])
 const ACTIVE_STARTED: ReadonlySet<RunState> = new Set(["running", "sleeping", "waiting"])
 /** Trigger types this backend fires today; the rest are stored for the UI and marked. */
-export const SUPPORTED_TRIGGERS: ReadonlySet<TriggerInput["type"]> = new Set(["cron", "manual", "continue"])
+export const SUPPORTED_TRIGGERS: ReadonlySet<TriggerInput["type"]> = new Set(["cron", "manual", "continue", "webhook"])
 
 const internalByName = new Map(schedulerInternalOps.map((d) => [d.name, d]))
 
