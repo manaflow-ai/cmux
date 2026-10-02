@@ -30,8 +30,15 @@ pub(crate) fn document(connection: &Connection) -> anyhow::Result<Document> {
     let stored: Option<String> = connection
         .query_row("SELECT document_json FROM sidebar_layout WHERE id = 1", [], |row| row.get(0))
         .optional()?;
-    Ok(match stored {
-        Some(text) => serde_json::from_str(&text)?,
+    // A document that no longer parses (a downgrade, a damaged row) reads
+    // as the defaults, so snapshots and the layout keep working and the
+    // next committed op (layout.reset or any edit) replaces the row.
+    Ok(match stored.map(|text| serde_json::from_str::<Document>(&text)) {
+        Some(Ok(document)) => document,
+        Some(Err(error)) => {
+            eprintln!("cmux-tui: sidebar layout row does not parse ({error}); using the defaults");
+            sidebar_layout::defaults()
+        }
         None => sidebar_layout::defaults(),
     })
 }

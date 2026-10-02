@@ -1414,3 +1414,39 @@ fn sidebar_layout_ops_commit_replay_and_reject() {
     assert_eq!(changes, [("state_upsert".to_string(), json!("1")), ("state_upsert".to_string(), json!("2"))]);
     assert_eq!(snapshot(&mux)["extra"]["state"]["sidebar_layout"]["revision"], "2");
 }
+
+/// The layout survives a reopen; a reused key with another op is
+/// `idempotency.conflict`; reset goes through the protocol; a row that no
+/// longer parses reads as the defaults instead of breaking snapshots.
+#[test]
+fn sidebar_layout_persists_conflicts_resets_and_survives_a_damaged_row() {
+    let session = Session::new("sidebar-layout-reopen");
+    {
+        let mux = session.open();
+        let op = json!({"kind": "item.remove", "id": "itm_home"});
+        send(&mux, "sidebar_layout.update", json!({"op": op}), Some("r-1")).unwrap();
+        let other = json!({"kind": "item.remove", "id": "itm_settings"});
+        assert_eq!(error_code(send(&mux, "sidebar_layout.update", json!({"op": other}), Some("r-1"))), "idempotency.conflict");
+    }
+    {
+        let mux = session.open();
+        let got = read(&mux, "sidebar_layout.get", json!({}));
+        assert_eq!(got["revision"], "1");
+        assert_eq!(got["sections"][0]["items"][0]["id"], "itm_app_store");
+        let reset = send(&mux, "sidebar_layout.update", json!({"op": {"kind": "layout.reset"}}), Some("r-2")).unwrap();
+        assert_eq!(reset["value"]["revision"], "2");
+        assert_eq!(reset["value"]["sections"][0]["items"][0]["id"], "itm_home");
+    }
+    {
+        let registry = WorkspaceRegistry::open(&session.root, session.name).unwrap();
+        registry
+            .read_state(|connection| {
+                connection.execute("UPDATE sidebar_layout SET document_json = '{not json' WHERE id = 1", [])?;
+                Ok(())
+            })
+            .unwrap();
+    }
+    let mux = session.open();
+    assert_eq!(read(&mux, "sidebar_layout.get", json!({}))["revision"], "0");
+    assert_eq!(snapshot(&mux)["extra"]["state"]["sidebar_layout"]["revision"], "0");
+}

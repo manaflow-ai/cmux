@@ -30,7 +30,7 @@ impl Region {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Look {
     BuiltIn,
@@ -44,7 +44,7 @@ pub enum Content {
     Workspaces,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ArrangementLayout {
     #[default]
@@ -53,7 +53,7 @@ pub enum ArrangementLayout {
     Grid,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Alignment {
     Leading,
@@ -61,6 +61,25 @@ pub enum Alignment {
     Trailing,
     Fill,
 }
+
+/// Unknown values from a newer app read as the default (L5), like the
+/// app's decoder, so a stored document never stops parsing.
+macro_rules! lenient {
+    ($name:ident, $default:ident, $($text:literal => $variant:ident),+) => {
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                Ok(match Option::<String>::deserialize(deserializer)?.as_deref() {
+                    $(Some($text) => $name::$variant,)+
+                    _ => $name::$default,
+                })
+            }
+        }
+    };
+}
+
+lenient!(Look, List, "built_in" => BuiltIn, "list" => List);
+lenient!(ArrangementLayout, List, "list" => List, "inline" => Inline, "grid" => Grid);
+lenient!(Alignment, Leading, "leading" => Leading, "center" => Center, "trailing" => Trailing, "fill" => Fill);
 
 /// `{layout, align, gap?, columns?}`; every key optional on input (layout
 /// list, align leading).
@@ -85,7 +104,7 @@ impl<'de> Deserialize<'de> for Arrangement {
         #[derive(Deserialize)]
         struct Raw {
             #[serde(default)]
-            layout: ArrangementLayout,
+            layout: Option<ArrangementLayout>,
             #[serde(default)]
             align: Option<Alignment>,
             #[serde(default)]
@@ -94,7 +113,7 @@ impl<'de> Deserialize<'de> for Arrangement {
             columns: Option<i64>,
         }
         let raw = Raw::deserialize(deserializer)?;
-        Ok(Arrangement { layout: raw.layout, align: raw.align.unwrap_or(Alignment::Leading), gap: raw.gap, columns: raw.columns })
+        Ok(Arrangement { layout: raw.layout.unwrap_or_default(), align: raw.align.unwrap_or(Alignment::Leading), gap: raw.gap, columns: raw.columns })
     }
 }
 
@@ -115,32 +134,42 @@ fn yes() -> bool {
     true
 }
 
+/// A boolean that may be absent or null: true.
+fn true_unless_false<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    Ok(Option::<bool>::deserialize(deserializer)?.unwrap_or(true))
+}
+
+/// A value that may be null: its default.
+fn default_if_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de> + Default>(deserializer: D) -> Result<T, D::Error> {
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
     pub id: String,
     #[serde(rename = "ref")]
     pub reference: ItemRef,
-    #[serde(default = "yes")]
+    #[serde(default = "yes", deserialize_with = "true_unless_false")]
     pub shows_label: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Section {
     pub id: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    #[serde(default = "yes")]
+    #[serde(default = "yes", deserialize_with = "true_unless_false")]
     pub shows_title: bool,
     pub region: Region,
     pub look: Look,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "default_if_null")]
     pub arrangement: Arrangement,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub room: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_rows: Option<i64>,
     pub content: Content,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "default_if_null")]
     pub items: Vec<Item>,
 }
 
@@ -393,6 +422,7 @@ fn insertion_index(region: Region, index: i64, sections: &[Section]) -> usize {
 
 fn validate_title(title: Option<&String>) -> Result<(), Reject> {
     match title {
+        // Unicode scalars, like the app's reducer (`unicodeScalars.count`).
         Some(title) if title.is_empty() || title.chars().count() > MAX_TITLE_CHARS => Err(Reject::InvalidTitle),
         _ => Ok(()),
     }
@@ -409,7 +439,11 @@ fn add_section(section: &Section, index: i64, sections: &mut Vec<Section>) -> Re
     if sections.len() >= MAX_SECTIONS {
         return Err(Reject::TooMany);
     }
-    if sections.iter().any(|existing| existing.id == section.id) {
+    // L2: ids are unique across sections and items.
+    if sections.iter().any(|existing| existing.id == section.id) || locate(&section.id, sections).is_some() {
+        return Err(Reject::DuplicateId);
+    }
+    if section.items.iter().any(|item| item.id == section.id || sections.iter().any(|existing| existing.id == item.id)) {
         return Err(Reject::DuplicateId);
     }
     // L1: exactly one workspaces section, and it holds no items.
@@ -487,7 +521,7 @@ fn add_item(item: &Item, section: &str, index: i64, sections: &mut [Section]) ->
     if sections[s].content != Content::Items {
         return Err(Reject::WorkspacesRequired);
     }
-    if locate(&item.id, sections).is_some() {
+    if locate(&item.id, sections).is_some() || sections.iter().any(|existing| existing.id == item.id) {
         return Err(Reject::DuplicateId);
     }
     // L3: pinning a reference twice into one section is a no-op.

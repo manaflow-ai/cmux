@@ -156,6 +156,35 @@ fn limits_reset_and_unknown_refs() {
     assert!(find(&label, "sec_bottom").items[1].shows_label);
 }
 
+#[test]
+fn titles_count_unicode_scalars_and_ids_are_unique_across_sections_and_items() {
+    let d = defaults();
+    let flags = "\u{1F1EF}\u{1F1F5}".repeat(40);
+    assert_eq!(err(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": flags}})), Reject::InvalidTitle);
+    let ok_title = "\u{1F1EF}\u{1F1F5}".repeat(20);
+    ok(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": ok_title}}));
+    let clash = json!({"id": "itm_home", "region": "top", "look": "list", "content": "items"});
+    assert_eq!(err(&d, json!({"kind": "section.add", "section": clash, "index": 0})), Reject::DuplicateId);
+    let named_like_section = json!({"id": "sec_bottom", "ref": {"kind": "built_in", "value": "history"}});
+    assert_eq!(err(&d, json!({"kind": "item.add", "item": named_like_section, "section": "sec_top", "index": 0})), Reject::DuplicateId);
+}
+
+#[test]
+fn unknown_values_and_nulls_read_as_defaults() {
+    let section: Section = serde_json::from_value(json!({
+        "id": "sec_x", "region": "top", "look": "hologram", "content": "items",
+        "arrangement": {"layout": "masonry", "align": "justify", "gap": 4},
+        "items": [{"id": "itm_x", "ref": {"kind": "built_in", "value": "home"}, "shows_label": null}],
+        "shows_title": null,
+    }))
+    .unwrap();
+    assert_eq!(section.look, Look::List);
+    assert_eq!((section.arrangement.layout, section.arrangement.align, section.arrangement.gap), (ArrangementLayout::List, Alignment::Leading, Some(4)));
+    assert!(section.shows_title && section.items[0].shows_label);
+    let compact = serde_json::to_value(&section).unwrap();
+    assert!(compact.get("title").is_none() && compact.get("room").is_none() && compact.get("max_rows").is_none());
+}
+
 /// SplitMix64, so a failure reproduces from its seed (no proptest
 /// dependency in this crate).
 struct Rng(u64);
