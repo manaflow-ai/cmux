@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
+/* cmux-tui mux protocol 12, IR 3333b22c2d6ee41e948aa604b6821aefb321d88c97094d57cbab6e47302dd814. */
 
 
 import type * as T from "./types.js";
@@ -820,6 +820,7 @@ export type SelectWorkspaceResult = T.EmptyResult;
 export interface SendRequest extends CmuxRequestBase {
   cmd: "send";
   "bytes"?: (T.Base64) | null;
+  "no_reply"?: boolean;
   "paste"?: boolean;
   "surface": T.Id;
   "text"?: (string) | null;
@@ -830,6 +831,7 @@ export type SendResult = T.EmptyResult;
 export interface SendKeyRequest extends CmuxRequestBase {
   cmd: "send-key";
   "keys": Array<string>;
+  "no_reply"?: boolean;
   "surface": T.Id;
 }
 export type SendKeyResult = T.EmptyResult;

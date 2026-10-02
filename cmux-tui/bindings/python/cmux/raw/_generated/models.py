@@ -2149,6 +2149,7 @@ class SendRequest:
     text: Union[str, None, MissingType] = field(default=MISSING)
     bytes_data: Union[Base64, None, MissingType] = field(default=MISSING, metadata={'wire_name': 'bytes'})
     paste: Union[bool, MissingType] = field(default=MISSING)
+    no_reply: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2156,6 +2157,7 @@ class SendKeyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/send-key/request'
     surface: Id
     keys: List[str]
+    no_reply: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
