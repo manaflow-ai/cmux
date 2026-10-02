@@ -3628,7 +3628,8 @@ final class GhosttyMouseFocusTests: XCTestCase {
             XCTAssertFalse(
                 GhosttyApp.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
-                    configPaths: [path]
+                    configPaths: [path],
+                    rangeCoverageProbe: { _, _ in false }
                 )
             )
         }
