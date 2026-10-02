@@ -211,6 +211,24 @@ describe("direct client session state", () => {
     expect(await catalog).toEqual([{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: undefined }] }]);
   });
 
+  test("only the first new chat starts in the inherited cwd", async () => {
+    let created = 0;
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new") return { sessionId: `n${(created += 1)}` };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, cwd: "/work/app" },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    await client.create("claude");
+    await client.create("codex");
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.map((request) => request.params.cwd)).toEqual(["/work/app", undefined]);
+  });
+
   test("purging an unselected session refreshes the picker", async () => {
     await connect();
     const before = snapshots.length;

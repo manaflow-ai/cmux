@@ -760,6 +760,10 @@ function AcpmuxPane() {
           draft?: string;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
+        // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
+        // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
+        const seeded = composerDraft(host.draft);
+        if (seeded) setDraft(seeded);
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
@@ -809,8 +813,6 @@ function AcpmuxPane() {
           "chat.history": () => client.loadOlder(),
         };
         client.snapshot();
-        // A chat opened from another tab starts with what it inherited (#16620).
-        if (!reconnect) setDraft(composerDraft(host.draft));
       } catch (error) {
         if (!cancelled) {
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));

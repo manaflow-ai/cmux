@@ -55,7 +55,7 @@ extension PaneController {
             let page = entry.tab
             let title = page.state.title
             let url = page.state.url
-            // A page has no cwd: the pane's newest terminal one.
+            // A page has no cwd: the pane's last terminal tab's, in strip order.
             let cwd = pane.tabs.last { $0.kind == .pty && $0.cwd != nil }?.cwd
             return AgentPaneSeedSource { [weak page] in
                 let selection = try? await page?.evaluate(AgentTabSeed.selectionScript, world: .isolated).stringValue
