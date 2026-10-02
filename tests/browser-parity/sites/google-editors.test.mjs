@@ -87,6 +87,8 @@ test("googleSlides.setNotes replaces one slide's speaker notes on a private deck
   const slides = files.get("1deckPRIVATE00000000000000000000x").slides;
   assert.equal(slides[1].notes, "First line\nSecond line");
   assert.equal(slides[0].notes, "Say hello");
+  assert.deepEqual(await s.value(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 2, "Replaced")`), { status: "notes set", slide: 2, verified: true });
+  assert.equal(slides[1].notes, "Replaced");
   assert.match(await s.error(`sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 9, "x")`), /slide 9 does not exist; the deck has 2 slides/);
 });
 

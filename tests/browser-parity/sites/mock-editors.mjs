@@ -308,12 +308,16 @@ document.querySelector(".kix-appview-editor").addEventListener("input", (e) => {
 <script>
 // As live: thumbnails g#filmstrip-slide-<i>-<pageId> select a slide; the
 // notes textbox takes typed keys (Meta+A selects all notes; Escape commits).
-let slide = 0, notes = null, replaceAll = false;
+let slide = 0, notes = null, replaceAll = false, atStart = false;
 document.querySelectorAll("#filmstrip g").forEach((g, i) => g.addEventListener("click", () => { slide = i; }));
 const nw = document.getElementById("speakernotes-workspace");
-nw.addEventListener("click", () => { nw.focus(); notes = ""; replaceAll = false; });
+nw.addEventListener("click", () => { nw.focus(); notes = ""; replaceAll = false; atStart = false; });
 nw.addEventListener("keydown", (e) => {
-  if (e.metaKey && e.key.toLowerCase() === "a") { e.preventDefault(); replaceAll = true; return; }
+  // As live: Meta+A does not select the notes; Meta+ArrowUp then Meta+Shift+ArrowDown does.
+  if (e.metaKey && e.key.toLowerCase() === "a") { e.preventDefault(); return; }
+  if (e.metaKey && !e.shiftKey && e.key === "ArrowUp") { e.preventDefault(); atStart = true; return; }
+  if (e.metaKey && e.shiftKey && e.key === "ArrowDown") { e.preventDefault(); if (atStart) replaceAll = true; return; }
+  if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); return; }
   if (e.key === "Enter") { e.preventDefault(); notes += "\\n"; return; }
   if (e.key === "Escape") { if (notes !== null) post("notes", { index: slide, text: notes, replaceAll }); notes = null; return; }
   if (e.key.length === 1 && !e.metaKey) { e.preventDefault(); notes += e.key; }
