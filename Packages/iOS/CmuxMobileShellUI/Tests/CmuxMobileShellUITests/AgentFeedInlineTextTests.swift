@@ -63,17 +63,22 @@ import UIKit
                        hasMoreText: false, lineLimit: 2, itemID: "link",
                        textStyle: .subheadline, monospaced: false, color: .label,
                        open: {}, openURL: { opened.urls.append($0) })
-        view.frame = CGRect(x: 0, y: 0, width: 600, height: 60)
+        let measuredSize = view.measure(width: 600)
+        view.frame = CGRect(origin: .zero, size: measuredSize)
         view.layoutIfNeeded()
-        let lineY = view.bounds.midY
-        let linkPoint = try #require(stride(from: 0, to: view.bounds.width, by: 2)
-            .map { CGPoint(x: $0, y: lineY) }
-            .first { view.link(at: $0) != nil })
+        let linkPoint = try #require(
+            stride(from: 0, to: view.bounds.height, by: 2)
+                .flatMap { y in
+                    stride(from: 0, to: view.bounds.width, by: 2)
+                        .map { CGPoint(x: $0, y: y) }
+                }
+                .first { view.link(at: $0) != nil }
+        )
 
-        #expect(view.link(at: CGPoint(x: 1, y: lineY)) == nil)
+        #expect(view.link(at: CGPoint(x: 1, y: linkPoint.y)) == nil)
         #expect(view.activateLink(at: linkPoint))
         #expect(opened.urls == [URL(string: "https://github.com/manaflow-ai/cmux/pull/14342")!])
-        #expect(!view.activateLink(at: CGPoint(x: 1, y: lineY)))
+        #expect(!view.activateLink(at: CGPoint(x: 1, y: linkPoint.y)))
         #expect(opened.urls.count == 1)
     }
 

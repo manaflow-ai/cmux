@@ -116,7 +116,20 @@ struct SidebarWorkspaceSnapshotFactory {
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
-            metadataEntries: detailVisibility.showsMetadata ? statusEntries.rows : [],
+            // `SidebarAgentUsageFormatter()` reads `Locale.current`, so it is
+            // built only when usage is actually shown; this runs for every row
+            // on every sidebar rebuild. Decorates `statusEntries.rows` rather
+            // than the unpartitioned list so compact status still folds the
+            // agent rows away: with compaction on, the folded agent entries
+            // carry no usage text because they are no longer rows.
+            metadataEntries: detailVisibility.showsMetadata
+                ? (detailVisibility.showsAgentUsage
+                    ? SidebarAgentUsageFormatter().decorate(
+                        statusEntries.rows,
+                        usageByStatusKey: workspace.sidebarMetadata.agentUsageByStatusKey
+                    )
+                    : statusEntries.rows)
+                : [],
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
                 : [],

@@ -28,6 +28,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
+        "terminal.paste",
         "workspace.equalize_splits",
     ]
 
@@ -64,6 +65,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.ports_kick",
         "surface.close",
         "surface.send_text",
+        "terminal.paste",
         "agent.hook.enqueue",
         "agent.message.poll",
         "agent.message.claim",
@@ -79,6 +81,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
+        "terminal.paste",
         "agent.hook.enqueue",
         "agent.message.poll",
         "agent.message.claim",
@@ -151,7 +154,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         }
 
         if let key = firstParameterKey(
-               in: parameters,
+               in: RemoteRelayRoutingSchema().commandKeyScanScope(of: parameters, method: method),
                keys: Self.localExecutionKeys.union(["command"])
            ) {
             return .denied(
@@ -262,8 +265,19 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
            !(parameters["surface_id"] is String) {
             return .denied(
                 code: "remote_relay_surface_denied",
-                message: "Relay tmux-compat surface methods require an explicit surface_id selector"
+                message: "Relay method requires an explicit surface_id selector"
             )
+        }
+
+        if method == "terminal.paste" {
+            guard parameters["text"] is String,
+                  let submitKey = parameters["submit_key"] as? String,
+                  ["none", "return"].contains(submitKey) else {
+                return .denied(
+                    code: "remote_relay_method_denied",
+                    message: "Relay terminal paste requires text and submit_key none|return"
+                )
+            }
         }
 
         if method == "notification.create_for_target",

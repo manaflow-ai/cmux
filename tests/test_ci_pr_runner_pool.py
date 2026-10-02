@@ -376,6 +376,23 @@ class JanitorSnapshot(unittest.TestCase):
         # queued, so the run rolls over to the idle macOS 15 pool.
         self.assertEqual(choose(snap).runner, OLD)
 
+    def test_ci_run_name_metadata_does_not_reserve_release_slots(self):
+        # CI's run name carries matrix metadata such as release=arm64. Only
+        # the release/nightly workflow path is a reservation.
+        runs = [
+            {"id": 1, "name": "v1;release=arm64", "path": ".github/workflows/ci.yml"},
+            {"id": 2, "name": "Release macOS app", "path": ".github/workflows/release.yml"},
+            {"id": 3, "name": "Nightly macOS build", "path": ".github/workflows/nightly.yml"},
+        ]
+        jobs = {
+            1: [self.job(LARGE, "queued")],
+            2: [self.job(LARGE, "queued")],
+            3: [self.job(LARGE, "queued")],
+        }
+        snap = janitor.pool_load_snapshot(runs, jobs, now=NOW)
+        self.assertEqual(snap["pools"][LARGE]["queued"], 3)
+        self.assertEqual(snap["pools"][LARGE]["reserved_queued"], 2)
+
     def test_owned_jobs_are_macos_jobs_to_the_janitor(self):
         mini = {"labels": ["glaeda-std-xcode-26.6"], "status": "queued"}
         self.assertTrue(janitor.is_macos_job(mini))
@@ -1901,6 +1918,83 @@ class RootRunners(unittest.TestCase):
         snap["pools"][ROOT_MINI] = {"queued": 0, "running": 10}
         self.assertFalse(e2e_pool.auto_runner(SMALL, enabled=True, limits=limits, measure=lambda: load, now=NOW,
                                               owned_slots={MINI: 40, ROOT_MINI: 10}).startswith("glaeda-"))
+
+    def test_ui_auto_route_skips_simple_picker_and_uses_gui_label(self):
+        """A media tour's auto pick must reach the UI-aware E2E picker."""
+        with unittest.mock.patch.object(
+                e2e_pool.simple_pool_picker, "pick", side_effect=AssertionError("simple picker bypassed UI routing")), \
+             unittest.mock.patch.object(e2e_pool, "resolve", return_value=GUI_MINI) as resolve:
+            output = io.StringIO()
+            with unittest.mock.patch("sys.stdout", output):
+                e2e_pool.main(
+                    ["--requested", "auto", "--test-filter", "cmuxUITests/DogfoodScenarioUITests",
+                     "--owned", "1", "--owned-ui", "1", "--owned-slots",
+                     json.dumps({MINI: 4, ROOT_MINI: 2, GUI_MINI: 2}), "--pr-xcode-app", PR_XCODE],
+                    env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"},
+                )
+        self.assertEqual(output.getvalue().strip(), GUI_MINI)
+        self.assertEqual(resolve.call_args.kwargs["test_filter"], "cmuxUITests/DogfoodScenarioUITests")
+
+    def test_ui_auto_resolve_selects_gui_label_from_measured_capacity(self):
+        """The real resolver keeps a UI tour on the GUI label when minis are busy."""
+        load = e2e_pool.PoolLoad(fleet(busy=4))
+        choice = e2e_pool.resolve(
+            "auto", SMALL,
+            overflow="1",
+            order="",
+            max_queued="",
+            measure=lambda: load,
+            now=NOW,
+            owned="1",
+            owned_slots=json.dumps({MINI: 4, ROOT_MINI: 0, GUI_MINI: 2}),
+            pr_xcode_app=PR_XCODE,
+            test_filter="cmuxUITests/DogfoodScenarioUITests",
+            owned_ui="1",
+            queue_rounds="0",
+        )
+        self.assertEqual(choice, GUI_MINI)
+
+    def test_ui_owned_runner_prefers_an_online_gui_label(self):
+        self.assertEqual(
+            e2e_pool.ui_owned_runner(
+                LARGE,
+                test_filter="cmuxUITests/DogfoodScenarioUITests",
+                owned="1",
+                owned_ui="1",
+                order="",
+                owned_slots=json.dumps({MINI: 4, ROOT_MINI: 2, GUI_MINI: 2}),
+                pr_xcode_app=PR_XCODE,
+            ),
+            GUI_MINI,
+        )
+
+    def test_ui_owned_runner_queues_on_gui_when_all_minis_are_busy(self):
+        self.assertEqual(
+            e2e_pool.ui_owned_runner(
+                LARGE,
+                test_filter="cmuxUITests/DogfoodScenarioUITests",
+                owned="1",
+                owned_ui="1",
+                order="",
+                owned_slots=json.dumps({MINI: 0, ROOT_MINI: 0, GUI_MINI: 0}),
+                pr_xcode_app=PR_XCODE,
+            ),
+            GUI_MINI,
+        )
+
+    def test_ui_owned_runner_does_not_use_root_when_gui_capacity_is_zero(self):
+        self.assertEqual(
+            e2e_pool.ui_owned_runner(
+                LARGE,
+                test_filter="cmuxUITests/DogfoodScenarioUITests",
+                owned="1",
+                owned_ui="1",
+                order="",
+                owned_slots=json.dumps({MINI: 4, ROOT_MINI: 2, GUI_MINI: 0}),
+                pr_xcode_app=PR_XCODE,
+            ),
+            GUI_MINI,
+        )
 
 
 MERGE_BASE = "0123456789ab" + "c" * 28
