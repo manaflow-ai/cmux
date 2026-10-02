@@ -78,20 +78,22 @@ const setup = async () => {
   return { team, stub, idp, stack, signIdToken, admin, connection: id }
 }
 
+/** A fresh client IP per request, so the shared per-IP limiter never trips across tests. */
+const ip = () => ({ "cf-connecting-ip": `198.51.100.${Math.floor(Math.random() * 250)}-${crypto.randomUUID()}` })
 const b64u = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 const CLIENT_VERIFIER = "client-verifier-0123456789-abcdefghijklmnopqrstuvwxyz"
 const challengeOf = async (v: string) => b64u(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(v))))
 const start = async (email: string, returnTo = RETURN) =>
-  worker.fetch(`https://api.test/v1/sso/start?email=${encodeURIComponent(email)}&return_to=${encodeURIComponent(returnTo)}&client_challenge=${await challengeOf(CLIENT_VERIFIER)}`, { redirect: "manual" })
+  worker.fetch(`https://api.test/v1/sso/start?email=${encodeURIComponent(email)}&return_to=${encodeURIComponent(returnTo)}&client_challenge=${await challengeOf(CLIENT_VERIFIER)}`, { redirect: "manual", headers: ip() })
 const callback = async (state: string, code: string, path?: string) => {
   const p = path ?? (await pendingPath(state))
-  return worker.fetch(`https://api.test${p}?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`, { redirect: "manual" })
+  return worker.fetch(`https://api.test${p}?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`, { redirect: "manual", headers: ip() })
 }
 /** The callback path the start step registered (per connection). */
 const pathByState = new Map<string, string>()
 const pendingPath = async (state: string) => pathByState.get(state) ?? "/v1/sso/callback"
 const redeem = (code: string, verifier = CLIENT_VERIFIER) =>
-  worker.fetch("https://api.test/v1/sso/redeem", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, client_verifier: verifier }) })
+  worker.fetch("https://api.test/v1/sso/redeem", { method: "POST", headers: { "content-type": "application/json", ...ip() }, body: JSON.stringify({ code, client_verifier: verifier }) })
 const authFrom = (res: Response) => {
   const auth = new URL(res.headers.get("location")!)
   pathByState.set(auth.searchParams.get("state")!, new URL(auth.searchParams.get("redirect_uri")!).pathname)
@@ -169,7 +171,7 @@ describe("OIDC sign-in (workerd)", () => {
     // Only exact return addresses: no other path on the dashboard (an open redirect there would leak the code).
     expect((await start(`alice@${DOMAIN}`, "http://localhost:3010/anything")).status).toBe(400)
     // A start without a client challenge is refused.
-    expect((await worker.fetch(`https://api.test/v1/sso/start?email=alice@${DOMAIN}&return_to=${encodeURIComponent(RETURN)}`, { redirect: "manual" })).status).toBe(400)
+    expect((await worker.fetch(`https://api.test/v1/sso/start?email=alice@${DOMAIN}&return_to=${encodeURIComponent(RETURN)}`, { redirect: "manual", headers: ip() })).status).toBe(400)
     expect((await start("alice@nobody-has-this.dev")).status).toBe(404)
   })
 
@@ -190,10 +192,10 @@ describe("OIDC sign-in (workerd)", () => {
     const auth = authFrom(await start(`dave@${DOMAIN}`))
     s.idp.nextIdToken = async () => s.signIdToken({ sub: "idp-dave", email: `dave@${DOMAIN}`, nonce: auth.searchParams.get("nonce")! })
     const state = auth.searchParams.get("state")!
-    expect((await worker.fetch(`https://api.test/v1/sso/callback/ssoc_00000000000000000000?state=${encodeURIComponent(state)}&code=c`, { redirect: "manual" })).status).toBe(400)
+    expect((await worker.fetch(`https://api.test/v1/sso/callback/ssoc_00000000000000000000?state=${encodeURIComponent(state)}&code=c`, { redirect: "manual", headers: ip() })).status).toBe(400)
     const auth2 = authFrom(await start(`dave@${DOMAIN}`))
     const p = pathByState.get(auth2.searchParams.get("state")!)!
-    expect((await worker.fetch(`https://api.test${p}?state=${encodeURIComponent(auth2.searchParams.get("state")!)}&code=c&iss=${encodeURIComponent("https://evil.example")}`, { redirect: "manual" })).status).toBe(400)
+    expect((await worker.fetch(`https://api.test${p}?state=${encodeURIComponent(auth2.searchParams.get("state")!)}&code=c&iss=${encodeURIComponent("https://evil.example")}`, { redirect: "manual", headers: ip() })).status).toBe(400)
   })
 
   it("two concurrent first sign-ins of one person create one Stack user (idempotent link by issuer and subject)", async () => {
