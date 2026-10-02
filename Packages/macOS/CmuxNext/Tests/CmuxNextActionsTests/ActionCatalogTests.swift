@@ -71,7 +71,7 @@ import Testing
     static let expectedCounts: [ActionCategory: Int] = [
         .window: 32, // + Quit and Keep Sessions, Quit and End Sessions (Keep Layout), Quit and End Everything; + 5 history (history.md)
         .workspace: 139, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs + 4 room/workspace theme actions
-        .pane: 67, // + Move Pane to New Workspace, Undo Layout Change
+        .pane: 71, // + Move Pane to New Workspace, Undo Layout Change; + 4 sticky column actions (sticky-column.md)
         .screen: 62,
         .tab: 76, // + Show Tab (`tab.focus`, state-ownership.md 3), + New Tab of the pane kind
         .terminal: 35, // + Set / Reset Terminal Theme
@@ -81,7 +81,7 @@ import Testing
         .agents: 17, // + Resume Agent Session
         .cloud: 28, // + accounts.show, refresh, reauthenticate, connect, remove
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
-        .settings: 47,
+        .settings: 49, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only)
     ]
 
     @Test func everyKeyboardShortcutIDExists() {

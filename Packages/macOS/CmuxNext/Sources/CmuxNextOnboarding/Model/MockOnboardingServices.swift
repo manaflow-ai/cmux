@@ -17,6 +17,8 @@ public final class MockOnboardingServices: OnboardingServices {
     public var importGate: CheckedContinuation<Void, Never>?
     public var holdsImport = false
     public var accountsView: NSView?
+    /// Picked screen variants, by step.
+    public var variantIDs: [OnboardingModel.Step: String] = [:]
     public let defaultApps: any DefaultAppRegistering
 
     public private(set) var appliedAppearance: [(String?, Density)] = []
@@ -54,5 +56,26 @@ public final class MockOnboardingServices: OnboardingServices {
     public var hasAccountsStep: Bool { accountsView != nil }
     public func makeAccountsStepView() -> NSView? { accountsView }
 
+    public func variantID(for step: OnboardingModel.Step) -> String? { variantIDs[step] }
+    public func setVariantID(_ id: String?, for step: OnboardingModel.Step) { variantIDs[step] = id }
+
     public func onboardingDidEnd(completed: Bool) { ended = completed }
+
+    /// Sample data for the gallery: four browsers, the given themes and accounts view.
+    public static func gallerySample(themes: [ThemeChoice], accountsView: NSView?) -> MockOnboardingServices {
+        let services = MockOnboardingServices()
+        services.themeChoices = themes
+        services.accountsView = accountsView
+        func profile(_ browser: ImportBrowser, _ directory: String, _ name: String) -> BrowserSourceProfile {
+            BrowserSourceProfile(browser: browser, directoryName: directory, displayName: name, path: URL(fileURLWithPath: "/sample/\(directory)"),
+                                 availability: [.bookmarks: .available, .history: .available, .cookies: .available])
+        }
+        services.sources = [
+            BrowserSource(browser: .chrome, appURL: nil, profiles: [profile(.chrome, "Default", "Personal"), profile(.chrome, "Profile 1", "Work")]),
+            BrowserSource(browser: .arc, appURL: nil, profiles: [profile(.arc, "Default", "Personal")]),
+            BrowserSource(browser: .safari, appURL: nil, profiles: [profile(.safari, "Safari", "Safari")]),
+            BrowserSource(browser: .firefox, appURL: nil, profiles: [profile(.firefox, "Profiles/a.default", "default-release")]),
+        ]
+        return services
+    }
 }

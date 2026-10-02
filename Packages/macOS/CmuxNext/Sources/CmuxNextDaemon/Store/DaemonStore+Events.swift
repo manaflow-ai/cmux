@@ -34,6 +34,8 @@ extension DaemonStore {
         defer {
             applyDepth -= 1
             workspaceListMayHaveChanged()
+            // Whole batch applied: settle the transactions it confirmed.
+            flushAppliedWaiters()
         }
         var followup = Followup.none
         for envelope in batch {
@@ -51,7 +53,9 @@ extension DaemonStore {
     }
 
     func advanceAppliedSequence(to sequence: UInt64) {
-        if sequence > appliedSequence { appliedSequence = sequence }
+        guard sequence > appliedSequence else { return }
+        appliedSequence = sequence
+        runAppliedWaiters(nil)
     }
 
     /// `session.events` items are not part of `list-workspaces`, so a tree
@@ -79,6 +83,9 @@ extension DaemonStore {
         case .disconnected(let reason):
             connectionEpoch += 1
             connectionState = .disconnected(reason)
+            // Nothing newer will arrive for commands sent on this connection.
+            drainAppliedWaiters = true
+            flushAppliedWaiters()
             return .none
         case .daemonShutdown:
             connectionEpoch += 1

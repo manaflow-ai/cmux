@@ -20,6 +20,8 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
+# `shiki` resolves to a trimmed copy (acpmux/shiki): the JavaScript regex engine and
+# common languages, not every grammar and the WebAssembly engine.
 bun x esbuild "$SRC/acpmux/main.tsx" \
   --bundle \
   --format=esm \
@@ -28,6 +30,7 @@ bun x esbuild "$SRC/acpmux/main.tsx" \
   '--define:process.env.NODE_ENV="production"' \
   --minify \
   --legal-comments=none \
+  "--alias:shiki=$SRC/acpmux/shiki" \
   --log-level=warning \
   --outfile="$WORK/app.js"
 

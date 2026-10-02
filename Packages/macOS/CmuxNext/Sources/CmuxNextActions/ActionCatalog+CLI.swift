@@ -37,6 +37,9 @@ nonisolated extension ActionCatalog {
         "screen.new", "screen.newWith", "screen.duplicate", "screen.close", "screen.closeOthers",
         // Panes
         "splitRight", "splitDown", "newColumn", "pane.moveToNewWorkspace", "equalizeSplits",
+        // Columns
+        "column.makeSticky", "column.makeStickyLeft", "column.unstick", "column.toggleStickyOverlay",
+        "layout.toggleStripScrollbar",
         // Tabs
         "newSurface", "openBrowser", "openBrowser.webkit", "openBrowser.chromium", "closeTab", "closeOtherTabsInPane",
         "closeTabsToLeft", "closeTabsToRight", "renameTab", "palette.clearTabName", "moveSurfaceLeft", "moveSurfaceRight",

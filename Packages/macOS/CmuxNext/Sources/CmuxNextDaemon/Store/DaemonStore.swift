@@ -65,6 +65,15 @@ public final class DaemonStore {
     public internal(set) var confirmedTransactions: [ClientTransactionID] = []
     /// Called once per echoed transaction id, on the main actor.
     @ObservationIgnored public var onTransactionConfirmed: ((ClientTransactionID) -> Void)?
+    /// `whenApplied` callbacks waiting for their transaction's echo.
+    @ObservationIgnored var appliedWaiters: [AppliedWaiter] = []
+    /// A disconnect was applied: every waiter runs at the next flush.
+    @ObservationIgnored var drainAppliedWaiters = false
+    struct AppliedWaiter {
+        var transaction: ClientTransactionID
+        var sequence: UInt64?
+        var body: @MainActor () -> Void
+    }
     /// Called on the main actor, synchronously, once the loaded workspace
     /// list (membership or sidebar order) changed: right after the event
     /// batch, snapshot, or optimistic patch that changed it, before any
@@ -151,6 +160,7 @@ public final class DaemonStore {
         structureChanged()
         reapplyPendingPatches()
         workspaceListMayHaveChanged()
+        runAppliedWaiters(nil, snapshot: true)
     }
 
     /// Shows the daemon's launch snapshot (`LaunchSnapshot`) before the

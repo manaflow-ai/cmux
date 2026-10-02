@@ -78,6 +78,18 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "direction", title: String(localized: "argument.direction", defaultValue: "Direction", bundle: .module), kind: .enumeration([choice("right"), choice("down"), choice("left"), choice("up")]))
     }
 
+    /// A sticky column's viewport edge (plans/cmux-next/sticky-column.md).
+    static var edgeChoice: ActionArgument {
+        ActionArgument(name: "edge", title: String(localized: "argument.edge", defaultValue: "Edge", bundle: .module),
+                       kind: .enumeration([choice("right"), choice("left")]))
+    }
+
+    /// Docked (the strip makes room) or overlay (floats over the strip).
+    static var stickyModeChoice: ActionArgument {
+        ActionArgument(name: "mode", title: String(localized: "argument.stickyMode", defaultValue: "Mode", bundle: .module),
+                       kind: .enumeration([choice("docked"), choice("overlay")]))
+    }
+
     static var commandString: ActionArgument {
         ActionArgument(name: "command", title: String(localized: "argument.command", defaultValue: "Command", bundle: .module), kind: .string)
     }
@@ -169,6 +181,8 @@ nonisolated enum CatalogArgument {
     private static func choiceTitle(_ value: String) -> String {
         switch value {
         case "grey": String(localized: "argument.value.grey", defaultValue: "Grey", bundle: .module)
+        case "docked": String(localized: "argument.value.docked", defaultValue: "Docked", bundle: .module)
+        case "overlay": String(localized: "argument.value.overlay", defaultValue: "Overlay", bundle: .module)
         case "blue": String(localized: "argument.value.blue", defaultValue: "Blue", bundle: .module)
         case "red": String(localized: "argument.value.red", defaultValue: "Red", bundle: .module)
         case "yellow": String(localized: "argument.value.yellow", defaultValue: "Yellow", bundle: .module)

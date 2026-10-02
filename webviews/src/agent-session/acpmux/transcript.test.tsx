@@ -7,18 +7,25 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual:
 const globals = globalThis as Record<string, unknown>;
 /// Every ResizeObserver callback, so a test can report a viewport resize.
 const resizeCallbacks: (() => void)[] = [];
-const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
+const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "customElements", "Node", "IntersectionObserver", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  customElements: dom.window.customElements,
+  Node: dom.window.Node,
+  IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} },
   ResizeObserver: class { constructor(callback: () => void) { resizeCallbacks.push(callback); } observe() {} unobserve() {} disconnect() {} },
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
   cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(() => Object.assign(globals, saved));
+// The changes view renders @pierre/diffs and @pierre/trees web components, which reach for
+// DOM classes (HTMLTemplateElement, SVGElement, ...) by their global names.
+const domClasses = Object.getOwnPropertyNames(dom.window).filter((key) => /^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in globals));
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+afterAll(() => { Object.assign(globals, saved); for (const key of domClasses) delete globals[key]; });
 
 const { act, createElement } = await import("react").then((react) => ({ act: react.act, createElement: react.createElement }));
 const { createRoot } = await import("react-dom/client");
@@ -163,6 +170,30 @@ describe("acpmux transcript accessibility", () => {
       await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "u", version: 1, at: 0, kind: "user", text: "first\n\nsecond" }], onToggleActivity: () => {}, expanded: new Set<string>() })));
       const paragraphs = [...dom.window.document.querySelectorAll(".acpmux-markdown > p")].map((node) => node.textContent);
       expect(paragraphs).toEqual(["first", "second"]);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  /// A nested list drew inline as its source ("order:- Notebook: `3 × 4.50`"), and a numbered
+  /// list drew with bullets.
+  test("a nested list renders inside its item, and a numbered list keeps its numbers", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const text = "- Multiplies qty by price for each order:\n  - Notebook: `3 × 4.50 = 13.50`\n  - Pens: `12 × 0.80 = 9.60`\n- Adds the subtotals.\n\n3. Third\n4. Fourth";
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "a", version: 1, at: 0, kind: "assistant", text }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      const markdown = dom.window.document.querySelector(".acpmux-markdown")!;
+      const outer = markdown.querySelector(":scope > ul")!;
+      expect([...outer.querySelectorAll(":scope > li")].length).toBe(2);
+      const nested = outer.querySelector(":scope > li > ul")!;
+      expect([...nested.querySelectorAll(":scope > li")].map((node) => node.textContent)).toEqual(["Notebook: 3 × 4.50 = 13.50", "Pens: 12 × 0.80 = 9.60"]);
+      expect(nested.querySelector("code")?.textContent).toBe("3 × 4.50 = 13.50");
+      expect(markdown.textContent).not.toContain("- Notebook");
+      const numbered = markdown.querySelector(":scope > ol")!;
+      expect(numbered.getAttribute("start")).toBe("3");
+      expect([...numbered.querySelectorAll("li")].map((node) => node.textContent)).toEqual(["Third", "Fourth"]);
     } finally {
       await act(async () => root.unmount());
       restore();
@@ -502,6 +533,117 @@ describe("acpmux host handshake", () => {
       globals.WebSocket = realSocket;
       delete host.webkit;
       delete host.cmuxAcpmuxRegistry;
+    }
+  });
+});
+
+describe("acpmux turn diff", () => {
+  test("Review changes opens the turn's files, and the layout toggles between unified and split", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const document = dom.window.document;
+    const diffRow: AcpmuxRow = { id: "activity-2", version: 1, at: 2, kind: "activity", toolCount: 2, items: [
+      { kind: "tool", text: "Edit main.ts", tool: { id: "t1", title: "Edit main.ts", kind: "edit", status: "completed", diffs: [{ path: "/repo/src/main.ts", oldText: "a\nb\nc\n", newText: "a\nB\nc\n" }] } },
+      { kind: "tool", text: "Write notes.md", tool: { id: "t2", title: "Write notes.md", kind: "edit", status: "completed", diffs: [{ path: "/repo/notes.md", newText: "hello\n" }] } },
+    ] };
+    const turn: AcpmuxRow[] = [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow, { id: "assistant-3", version: 1, at: 3, kind: "assistant", text: "done" }];
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () => host.cmuxAcpmuxBridge!.receive({ type: "snapshot", protocolVersion: 1, rows: turn, sessions: [], connection: "connected", isWorking: false, queue: [], catalog: [], canLoadOlder: false }));
+      const review = [...document.querySelectorAll("button")].find((button) => button.textContent === "Review changes");
+      expect(review).toBeDefined();
+      (review as HTMLElement).focus();
+      await act(async () => review!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      expect(panel.querySelector(".acpmux-diff-header strong")?.textContent).toBe("2 files changed");
+      expect(document.activeElement?.getAttribute("aria-label")).toBe("Back to transcript");
+      // Each edit is one Pierre diff with the pane's own file header, in turn order.
+      expect([...panel.querySelectorAll(".acpmux-diff-file")].map((node) => (node as HTMLElement).dataset.path)).toEqual(["/repo/src/main.ts", "/repo/notes.md"]);
+      expect([...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null)).toEqual([true, true]);
+      expect(panel.querySelector(".acpmux-diff-tree file-tree-container, .acpmux-diff-tree [class*=tree]")).not.toBeNull();
+      const split = [...panel.querySelectorAll(".acpmux-diff-layout button")].find((button) => button.textContent === "Split")!;
+      await act(async () => split.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      expect(split.getAttribute("aria-pressed")).toBe("true");
+      const back = panel.querySelector('[aria-label="Back to transcript"]')!;
+      await act(async () => back.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      expect(document.querySelector(".acpmux-diff-panel")).toBeNull();
+      // Focus goes back to the control that opened the view, once the transcript shows again.
+      expect(document.activeElement).toBe(review!);
+    } finally {
+      await act(async () => root.unmount());
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
+    }
+  });
+
+  test("a file in the edited-files row opens the changes at that file", async () => {
+    const opened: [string, string | undefined][] = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const row: AcpmuxRow = { id: "activity-1", version: 1, at: 1, kind: "activity", items: [{ kind: "tool", text: "Edit", tool: { id: "t1", title: "Edit", kind: "edit", status: "completed", diffs: [{ path: "/repo/a.ts", oldText: "1", newText: "2" }] } }] };
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: [row], onToggleActivity: () => {}, onOpenDiff: (rowId: string, path?: string) => opened.push([rowId, path]), expanded: new Set<string>() })));
+      const file = dom.window.document.querySelector(".acpmux-edited-file")!;
+      expect(file.textContent).toBe("a.ts");
+      await act(async () => file.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+      expect(opened).toEqual([["activity-1", "/repo/a.ts"]]);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});
+
+describe("acpmux composer", () => {
+  /// Codex has no modes: its mode picker drew as an empty pill next to the model picker, and Stop sat beside Send between turns.
+  test("shows only the pickers that have choices, and Stop only while a turn runs", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const snapshot = (isWorking: boolean) => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking, queue: [], canLoadOlder: false, catalog: [{ id: "codex", models: [{ id: "gpt", name: "GPT" }] }], summary: { harness: "codex", model: "gpt", modes: { availableModes: [], currentModeId: null } } });
+    const composer = () => dom.window.document.querySelector(".acpmux-composer")!;
+    const buttons = () => Array.from(composer().querySelectorAll("button"), (button) => button.textContent);
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(false) as never));
+      expect(composer().querySelector("[aria-label=Model]")).not.toBeNull();
+      expect(composer().querySelector("[aria-label=Mode]")).toBeNull();
+      expect(buttons()).toEqual(["Send"]);
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(true) as never));
+      expect(buttons()).toEqual(["Send", "Stop"]);
+    } finally {
+      await act(async () => root.unmount());
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
+    }
+  });
+});
+
+describe("acpmux turn counts", () => {
+  /// The fold and the turn summary read "1 tool calls".
+  test("one tool call is counted in the singular", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const turn: AcpmuxRow[] = [
+      { id: "u", version: 1, at: 1, kind: "user", text: "run it" },
+      { id: "a", version: 1, at: 2, kind: "activity", toolCount: 1, items: [{ kind: "tool", text: "Run total.py" }] },
+      { id: "s", version: 1, at: 3, kind: "turnSummary", durationMs: 3000, toolCount: 1 },
+    ];
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: turn, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      expect(dom.window.document.querySelector(".acpmux-activity-toggle")?.textContent).toBe("› Worked with 1 tool call");
+      expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("Worked for 3s · 1 tool call");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  /// History loaded from mid-turn has no user message to time the turn from.
+  test("a summary without a start time shows only the count", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "s", version: 1, at: 3, kind: "turnSummary", toolCount: 2 }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("2 tool calls");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
     }
   });
 });

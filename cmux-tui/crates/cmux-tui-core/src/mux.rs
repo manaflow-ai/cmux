@@ -2693,6 +2693,9 @@ pub struct Mux {
     /// on (`set-terminal-command-history`); never persisted, so a restarted
     /// daemon records nothing until asked again.
     terminal_command_history: AtomicBool,
+    /// The shell command journal worker's bounded queue (started on first use).
+    shell_command_journal:
+        Mutex<Option<SyncSender<(TerminalPublicId, crate::shell_history::FinishedCommand)>>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does
     /// this terminal need attention on the shared console"; this map answers
@@ -3141,6 +3144,7 @@ impl Mux {
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
+            shell_command_journal: Mutex::new(None),
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
@@ -10996,9 +11000,9 @@ impl Mux {
             .context("fresh notify key unexpectedly replayed")
     }
 
-    /// Post what a program in `surface`'s terminal asked for with OSC 9,
-    /// OSC 777 or OSC 99. Called by the terminal's output reader after it
-    /// released the terminal lock; the reader already applied the rate limit.
+    /// Whether this daemon records finished shell commands (in memory, off
+    /// at start; a global switch that any trusted local client sets: a gap
+    /// recorded in plans/cmux-next/COORDINATION.md).
     pub(crate) fn terminal_command_history_enabled(&self) -> bool {
         self.terminal_command_history.load(Ordering::Acquire)
     }
@@ -11007,10 +11011,11 @@ impl Mux {
         self.terminal_command_history.store(enabled, Ordering::Release);
     }
 
-    /// Journals finished shell commands of `terminal` as
-    /// `shell.command.finished`. Runs on its own short thread: the caller is
-    /// a PTY reader, which never waits for the journal writer (commands
-    /// finish at human pace, so these threads are rare and brief).
+    /// Queues finished shell commands of `terminal` for the journal
+    /// (`shell.command.finished`). One long-lived worker per daemon appends
+    /// them in order; the caller (a PTY reader) never waits for the journal
+    /// writer. The queue is bounded: when it is full, records drop and a
+    /// diagnostic counts it.
     pub(crate) fn append_shell_commands(
         self: &Arc<Self>,
         terminal: TerminalPublicId,
@@ -11019,10 +11024,35 @@ impl Mux {
         if !self.terminal_command_history_enabled() {
             return;
         }
-        let mux = Arc::clone(self);
-        let spawned =
-            std::thread::Builder::new().name("shell-command-journal".into()).spawn(move || {
-                for command in commands {
+        let Some(sender) = self.shell_command_sender() else {
+            self.report_internal_diagnostic("shell command journal worker not started");
+            return;
+        };
+        for command in commands {
+            if sender.try_send((terminal.clone(), command)).is_err() {
+                self.report_internal_diagnostic("shell command journal queue full; record dropped");
+            }
+        }
+    }
+
+    /// The journal worker's queue, started on first use.
+    fn shell_command_sender(
+        self: &Arc<Self>,
+    ) -> Option<SyncSender<(TerminalPublicId, crate::shell_history::FinishedCommand)>> {
+        let mut slot = self.shell_command_journal.lock().unwrap();
+        if let Some(sender) = slot.as_ref() {
+            return Some(sender.clone());
+        }
+        let (sender, receiver) = std::sync::mpsc::sync_channel::<(
+            TerminalPublicId,
+            crate::shell_history::FinishedCommand,
+        )>(crate::shell_history::MAX_QUEUED_COMMANDS);
+        let mux = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("shell-command-journal".into())
+            .spawn(move || {
+                while let Ok((terminal, command)) = receiver.recv() {
+                    let Some(mux) = mux.upgrade() else { return };
                     let ingress =
                         crate::shell_history::command_journal_ingress(&terminal, &command);
                     let key = format!("shell-command-{}", crate::workspace_registry::new_uuid_v4());
@@ -11033,12 +11063,15 @@ impl Mux {
                         );
                     }
                 }
-            });
-        if spawned.is_err() {
-            self.report_internal_diagnostic("shell command journal thread not started");
-        }
+            })
+            .ok()?;
+        *slot = Some(sender.clone());
+        Some(sender)
     }
 
+    /// Post what a program in `surface`'s terminal asked for with OSC 9,
+    /// OSC 777 or OSC 99. Called by the terminal's output reader after it
+    /// released the terminal lock; the reader already applied the rate limit.
     pub(crate) fn post_terminal_notifications(
         &self,
         surface: SurfaceId,
