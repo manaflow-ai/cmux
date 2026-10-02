@@ -27268,8 +27268,30 @@ struct CMUXCLI {
                 valueFlags: ["-c", "-F", "-n", "-s"],
                 boolFlags: ["-A", "-d", "-P"]
             )
-            if parsed.hasFlag("-A") {
-                throw CLIError(message: "new-session -A is not supported in cmux claude-teams mode")
+            // -A attaches to the named session when it already exists. tmux ignores the
+            // shell command on that path, and -d keeps the client where it is.
+            // A missing session falls through to create. A failed lookup does not:
+            // swallowing it here would invent a workspace the caller did not ask for.
+            if parsed.hasFlag("-A"), let name = parsed.value("-s") {
+                do {
+                    let existingWorkspaceId = try tmuxResolveWorkspaceTarget(name, client: client)
+                    if !parsed.hasFlag("-d") {
+                        _ = try client.sendV2(method: "workspace.select", params: [
+                            "workspace_id": existingWorkspaceId
+                        ])
+                    }
+                    if parsed.hasFlag("-P") {
+                        let context = try tmuxFormatContext(workspaceId: existingWorkspaceId, client: client)
+                        print(tmuxRenderFormat(
+                            parsed.value("-F"),
+                            context: context,
+                            fallback: "@\(existingWorkspaceId)"
+                        ))
+                    }
+                    return
+                } catch let error as CLIError where Self.isAbsentTmuxSession(error) {
+                    // Create the session below.
+                }
             }
             var params: [String: Any] = ["focus": false]
             if let cwd = parsed.value("-c") {
@@ -27479,7 +27501,7 @@ struct CMUXCLI {
                 print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
             }
 
-        case "select-window", "selectw":
+        case "select-window", "selectw", "switch-client":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
             _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": workspaceId])
@@ -27495,8 +27517,14 @@ struct CMUXCLI {
                 "pane_id": target.paneId
             ])
 
-        case "kill-window", "killw":
+        // tmux sessions resolve to cmux workspaces, so kill-session closes the same target.
+        // -a means kill every other session. An unrecognized flag used to be ignored,
+        // and with no -t the command closed the caller — the session -a must keep.
+        case "kill-window", "killw", "kill-session":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
+            if let unsupported = parsed.positional.first(where: { $0.hasPrefix("-") }) {
+                throw CLIError(message: "Unsupported tmux compatibility command: \(command) \(unsupported)")
+            }
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
             _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
             try? tmuxPruneCompatWorkspaceState(workspaceId: workspaceId)
@@ -27772,10 +27800,9 @@ struct CMUXCLI {
                 boolFlags: ["-g", "-q", "-s", "-v", "-w"]
             )
             let optionName = parsed.positional.last ?? ""
-            guard optionName == "extended-keys" else {
+            guard let value = Self.tmuxCompatShowOptionValues[optionName] else {
                 throw CLIError(message: "Unsupported tmux compatibility command: \(command) \(optionName)")
             }
-            let value = "on"
             if parsed.hasFlag("-v") {
                 print(value)
             } else {
@@ -27869,6 +27896,21 @@ struct CMUXCLI {
             throw CLIError(message: "Unsupported tmux compatibility command: \(command)")
         }
     }
+
+    /// A session name that resolved to no workspace. Socket and transport failures
+    /// stay errors so `new-session -A` does not create a workspace for them.
+    private static func isAbsentTmuxSession(_ error: CLIError) -> Bool {
+        guard !error.isStructuredProtocolResponse else { return false }
+        return error.message == "Workspace target not found"
+            || error.message.hasPrefix("Workspace target not found:")
+    }
+
+    /// Options cmux answers for tmux-compat callers. cmux runs no tmux server, so each
+    /// value is what a default tmux client reports.
+    private static let tmuxCompatShowOptionValues = [
+        "extended-keys": "on",
+        "prefix": "C-b"
+    ]
 
     private func tmuxPruneCompatWorkspaceState(workspaceId: String) throws {
         try withLockedTmuxCompatStoreIfChanged { store in
