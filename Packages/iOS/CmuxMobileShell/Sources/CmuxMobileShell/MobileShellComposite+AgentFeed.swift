@@ -436,7 +436,12 @@ extension MobileShellComposite {
         if merged.count > mobileShellAgentFeedMaxItemCount {
             merged.removeSubrange(mobileShellAgentFeedMaxItemCount...)
         }
-        agentFeedItems = merged
+        // A full retained snapshot can be identical to the previous one
+        // after a coalesced refresh. Avoid invalidating the whole shell when
+        // no row content actually changed.
+        if agentFeedItems != merged {
+            agentFeedItems = merged
+        }
     }
 
     /// Hook delivery can report the same stop boundary twice within a short
