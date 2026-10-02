@@ -668,16 +668,26 @@ Goal: a person texts the cmux line and talks to their Chief; Chief replies in th
   app, origin `user`, within 5 minutes) applies after a second dialog that states the risk. A
   text, the chief, a daemon or CLI install, or a non-user origin can neither set nor confirm.
   `mux.text_confirm.lock {level | null, by: team_policy | mdm, name}` (system principal only,
-  pushed by the Worker from TeamPolicy or MDM) wins over the user, clears a pending change and is
-  shown as "Locked by <name>"; unlock keeps the locked level. Every set, raise request, raise
+  pushed by the Worker from TeamPolicy or MDM) keeps one lock per source; the safest lock wins
+  over the user, clears a pending change and is shown as "Locked by <name>"; unlocking one
+  source never lifts the other, and keeps the level that was in effect. A raise records the
+  level it started from and is refused if the level moved since.
+  Residual risk: both steps of a raise come from the same app with a client-claimed `user`
+  origin, so the second step is a consent dialog and an audit record, not a server-side
+  factor; a stolen unlocked phone with the app open can lower the level in two taps.
+  DECISION: require Face ID or the device passcode for a raise, with a signed assertion the
+  server checks, and notify every owner device and email when the level goes down. RECOMMEND
+  yes. DECISION: the level is stored per chief (one MuxDO per chief) and nothing copies it to
+  the user's other chiefs. RECOMMEND one source in UserDO that every MuxDO reads. Every set, raise request, raise
   confirm or decline, lock and unlock is an audit row (table `level_audit`, last 100).
   Settings copy (en; all 21 locales in `home-core/copy/text-confirm-levels.json`, ja written by
   the agent, other locales `needs_review`):
   - title: "Confirm risky actions asked by text"
   - strict: "Strict (recommended): when a text asks Chief to delete something, spend money, send
-    something outside cmux or change who has access, you confirm it in the app first."
+    something outside cmux, change who has access or do anything that cannot be undone, you
+    confirm it in the app first."
   - destructiveOnly: "Destructive only: you confirm deletions and actions that cannot be undone.
-    Chief spends money, sends messages and changes access from a text without asking."
+    Chief may spend money, send messages and change access from a text without asking you."
   - off: "Off: Chief does everything a text asks without asking you."
   - simSwapRisk (shown under every level): "Anyone who takes control of your phone number (a
     stolen phone, a SIM swap or a recycled number) can text Chief as you. The less you confirm,

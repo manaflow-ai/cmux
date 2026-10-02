@@ -75,16 +75,39 @@ describe("text confirmation levels", () => {
     const req = o.submit("mux.text_confirm.level.set", { level: "off" }, app)
     const id = req.ok ? ((req.value.pending as { id: string }).id) : ""
     expect(o.submit("mux.text_confirm.lock", { level: "strict", by: "team_policy", name: "Manaflow" }, system, "script")).toMatchObject({ ok: true })
-    expect(o.head.text_confirm_lock).toMatchObject({ level: "strict", by: "team_policy", name: "Manaflow" })
+    expect(o.head.text_confirm_lock?.team_policy).toMatchObject({ level: "strict", by: "team_policy", name: "Manaflow" })
     expect(o.submit("mux.text_confirm.level.confirm", { change: id, approve: true }, app)).toEqual({ ok: false, code: "text_confirm.no_pending_change" })
     expect(o.submit("mux.text_confirm.level.set", { level: "off" }, app)).toEqual({ ok: false, code: "text_confirm.locked" })
     expect(o.submit("mux.text_confirm.level.set", { level: "destructive-only" }, app)).toEqual({ ok: false, code: "text_confirm.locked" })
     expect(o.submit("mux.text_confirm.lock", { level: "off", by: "mdm", name: "x" }, app)).toEqual({ ok: false, code: "forbidden" })
     expect(levelOf(o.head)).toBe("strict")
-    o.submit("mux.text_confirm.lock", { level: null }, system, "script")
-    expect(o.head.text_confirm_lock).toBeNull()
+    o.submit("mux.text_confirm.lock", { level: null, by: "team_policy" }, system, "script")
+    expect(o.head.text_confirm_lock?.team_policy).toBeUndefined()
     expect(levelOf(o.head)).toBe("strict")
     expect(audit(o)).toEqual(["raise_requested:strict>off", "lock:strict>strict", "unlock:strict>strict"])
+    expect(o.rows.range<{ by: string }>(TABLE_LEVEL_AUDIT, { limit: 10 }).at(-1)?.row.by).toBe("system:team")
+  })
+
+  it("keeps one lock per source: the safest wins and one source cannot lift the other", () => {
+    const o = owner()
+    o.submit("mux.text_confirm.lock", { level: "strict", by: "mdm", name: "Acme IT" }, system, "script")
+    o.submit("mux.text_confirm.lock", { level: "off", by: "team_policy", name: "Manaflow" }, system, "script")
+    expect(levelOf(o.head)).toBe("strict")
+    o.submit("mux.text_confirm.lock", { level: null, by: "team_policy" }, system, "script")
+    expect(levelOf(o.head)).toBe("strict")
+    expect(o.head.text_confirm_lock?.mdm?.name).toBe("Acme IT")
+    // Selecting the locked level is a no-op, not an error.
+    expect(o.submit("mux.text_confirm.level.set", { level: "strict" }, app)).toMatchObject({ ok: true, changed: false })
+  })
+
+  it("refuses a stale raise when the level moved since it was asked", () => {
+    const o = owner()
+    const req = o.submit("mux.text_confirm.level.set", { level: "off" }, app)
+    const id = req.ok ? ((req.value.pending as { id: string }).id) : ""
+    // Simulate a level change that left the pending raise in place (not reachable through the ops today).
+    o.submit("mux.text_confirm.lock", { level: "destructive-only", by: "mdm", name: "x" }, system, "script")
+    expect(o.submit("mux.text_confirm.level.confirm", { change: id, approve: true }, app)).toEqual({ ok: false, code: "text_confirm.no_pending_change" })
+    expect(levelOf(o.head)).toBe("destructive-only")
   })
 
   it("a declined raise keeps the level; the audit keeps at most 100 rows", () => {

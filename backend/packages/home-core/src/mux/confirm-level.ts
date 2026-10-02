@@ -30,8 +30,21 @@ export interface LevelLock {
   readonly at: number
 }
 
+export interface LevelLocks {
+  readonly team_policy?: LevelLock
+  readonly mdm?: LevelLock
+}
+
+/** The lock in effect: the safest of the locks present (shown as "Locked by <name>"). */
+export const effectiveLock = (locks: LevelLocks | null | undefined): LevelLock | null => {
+  const present = [locks?.team_policy, locks?.mdm].filter((l): l is LevelLock => l !== undefined)
+  return present.reduce<LevelLock | null>((best, l) => (best === null || RISK_RANK[l.level] < RISK_RANK[best.level] ? l : best), null)
+}
+
 export interface PendingLevelChange {
   readonly id: string
+  /** The level when the raise was asked; a confirm is refused if the level moved since. */
+  readonly from: ConfirmLevel
   readonly to: ConfirmLevel
   readonly requested_by: string
   readonly expires_at: number
@@ -43,14 +56,15 @@ export interface LevelHeadPart {
   readonly text_confirm_level?: ConfirmLevel
   /** Legacy boolean setting (before levels): "destructive" = on, "off" = off. */
   readonly text_confirm?: "destructive" | "off"
-  readonly text_confirm_lock?: LevelLock | null
+  /** One slot per source, so a team policy never lifts an MDM lock and the other way round. */
+  readonly text_confirm_lock?: LevelLocks | null
   readonly level_change?: PendingLevelChange | null
   readonly level_audit_n?: number
 }
 
-/** The level in effect: a lock wins, then the stored level, then the migrated boolean (on -> strict, off -> off). */
+/** The level in effect: the safest lock wins, then the stored level, then the migrated boolean (on -> strict, off -> off). */
 export const levelOf = (head: LevelHeadPart): ConfirmLevel =>
-  head.text_confirm_lock?.level ?? head.text_confirm_level ?? (head.text_confirm === "off" ? "off" : "strict")
+  effectiveLock(head.text_confirm_lock)?.level ?? head.text_confirm_level ?? (head.text_confirm === "off" ? "off" : "strict")
 
 export interface AuditRow {
   readonly at: number
@@ -83,7 +97,7 @@ export const reduceLevel = <H extends LevelHeadPart>(head: H, op: string, params
   const refuse = (code: string): ReduceResult<H> => ({ ok: false, code, message: code })
   const rows = rowsOf(ctx)
   const current = levelOf(head)
-  const actor = ctx.principal.kind === "system" ? "system" : (userOf(ctx.principal) ?? "unknown")
+  const actor = ctx.principal.kind === "system" ? ctx.principal.identity : (userOf(ctx.principal) ?? "unknown")
   const audit = (row: AuditRow): ReadonlyArray<RowWrite> => {
     const n = (head.level_audit_n ?? 0) + 1
     const old = rows.range(TABLE_LEVEL_AUDIT, { before: n - MAX_AUDIT_ROWS + 1, limit: 1, desc: true })
@@ -96,14 +110,14 @@ export const reduceLevel = <H extends LevelHeadPart>(head: H, op: string, params
       if (ctx.origin !== "user") return refuse("forbidden")
       const to = params.level
       if (!isLevel(to)) return refuse("invalid_params")
-      const lock = head.text_confirm_lock
-      if (lock) return refuse(to === lock.level ? "text_confirm.unchanged" : "text_confirm.locked")
+      const lock = effectiveLock(head.text_confirm_lock)
+      if (lock) return to === lock.level ? { ok: true, state: head, value: { level: current }, changed: false } : refuse("text_confirm.locked")
       if (to === current) return { ok: true, state: head, value: { level: current }, changed: false }
       if (!isRiskier(to, current)) {
         const state = { ...head, text_confirm_level: to, level_change: null, ...nextN }
         return { ok: true, state, value: { level: to }, writes: audit({ at: ctx.now, kind: "set", by: actor, from: current, to }) }
       }
-      const change: PendingLevelChange = { id: ctx.newId("lvl"), to, requested_by: actor, expires_at: ctx.now + LEVEL_CHANGE_TTL_MS }
+      const change: PendingLevelChange = { id: ctx.newId("lvl"), from: current, to, requested_by: actor, expires_at: ctx.now + LEVEL_CHANGE_TTL_MS }
       const state = { ...head, level_change: change, ...nextN }
       return { ok: true, state, value: { level: current, pending: change }, writes: audit({ at: ctx.now, kind: "raise_requested", by: actor, from: current, to }) }
     }
@@ -113,7 +127,9 @@ export const reduceLevel = <H extends LevelHeadPart>(head: H, op: string, params
       if (!change || change.id !== params.change) return refuse("text_confirm.no_pending_change")
       if (typeof params.approve !== "boolean") return refuse("invalid_params")
       if (ctx.now >= change.expires_at) return { ok: true, state: { ...head, level_change: null }, value: { level: current, expired: true } }
-      if (head.text_confirm_lock) return { ok: true, state: { ...head, level_change: null }, value: { level: current, locked: true } }
+      if (effectiveLock(head.text_confirm_lock)) return { ok: true, state: { ...head, level_change: null }, value: { level: current, locked: true } }
+      // Defense in depth: the level must still be where the raise started, and the change still riskier.
+      if (change.from !== current || !isRiskier(change.to, current)) return { ok: true, state: { ...head, level_change: null }, value: { level: current, stale: true } }
       if (!params.approve) {
         const state = { ...head, level_change: null, ...nextN }
         return { ok: true, state, value: { level: current }, writes: audit({ at: ctx.now, kind: "raise_declined", by: actor, from: current, to: change.to }) }
@@ -122,19 +138,24 @@ export const reduceLevel = <H extends LevelHeadPart>(head: H, op: string, params
       return { ok: true, state, value: { level: change.to }, writes: audit({ at: ctx.now, kind: "raise_confirmed", by: actor, from: current, to: change.to }) }
     }
     case "mux.text_confirm.lock": {
-      // Team policy or MDM: `level` locks it (and clears a pending raise); null unlocks and keeps the locked level.
+      // Team policy or MDM, each in its own slot: `level` locks that source; null unlocks only that source.
       const { level, by, name } = params
+      if (by !== "team_policy" && by !== "mdm") return refuse("invalid_params")
+      const locks: LevelLocks = head.text_confirm_lock ?? {}
       if (level === null) {
-        if (!head.text_confirm_lock) return { ok: true, state: head, value: { level: current }, changed: false }
-        const state = { ...head, text_confirm_level: current, text_confirm_lock: null, ...nextN }
-        return { ok: true, state, value: { level: current }, writes: audit({ at: ctx.now, kind: "unlock", by: actor, from: current, to: current }) }
+        const prior = locks[by]
+        if (!prior) return { ok: true, state: head, value: { level: current }, changed: false }
+        const { [by]: _gone, ...rest } = locks
+        // Unlock keeps the level that was in effect, so lifting a lock never lowers protection.
+        const state = { ...head, text_confirm_level: current, text_confirm_lock: rest, ...nextN }
+        return { ok: true, state, value: { level: levelOf(state) }, writes: audit({ at: ctx.now, kind: "unlock", by: actor, from: current, to: levelOf(state), lock: { by, name: prior.name } }) }
       }
-      if (!isLevel(level) || (by !== "team_policy" && by !== "mdm") || typeof name !== "string" || name.length === 0 || name.length > 120) return refuse("invalid_params")
-      const lock: LevelLock = { level, by, name, at: ctx.now }
-      const same = head.text_confirm_lock && head.text_confirm_lock.level === level && head.text_confirm_lock.by === by && head.text_confirm_lock.name === name
-      if (same) return { ok: true, state: head, value: { level }, changed: false }
-      const state = { ...head, text_confirm_lock: lock, level_change: null, ...nextN }
-      return { ok: true, state, value: { level, lock }, writes: audit({ at: ctx.now, kind: "lock", by: actor, from: current, to: level, lock: { by, name } }) }
+      if (!isLevel(level) || typeof name !== "string" || name.length === 0 || name.length > 120) return refuse("invalid_params")
+      const prior = locks[by]
+      if (prior && prior.level === level && prior.name === name) return { ok: true, state: head, value: { level: current }, changed: false }
+      const state = { ...head, text_confirm_lock: { ...locks, [by]: { level, by, name, at: ctx.now } }, level_change: null, ...nextN }
+      const to = levelOf(state)
+      return { ok: true, state, value: { level: to, lock: effectiveLock(state.text_confirm_lock) }, writes: audit({ at: ctx.now, kind: "lock", by: actor, from: current, to, lock: { by, name } }) }
     }
     default:
       return refuse("invalid_params")

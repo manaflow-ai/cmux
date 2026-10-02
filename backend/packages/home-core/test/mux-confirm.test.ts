@@ -30,14 +30,14 @@ const ask = { op: "vm.delete", params_hash: "h1", risk: "destructive", summary: 
 
 describe("text confirmation rule", () => {
   it("asks only for destructive, money or irreversible actions requested by text, unless turned off", () => {
-    expect(needsConfirmation({ channel: "text", risk: "destructive" })).toBe(true)
-    expect(needsConfirmation({ channel: "text", risk: "money" })).toBe(true)
-    expect(needsConfirmation({ channel: "text", risk: "execute", irreversible: true })).toBe(true)
-    expect(needsConfirmation({ channel: "text", risk: "execute" })).toBe(false)
-    expect(needsConfirmation({ channel: "text", risk: "send-external" })).toBe(true)
-    expect(needsConfirmation({ channel: "text", risk: "access" })).toBe(true)
-    expect(needsConfirmation({ channel: "text", risk: "mutate-shared" })).toBe(false)
-    expect(needsConfirmation({ channel: "app", risk: "destructive" })).toBe(false)
+    expect(needsConfirmation({ channel: "text", risk: "destructive", level: "strict" })).toBe(true)
+    expect(needsConfirmation({ channel: "text", risk: "money", level: "strict" })).toBe(true)
+    expect(needsConfirmation({ channel: "text", risk: "execute", irreversible: true, level: "strict" })).toBe(true)
+    expect(needsConfirmation({ channel: "text", risk: "execute", level: "strict" })).toBe(false)
+    expect(needsConfirmation({ channel: "text", risk: "send-external", level: "strict" })).toBe(true)
+    expect(needsConfirmation({ channel: "text", risk: "access", level: "strict" })).toBe(true)
+    expect(needsConfirmation({ channel: "text", risk: "mutate-shared", level: "strict" })).toBe(false)
+    expect(needsConfirmation({ channel: "app", risk: "destructive", level: "strict" })).toBe(false)
     expect(needsConfirmation({ channel: "text", risk: "destructive", level: "off" })).toBe(false)
     expect(needsConfirmation({ channel: "text", risk: "destructive", level: "destructive-only" })).toBe(true)
     expect(needsConfirmation({ channel: "text", risk: "execute", irreversible: true, level: "destructive-only" })).toBe(true)

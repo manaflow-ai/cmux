@@ -1,5 +1,5 @@
 import type { Domain, Principal, Reject, ReduceResult, RowWrite } from "../conversation/engine-types.ts"
-import { authorizeLevel, LEVEL_OPS, reduceLevel, type ConfirmLevel, type LevelLock, type PendingLevelChange } from "./confirm-level.ts"
+import { authorizeLevel, LEVEL_OPS, reduceLevel, type ConfirmLevel, type LevelLocks, type PendingLevelChange } from "./confirm-level.ts"
 import { authorizeConfirm, CONFIRM_OPS, reduceConfirm } from "./text-confirm.ts"
 
 /**
@@ -32,7 +32,7 @@ export interface MuxHead {
   readonly text_confirm_level?: ConfirmLevel
   /** Legacy boolean before levels; read once by levelOf (on -> strict, off -> off). */
   readonly text_confirm?: "destructive" | "off"
-  readonly text_confirm_lock?: LevelLock | null
+  readonly text_confirm_lock?: LevelLocks | null
   readonly level_change?: PendingLevelChange | null
   readonly level_audit_n?: number
   readonly confirm_n?: number

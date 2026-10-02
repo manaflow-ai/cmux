@@ -31,9 +31,10 @@ export type Channel = "app" | "text"
  * what a stolen number would change first), plus any action flagged irreversible.
  */
 const STRICT_RISKS: ReadonlySet<RiskClass> = new Set(["destructive", "money", "send-external", "access"])
-export const needsConfirmation = (input: { readonly channel: Channel; readonly risk: RiskClass; readonly irreversible?: boolean; readonly level?: ConfirmLevel }): boolean => {
+/** `level` must come from `levelOf(head)` (it applies the locks); never pass a stored field directly. */
+export const needsConfirmation = (input: { readonly channel: Channel; readonly risk: RiskClass; readonly irreversible?: boolean; readonly level: ConfirmLevel }): boolean => {
   if (input.channel !== "text") return false
-  const level = input.level ?? "strict"
+  const level = input.level
   if (level === "off") return false
   if (input.irreversible === true || input.risk === "destructive") return true
   return level === "strict" && STRICT_RISKS.has(input.risk)
