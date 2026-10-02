@@ -40,11 +40,14 @@ struct CloudPortsVPNAffordanceTests {
         defer { window.contentView = nil }
         host.layoutSubtreeIfNeeded()
         let outline = try #require(descendants(of: host).compactMap { $0 as? NSOutlineView }.first)
+        let coordinator = try #require(outline.delegate as? CloudTreeOutlineView.Coordinator)
+        // Ports is a tab on the machine's detail row (`CloudTreeMachineDetailLayout`):
+        // opening it lists the Ports group's rows under that row.
+        coordinator.toggleMachineDetailTab(.ports, machine: machine)
         outline.expandItem(nil, expandChildren: true)
         let group = try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CloudTreeNode }
-            .first { if case .portsGroup = $0.kind { true } else { false } })
+            .first { if case .machineDetailTabs(let tabs) = $0.kind { tabs.selected == .ports } else { false } })
         #expect(group.children.contains { if case .port(let value, _, _) = $0.kind { value.id == port.id } else { false } })
-        let coordinator = try #require(outline.delegate as? CloudTreeOutlineView.Coordinator)
         let controls = group.children.compactMap {
             coordinator.outlineView(outline, viewFor: outline.tableColumns.first, item: $0)
         }.flatMap { descendants(of: $0) }
