@@ -1,7 +1,7 @@
 import { idFactory, type Principal, type ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { checkCron, nextFire } from "../src/cron.ts"
-import { dispatchable, dueFires, MAX_FINISHED_RUNS, schedulerDomain, type SchedulerState } from "../src/domains/scheduler.ts"
+import { dispatchable, dueFires, matchingEventTriggers, MAX_FINISHED_RUNS, schedulerDomain, type SchedulerState } from "../src/domains/scheduler.ts"
 
 const user: Principal = { identity: "session:user_aaaaaaaaaaaaaaaaaaaa", kind: "session", user: "user_aaaaaaaaaaaaaaaaaaaa", team: "team_aaaaaaaaaaaaaaaaaaaa" }
 const system: Principal = { identity: "system:scheduler", kind: "system" }
@@ -157,6 +157,38 @@ describe("SchedulerDO reducer", () => {
     run = apply(state, user, "automation.run", { automation: a.id }, T0 + 9_000_000)
     state = apply(run.state, system, "run.report", { run: (run.value as any).id, state: "succeeded", step: 0, outcome: { goal_met: true } }, T0 + 9_000_001).state
     expect(state.automations[a.id]!.next_run_at).toBeNull()
+  })
+
+  it("disabling or deleting cancels queued runs that have no Workflow yet", () => {
+    let { state, a } = created()
+    state = apply(state, user, "automation.update", { automation: a.id, concurrency: { max: 1, on_limit: "queue" } }, T0).state
+    const r1 = apply(state, user, "automation.run", { automation: a.id }, T0 + 1)
+    state = apply(r1.state, system, "run.dispatched", { run: (r1.value as any).id }, T0 + 2).state
+    const r2 = apply(state, user, "automation.run", { automation: a.id }, T0 + 3)
+    state = apply(r2.state, user, "automation.update", { automation: a.id, enabled: false }, T0 + 4).state
+    expect(state.runs[(r2.value as any).id]!.state).toBe("cancelled")
+    expect(state.runs[(r1.value as any).id]!.state).toBe("queued")
+    const r3 = apply(state, user, "automation.run", { automation: a.id }, T0 + 5)
+    state = apply(r3.state, user, "automation.delete", { automation: a.id }, T0 + 6).state
+    expect(state.runs[(r3.value as any).id]!).toMatchObject({ state: "cancelled", error: { code: "automation.stopped" } })
+  })
+
+  it("integration events match connection, pattern and filters, and private connections only start their creator's automations", () => {
+    const conn = "conn_aaaaaaaaaaaaaaaaaaaa"
+    const r = apply(schedulerDomain.initial(), user, "automation.create", {
+      name: "on pr",
+      triggers: [{ type: "event", source: "integration", connection: conn, event: "pull_request.*", filter: { "repository.full_name": "manaflow-ai/cmux" } }],
+      body: steps
+    }, T0)
+    const ev = (event: string, repo: string, sharing: "private" | "team", created_by: string) => ({ connection: conn, event, payload: { repository: { full_name: repo } }, sharing, created_by })
+    expect(matchingEventTriggers(r.state, ev("pull_request.opened", "manaflow-ai/cmux", "private", user.user!))).toHaveLength(1)
+    expect(matchingEventTriggers(r.state, ev("push", "manaflow-ai/cmux", "private", user.user!))).toHaveLength(0)
+    expect(matchingEventTriggers(r.state, ev("pull_request.opened", "other/repo", "private", user.user!))).toHaveLength(0)
+    expect(matchingEventTriggers(r.state, ev("pull_request.opened", "manaflow-ai/cmux", "private", "user_bbbbbbbbbbbbbbbbbbbb"))).toHaveLength(0)
+    expect(matchingEventTriggers(r.state, ev("pull_request.opened", "manaflow-ai/cmux", "team", "user_bbbbbbbbbbbbbbbbbbbb"))).toHaveLength(1)
+    // Without a connection an integration event trigger is stored but not fired.
+    const loose = apply(r.state, user, "automation.create", { name: "x", triggers: [{ type: "event", source: "integration", event: "push" }], body: steps }, T0)
+    expect((loose.value as any).triggers[0].status).toBe("not_yet_supported")
   })
 
   it("keeps every active run and only the newest finished runs", () => {

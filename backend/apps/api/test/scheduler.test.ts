@@ -216,11 +216,16 @@ describe("webhook triggers (workerd)", () => {
     const big = JSON.stringify({ blob: "x".repeat(300 * 1024) })
     expect((await postHook(path, secret, big)).status).toBe(413)
 
-    const first = await postHook(path, secret, body, { delivery: "deploy-1" })
+    const ts = Math.floor(Date.now() / 1000)
+    const first = await postHook(path, secret, body, { delivery: "deploy-1", ts })
     expect(first.status).toBe(202)
-    expect(first.json).toMatchObject({ ok: true, status: "accepted", delivery: "deploy-1" })
-    const again = await postHook(path, secret, body, { delivery: "deploy-1" })
+    expect(first.json).toMatchObject({ ok: true, status: "accepted", label: "deploy-1" })
+    expect(first.json.delivery).toMatch(/^sha256:[0-9a-f]{40}$/)
+    const again = await postHook(path, secret, body, { delivery: "deploy-1", ts })
     expect(again.json).toMatchObject({ status: "duplicate", run: first.json.run })
+    // A captured request replayed with a new (unsigned) delivery header is still the same delivery.
+    const replay = await postHook(path, secret, body, { delivery: "deploy-2", ts })
+    expect(replay.json).toMatchObject({ status: "duplicate", run: first.json.run })
 
     const runId = first.json.run as string
     // The input waits outside entity state until dispatch (checked in one DO turn, before any alarm can run).
@@ -241,10 +246,44 @@ describe("webhook triggers (workerd)", () => {
     await runDurableObjectAlarm(scheduler(team))
     const runs = await read(token, "automation.runs.list", { automation })
     expect(runs.json.value.runs).toHaveLength(2)
-    expect(runs.json.value.runs.find((r: any) => r.id === runId)).toMatchObject({ state: "succeeded", trigger: { type: "webhook", delivery_id: "deploy-1" } })
+    expect(runs.json.value.runs.find((r: any) => r.id === runId)).toMatchObject({ state: "succeeded", trigger: { type: "webhook", delivery_id: first.json.delivery } })
     await inDO(scheduler(team), async (_i, state) => {
       expect(state.storage.sql.exec("SELECT run FROM run_inputs").toArray()).toHaveLength(0)
     })
+  })
+
+  it("the watchdog marks a started run dead when its Workflow is gone, freeing the slot", async () => {
+    const { token, team } = await signedIn("hook-user-4")
+    const create = await op(token, "automation.create", { name: "w", triggers: [{ type: "webhook" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } })
+    const automation = create.json.value.id as string
+    const trigger = create.json.value.triggers[0].id as string
+    let run = ""
+    await inDO(scheduler(team), async (instance) => {
+      // One synchronous turn: a delivered run marked dispatched with no Workflow instance behind it.
+      const r = instance.submitSystem("automation.deliver", { automation, trigger, delivery_id: "orphan" }, "deliver-orphan")
+      run = r.frames.find((f: any) => f.t === "result").value.id
+      instance.submitSystem("run.dispatched", { run }, `dispatch:${run}`)
+      await instance.watchdog(Date.now() + 16 * 60_000)
+    })
+    const runs = await read(token, "automation.runs.list", { automation })
+    expect(runs.json.value.runs.find((r: any) => r.id === run)).toMatchObject({ state: "dead", error: { code: "run.dead" } })
+  })
+
+  it("webhook secrets are for human sessions only", async () => {
+    const { token } = await signedIn("hook-user-5")
+    const create = await op(token, "automation.create", { name: "s", triggers: [{ type: "webhook" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } })
+    const user = (await op(token, "user.ensure", {})).json.value.id as string
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+    const reg = await op(token, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "cli", name: "cli", device_name: "d", platform: "macos" })
+    const install = reg.json.value.id as string
+    const ch = (await (await worker.fetch("https://api.test/v1/auth/challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user, install }) })).json()) as any
+    const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.message_prefix}${ch.nonce}`)))
+    const b64u = btoa(String.fromCharCode(...sig)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+    const tok = (await (await worker.fetch("https://api.test/v1/auth/token", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user, install, nonce: ch.nonce, signature: b64u }) })).json()) as any
+    const r = await read(tok.access_token, "automation.webhook.get", { automation: create.json.value.id, trigger: create.json.value.triggers[0].id })
+    expect(r.status).toBe(403)
+    expect((await read(tok.access_token, "automation.list")).status).toBe(200)
   })
 
   it("answers 404 for an unknown trigger and 409 for a disabled automation", async () => {

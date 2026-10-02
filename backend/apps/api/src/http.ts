@@ -212,6 +212,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         const principal = toPrincipal(yield* CurrentPrincipal)
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
+        // Reads honor the op's principal kinds too (automation.webhook.get is session-only: its secret starts runs).
+        if (!def.principals.includes(principal.kind === "session" ? "session" : "install")) return yield* new Forbidden({ code: "auth.forbidden", message: `${payload.op} is not allowed for ${principal.kind} principals` })
         const reader = yield* principalFor(def.owner, principal)
         const route = ownerRoute(def.owner, reader)
         const r = yield* Effect.tryPromise({ try: () => rpc<ReadResult>(route.stub.readOp(route.entity, reader, payload.op, payload.params)), catch: unreachable })
@@ -228,7 +230,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
             trigger: v.trigger,
             path: automationHookPath(v.owner, v.trigger),
             secret,
-            scheme: "x-cmux-signature: v1=hex(HMAC-SHA256(secret, x-cmux-timestamp + '.' + body)); optional x-cmux-delivery for dedupe"
+            scheme: "x-cmux-signature: v1=hex(HMAC-SHA256(secret, x-cmux-timestamp + '.' + body)); dedupe on timestamp and body; optional x-cmux-delivery label"
           }
           return { op: payload.op, value, stream: route.stream, revision: r.revision }
         }

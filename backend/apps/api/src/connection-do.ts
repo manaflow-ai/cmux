@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { canonicalJson, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
 import { cloudOpByName, type Connection, type IntegrationProvider } from "@cmux/protocol"
 import { connectionsDomain, mayUse, type ConnectionsState } from "./domains/connections.ts"
@@ -28,8 +29,8 @@ export interface ProviderEvent {
   readonly payload: unknown
 }
 
-const enc = new TextEncoder()
-const sha256 = async (s: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join("")
+/** Synchronous, so the ledger check and insert happen in one turn with no await between. */
+const sha256 = (s: string) => createHash("sha256").update(s).digest("base64url")
 
 /**
  * ConnectionDO: one per owner team (spec integrations.md; the spec's
@@ -43,6 +44,8 @@ const sha256 = async (s: string) => [...new Uint8Array(await crypto.subtle.diges
 export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** Provider HTTP. Tests replace it on the live instance. */
   http: Http = (r) => fetch(r)
+  /** One token refresh at a time per connection (rotating refresh tokens are single use). */
+  private readonly refreshing = new Map<string, Promise<Credential>>()
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, connectionsDomain, "connections", (p) => ({
@@ -136,7 +139,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
     // Ledger for external effects: decided keys replay; an interrupted call is indeterminate.
     const sql = this.ctx.storage.sql
-    const hash = await sha256(canonicalJson({ op: frame.op, params }))
+    const hash = sha256(canonicalJson({ op: frame.op, params }))
     const prior = sql.exec<{ params_hash: string; status: string; reply: string | null }>(`SELECT params_hash, status, reply FROM external_calls WHERE identity = ? AND idempotency_key = ?`, identity, key).toArray()[0]
     if (prior) {
       if (prior.params_hash !== hash) return fail("idempotency.conflict", "idempotency key reused with different params")
@@ -150,7 +153,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       const value = frame.op === "integration.complete" ? await this.complete(principal, params, frame) : await this.callProvider(principal, frame.op, params)
       reply = { ...base, ok: true, value, replayed: false, sequence: engine.currentSeq }
     } catch (e) {
-      if (e instanceof ProviderError) reply = fail(e.code === "needs_reauth" ? "integration.unavailable" : e.code, e.message, e.retryable)
+      if (e instanceof ProviderError) reply = fail(e.code === "needs_reauth" ? "integration.unavailable" : e.code, e.message, e.retryable && e.code !== "mutation.indeterminate")
       else {
         console.error(JSON.stringify({ msg: "external op failed", op: frame.op, stream: engine.stream, error: e instanceof Error ? e.name : "unknown" }))
         reply = fail("operation.failed", "the operation failed")
@@ -176,13 +179,43 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       redirectUri: frame.redirect_uri
     })
     if (c.account && c.account.key !== approved.account.key) throw new ProviderError("integration.state_invalid", "re-authorization must use the same provider account")
-    // Route webhooks first (idempotent), then seal, then commit: a crash leaves at worst an extra index entry for a pending connection.
+    // A disconnect may have committed while we waited on the provider.
+    if (this.boundEngine!.currentState.connections[c.id]?.status === "revoked") throw new ProviderError("integration.state_invalid", "this connection was revoked")
+    // Route webhooks first (idempotent), then seal, then commit. If the commit is refused (a
+    // disconnect landed in between), undo both so no credential or route outlives it.
     await this.index(approved.account.key).add(c.owner, c.id)
     await this.sealCredential(c, approved.credential)
-    const res = this.submitSystem("connection.activate", { connection: c.id, account: approved.account, scopes_granted: [...approved.scopes_granted] }, `activate:${c.id}:${approved.account.key}:${await sha256(canonicalJson(approved.scopes_granted))}`)
+    const res = this.submitSystem("connection.activate", { connection: c.id, account: approved.account, scopes_granted: [...approved.scopes_granted] }, `activate:${c.id}:${sha256(canonicalJson([approved.account.key, approved.scopes_granted])).slice(0, 43)}`)
     const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
-    if (rej) throw new ProviderError("provider.error", rej.message)
+    if (rej) {
+      this.ctx.storage.sql.exec(`DELETE FROM credentials WHERE connection = ?`, c.id)
+      await this.index(approved.account.key).remove(c.owner, c.id).catch(() => undefined)
+      throw new ProviderError("integration.state_invalid", rej.message)
+    }
     return this.boundEngine!.currentState.connections[c.id]!
+  }
+
+  /** The connection's credential, refreshed (and sealed) first when the provider says it expired. */
+  private async usableCredential(c: Connection): Promise<Credential> {
+    const impl = providers[c.provider]
+    if (!impl.refresh) return this.openCredential(c)
+    const running = this.refreshing.get(c.id)
+    if (running) return running
+    const work = (async () => {
+      // Read again inside the single flight: an earlier refresh may have sealed a new one.
+      const current = await this.openCredential(c)
+      const fresh = await impl.refresh!(this.env, this.http, current)
+      if (!fresh) return current
+      // Seal before any use: losing a rotated refresh token would force a re-login.
+      await this.sealCredential(c, fresh)
+      return fresh
+    })()
+    this.refreshing.set(c.id, work)
+    try {
+      return await work
+    } finally {
+      this.refreshing.delete(c.id)
+    }
   }
 
   private async callProvider(principal: Principal, op: string, params: Record<string, unknown>): Promise<unknown> {
@@ -193,8 +226,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const impl = providers[provider]
     if (!impl.configured(this.env)) throw new ProviderError("integration.unavailable", `${provider} is not configured`)
     try {
-      const r = await impl.call(this.env, this.http, await this.openCredential(c), op, params)
-      if (r.credential) await this.sealCredential(c, r.credential)
+      const r = await impl.call(this.env, this.http, await this.usableCredential(c), op, params)
       return r.value
     } catch (e) {
       if (e instanceof ProviderError && e.code === "needs_reauth") {
@@ -219,7 +251,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: "the GitHub App was uninstalled" }, `status:${c.id}:uninstalled:${event.delivery_id}`)
     }
     const scheduler = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(entity))
-    const r = (await scheduler.deliverEvent(entity, { connection: c.id, ...event })) as { runs: number }
+    const r = (await scheduler.deliverEvent(entity, { connection: c.id, sharing: c.sharing, created_by: c.created_by, ...event })) as { runs: number }
     return { status: "forwarded", runs: r.runs }
   }
 }

@@ -94,7 +94,7 @@ describe("provider clients (fake HTTP)", () => {
     expect(f.calls.at(-1)!.auth).toBe("Bearer ghs_inst")
   })
 
-  it("Linear: refreshes an expired token and returns the new credential", async () => {
+  it("Linear: refresh returns a new credential only when expired; the call uses what it is given", async () => {
     const f = fakeHttp({
       "https://api.linear.app/oauth/token": (req) => {
         expect(req.headers.get("content-type")).toBe("application/x-www-form-urlencoded")
@@ -102,10 +102,23 @@ describe("provider clients (fake HTTP)", () => {
       },
       "https://api.linear.app/graphql": () => ok({ data: { issueCreate: { success: true, issue: { id: "i", identifier: "ENG-1", url: "u" } } } })
     })
-    const r = await linear.call(e, f.http, { kind: "oauth", access_token: "lin_old", refresh_token: "lin_r1", expires_at: Date.now() - 1 }, "linear.issue.create", { team_id: "t", title: "x" })
+    expect(await linear.refresh!(e, f.http, { kind: "oauth", access_token: "a", refresh_token: "r", expires_at: Date.now() + 3600_000 })).toBeUndefined()
+    const fresh = await linear.refresh!(e, f.http, { kind: "oauth", access_token: "lin_old", refresh_token: "lin_r1", expires_at: Date.now() - 1 })
+    expect(fresh).toMatchObject({ access_token: "lin_new", refresh_token: "lin_r2" })
+    const r = await linear.call(e, f.http, fresh!, "linear.issue.create", { team_id: "t", title: "x" })
     expect(r.value).toMatchObject({ identifier: "ENG-1" })
-    expect(r.credential).toMatchObject({ access_token: "lin_new", refresh_token: "lin_r2" })
     expect(f.calls.at(-1)!.auth).toBe("Bearer lin_new")
+  })
+
+  it("an effect call that fails with 5xx or in flight is indeterminate; 429 is retryable", async () => {
+    const five = fakeHttp({ "https://slack.com/api/chat.postMessage": () => new Response("bad gateway", { status: 502 }) })
+    await expect(slack.call(e, five.http, { kind: "oauth", access_token: "x" }, "slack.post_as_bot", { channel: "C1", text: "x" })).rejects.toMatchObject({ code: "mutation.indeterminate", retryable: false })
+    const thrown: Http = async () => {
+      throw new Error("connection reset")
+    }
+    await expect(slack.call(e, thrown, { kind: "oauth", access_token: "x" }, "slack.post_as_bot", { channel: "C1", text: "x" })).rejects.toMatchObject({ code: "mutation.indeterminate" })
+    const limited = fakeHttp({ "https://slack.com/api/chat.postMessage": () => new Response("slow down", { status: 429 }) })
+    await expect(slack.call(e, limited.http, { kind: "oauth", access_token: "x" }, "slack.post_as_bot", { channel: "C1", text: "x" })).rejects.toMatchObject({ code: "provider.error", retryable: true })
   })
 
   it("Slack: invalid_auth means the connection needs re-authorization", async () => {
@@ -197,6 +210,51 @@ describe("connections end to end (workerd)", () => {
     expect((await op(token, "slack.post_as_bot", { connection: conn, channel: "C1", text: "after" })).json.error.code).toBe("integration.unavailable")
     const late = JSON.stringify({ type: "event_callback", team_id: "T0SLACK", event_id: "Ev03", event: { type: "app_mention" } })
     expect((await slackHook(late)).json.runs).toBe(0)
+  })
+
+  it("connects Linear (account key of real length), refreshes once for concurrent calls, and keeps a 5xx effect indeterminate", async () => {
+    const { token, team } = await signedIn("conn-linear-1")
+    const connect = await op(token, "integration.connect", { provider: "linear" })
+    const conn = connect.json.value.connection.id as string
+    const state = new URL(connect.json.value.authorize_url).searchParams.get("state")!
+    let refreshes = 0
+    let graphqlStatus = 200
+    const fake = fakeHttp({
+      "https://api.linear.app/oauth/token": async (req) => {
+        const body = new URLSearchParams(await req.text())
+        if (body.get("grant_type") === "refresh_token") {
+          refreshes++
+          return ok({ access_token: `lin_refreshed_${refreshes}`, refresh_token: `lin_r_${refreshes + 1}`, expires_in: 86399 })
+        }
+        // Expired at once, so the first provider call must refresh.
+        return ok({ access_token: "lin_first", refresh_token: "lin_r_1", expires_in: 0, scope: "read write" })
+      },
+      "https://api.linear.app/graphql": async (req) => {
+        const q = (await req.json()) as { query: string }
+        if (q.query.includes("viewer")) return ok({ data: { viewer: { organization: { id: "8f6e1c2a-5b7d-4e3f-9a1b-2c3d4e5f6a7b", name: "Acme", urlKey: "acme" } } } })
+        if (graphqlStatus !== 200) return new Response("oops", { status: graphqlStatus })
+        return ok({ data: { issueCreate: { success: true, issue: { id: "i1", identifier: "ENG-1", url: "https://linear.app/acme/issue/ENG-1" } } } })
+      }
+    })
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+    await inDO(connections, async (instance) => {
+      instance.http = fake.http
+    })
+    const done = await op(token, "integration.complete", { state, code: "lin-code" })
+    expect(done.json).toMatchObject({ ok: true, value: { status: "active", account: { key: "linear:org:8f6e1c2a-5b7d-4e3f-9a1b-2c3d4e5f6a7b" } } })
+
+    const params = { connection: conn, team_id: "team-1", title: "From cmux" }
+    const [a, b] = await Promise.all([op(token, "linear.issue.create", params), op(token, "linear.issue.create", { ...params, title: "Second" })])
+    expect(a.json.ok && b.json.ok).toBe(true)
+    expect(refreshes).toBe(1)
+
+    graphqlStatus = 502
+    const flaky = await op(token, "linear.issue.create", params, "lin-5xx")
+    expect(flaky.json).toMatchObject({ ok: false, error: { code: "mutation.indeterminate", retryable: false } })
+    graphqlStatus = 200
+    // The key stays decided: a retry replays the indeterminate answer instead of creating a second issue.
+    const retry = await op(token, "linear.issue.create", params, "lin-5xx")
+    expect(retry.json).toMatchObject({ ok: false, replayed: true, error: { code: "mutation.indeterminate" } })
   })
 
   it("refuses forged provider webhooks and answers Slack URL verification", async () => {

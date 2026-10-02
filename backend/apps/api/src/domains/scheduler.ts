@@ -60,11 +60,13 @@ const pathValue = (payload: unknown, path: string): unknown => {
 /** Event triggers of enabled automations that match a provider event: same connection, event pattern, every filter. */
 export const matchingEventTriggers = (
   state: SchedulerState,
-  ev: { connection: string; event: string; payload: unknown }
+  ev: { connection: string; event: string; payload: unknown; sharing: "private" | "team"; created_by: string }
 ): Array<{ automation: string; trigger: string }> => {
   const out: Array<{ automation: string; trigger: string }> = []
   for (const a of Object.values(state.automations)) {
     if (!a.enabled) continue
+    // A private connection's events start only its creator's automations.
+    if (ev.sharing !== "team" && a.created_by !== ev.created_by) continue
     for (const t of a.triggers) {
       const s = t.spec
       if (t.status !== "active" || s.type !== "event" || s.source !== "integration" || s.connection !== ev.connection) continue
@@ -226,6 +228,19 @@ const continueAfter = (state: SchedulerState, run: RunRecord, now: number): { st
 
 const ownerOf = (state: SchedulerState, p: Principal) => state.owner ?? p.team ?? null
 
+/** Disabling or deleting stops runs that have not started: queued runs without a Workflow become cancelled. */
+const cancelQueued = (runs: Readonly<Record<string, RunRecord>>, automation: string, now: number, why: string): { runs: Record<string, RunRecord>; outbox: Array<OutboxItem> } => {
+  const out: Record<string, RunRecord> = { ...runs }
+  const outbox: Array<OutboxItem> = []
+  for (const r of Object.values(runs)) {
+    if (r.automation !== automation || r.state !== "queued" || r.dispatched) continue
+    const next: RunRecord = { ...r, state: "cancelled", finished_at: now, error: { code: "automation.stopped", message: why } }
+    out[r.id] = next
+    outbox.push(runOutbox(next))
+  }
+  return { runs: out, outbox }
+}
+
 export const schedulerDomain: Domain<SchedulerState> = {
   initial: () => ({ owner: null, automations: {}, runs: {}, chains: {} }),
 
@@ -307,7 +322,13 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const { version: _v2, updated_at: _u2, ...cmpOld } = a
         if (canonicalJson(cmpDraft) === canonicalJson(cmpOld)) return { ok: true, state, value: a, changed: false }
         const next = { ...draft, version: a.version + 1, updated_at: ctx.now }
-        return { ok: true, state: { ...state, automations: { ...state.automations, [a.id]: next } }, value: next, outbox: [automationOutbox(next)] }
+        const stopped = !enabled && a.enabled ? cancelQueued(state.runs, a.id, ctx.now, "the automation was disabled") : { runs: state.runs, outbox: [] }
+        return {
+          ok: true,
+          state: { ...state, automations: { ...state.automations, [a.id]: next }, runs: stopped.runs },
+          value: next,
+          outbox: [automationOutbox(next), ...stopped.outbox]
+        }
       }
 
       case "automation.delete": {
@@ -318,11 +339,12 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const { [a.id]: _gone, ...rest } = state.automations
         const chains = { ...state.chains }
         for (const t of a.triggers) delete chains[t.id]
+        const stopped = cancelQueued(state.runs, a.id, ctx.now, "the automation was deleted")
         return {
           ok: true,
-          state: { ...state, automations: rest, chains },
+          state: { ...state, automations: rest, chains, runs: stopped.runs },
           value: { automation: a.id },
-          outbox: [{ kind: "automation.delete", entity: a.id, payload: { id: a.id } }]
+          outbox: [{ kind: "automation.delete", entity: a.id, payload: { id: a.id } }, ...stopped.outbox]
         }
       }
 

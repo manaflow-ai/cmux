@@ -132,7 +132,7 @@ export const AutomationWebhookGet = def({
   class: "read",
   risk: "read",
   target: "automation",
-  principals: ["session", "install"],
+  principals: ["session"],
   params: Schema.Struct({ automation: AutomationId, trigger: TriggerId }),
   result: Schema.Struct({
     automation: AutomationId,
@@ -142,7 +142,7 @@ export const AutomationWebhookGet = def({
     scheme: Schema.String
   }),
   errors: ["auth.unauthenticated", "auth.forbidden", "selector.not_found"],
-  docs: "Read a webhook trigger's endpoint path and signing secret (HMAC-SHA256 over '<x-cmux-timestamp>.<body>', header x-cmux-signature: v1=<hex>).",
+  docs: "Read a webhook trigger's endpoint path and signing secret (HMAC-SHA256 over '<x-cmux-timestamp>.<body>', header x-cmux-signature: v1=<hex>). Human sessions only: the secret starts runs.",
   cli: { path: "automation webhook", visible: true },
   mcp: { expose: "never", group: "automation" }
 })
