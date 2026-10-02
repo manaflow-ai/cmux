@@ -22,6 +22,7 @@ import {
 } from "../hooks/useCatalogs";
 
 import { selectHarnessLocale, formatHarnessMessage, renderHarnessMessage } from "../harness-i18n";
+import { agentChatText } from "../i18n";
 
 const readProviderOptions = readStoredProviderOptions;
 
@@ -139,7 +140,7 @@ export function Composer() {
     <section id="composer-view">
       {!ready ? (
         <div className="connection-notice" role="status">
-          {connectionEpoch > 0 ? "Connection lost. Reconnecting… Your draft stays here." : "Connecting to cmux…"}
+          {connectionEpoch > 0 ? agentChatText("connectionLostReconnecting") : agentChatText("connectingToCmux")}
         </div>
       ) : null}
       <div id="composer-card">
