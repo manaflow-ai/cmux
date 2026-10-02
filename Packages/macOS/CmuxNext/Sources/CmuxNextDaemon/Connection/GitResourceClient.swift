@@ -9,8 +9,9 @@ public struct GitResourceClient: Sendable {
     public let connection: DaemonConnection
 
     /// A git read walks the working tree, so it may take longer than a
-    /// control command's deadline.
-    public static let timeout: Duration = .seconds(15)
+    /// control command's deadline. The session host bounds each git process
+    /// at 20 s, and a branch diff runs a few in turn.
+    public static let timeout: Duration = .seconds(30)
 
     public init(connection: DaemonConnection) {
         self.connection = connection

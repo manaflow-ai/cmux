@@ -10,9 +10,9 @@ extension PaneController {
         guard let view = services.agentTabs.view(for: key) else { return nil }
         // Set on each show, so a tab moved to another pane opens files there.
         view.model.onOpenFile = { [weak self] url, target in await self?.openAgentFile(url, target) ?? false }
-        // acpmux runs its agents on this Mac, so a session's folder is read by the local session host.
-        let daemon = services.daemon
-        view.model.onGit = { request in try await daemon.agentPaneGit(request) }
+        // A local session's folder is read by the local session host; the page refuses cloud sessions.
+        let git = services.agentGit
+        view.model.onGit = { request in try await git.read(request) }
         return .agent(view)
     }
 

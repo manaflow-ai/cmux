@@ -532,8 +532,12 @@ export class AcpmuxDirectClient {
   private git(method: "git.diff" | "git.status", params: Record<string, unknown>): Promise<unknown> {
     const sessionId = this.selectedSessionId;
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
-    const cwd = text(summary?.cwd) ?? text(this.sessions.find((session) => session.sessionId === sessionId)?.cwd);
+    const entry = this.sessions.find((session) => session.sessionId === sessionId);
+    const cwd = text(summary?.cwd) ?? text(entry?.cwd);
     if (!sessionId || !cwd) return Promise.reject(new Error("This chat has no working folder to read changes from"));
+    // The native host reads folders on this Mac; a cloud session's folder is on its machine.
+    if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
+      return Promise.reject(new Error("This chat runs on another machine, so its changes can't be read here yet"));
     return this.gitRoute === "daemon"
       ? this.request(method, { sessionId, cwd, ...params })
       : postNative(method, { cwd, ...params });
