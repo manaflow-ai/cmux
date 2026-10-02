@@ -190,15 +190,31 @@ final class PortScanner: @unchecked Sendable {
             guard scanningEnabled else { return }
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != nil else { return }
-            pendingKicks.insert(key)
-            scansRemainingForPendingKicks = Self.minimumScansPerKick
-
-            if !burstActive {
-                startCoalesce()
-            }
-            // If a burst is active, its later scans pay down this count. A
-            // follow-up burst starts when too few scans remained.
+            enqueueKicksLocked([key])
         }
+    }
+
+    /// Queues `keys` for the scans a kick owes. Already on `queue`.
+    private func enqueueKicksLocked(_ keys: [PanelKey]) {
+        pendingKicks.formUnion(keys)
+        scansRemainingForPendingKicks = Self.minimumScansPerKick
+
+        if !burstActive {
+            startCoalesce()
+        }
+        // If a burst is active, its later scans pay down this count. A
+        // follow-up burst starts when too few scans remained.
+    }
+
+    /// Which of a panel's listeners badge it depends on which processes are
+    /// agent roots, so a root registered or removed makes the ports the panel
+    /// last published stale. Rescans the workspace's panels instead of waiting
+    /// for a command to kick them. Already on `queue`.
+    private func kickPanelsLocked(inWorkspace workspaceId: UUID) {
+        guard scanningEnabled else { return }
+        let keys = ttyNames.keys.filter { $0.workspaceId == workspaceId }
+        guard !keys.isEmpty else { return }
+        enqueueKicksLocked(keys)
     }
 
     @MainActor
@@ -712,9 +728,12 @@ final class PortScanner: @unchecked Sendable {
         revision: UInt64
     ) {
         agentRevisionByWorkspace[workspaceId] = revision
-        if agentTrackingState.replaceRoots(agentRoots, workspaceId: workspaceId),
-           !agentRoots.isEmpty {
+        let rootsChanged = agentTrackingState.replaceRoots(agentRoots, workspaceId: workspaceId)
+        if rootsChanged, !agentRoots.isEmpty {
             agentSnapshotReplacementState.begin(workspaceId: workspaceId)
+        }
+        if rootsChanged {
+            kickPanelsLocked(inWorkspace: workspaceId)
         }
         if agentRoots.isEmpty {
             trackedAgentWorkspaces.remove(workspaceId)
