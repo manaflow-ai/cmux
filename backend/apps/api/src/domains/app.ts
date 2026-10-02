@@ -54,6 +54,12 @@ export interface AppConfig {
 export const RESERVED_PUBLISHERS: ReadonlySet<string> = new Set(["cmux", "manaflow-ai"])
 const OPEN_CLAIM_ENVIRONMENTS: ReadonlySet<string> = new Set(["development", "local", "test"])
 const MANIFEST_MAX_BYTES = 64 * 1024
+/**
+ * State is one JSON row (2 MB DO SQLite limit) and every op rewrites it; a
+ * version with 64 scopes of 300-character reasons is about 20 KB. Gap: move
+ * version records to a side table before apps reach this.
+ */
+export const MAX_VERSIONS = 100
 const jsonBytes = (v: unknown) => new TextEncoder().encode(JSON.stringify(v) ?? "").length
 
 const isStaff = (config: AppConfig, p: Principal) => p.kind === "session" && Boolean(p.user && config.staff.has(p.user))
@@ -83,6 +89,8 @@ export const listingView = (state: AppState, installCount = 0, withVersions?: { 
   const versions = Object.values(state.versions)
     .filter((v) => withVersions?.only === undefined || v.version === withVersions.only)
     .sort((a, b) => compareVersions(b.version, a.version))
+    // The publisher's user id stays in owner state.
+    .map(({ published_by: _by, ...pub }) => pub)
   return {
     id: l.id,
     name: l.name,
@@ -178,6 +186,8 @@ export const makeAppDomain = (config: AppConfig): Domain<AppState> => ({
           const declared = parseGithubRepo(m.repository)
           if (!declared || declared.owner !== repo.owner || declared.repo !== repo.repo) return reject("manifest.invalid", "manifest repository differs from repo")
         }
+        // Build metadata has no precedence: 1.0.0+a and 1.0.0+b would be two keys for one version.
+        if (m.version.includes("+")) return reject("manifest.invalid", "version must not carry build metadata (+...)")
         if (v.tag !== `v${m.version}`) return reject("manifest.invalid", `tag ${v.tag} must be v${m.version}`)
         if (!/^https:\/\//.test(v.bundle_url)) return reject("validation.invalid", "bundle_url must be https")
         const problems = manifestProblems(m, v.manifest)
@@ -214,6 +224,7 @@ export const makeAppDomain = (config: AppConfig): Domain<AppState> => ({
         }
         // Versions are immutable and never reused, also after a yank.
         if (state.versions[m.version]) return reject("version.exists", `version ${m.version} was already published`, { version: m.version })
+        if (Object.keys(state.versions).length >= MAX_VERSIONS) return reject("version.limit", `at most ${MAX_VERSIONS} versions per app for now`)
 
         const previous = latestOf(state.versions)
         const prevScopes = previous ? Object.keys(state.versions[previous]!.scopes).concat(Object.keys(state.versions[previous]!.optional_scopes)) : []

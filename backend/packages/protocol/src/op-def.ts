@@ -21,6 +21,8 @@ export interface CloudOpDef<P extends Schema.Top = Schema.Top, R extends Schema.
    * ("user" | "team", absent = "user") picks the owner; `owner` is the user one.
    */
   readonly scopeOwners?: { readonly user: DoOwner; readonly team: DoOwner }
+  /** Risk when the team owner decides (team installs change a shared set); default `risk`. */
+  readonly teamRisk?: CloudOpDef["risk"]
   readonly class: "read" | "mutation"
   readonly risk: "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
   readonly target: string
@@ -52,3 +54,7 @@ export const resolveOwner = (op: CloudOpDef, params: unknown): CloudOwner => {
 /** True when `owner` may hold this op (its owner, or one of its scope owners). */
 export const heldBy = (op: CloudOpDef, owner: CloudOwner): boolean =>
   op.owner === owner || op.scopeOwners?.user === owner || op.scopeOwners?.team === owner
+
+/** The risk class an owner checks against the grant: `teamRisk` on the team scope owner, else `risk`. */
+export const riskFor = (op: CloudOpDef, owner: CloudOwner): CloudOpDef["risk"] =>
+  op.scopeOwners && op.teamRisk && op.scopeOwners.team === owner && op.scopeOwners.user !== owner ? op.teamRisk : op.risk

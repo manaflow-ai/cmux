@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudOpByName, connectionInternalOps, heldBy, schedulerInternalOps, type CloudOpDef } from "@cmux/protocol"
+import { cloudOpByName, connectionInternalOps, heldBy, riskFor, schedulerInternalOps, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -46,7 +46,8 @@ export const admit = (
     if (!grant) return { code: "auth.forbidden", message: "grant not found" }
     if (grant.revoked_at !== null) return { code: "auth.forbidden", message: "grant revoked" }
     if (grant.expires_at !== null && grant.expires_at <= now) return { code: "auth.forbidden", message: "grant expired" }
-    if (!grant.op_classes.includes(def.risk)) return { code: "auth.forbidden", message: `grant does not cover ${def.risk}` }
+    const risk = riskFor(def, owner)
+    if (!grant.op_classes.includes(risk)) return { code: "auth.forbidden", message: `grant does not cover ${risk}` }
   }
   return undefined
 }

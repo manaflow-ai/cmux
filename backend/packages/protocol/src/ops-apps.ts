@@ -99,6 +99,7 @@ export const AppInstallOp = def({
   scopeOwners,
   class: "mutation",
   risk: "mutate-own",
+  teamRisk: "mutate-shared",
   target: "app",
   principals: ["session", "install"],
   params: Schema.Struct({
@@ -109,8 +110,8 @@ export const AppInstallOp = def({
     accept_unverified: Schema.optionalKey(Schema.Boolean)
   }),
   result: AppInstallOutcome,
-  errors: [...mutationErrors, "selector.not_found", "app.yanked", "app.unverified", "scope.invalid", "policy.denied"],
-  docs: "Install an app: the newest non-yanked version in `version_range` (default any), granting `scopes` (every required scope, plus any optional ones). Team installs need a team admin and pass the team app policy. An agent's install returns `approval_required` and waits for the user.",
+  errors: [...mutationErrors, "selector.not_found", "app.yanked", "app.unverified", "scope.invalid", "policy.denied", "approval.limit"],
+  docs: "Install an app: the newest non-yanked version in `version_range` (default any), granting `scopes` (every required scope, plus any optional ones). Team installs (risk mutate-shared) need a team admin and pass the team app policy. An agent's install returns `approval_required` and waits for the user; an identical pending request is returned again, and at most 20 wait per owner.",
   cli: { path: "apps install", visible: true },
   mcp: { expose: "default", group: "app" }
 })
@@ -121,6 +122,7 @@ export const AppUpdate = def({
   scopeOwners,
   class: "mutation",
   risk: "mutate-own",
+  teamRisk: "mutate-shared",
   target: "app",
   principals: ["session", "install"],
   params: Schema.Struct({
@@ -130,7 +132,7 @@ export const AppUpdate = def({
     scope: ScopeParam
   }),
   result: AppInstallOutcome,
-  errors: [...mutationErrors, "selector.not_found", "app.yanked", "scope.consent_required", "scope.invalid", "policy.denied"],
+  errors: [...mutationErrors, "selector.not_found", "app.yanked", "scope.consent_required", "scope.invalid", "policy.denied", "approval.limit"],
   docs: "Move an installed app to `version` (default: newest non-yanked in its range). New required scopes must be in `accept_scopes`. An agent's update that grows the scope set returns `approval_required`.",
   cli: { path: "apps update", visible: true },
   mcp: { expose: "default", group: "app" }
@@ -142,6 +144,7 @@ export const AppRemove = def({
   scopeOwners,
   class: "mutation",
   risk: "mutate-own",
+  teamRisk: "mutate-shared",
   target: "app",
   principals: ["session", "install"],
   params: Schema.Struct({ app: AppId, scope: ScopeParam }),
@@ -158,6 +161,7 @@ export const AppGrantSet = def({
   scopeOwners,
   class: "mutation",
   risk: "mutate-own",
+  teamRisk: "mutate-shared",
   target: "app",
   principals: ["session"],
   params: Schema.Struct({ app: AppId, scopes: Scopes, scope: ScopeParam }),
@@ -174,12 +178,13 @@ export const AppApprovalDecide = def({
   scopeOwners,
   class: "mutation",
   risk: "mutate-own",
+  teamRisk: "mutate-shared",
   target: "app",
   principals: ["session"],
   params: Schema.Struct({ approval: ApprovalId, decision: Schema.Literals(["approve", "deny"]), scope: ScopeParam }),
   result: Schema.Struct({ approval: AppApproval, install: Schema.NullOr(AppInstall) }),
-  errors: [...mutationErrors, "selector.not_found", "approval.decided", "app.yanked", "policy.denied"],
-  docs: "Approve or deny an agent's pending app install or scope growth. Human sessions only, never from an MCP client; an expired request is marked expired.",
+  errors: [...mutationErrors, "selector.not_found", "approval.decided", "approval.stale", "app.yanked", "policy.denied"],
+  docs: "Approve or deny an agent's pending app install or scope growth. Human sessions only, never from an MCP client. An expired request is marked expired (status in the result); a request whose install changed since is refused as stale.",
   cli: { path: "apps approval decide", visible: true },
   mcp: { expose: "never", group: "app" }
 })
@@ -219,8 +224,8 @@ export const AppVersionSubmit = def({
     attestation_digest: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(200)))
   }),
   result: AppListing,
-  errors: [...mutationErrors, "app.claim_forbidden", "app.not_publisher", "version.exists", "manifest.invalid"],
-  docs: "Register a release: the manifest at tag `v<version>` of a public GitHub repository owned by the app's publisher. A version is never reused, even after a yank.",
+  errors: [...mutationErrors, "app.claim_forbidden", "app.not_publisher", "version.exists", "version.limit", "manifest.invalid"],
+  docs: "Register a release: the manifest at tag `v<version>` of a public GitHub repository owned by the app's publisher. A version is never reused, even after a yank; build metadata (`+…`) is refused. At most 100 versions per app for now.",
   cli: { path: "apps publish", visible: true },
   mcp: { expose: "never", group: "app" }
 })

@@ -89,17 +89,21 @@ const resolvedOf = (params: unknown): ResolvedRelease | null | "invalid" => {
   return Exit.isSuccess(exit) ? exit.value : "invalid"
 }
 
-const tierAllowed = (policy: AppPolicy | undefined, tier: AppTier, acceptUnverified: boolean): boolean => {
+/** Tiers a team admits when its policy names none: unverified apps need the tier listed explicitly. */
+const DEFAULT_TEAM_TIERS: ReadonlyArray<AppTier> = ["first-party", "verified", "community"]
+/** Pending agent requests per owner; more are refused until some are decided or expire. */
+export const MAX_PENDING_APPROVALS = 20
+
+const tierAllowed = (policy: AppPolicy, tier: AppTier, acceptUnverified: boolean): boolean => {
   if (tier === "unverified" && !acceptUnverified) return false
-  const allowed = policy?.allowed_tiers
-  return allowed ? allowed.includes(tier) : true
+  return (policy.allowed_tiers ?? DEFAULT_TEAM_TIERS).includes(tier)
 }
 
 /** The team app policy and the unverified warning, for an install, update or approval. */
 const policyProblem = (owner: InstallsOwner, policy: AppPolicy | undefined, app: string, tier: AppTier, acceptUnverified: boolean) => {
   if (tier === "unverified" && !acceptUnverified) return reject("app.unverified", `${app} is unverified; install it only with accept_unverified after warning the user`)
   if (owner.scope === "team") {
-    const p = policy ?? defaultPolicy
+    const p: AppPolicy = policy ?? defaultPolicy
     if (p.blocklist.includes(app)) return reject("policy.denied", `the team app policy blocks ${app}`)
     if (p.allowlist && !p.allowlist.includes(app)) return reject("policy.denied", `the team app policy allows only listed apps`)
     if (!tierAllowed(p, tier, acceptUnverified)) return reject("policy.denied", `the team app policy does not allow ${tier} apps`)
@@ -157,6 +161,14 @@ type Result = ReduceResult<AppsSlice>
 
 const approvalRequired = (slice: AppsSlice, owner: InstallsOwner, ctx: ReduceContext, kind: AppApproval["kind"], r: ResolvedRelease, scopes: ReadonlyArray<string>, added: ReadonlyArray<string>, range: string): Result => {
   const p = ctx.principal
+  const pending = Object.values(slice.approvals).filter((a) => a.status === "pending" && a.expires_at > ctx.now)
+  const baseVersion = slice.installs[r.app]?.version ?? null
+  // The same request again (a retry with a new key, a looping agent) gets the waiting one back.
+  const same = pending.find(
+    (a) => a.kind === kind && a.app === r.app && a.version === r.version && a.base_version === baseVersion && a.requested_by.identity === p.identity && sameSet(a.scopes, scopes)
+  )
+  if (same) return { ok: true, state: slice, value: { status: "approval_required", approval: same }, changed: false }
+  if (pending.length >= MAX_PENDING_APPROVALS) return reject("approval.limit", `${MAX_PENDING_APPROVALS} app requests already wait for a decision`, { pending: pending.length })
   const approval: AppApproval = {
     id: ctx.newId("appr"),
     kind,
@@ -166,6 +178,7 @@ const approvalRequired = (slice: AppsSlice, owner: InstallsOwner, ctx: ReduceCon
     version_range: range,
     scopes: uniqSorted(scopes),
     added: uniqSorted(added),
+    base_version: baseVersion,
     requested_by: { identity: p.identity, install: p.install ?? null, agent: p.agent ?? null, origin: ctx.origin },
     status: "pending",
     created_at: ctx.now,
@@ -263,10 +276,18 @@ export const reduceApps = (slice: AppsSlice, op: string, params: unknown, ctx: R
       const a = slice.approvals[d.value.approval]
       if (!a) return reject("selector.not_found", "approval not found")
       if (a.status !== "pending") return reject("approval.decided", `this request was already ${a.status}`, { status: a.status })
-      if (a.expires_at <= ctx.now) return reject("approval.decided", "this request expired; the agent must ask again", { status: "expired" })
+      if (a.expires_at <= ctx.now) {
+        // Recorded, so an agent waiting on the request sees it end.
+        const expired: AppApproval = { ...a, status: "expired", decided_by: null, decided_at: ctx.now }
+        return { ok: true, state: { ...slice, approvals: { ...slice.approvals, [a.id]: expired } }, value: { approval: expired, install: null } }
+      }
       const decided: AppApproval = { ...a, status: d.value.decision === "approve" ? "approved" : "denied", decided_by: p.identity, decided_at: ctx.now }
       const approvals = { ...slice.approvals, [a.id]: decided }
       if (d.value.decision === "deny") return { ok: true, state: { ...slice, approvals }, value: { approval: decided, install: null } }
+      // The install it was based on must be unchanged: approving must not undo a newer update or a removal.
+      if ((slice.installs[a.app]?.version ?? null) !== a.base_version) {
+        return reject("approval.stale", `${a.app} changed since the request (${a.base_version ?? "not installed"} then, ${slice.installs[a.app]?.version ?? "not installed"} now); deny it and let the agent ask again`)
+      }
       // Re-check against the release as it is now: yanked since, policy changed since.
       const r = resolvedOf(params)
       if (r === "invalid") return reject("operation.failed", "the release lookup returned an invalid record")

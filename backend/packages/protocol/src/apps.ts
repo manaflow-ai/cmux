@@ -58,7 +58,8 @@ export const AppVersionRecord = Schema.Struct({
   bundle_sha256: Schema.String,
   attestation_digest: Schema.NullOr(Schema.String),
   published_at: Schema.Int,
-  published_by: UserId,
+  /** Owner state only; never in public views (app.info). */
+  published_by: Schema.optionalKey(UserId),
   yanked: Schema.Boolean,
   yanked_at: Schema.NullOr(Schema.Int),
   yank_reason: Schema.NullOr(Schema.String)
@@ -139,6 +140,8 @@ export const AppApproval = Schema.Struct({
   /** The scopes the install would hold after approval; `added` are the new ones the human is asked about. */
   scopes: Schema.Array(Schema.String),
   added: Schema.Array(Schema.String),
+  /** The installed version the request was based on (null = not installed); approval is refused if it changed. */
+  base_version: Schema.NullOr(AppVersion),
   requested_by: Schema.Struct({ identity: Schema.String, install: Schema.NullOr(Schema.String), agent: Schema.NullOr(Schema.String), origin: Schema.String }),
   status: Schema.Literals(["pending", "approved", "denied", "expired"]),
   created_at: Schema.Int,
@@ -150,7 +153,7 @@ export type AppApproval = typeof AppApproval.Type
 
 /** Team app policy (spec section 10 "Team admins can restrict installs to tiers or an allowlist"). */
 export const AppPolicy = Schema.Struct({
-  /** Null = every tier except `unverified`. */
+  /** Null = every tier except `unverified` (a team admits unverified apps only by listing the tier). */
   allowed_tiers: Schema.NullOr(Schema.Array(AppTier)),
   /** Null = any app the tiers allow; a list = only these app ids. */
   allowlist: Schema.NullOr(Schema.Array(AppId)),

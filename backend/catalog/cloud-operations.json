@@ -83,6 +83,16 @@
             }
           }
         },
+        "base_version": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "AppVersion"
+            }
+          }
+        },
         "requested_by": {
           "required": true,
           "type": {
@@ -675,7 +685,7 @@
           }
         },
         "published_by": {
-          "required": true,
+          "required": false,
           "type": {
             "kind": "ref",
             "name": "UserId"
@@ -2437,6 +2447,7 @@
       "errors": [
         "app.yanked",
         "approval.decided",
+        "approval.stale",
         "auth.forbidden",
         "auth.unauthenticated",
         "idempotency.conflict",
@@ -2450,6 +2461,7 @@
         "user": "cloud:UserDO",
         "team": "cloud:TeamDO"
       },
+      "team_risk": "mutate-shared",
       "risk": "mutate-own",
       "principals": [
         "session"
@@ -2471,7 +2483,7 @@
         "expose": "never",
         "group": "app"
       },
-      "docs": "Approve or deny an agent's pending app install or scope growth. Human sessions only, never from an MCP client; an expired request is marked expired.",
+      "docs": "Approve or deny an agent's pending app install or scope growth. Human sessions only, never from an MCP client. An expired request is marked expired (status in the result); a request whose install changed since is refused as stale.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -2599,6 +2611,16 @@
                   "type": "string"
                 }
               },
+              "base_version": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AppVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "requested_by": {
                 "type": "object",
                 "properties": {
@@ -2682,6 +2704,7 @@
               "version_range",
               "scopes",
               "added",
+              "base_version",
               "requested_by",
               "status",
               "created_at",
@@ -2846,6 +2869,7 @@
         "user": "cloud:UserDO",
         "team": "cloud:TeamDO"
       },
+      "team_risk": "mutate-shared",
       "risk": "mutate-own",
       "principals": [
         "session"
@@ -3237,7 +3261,6 @@
               "bundle_sha256",
               "attestation_digest",
               "published_at",
-              "published_by",
               "yanked",
               "yanked_at",
               "yank_reason"
@@ -3406,6 +3429,7 @@
       "errors": [
         "app.unverified",
         "app.yanked",
+        "approval.limit",
         "auth.forbidden",
         "auth.unauthenticated",
         "idempotency.conflict",
@@ -3420,6 +3444,7 @@
         "user": "cloud:UserDO",
         "team": "cloud:TeamDO"
       },
+      "team_risk": "mutate-shared",
       "risk": "mutate-own",
       "principals": [
         "session",
@@ -3442,7 +3467,7 @@
         "expose": "default",
         "group": "app"
       },
-      "docs": "Install an app: the newest non-yanked version in `version_range` (default any), granting `scopes` (every required scope, plus any optional ones). Team installs need a team admin and pass the team app policy. An agent's install returns `approval_required` and waits for the user.",
+      "docs": "Install an app: the newest non-yanked version in `version_range` (default any), granting `scopes` (every required scope, plus any optional ones). Team installs (risk mutate-shared) need a team admin and pass the team app policy. An agent's install returns `approval_required` and waits for the user; an identical pending request is returned again, and at most 20 wait per owner.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -3649,6 +3674,16 @@
                   "type": "string"
                 }
               },
+              "base_version": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AppVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "requested_by": {
                 "type": "object",
                 "properties": {
@@ -3732,6 +3767,7 @@
               "version_range",
               "scopes",
               "added",
+              "base_version",
               "requested_by",
               "status",
               "created_at",
@@ -4013,6 +4049,16 @@
                   "type": "string"
                 }
               },
+              "base_version": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AppVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "requested_by": {
                 "type": "object",
                 "properties": {
@@ -4096,6 +4142,7 @@
               "version_range",
               "scopes",
               "added",
+              "base_version",
               "requested_by",
               "status",
               "created_at",
@@ -4436,7 +4483,6 @@
               "bundle_sha256",
               "attestation_digest",
               "published_at",
-              "published_by",
               "yanked",
               "yanked_at",
               "yank_reason"
@@ -4825,6 +4871,7 @@
         "user": "cloud:UserDO",
         "team": "cloud:TeamDO"
       },
+      "team_risk": "mutate-shared",
       "risk": "mutate-own",
       "principals": [
         "session",
@@ -5193,7 +5240,6 @@
               "bundle_sha256",
               "attestation_digest",
               "published_at",
-              "published_by",
               "yanked",
               "yanked_at",
               "yank_reason"
@@ -5354,6 +5400,7 @@
       },
       "errors": [
         "app.yanked",
+        "approval.limit",
         "auth.forbidden",
         "auth.unauthenticated",
         "idempotency.conflict",
@@ -5369,6 +5416,7 @@
         "user": "cloud:UserDO",
         "team": "cloud:TeamDO"
       },
+      "team_risk": "mutate-shared",
       "risk": "mutate-own",
       "principals": [
         "session",
@@ -5595,6 +5643,16 @@
                   "type": "string"
                 }
               },
+              "base_version": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AppVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "requested_by": {
                 "type": "object",
                 "properties": {
@@ -5678,6 +5736,7 @@
               "version_range",
               "scopes",
               "added",
+              "base_version",
               "requested_by",
               "status",
               "created_at",
@@ -5819,7 +5878,8 @@
         "manifest.invalid",
         "revision.conflict",
         "validation.invalid",
-        "version.exists"
+        "version.exists",
+        "version.limit"
       ],
       "owner": "cloud:AppDO",
       "risk": "mutate-shared",
@@ -5844,7 +5904,7 @@
         "expose": "never",
         "group": "app"
       },
-      "docs": "Register a release: the manifest at tag `v<version>` of a public GitHub repository owned by the app's publisher. A version is never reused, even after a yank.",
+      "docs": "Register a release: the manifest at tag `v<version>` of a public GitHub repository owned by the app's publisher. A version is never reused, even after a yank; build metadata (`+…`) is refused. At most 100 versions per app for now.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -6006,7 +6066,6 @@
               "bundle_sha256",
               "attestation_digest",
               "published_at",
-              "published_by",
               "yanked",
               "yanked_at",
               "yank_reason"
@@ -6351,7 +6410,6 @@
               "bundle_sha256",
               "attestation_digest",
               "published_at",
-              "published_by",
               "yanked",
               "yanked_at",
               "yank_reason"

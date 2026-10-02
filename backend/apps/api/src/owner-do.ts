@@ -122,8 +122,25 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return undefined
   }
 
-  /** Runs `resolve`; a failed lookup answers the requester with a retryable reject (nothing recorded). */
+  /**
+   * Ops of this object run one at a time, in arrival order, including their
+   * `resolve` lookup: an op that awaits AppDO must not let a later op from the
+   * same connection commit first (the client's intent log relies on order).
+   */
+  private opChain: Promise<unknown> = Promise.resolve()
+  private serialized<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.opChain.then(work, work)
+    this.opChain = run.catch(() => undefined)
+    return run
+  }
+
+  /**
+   * Runs `resolve` when the engine will decide this op (not for a replayed key
+   * or a refused principal; those answer from the ledger or authorization
+   * without a lookup). A failed lookup answers with a retryable reject (nothing recorded).
+   */
   private async resolveFor(entity: string, engine: OwnerEngine<S>, principal: Principal, frame: OpFrame, deliver: (f: OwnerFrame) => void): Promise<{ ok: true; resolved: unknown } | { ok: false }> {
+    if (!engine.needsDecision(principal, frame)) return { ok: true, resolved: undefined }
     try {
       return { ok: true, resolved: await this.resolve(entity, engine.currentState, frame.op, frame.params, principal) }
     } catch (e) {
@@ -192,13 +209,15 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   /** RPC: one op from an authenticated principal. Requester frames return; events fan out to subscribers. */
   async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     const engine = this.bind(entity)
-    const frames: Array<OwnerFrame> = []
-    const r = await this.resolveFor(entity, engine, principal, frame, (f) => frames.push(f))
-    if (!r.ok) return { frames }
-    engine.submit(principal, frame, (target, f) => (target === "all" ? this.broadcast(f) : frames.push(f)), r.resolved === undefined ? {} : { resolved: r.resolved })
-    this.afterCommit()
-    this.afterOp(principal, frame.op, frames)
-    return { frames }
+    return this.serialized(async () => {
+      const frames: Array<OwnerFrame> = []
+      const r = await this.resolveFor(entity, engine, principal, frame, (f) => frames.push(f))
+      if (!r.ok) return { frames }
+      engine.submit(principal, frame, (target, f) => (target === "all" ? this.broadcast(f) : frames.push(f)), r.resolved === undefined ? {} : { resolved: r.resolved })
+      this.afterCommit()
+      this.afterOp(principal, frame.op, frames)
+      return { frames }
+    })
   }
 
   async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
@@ -261,12 +280,14 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         ws.serializeAttachment(a)
         return
       case "op": {
-        const frames: Array<OwnerFrame> = []
-        const r = await this.resolveFor(row.entity, engine, a.principal, frame as OpFrame, (f) => safeSend(ws, JSON.stringify(f)))
-        if (!r.ok) return
-        engine.submit(a.principal, frame as OpFrame, (target, f) => (target === "all" ? this.broadcast(f) : (frames.push(f), safeSend(ws, JSON.stringify(f)))), r.resolved === undefined ? {} : { resolved: r.resolved })
-        this.afterCommit()
-        this.afterOp(a.principal, (frame as OpFrame).op, frames)
+        await this.serialized(async () => {
+          const frames: Array<OwnerFrame> = []
+          const r = await this.resolveFor(row.entity, engine, a.principal, frame as OpFrame, (f) => safeSend(ws, JSON.stringify(f)))
+          if (!r.ok) return
+          engine.submit(a.principal, frame as OpFrame, (target, f) => (target === "all" ? this.broadcast(f) : (frames.push(f), safeSend(ws, JSON.stringify(f)))), r.resolved === undefined ? {} : { resolved: r.resolved })
+          this.afterCommit()
+          this.afterOp(a.principal, (frame as OpFrame).op, frames)
+        })
         return
       }
       default:

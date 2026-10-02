@@ -96,7 +96,9 @@ describe("app store over the API (workerd)", { timeout: 60_000 }, () => {
     expect((await op(tok, "app.update", { app, version: "1.1.0" })).json.error.code).toBe("app.yanked")
     expect((await op(tok, "app.install", { app, version_range: "1.1.0", scopes: ["workspace:read"], accept_unverified: true })).json.error.code).toBe("selector.not_found")
 
-    // Team install in the personal team, then the team policy blocks it.
+    // Team install in the personal team (unverified needs the tier in the team policy), then the policy blocks it.
+    expect((await op(tok, "app.install", { app, scope: "team", scopes: ["workspace:read"], accept_unverified: true, version_range: "1.0.0" })).json.error.code).toBe("policy.denied")
+    expect((await op(tok, "app.policy.set", { allowed_tiers: ["community", "unverified"] })).json.ok).toBe(true)
     const t1 = await op(tok, "app.install", { app, scope: "team", scopes: ["workspace:read"], accept_unverified: true, version_range: "1.0.0" })
     expect(t1.json).toMatchObject({ ok: true, stream: expect.stringMatching(/^team:/), value: { status: "installed", install: { scope: "team", version: "1.0.0" } } })
     expect((await op(tok, "app.policy.set", { blocklist: [app] })).json.ok).toBe(true)
@@ -111,6 +113,31 @@ describe("app store over the API (workerd)", { timeout: 60_000 }, () => {
     await op(other, "user.ensure", {})
     expect((await submit(other, app, "2.0.0")).json.error.code).toBe("app.not_publisher")
     expect((await op(other, "app.version.yank", { app, version: "1.0.0", reason: "x" })).json.error.code).toBe("app.not_publisher")
+  })
+
+  it("ops on one socket commit in order, even when the first awaits the AppDO lookup", async () => {
+    const tok = await sessionToken(`apps-${crypto.randomUUID()}`)
+    await op(tok, "user.ensure", {})
+    const app = `acme${crypto.randomUUID().slice(0, 8)}/ordered`
+    await submit(tok, app, "1.0.0")
+    const res = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${tok}` } })
+    expect(res.status).toBe(101)
+    const ws = res.webSocket!
+    const replies = new Map<string, any>()
+    let wake: (() => void) | undefined
+    ws.addEventListener("message", (e) => {
+      const f = JSON.parse(e.data as string)
+      if (f.t === "result" || f.t === "reject") replies.set(f.idempotency_key, f)
+      wake?.()
+    })
+    ws.accept()
+    const send = (key: string, name: string, params: unknown) => ws.send(JSON.stringify({ t: "op", op: name, params, idempotency_key: key, origin: "user" }))
+    send("k-install", "app.install", { app, scopes: ["workspace:read"], accept_unverified: true })
+    send("k-grant", "app.grant.set", { app, scopes: ["workspace:read", "notification:post"] })
+    while (replies.size < 2) await new Promise<void>((r) => (wake = r))
+    expect(replies.get("k-install")).toMatchObject({ t: "result" })
+    expect(replies.get("k-grant")).toMatchObject({ t: "result", value: { scopes_granted: ["notification:post", "workspace:read"] } })
+    ws.close()
   })
 
   it("search answers owner.unreachable without the read-only Hyperdrive binding, and validates params", async () => {

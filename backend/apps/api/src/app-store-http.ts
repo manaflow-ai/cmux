@@ -32,6 +32,8 @@ export const appStoreRead = (def: CloudOpDef, principal: Principal, params: unkn
     if (def.owner === "cloud:planetscale") {
       const d = Schema.decodeUnknownExit(AppSearch.params)(params ?? {})
       if (Exit.isFailure(d)) return yield* new BadRequest({ code: "validation.invalid", message: `invalid params: ${String(d.cause)}` })
+      // A revoked install is refused here too (UserDO answers for its grant).
+      yield* principalFor(def.owner, principal)
       const r = yield* Effect.promise(() => searchApps(env, d.value))
       if (!r.ok) return yield* unreachable(r.message)
       return { value: r.value, stream: "planetscale:apps", revision: "0" }

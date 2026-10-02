@@ -18,7 +18,7 @@ import { automationOps } from "./automation-ops.ts"
 import { integrationOps } from "./integrations.ts"
 import { appOps } from "./ops-apps.ts"
 
-export { def, heldBy, mutationErrors, resolveOwner, type CloudOpDef, type CloudOwner, type DoOwner } from "./op-def.ts"
+export { def, heldBy, mutationErrors, resolveOwner, riskFor, type CloudOpDef, type CloudOwner, type DoOwner } from "./op-def.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 
 

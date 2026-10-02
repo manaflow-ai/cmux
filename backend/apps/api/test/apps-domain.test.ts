@@ -91,6 +91,13 @@ describe("AppDO reducer", () => {
     expect((r.outbox![1]!.payload as { manifest: unknown }).manifest).toEqual(manifest("1.0.0"))
   })
 
+  it("refuses build metadata (no precedence) and keeps the publisher's user id out of public views", () => {
+    expect(() => appApply(devDomain, devDomain.initial(), alice, "app.version.submit", { ...submitParams("1.0.0+b1"), tag: "v1.0.0+b1" })).toThrow(/build metadata/)
+    const r = appApply(devDomain, devDomain.initial(), alice, "app.version.submit", submitParams("1.0.0"))
+    expect(r.state.versions["1.0.0"]!.published_by).toBe(alice.user)
+    expect((r.value as { versions: Array<Record<string, unknown>> }).versions[0]).not.toHaveProperty("published_by")
+  })
+
   it("rejects version reuse, also after a yank", () => {
     const s = published("1.0.0")
     expect(() => appApply(devDomain, s, alice, "app.version.submit", submitParams("1.0.0"))).toThrow(/already published/)
@@ -277,7 +284,34 @@ describe("agent approvals (D48)", () => {
     const denied = apply(req.state, alice, "app.approval.decide", { approval: id, decision: "deny" })
     expect(denied.state.installs).toEqual({})
     expect(denied.state.approvals[id]!.status).toBe("denied")
-    expect(code(() => apply(req.state, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }, { now: T0 + 10 * 60_000 }))).toBe("approval.decided")
+    // Expiry is recorded, so a waiting agent sees the request end.
+    const late = apply(req.state, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }, { now: T0 + 10 * 60_000 })
+    expect(late.value).toMatchObject({ approval: { status: "expired" }, install: null })
+    expect(late.state.installs).toEqual({})
+    expect(code(() => apply(late.state, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }))).toBe("approval.decided")
+  })
+
+  it("an identical pending request is returned again, and at most 20 wait", () => {
+    const first = apply(emptyApps, agent, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() })
+    const again = apply(first.state, agent, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }, { now: T0 + 1000 })
+    expect(again.changed).toBe(false)
+    expect((again.value as { approval: { id: string } }).approval.id).toBe((first.value as { approval: { id: string } }).approval.id)
+    let s = first.state
+    for (let i = 1; i < 20; i++) s = apply(s, agent, "app.install", { app: `acme/app${i}`, scopes: ["workspace:read"], resolved: release("1.0.0", { app: `acme/app${i}` }) }).state
+    expect(code(() => apply(s, agent, "app.install", { app: "acme/one-more", scopes: ["workspace:read"], resolved: release("1.0.0", { app: "acme/one-more" }) }))).toBe("approval.limit")
+    // Expired requests stop counting.
+    expect(apply(s, agent, "app.install", { app: "acme/one-more", scopes: ["workspace:read"], resolved: release("1.0.0", { app: "acme/one-more" }) }, { now: T0 + 11 * 60_000 }).value).toMatchObject({ status: "approval_required" })
+  })
+
+  it("approving a request whose install changed since is refused as stale", () => {
+    const s = apply(emptyApps, alice, "app.install", { app: APP, scopes: ["workspace:read"], resolved: release() }).state
+    const req = apply(s, agent, "app.update", { app: APP, accept_scopes: ["notification:post"], resolved: release("1.0.1") })
+    const id = (req.value as { approval: { id: string; base_version: string } }).approval.id
+    expect((req.value as { approval: { base_version: string } }).approval.base_version).toBe("1.0.0")
+    const newer = apply(req.state, alice, "app.update", { app: APP, resolved: release("1.1.0") }).state
+    expect(code(() => apply(newer, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release("1.0.1") }))).toBe("approval.stale")
+    const removed = apply(req.state, alice, "app.remove", { app: APP }).state
+    expect(code(() => apply(removed, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release("1.0.1") }))).toBe("approval.stale")
   })
 
   it("an agent's update that grows scopes needs approval; one that does not applies", () => {
@@ -312,6 +346,23 @@ describe("team installs and the team app policy", () => {
     const id = (req.value as { approval: { id: string } }).approval.id
     const tightened = apply(req.state, alice, "app.policy.set", { blocklist: [APP] }, { owner: team }).state
     expect(code(() => apply(tightened, alice, "app.approval.decide", { approval: id, decision: "approve", resolved: release() }, { owner: team }))).toBe("policy.denied")
+  })
+
+  it("a team admits unverified apps only when its policy lists the tier", () => {
+    const unverified = { app: APP, scopes: ["workspace:read"], accept_unverified: true, resolved: release("1.0.0", { tier: "unverified" }) }
+    expect(code(() => apply(emptyApps, alice, "app.install", unverified, { owner: team }))).toBe("policy.denied")
+    expect(apply(withPolicy({ allowed_tiers: ["community", "unverified"] }), alice, "app.install", unverified, { owner: team }).value).toMatchObject({ status: "installed" })
+  })
+
+  it("team installs need a grant with mutate-shared (install tokens of an admin included)", async () => {
+    const { teamDomain } = await import("../src/domains/team.ts")
+    const state = { team: { id: alice.team!, kind: "personal" as const, display_name: "A" }, members: { [alice.user!]: { user: alice.user!, role: "owner" as const, display_name: "A" } }, hosts: {} }
+    const ownOnly = { ...aliceInstall, grant_classes: ["read", "mutate-own"] }
+    expect(teamDomain.authorize!(state, "app.install", { app: APP, scope: "team" }, ownOnly)?.message).toMatch(/mutate-shared/)
+    expect(teamDomain.authorize!(state, "app.install", { app: APP, scope: "team" }, { ...ownOnly, grant_classes: ["read", "mutate-own", "mutate-shared"] })).toBeUndefined()
+    const { userDomain } = await import("../src/domains/user.ts")
+    const userState = { user: { id: alice.user!, stack_user_id: "s", email: null, display_name: "A", personal_team: alice.team! }, installs: { [aliceInstall.install!]: { id: aliceInstall.install!, grant: aliceInstall.grant!, revoked_at: null } as never }, grants: { [aliceInstall.grant!]: { id: aliceInstall.grant!, grantee: "x", op_classes: ["read", "mutate-own"] as Array<"read" | "mutate-own">, approval: "none" as const, expires_at: null, revoked_at: null, created_from: "install" as const } } }
+    expect(userDomain.authorize!(userState, "app.install", { app: APP }, aliceInstall)).toBeUndefined()
   })
 
   it("policy.set is a team op and an unchanged policy is a no-op", () => {

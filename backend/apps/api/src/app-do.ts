@@ -37,6 +37,13 @@ export class AppDO extends OwnerDO<AppState> {
     return view && view.id === d.value.app ? { ok: true, value: view, revision: "" } : { ok: false, code: "selector.not_found", message: `app ${d.value.app} not found` }
   }
 
+  /** Reads of an id this object never served answer not found without creating storage. */
+  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
+    const row = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
+    if (!row || row.entity !== entity) return { ok: false, code: "selector.not_found", message: `app ${entity} not found` }
+    return super.readOp(entity, principal, op, params)
+  }
+
   /** No live stream yet: clients learn about new versions from UserDO/TeamDO pushes (spec section 9). */
   protected maySubscribe(): boolean {
     return false

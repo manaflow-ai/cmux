@@ -182,6 +182,20 @@ export class OwnerEngine<S, P = unknown> {
     return createHmac("sha256", this.secret).update(identity).update("\u0000").update(key).digest("base64url").slice(0, 22)
   }
 
+  /**
+   * True when `submit` would run the reducer for this frame: the key is not
+   * decided yet and authorization passes. Owners call it before an async
+   * lookup (`SubmitOptions.resolved`), so a retry replays from the ledger and
+   * a refused principal is answered without the lookup. Same synchronous turn
+   * as the following `submit`, or the answer may be stale.
+   */
+  needsDecision(principal: Principal, frame: OpFrame): boolean {
+    if (typeof frame.idempotency_key !== "string" || frame.idempotency_key.length === 0 || frame.idempotency_key.length > 128) return false
+    const prior = this.sql.exec<{ n: number }>(`SELECT 1 AS n FROM own_ledger WHERE identity = ? AND idempotency_key = ?`, principal.identity, frame.idempotency_key)[0]
+    if (prior) return false
+    return !this.domain.authorize?.(this.state, frame.op, frame.params as P, principal)
+  }
+
   /** Handles one op from an authenticated connection. Frames go out through `deliver`. */
   submit(principalIn: Principal, frame: OpFrame, deliver: Deliver, options: SubmitOptions = {}): void {
     const principal = this.options.mutants?.trustClaimedIdentity

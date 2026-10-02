@@ -111,6 +111,7 @@ const entry = (op: CloudOpDef) => {
     errors: [...op.errors].sort(),
     owner: op.owner,
     ...(op.scopeOwners ? { scope_owners: { user: op.scopeOwners.user, team: op.scopeOwners.team } } : {}),
+    ...(op.teamRisk ? { team_risk: op.teamRisk } : {}),
     risk: op.risk,
     principals: op.principals,
     focuses: false,
