@@ -44,6 +44,40 @@ const ACTIVE_STARTED: ReadonlySet<RunState> = new Set(["running", "sleeping", "w
 /** Trigger types this backend fires today; the rest are stored for the UI and marked. */
 export const SUPPORTED_TRIGGERS: ReadonlySet<TriggerInput["type"]> = new Set(["cron", "manual", "continue", "webhook"])
 
+/** Whether this backend fires a trigger: the supported types, plus integration events bound to a connection. */
+export const triggerSupported = (spec: TriggerInput) => SUPPORTED_TRIGGERS.has(spec.type) || (spec.type === "event" && spec.source === "integration" && spec.connection !== undefined)
+
+/** Dot path lookup in a provider payload (filters compare the value as a string). */
+const pathValue = (payload: unknown, path: string): unknown => {
+  let v: unknown = payload
+  for (const k of path.split(".")) {
+    if (v === null || typeof v !== "object") return undefined
+    v = (v as Record<string, unknown>)[k]
+  }
+  return v
+}
+
+/** Event triggers of enabled automations that match a provider event: same connection, event pattern, every filter. */
+export const matchingEventTriggers = (
+  state: SchedulerState,
+  ev: { connection: string; event: string; payload: unknown }
+): Array<{ automation: string; trigger: string }> => {
+  const out: Array<{ automation: string; trigger: string }> = []
+  for (const a of Object.values(state.automations)) {
+    if (!a.enabled) continue
+    for (const t of a.triggers) {
+      const s = t.spec
+      if (t.status !== "active" || s.type !== "event" || s.source !== "integration" || s.connection !== ev.connection) continue
+      const pattern = s.event
+      const eventOk = pattern === "*" || pattern === ev.event || (pattern.endsWith(".*") && ev.event.startsWith(pattern.slice(0, -1)))
+      if (!eventOk) continue
+      if (s.filter && !Object.entries(s.filter).every(([k, v]) => String(pathValue(ev.payload, k)) === v)) continue
+      out.push({ automation: a.id, trigger: t.id })
+    }
+  }
+  return out
+}
+
 const internalByName = new Map(schedulerInternalOps.map((d) => [d.name, d]))
 
 export const publicRun = (r: RunRecord): Run => {
@@ -119,7 +153,7 @@ const storeTriggers = (inputs: ReadonlyArray<TriggerInput>, previous: Automation
     const key = canonicalJson(spec)
     const i = pool.findIndex((t) => canonicalJson(t.spec) === key)
     const kept = i >= 0 ? pool.splice(i, 1)[0] : undefined
-    const status = SUPPORTED_TRIGGERS.has(spec.type) ? ("active" as const) : ("not_yet_supported" as const)
+    const status = triggerSupported(spec) ? ("active" as const) : ("not_yet_supported" as const)
     let next_at: number | null = kept?.next_at ?? null
     if (spec.type === "cron" && (!kept || rescheduleFrom !== undefined)) next_at = nextFire(spec.expr, spec.tz, rescheduleFrom ?? ctx.now)
     if (spec.type !== "cron" && spec.type !== "continue") next_at = null

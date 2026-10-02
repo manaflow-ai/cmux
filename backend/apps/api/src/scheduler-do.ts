@@ -1,6 +1,6 @@
 import type { Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import type { Body, Run } from "@cmux/protocol"
-import { dispatchable, dueFires, publicRun, schedulerDomain, type SchedulerState } from "./domains/scheduler.ts"
+import { dispatchable, dueFires, matchingEventTriggers, publicRun, schedulerDomain, type SchedulerState } from "./domains/scheduler.ts"
 import type { Env } from "./env.ts"
 import type { DeliverResult } from "./ingress/automation-hook.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
@@ -26,6 +26,8 @@ export interface RunReport {
 }
 
 const MAX_RETRY_MS = 5 * 60_000
+/** Trigger payloads kept for a run's input; larger ones are replaced by a truncation marker. */
+const MAX_INPUT_BYTES = 256 * 1024
 
 const rejected = (r: SubmitResult): RejectFrame | undefined => r.frames.find((f): f is RejectFrame => f.t === "reject")
 
@@ -178,6 +180,31 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     if (value.state === "skipped") return { status: "skipped", ...(value.id ? { run: value.id } : {}) }
     if (value.id) this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO run_inputs (run, json, created_at) VALUES (?, ?, ?)`, value.id, JSON.stringify(input ?? null), Date.now())
     return { status: "accepted", ...(value.id ? { run: value.id } : {}) }
+  }
+
+  /**
+   * A provider event from one of this team's connections (ConnectionDO.ingest).
+   * Each matching `event` trigger gets one run, keyed
+   * deliver:<automation>:<trigger>:<connection>:<delivery>, so a provider
+   * redelivery replays. The payload is kept for the run as its input (capped).
+   */
+  async deliverEvent(entity: string, ev: { connection: string; provider: string; event: string; delivery_id: string; payload: unknown }): Promise<{ runs: number }> {
+    const bound = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
+    if (!bound || bound.entity !== entity) return { runs: 0 }
+    const engine = this.bind(entity)
+    let runs = 0
+    for (const { automation, trigger } of matchingEventTriggers(engine.currentState, ev)) {
+      const delivery = `${ev.connection}:${ev.delivery_id}`
+      const res = this.submitSystem("automation.deliver", { automation, trigger, delivery_id: delivery }, `deliver:${automation}:${trigger}:${delivery}`)
+      const out = res.frames.find((f): f is ResultFrame => f.t === "result")
+      const value = out?.value as { id?: string; state?: string; stale?: boolean } | undefined
+      if (!out || out.replayed || !value?.id || value.stale || value.state === "skipped") continue
+      runs++
+      const text = JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, body: ev.payload })
+      const input = text.length <= MAX_INPUT_BYTES ? text : JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, truncated: true })
+      this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO run_inputs (run, json, created_at) VALUES (?, ?, ?)`, value.id, input, Date.now())
+    }
+    return { runs }
   }
 
   /** RPC from a run's Workflow. One key per (run, state, step): a retried step replays. */
