@@ -51,7 +51,8 @@ fn screens_of(panes: &[usize]) -> Vec<Vec<ScreenShape>> {
     for screens in splits(panes) {
         let mut combos: Vec<Vec<ScreenShape>> = vec![Vec::new()];
         for screen in &screens {
-            let mut options = vec![ScreenShape { columns_mode: false, columns: vec![screen.clone()] }];
+            let mut options =
+                vec![ScreenShape { columns_mode: false, columns: vec![screen.clone()] }];
             for columns in splits(screen) {
                 options.push(ScreenShape { columns_mode: true, columns });
             }
