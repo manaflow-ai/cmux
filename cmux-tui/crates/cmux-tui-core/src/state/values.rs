@@ -11,10 +11,10 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Map, Value, json};
 
-use super::resource_store::load_resource_topology;
-use super::state_store::resource_upsert;
-use super::{meta_value, required_meta};
+use super::store::resource_upsert;
 use crate::resource::SessionPublicId;
+use crate::workspace_registry::resource_store::load_resource_topology;
+use crate::workspace_registry::{meta_value, required_meta};
 
 fn extra_mut(value: &mut Value) -> Option<&mut Map<String, Value>> {
     let object = value.as_object_mut()?;
@@ -121,6 +121,26 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
             }
         }
     }
+    // The install id of the app that hosts a frontend-rendered browser.
+    let owner = connection
+        .query_row(
+            "SELECT f.owner FROM resource_tabs AS t
+             JOIN frontend_browser_tabs AS f ON f.browser_id = t.content_id
+             WHERE t.public_id = ?1",
+            [tab_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    if let Some(owner) = owner {
+        fields.insert("owner".into(), json!(owner));
+    }
+    // A keep-layout record (`end-terminals-keep-layout-v1`): restart a shell
+    // in `cwd`. Absent (null) for every other tab, like the other extras.
+    let relaunch = super::kept_tab_store::relaunch_value(connection, tab_id)?;
+    if !relaunch.is_null() {
+        fields.insert("relaunch".into(), relaunch);
+    }
     Ok(fields)
 }
 
@@ -186,7 +206,7 @@ pub(crate) fn decorate_value(
 /// Decorate every ordinary upsert of a change batch.
 pub(crate) fn decorate_changes(connection: &Connection, changes: &mut Value) -> anyhow::Result<()> {
     let Some(changes) = changes.as_array_mut() else { return Ok(()) };
-    if !super::state_store::state_tables_ready(connection)? {
+    if !super::store::state_tables_ready(connection)? {
         return Ok(());
     }
     for change in changes {

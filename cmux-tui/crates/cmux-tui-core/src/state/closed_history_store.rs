@@ -16,14 +16,14 @@ use std::collections::HashSet;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
-use super::resource_store::{ResourceChange, ResourcePatch};
-use super::state_store::{state_delete, state_upsert};
-use super::{new_uuid_v4, unix_epoch_ms};
+use super::store::{state_delete, state_upsert};
+use crate::workspace_registry::resource_store::{ResourceChange, ResourcePatch};
+use crate::workspace_registry::{new_uuid_v4, unix_epoch_ms};
 
 /// Closed items kept per session.
 pub(crate) const MAX_CLOSED_ITEMS: i64 = 50;
 
-pub(super) fn create_closed_history_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_closed_history_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS closed_history (
            closed_id TEXT PRIMARY KEY NOT NULL,
@@ -49,11 +49,11 @@ fn queue_change(transaction: &Transaction<'_>, change: &Value) -> anyhow::Result
 }
 
 /// Move queued state changes into `changes` (a journal batch array).
-pub(super) fn drain_pending_changes(
+pub(crate) fn drain_pending_changes(
     transaction: &Transaction<'_>,
     changes: &mut Value,
 ) -> anyhow::Result<()> {
-    if !super::state_store::state_tables_ready(transaction)? {
+    if !super::store::state_tables_ready(transaction)? {
         return Ok(());
     }
     let queued = {
@@ -252,7 +252,7 @@ fn workspace_of_screen(
 
 /// Record the top-most objects `patch` closes, before it applies, and drop
 /// the per-workspace state of closed workspaces.
-pub(super) fn capture_closed(
+pub(crate) fn capture_closed(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
 ) -> anyhow::Result<()> {
@@ -283,7 +283,7 @@ pub(super) fn capture_closed(
         })
         .collect::<Vec<_>>();
     if (workspaces.is_empty() && screens.is_empty() && tabs.is_empty())
-        || !super::state_store::state_tables_ready(transaction)?
+        || !super::store::state_tables_ready(transaction)?
     {
         return Ok(());
     }

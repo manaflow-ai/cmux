@@ -3,14 +3,13 @@
 //! [`Mux::commit_tab_strip_change`] (tab order changes) or
 //! [`Mux::commit_state`] (rows only), keyed by the request's idempotency key.
 
-use super::state_commit::{StateEffects, state_not_found};
-use super::tab_groups::{pane_by_public_id, tab_public_id};
-use super::tab_strip::{StripRequest, StripResult};
-use super::*;
-use crate::workspace_registry::state_store::{
-    StateChanges, StateCommit, state_delete, state_upsert,
-};
-use crate::workspace_registry::tab_state_store::{
+use crate::mux::tab_groups::{pane_by_public_id, tab_public_id};
+use crate::mux::tab_strip::{StripRequest, StripResult};
+use crate::mux::*;
+use crate::state::commit::{StateEffects, state_not_found};
+use crate::state::prelude::*;
+use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
+use crate::state::tab_state_store::{
     TabStateUpdate, delete_saved_tab_group, saved_tab_group, tab_group_ids, tab_group_snapshot,
 };
 
@@ -95,11 +94,49 @@ impl Mux {
                     browser || (update.back.is_none() && update.forward.is_none()),
                     "bad request: back and forward apply only to browser tabs"
                 );
+                let frontend = state
+                    .surfaces
+                    .get(&surface)
+                    .is_some_and(|runtime| mux.frontend_browser_id(runtime).is_some());
+                anyhow::ensure!(
+                    frontend || update.owner.is_none(),
+                    "bad request: owner applies only to frontend browser tabs"
+                );
                 edit.tab_state.push((tab.clone(), update));
                 edit.result = StripResult::Tab(tab);
                 Ok(())
             })?;
         Ok(commit)
+    }
+
+    /// Store the owner (hosting app's install id) of a frontend-rendered
+    /// browser tab on its record, restating the tab on `session.events`.
+    /// The raw `update-frontend-browser-tab {owner}` path; `tab.update`
+    /// writes the same column through the tab strip commit.
+    pub(crate) fn commit_browser_owner(&self, tab: &str, owner: &str) -> anyhow::Result<()> {
+        crate::state::window_record_store::validate_key("owner", owner)?;
+        let fingerprint = serde_json::json!({
+            "operation": "browser.owner.set",
+            "tab": tab,
+            "owner": owner,
+            "nonce": crate::workspace_registry::new_uuid_v4(),
+        });
+        self.commit_state(
+            &WorkspaceMutation::local("cmux-tui-browser-owner"),
+            "browser.owner.set",
+            &fingerprint,
+            None,
+            StateEffects::PRESENTATION,
+            |transaction, _| {
+                let update =
+                    TabStateUpdate { owner: Some(owner.to_string()), ..Default::default() };
+                crate::state::tab_state_store::update_tab_state(transaction, tab, &update)?;
+                let changes =
+                    crate::state::values::fresh_upserts(transaction, &[], &[], &[tab.to_string()])?;
+                Ok(StateChanges::new(serde_json::json!({"tab": tab}), changes))
+            },
+        )?;
+        Ok(())
     }
 
     /// `tab_group.create`.

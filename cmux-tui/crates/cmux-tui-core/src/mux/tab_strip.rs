@@ -14,12 +14,12 @@ use std::collections::BTreeSet;
 use super::tab_drag;
 use super::tab_groups::prune_tab_groups;
 use super::*;
-use crate::workspace_registry::state_store::{state_delete, state_upsert};
-use crate::workspace_registry::state_values::{fresh_upserts, upserted_value};
-use crate::workspace_registry::tab_state_store::{
+use crate::state::store::{state_delete, state_upsert};
+use crate::state::tab_state_store::{
     TabStateUpdate, put_saved_tab_group, saved_tab_group_snapshot, set_tab_pinned,
     tab_group_snapshot, update_tab_state, write_tab_groups,
 };
+use crate::state::values::{fresh_upserts, upserted_value};
 use crate::workspace_registry::{SavedTabGroupRecord, TabGroupState, WorkspacePresentationUpdate};
 
 /// The durable identity of one strip change.
@@ -262,9 +262,9 @@ fn strip_state_write(
         *result = match &result_kind {
             StripResult::None => result.clone(),
             StripResult::Tab(tab) => upserted_value(&fresh, "tab", tab)
-                .ok_or_else(|| state_commit::state_not_found("tab", tab))?,
+                .ok_or_else(|| crate::state::commit::state_not_found("tab", tab))?,
             StripResult::Group(group) => tab_group_snapshot(transaction, group)?
-                .ok_or_else(|| state_commit::state_not_found("tab_group", group))?,
+                .ok_or_else(|| crate::state::commit::state_not_found("tab_group", group))?,
             StripResult::Groups(ids) => {
                 let mut values = Vec::new();
                 for id in ids {
@@ -278,7 +278,7 @@ fn strip_state_write(
                 serde_json::json!({"tab_group_id": group, "tab_ids": tabs})
             }
             StripResult::Saved(saved) => saved_tab_group_snapshot(transaction, saved)?
-                .ok_or_else(|| state_commit::state_not_found("saved_tab_group", saved))?,
+                .ok_or_else(|| crate::state::commit::state_not_found("saved_tab_group", saved))?,
         };
         Ok(())
     })

@@ -5,9 +5,13 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use super::*;
+use crate::mux::ProviderWorkspaceState;
+use crate::mux::*;
 use crate::resource_router::handle_resource_message;
+use crate::state::prelude::*;
+use crate::surface::SurfaceOptions;
 use crate::workspace_registry::WorkspacePresentationUpdate;
+use crate::workspace_registry::WorkspaceRegistry;
 
 struct Session {
     root: PathBuf,
@@ -762,6 +766,47 @@ fn closed_tabs_and_workspaces_are_recorded_and_reopen() {
     );
 }
 
+/// Closed history records what a user or client closed, not what ended on
+/// its own: an explicit tab close leaves a record, a terminal whose process
+/// exited (its tab detaches) leaves none. Follow-up with the host-death
+/// branch: a lost host (`TerminalEnd::HostLost`, including signal exits
+/// during owner shutdown) keeps its tab and must leave no record either.
+#[cfg(unix)]
+#[test]
+fn closed_history_records_explicit_closes_but_not_process_exits() {
+    const TERMINAL: &str = "0000000000004000800000000000c105";
+    const INCARNATION: &str = "1000000000004000800000000000c105";
+    let mux = Mux::new_for_test("state-closed-exit", SurfaceOptions::default());
+    let workspace = mux
+        .create_empty_workspace(
+            Some("exits".into()),
+            Some("018f6e21-7b70-7e70-8000-00000000c105".into()),
+            None,
+        )
+        .unwrap();
+    let exited = mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(exited).unwrap());
+    let closed = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap().id;
+    let kept = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap().id;
+    let terminal =
+        mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+    let exit = crate::terminal_host_protocol::TerminalExit {
+        outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+        exited_at_ms: 1_000,
+    };
+    assert!(mux.persist_terminal_exit_for_test(&terminal, &exit).unwrap());
+    mux.surface_exited(exited);
+    mux.with_state(|state| assert!(!state.surfaces.contains_key(&exited)));
+    assert_eq!(read(&mux, "closed.list", json!({})), json!([]), "a process exit is not a close");
+
+    assert!(mux.close_surface(closed).unwrap());
+    let records = read(&mux, "closed.list", json!({}));
+    assert_eq!(records.as_array().unwrap().len(), 1, "{records}");
+    assert_eq!(records[0]["kind"], "tab");
+    mux.with_state(|state| assert!(state.surfaces.contains_key(&kept)));
+    mux.shutdown();
+}
+
 #[test]
 fn closed_history_keeps_the_newest_fifty_items() {
     let mux = Mux::new_for_test("state-closed-bound", SurfaceOptions::default());
@@ -812,6 +857,391 @@ fn ephemeral_workspaces_are_flagged_unrecorded_and_closed_at_the_next_start() {
     assert!(!workspaces.iter().any(|value| value["id"] == ephemeral));
     // Incognito content leaves no closed-history record.
     assert!(read(&mux, "closed.list", json!({})).as_array().unwrap().is_empty());
+}
+
+/// `workspace.create {ephemeral: true}` commits the workspace and its flag
+/// in one transaction on both creation paths: no committed read and no
+/// `session.events` change ever shows the workspace without the flag.
+#[test]
+fn ephemeral_workspace_create_commits_the_flag_with_the_workspace() {
+    let mux = Mux::new_for_test("state-ephemeral-atomic", SurfaceOptions::default());
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reader = {
+        let mux = Arc::clone(&mux);
+        let done = Arc::clone(&done);
+        std::thread::spawn(move || {
+            let mut observed = 0usize;
+            loop {
+                let finished = done.load(std::sync::atomic::Ordering::Acquire);
+                for value in snapshot(&mux)["workspaces"].as_array().unwrap() {
+                    if value["name"].as_str().is_some_and(|name| name.starts_with("incognito-")) {
+                        assert_eq!(
+                            value["extra"]["ephemeral"], true,
+                            "read without the flag: {value}"
+                        );
+                        observed += 1;
+                    }
+                }
+                if finished {
+                    return observed;
+                }
+            }
+        })
+    };
+    let before = revision(&mux);
+    let mut created = Vec::new();
+    for index in 0..6 {
+        let content = if index % 2 == 0 { "empty" } else { "terminal" };
+        let value = mutate(
+            &mux,
+            "workspace.create",
+            json!({"name": format!("incognito-{index}"), "initial_content": content, "ephemeral": true}),
+            &format!("atomic-ephemeral-{index}"),
+        );
+        created.push(value["workspace_id"].as_str().unwrap().to_string());
+    }
+    done.store(true, std::sync::atomic::Ordering::Release);
+    assert!(reader.join().unwrap() > 0, "the reader saw no created workspace");
+
+    let changes = changes_after(&mux, before);
+    for workspace in &created {
+        let upserts = changes
+            .iter()
+            .filter(|change| {
+                change["kind"] == "upsert"
+                    && change["resource"] == "workspace"
+                    && change["id"] == workspace.as_str()
+            })
+            .collect::<Vec<_>>();
+        assert!(!upserts.is_empty(), "no upsert for {workspace}");
+        for upsert in upserts {
+            assert_eq!(
+                upsert["value"]["extra"]["ephemeral"], true,
+                "event without the flag: {upsert}"
+            );
+        }
+    }
+    // The flag is part of the request: the same key without it is a different request.
+    let retried = send(
+        &mux,
+        "workspace.create",
+        json!({"name": "incognito-0", "initial_content": "empty"}),
+        Some("atomic-ephemeral-0"),
+    );
+    assert!(retried.is_err(), "a retry that drops the flag replayed: {retried:?}");
+    mux.shutdown();
+}
+
+/// Window records have one writer each: puts and deletes compare the
+/// record's own revision, publish `state_upsert`/`state_delete`, replay by
+/// key, and never touch another window's record.
+#[test]
+fn window_records_compare_and_swap_per_record_and_publish_their_changes() {
+    let mux = Mux::new_for_test("state-window-records", SurfaceOptions::default());
+    let before = revision(&mux);
+    let put = |key: &str, install: &str, window: &str, record: Value, expected: Option<&str>| {
+        let mut params = json!({"install_id": install, "window_id": window, "record": record});
+        if let Some(expected) = expected {
+            params["expected_revision"] = json!(expected);
+        }
+        send(&mux, "window_record.put", params, Some(key))
+    };
+    let first =
+        put("w-1", "install_a", "win_1", json!({"workspace_key": "k1"}), Some("0")).unwrap();
+    assert_eq!(first["replayed"], false);
+    assert_eq!(first["value"]["owner"], "install_a");
+    assert_eq!(first["value"]["revision"], "1");
+    assert_eq!(first["value"]["record"]["workspace_key"], "k1");
+    // A second window of the same install and a window of another install
+    // are independent records.
+    put("w-2", "install_a", "win_2", json!({"workspace_key": "k2"}), None).unwrap();
+    put("b-1", "install_b", "win_1", json!({"workspace_key": "k3"}), Some("0")).unwrap();
+    // A stale revision is a conflict and writes nothing.
+    let stale = put("w-3", "install_a", "win_1", json!({"workspace_key": "lost"}), Some("0"));
+    assert_eq!(error_code(stale), "revision.conflict");
+    let second =
+        put("w-4", "install_a", "win_1", json!({"workspace_key": "k4"}), Some("1")).unwrap();
+    assert_eq!(second["value"]["revision"], "2");
+    // The same key replays without writing again.
+    let replay =
+        put("w-4", "install_a", "win_1", json!({"workspace_key": "k4"}), Some("1")).unwrap();
+    assert_eq!(replay["replayed"], true);
+    let listed = read(&mux, "window_record.list", json!({}));
+    let ids = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|record| record["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["install_a/win_1", "install_a/win_2", "install_b/win_1"]);
+    assert_eq!(listed[0]["record"]["workspace_key"], "k4");
+    assert_eq!(listed[2]["record"]["workspace_key"], "k3");
+    // The reserved placeholder install cannot write, and records must be objects.
+    assert_eq!(
+        error_code(put("p-1", "install_unadopted", "win_9", json!({}), None)),
+        "validation.invalid"
+    );
+    assert_eq!(
+        error_code(put("p-2", "install_a", "win_9", json!([1]), None)),
+        "validation.invalid"
+    );
+
+    let delete = |key: &str, install: &str, window: &str, expected: &str| {
+        send(
+            &mux,
+            "window_record.delete",
+            json!({"install_id": install, "window_id": window, "expected_revision": expected}),
+            Some(key),
+        )
+    };
+    assert_eq!(error_code(delete("d-1", "install_a", "win_1", "1")), "revision.conflict");
+    let deleted = delete("d-2", "install_a", "win_1", "2").unwrap();
+    assert_eq!(deleted["value"]["id"], "install_a/win_1");
+    assert_eq!(error_code(delete("d-3", "install_a", "win_1", "2")), "resource.not_found");
+    assert_eq!(read(&mux, "window_record.list", json!({})).as_array().unwrap().len(), 2);
+
+    let changes = changes_after(&mux, before)
+        .into_iter()
+        .filter(|change| change["resource"] == "window_record")
+        .map(|change| {
+            (
+                change["kind"].as_str().unwrap().to_string(),
+                change["id"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        changes,
+        [
+            ("state_upsert".to_string(), "install_a/win_1".to_string()),
+            ("state_upsert".to_string(), "install_a/win_2".to_string()),
+            ("state_upsert".to_string(), "install_b/win_1".to_string()),
+            ("state_upsert".to_string(), "install_a/win_1".to_string()),
+            ("state_delete".to_string(), "install_a/win_1".to_string()),
+        ]
+    );
+    assert_eq!(snapshot(&mux)["extra"]["state"]["window_records"].as_array().unwrap().len(), 2);
+}
+
+/// The `windows` frontend projection becomes unadopted records once; the
+/// first put of a window adopts its record, and the projection keeps
+/// working for older apps.
+#[test]
+fn window_projection_migrates_to_unadopted_records_that_the_app_adopts() {
+    let session = Session::new("window-records-migration");
+    let mux = session.open();
+    let document = json!({
+        "windows": [
+            {"id": "w1", "workspace_key": "k1", "order": 0},
+            {"id": "w2", "workspace_key": "k2", "order": 1},
+            {"workspace_key": "no-id"},
+        ],
+        "collapsed_groups": {},
+    });
+    mux.put_frontend_projection(
+        &WorkspaceMutation::new("seed-windows", "cmux-next").unwrap(),
+        "cmux-next",
+        "personal",
+        "windows",
+        1,
+        None,
+        &document,
+    )
+    .unwrap();
+    // A registry from before window records: no migration flag yet.
+    mux.read_registry_state(|connection| {
+        connection.execute("DELETE FROM meta WHERE key = 'window_records_v1'", [])?;
+        Ok(())
+    })
+    .unwrap();
+    drop(mux);
+
+    let mux = session.open();
+    let listed = read(&mux, "window_record.list", json!({}));
+    let listed = listed.as_array().unwrap();
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0]["id"], "install_unadopted/w1");
+    assert_eq!(listed[0]["owner"], "install_unadopted");
+    assert_eq!(listed[0]["revision"], "1");
+    assert_eq!(listed[0]["record"]["workspace_key"], "k1");
+
+    let before = revision(&mux);
+    let adopted = send(
+        &mux,
+        "window_record.put",
+        json!({"install_id": "install_mac", "window_id": "w1", "record": {"workspace_key": "k1b"}, "expected_revision": "1"}),
+        Some("adopt-w1"),
+    )
+    .unwrap();
+    assert_eq!(adopted["value"]["id"], "install_mac/w1");
+    assert_eq!(adopted["value"]["owner"], "install_mac");
+    assert_eq!(adopted["value"]["revision"], "2");
+    let changes = changes_after(&mux, before)
+        .into_iter()
+        .map(|change| {
+            (
+                change["kind"].as_str().unwrap().to_string(),
+                change["id"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        changes,
+        [
+            ("state_delete".to_string(), "install_unadopted/w1".to_string()),
+            ("state_upsert".to_string(), "install_mac/w1".to_string()),
+        ]
+    );
+    // An unadopted record the app does not want is deleted.
+    send(
+        &mux,
+        "window_record.delete",
+        json!({"install_id": "install_unadopted", "window_id": "w2"}),
+        Some("drop-w2"),
+    )
+    .unwrap();
+    let ids = read(&mux, "window_record.list", json!({}))
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|record| record["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["install_mac/w1"]);
+    // Older apps still read and write the projection.
+    let projection =
+        mux.get_frontend_projection("cmux-next", "personal", "windows").unwrap().unwrap();
+    assert_eq!(projection.projection, document);
+    drop(mux);
+    // The migration runs once: a reopen does not bring w2 back.
+    let mux = session.open();
+    assert_eq!(read(&mux, "window_record.list", json!({})).as_array().unwrap().len(), 1);
+}
+
+/// A frontend browser record carries the install id of the app that hosts
+/// it: set at creation or by `tab.update {owner}`, shown as `extra.owner`
+/// on the tab snapshot and its `session.events` restatement, and refused on
+/// a tab that is not frontend-rendered.
+#[test]
+fn frontend_browser_owner_is_set_by_the_app_and_shown_on_the_tab() {
+    let mux = Mux::new_for_test("state-browser-owner", SurfaceOptions::default());
+    let terminal = mux.new_workspace(None, None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(terminal)).unwrap();
+    let browser = mux
+        .new_frontend_browser_tab(
+            Some(pane),
+            crate::workspace_registry::FrontendBrowserRecord {
+                engine: "cef".into(),
+                url: "https://example.com/".into(),
+                title: None,
+                favicon_url: None,
+                profile_id: None,
+                owner: Some("install_mac_a".into()),
+            },
+            None,
+        )
+        .unwrap();
+    let browser_tab = tab_id(&mux, browser.id);
+    let terminal_tab = tab_id(&mux, terminal);
+    let tab_extra = |tab: &str| {
+        snapshot(&mux)["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap()
+            ["extra"]
+            .clone()
+    };
+    assert_eq!(tab_extra(&browser_tab)["owner"], "install_mac_a");
+    assert!(tab_extra(&terminal_tab).get("owner").is_none());
+
+    let before = revision(&mux);
+    let updated = mutate(
+        &mux,
+        "tab.update",
+        json!({"tab": browser_tab, "owner": "install_mac_b"}),
+        "owner-b",
+    );
+    assert_eq!(updated["id"], browser_tab);
+    assert_eq!(tab_extra(&browser_tab)["owner"], "install_mac_b");
+    assert!(changes_after(&mux, before).iter().any(|change| {
+        change["kind"] == "upsert"
+            && change["resource"] == "tab"
+            && change["id"] == browser_tab.as_str()
+            && change["value"]["extra"]["owner"] == "install_mac_b"
+    }));
+    assert_eq!(mux.frontend_browser(&browser).unwrap().owner.as_deref(), Some("install_mac_b"));
+    // The app's raw record write restates the tab too (invariant 4).
+    let before = revision(&mux);
+    let (record, changed) = mux
+        .update_frontend_browser_tab(browser.id, None, None, None, Some("install_mac_c".into()))
+        .unwrap();
+    assert!(changed);
+    assert_eq!(record.owner.as_deref(), Some("install_mac_c"));
+    assert_eq!(tab_extra(&browser_tab)["owner"], "install_mac_c");
+    assert!(changes_after(&mux, before).iter().any(|change| {
+        change["resource"] == "tab"
+            && change["id"] == browser_tab.as_str()
+            && change["value"]["extra"]["owner"] == "install_mac_c"
+    }));
+    assert_eq!(
+        error_code(send(
+            &mux,
+            "tab.update",
+            json!({"tab": terminal_tab, "owner": "install_mac_b"}),
+            Some("owner-terminal")
+        )),
+        "validation.invalid"
+    );
+    assert_eq!(
+        error_code(send(
+            &mux,
+            "tab.update",
+            json!({"tab": browser_tab, "owner": "bad/owner"}),
+            Some("owner-invalid")
+        )),
+        "validation.invalid"
+    );
+}
+
+/// Keep-layout records commit on the state path: the tab snapshot's
+/// `extra.relaunch` and the `session.events` restatement agree (invariant
+/// 4), and forgetting a record restates the tab with `relaunch: null`.
+#[test]
+fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
+    let mux = Mux::new_for_test("state-kept-tabs", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 2);
+    let kept = tab_id(&mux, tabs[0]);
+    let other = tab_id(&mux, tabs[1]);
+    let relaunch = |tab: &str| {
+        snapshot(&mux)["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap()
+            ["extra"]["relaunch"]
+            .clone()
+    };
+    assert_eq!(relaunch(&kept), Value::Null);
+
+    let before = revision(&mux);
+    mux.commit_kept_tabs(&[(kept.clone(), Some("/tmp/project".into()))]).unwrap();
+    assert!(revision(&mux) > before, "a keep-layout record advances the resource revision");
+    assert_eq!(relaunch(&kept), json!({"cwd": "/tmp/project"}));
+    assert_eq!(relaunch(&other), Value::Null);
+    let restated = changes_after(&mux, before)
+        .into_iter()
+        .filter(|change| change["kind"] == "upsert" && change["resource"] == "tab")
+        .collect::<Vec<_>>();
+    assert_eq!(restated.len(), 1, "{restated:?}");
+    assert_eq!(restated[0]["id"], kept.as_str());
+    assert_eq!(restated[0]["value"]["extra"]["relaunch"], json!({"cwd": "/tmp/project"}));
+
+    let before = revision(&mux);
+    mux.forget_kept_tabs(std::slice::from_ref(&kept)).unwrap();
+    assert_eq!(relaunch(&kept), Value::Null);
+    let restated = changes_after(&mux, before)
+        .into_iter()
+        .filter(|change| change["kind"] == "upsert" && change["resource"] == "tab")
+        .collect::<Vec<_>>();
+    assert_eq!(restated.len(), 1);
+    assert!(restated[0]["value"]["extra"].get("relaunch").is_none());
+    // Forgetting a tab with no record commits nothing.
+    let before = revision(&mux);
+    mux.forget_kept_tabs(std::slice::from_ref(&other)).unwrap();
+    assert!(changes_after(&mux, before).iter().all(|change| change["resource"] != "tab"));
+    mux.shutdown();
 }
 
 #[test]

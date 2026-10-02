@@ -37,7 +37,7 @@ pub const MAX_PRESENTATION_TEXT_CHARS: usize = 256;
 /// Longest accepted client-chosen group id, in bytes.
 pub const MAX_WORKSPACE_GROUP_ID_BYTES: usize = 64;
 
-pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspace_groups (
            group_id TEXT PRIMARY KEY NOT NULL,
@@ -92,8 +92,24 @@ pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            profile_id TEXT
          );",
     )?;
+    migrate_frontend_browser_add_owner(transaction)?;
     migrate_workspace_presentation_add_pinned(transaction)?;
     migrate_workspace_presentation_add_marked_unread(transaction)
+}
+
+/// Add the hosting app's install id to frontend browser records of
+/// registries created before the column existed (unknown owner: NULL).
+fn migrate_frontend_browser_add_owner(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let has_owner = transaction
+        .prepare("PRAGMA table_info(frontend_browser_tabs)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "owner");
+    if !has_owner {
+        transaction.execute_batch("ALTER TABLE frontend_browser_tabs ADD COLUMN owner TEXT;")?;
+    }
+    Ok(())
 }
 
 /// Add the sidebar pin to registries created before the column existed.
@@ -336,7 +352,7 @@ pub fn new_saved_tab_group_id() -> String {
 }
 
 /// Replace every tab group row in the caller's transaction.
-pub(super) fn write_tab_group_state(
+pub(crate) fn write_tab_group_state(
     transaction: &Transaction<'_>,
     state: &TabGroupState,
 ) -> anyhow::Result<()> {
@@ -410,7 +426,7 @@ fn read_tab_group_state(connection: &Connection) -> anyhow::Result<TabGroupState
     Ok(state)
 }
 
-pub(super) fn read_saved_tab_groups(
+pub(crate) fn read_saved_tab_groups(
     connection: &Connection,
 ) -> anyhow::Result<Vec<SavedTabGroupRecord>> {
     let mut statement = connection.prepare(
@@ -446,7 +462,7 @@ pub(super) fn read_saved_tab_groups(
 
 /// Create or replace a saved tab group in the caller's transaction, keeping
 /// its bar position and room (new records go last, in `record.room`).
-pub(super) fn put_saved_tab_group_in(
+pub(crate) fn put_saved_tab_group_in(
     transaction: &Transaction<'_>,
     record: &SavedTabGroupRecord,
 ) -> anyhow::Result<()> {
@@ -499,7 +515,7 @@ pub(super) fn put_saved_tab_group_in(
 
 /// Delete a saved tab group in the caller's transaction and unlink live
 /// groups from it. Returns whether it existed.
-pub(super) fn delete_saved_tab_group_in(
+pub(crate) fn delete_saved_tab_group_in(
     transaction: &Transaction<'_>,
     saved_id: &str,
 ) -> anyhow::Result<bool> {
@@ -534,6 +550,12 @@ pub struct FrontendBrowserRecord {
     pub title: Option<String>,
     pub favicon_url: Option<String>,
     pub profile_id: Option<String>,
+    /// Install id of the app that hosts the page and is the record's only
+    /// writer (OWNERSHIP-PRINCIPLES single writer). Set by the app through
+    /// the frontend browser commands or `tab.update {owner}`; never by the
+    /// CLI. `None` for records from builds without owners.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 impl FrontendBrowserRecord {
@@ -556,6 +578,9 @@ impl FrontendBrowserRecord {
                     && profile_id.bytes().all(|byte| byte.is_ascii_graphic()),
                 "bad request: profile_id must be 1-128 printable ASCII characters"
             );
+        }
+        if let Some(owner) = &self.owner {
+            crate::state::window_record_store::validate_key("owner", owner)?;
         }
         Ok(())
     }
@@ -606,7 +631,7 @@ fn read_frontend_browser(
 ) -> anyhow::Result<Option<FrontendBrowserRecord>> {
     Ok(connection
         .query_row(
-            "SELECT engine, url, title, favicon_url, profile_id FROM frontend_browser_tabs
+            "SELECT engine, url, title, favicon_url, profile_id, owner FROM frontend_browser_tabs
              WHERE browser_id = ?1",
             [browser_id],
             |row| {
@@ -616,6 +641,7 @@ fn read_frontend_browser(
                     title: row.get(2)?,
                     favicon_url: row.get(3)?,
                     profile_id: row.get(4)?,
+                    owner: row.get(5)?,
                 })
             },
         )
@@ -799,7 +825,7 @@ fn transaction_session_id(transaction: &Transaction<'_>) -> anyhow::Result<Strin
 
 /// Append the immutable fact for one presentation mutation in the caller's
 /// transaction.
-pub(super) fn append_presentation_record(
+pub(crate) fn append_presentation_record(
     transaction: &Transaction<'_>,
     kind: &str,
     subjects: Vec<JournalSubject>,
@@ -909,7 +935,7 @@ fn read_workspace_presentation(
 
 /// Write one workspace's presentation row inside a workspace-registry
 /// transaction. A named group must exist.
-pub(super) fn write_workspace_presentation(
+pub(crate) fn write_workspace_presentation(
     transaction: &Transaction<'_>,
     workspace_key: &str,
     update: &WorkspacePresentationUpdate,
@@ -1015,7 +1041,7 @@ impl WorkspaceRegistry {
         let mut frontend_browsers = HashMap::new();
         {
             let mut statement = self.connection.prepare(
-                "SELECT f.browser_id, f.engine, f.url, f.title, f.favicon_url, f.profile_id
+                "SELECT f.browser_id, f.engine, f.url, f.title, f.favicon_url, f.profile_id, f.owner
                  FROM frontend_browser_tabs AS f
                  WHERE NOT EXISTS (
                    SELECT 1 FROM resource_browsers AS b
@@ -1031,6 +1057,7 @@ impl WorkspaceRegistry {
                         title: row.get(3)?,
                         favicon_url: row.get(4)?,
                         profile_id: row.get(5)?,
+                        owner: row.get(6)?,
                     },
                 ))
             })?;
@@ -1043,7 +1070,7 @@ impl WorkspaceRegistry {
         let saved_tab_groups = read_saved_tab_groups(&self.connection)?;
         let screens = super::screen_store::read_screen_state(&self.connection)?;
         let saved_screen_groups = super::screen_store::read_saved_screen_groups(&self.connection)?;
-        let kept_tabs = super::kept_tab_store::read_kept_tabs(&self.connection)?;
+        let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection)?;
         Ok(PresentationSnapshot {
             groups,
             workspaces,
@@ -1282,15 +1309,17 @@ impl WorkspaceRegistry {
             .is_some();
         anyhow::ensure!(!exists, "browser {browser_id} already exists");
         tx.execute(
-            "INSERT INTO frontend_browser_tabs(browser_id, engine, url, title, favicon_url, profile_id)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO frontend_browser_tabs(
+               browser_id, engine, url, title, favicon_url, profile_id, owner
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 browser_id,
                 record.engine,
                 record.url,
                 record.title,
                 record.favicon_url,
-                record.profile_id
+                record.profile_id,
+                record.owner
             ],
         )?;
         append_presentation_record(
@@ -1304,7 +1333,8 @@ impl WorkspaceRegistry {
     }
 
     /// Update a frontend browser's location and presentation. `None` leaves
-    /// a field unchanged; `favicon_url: Some(None)` clears the favicon.
+    /// a field unchanged; `favicon_url: Some(None)` clears the favicon. The
+    /// owner changes only on the state commit path (`Mux::commit_browser_owner`).
     pub fn update_frontend_browser(
         &mut self,
         browser_id: &str,

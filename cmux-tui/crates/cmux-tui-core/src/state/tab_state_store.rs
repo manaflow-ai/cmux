@@ -5,7 +5,7 @@
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
-use super::presentation_store::{
+use crate::workspace_registry::presentation_store::{
     SavedTabGroupRecord, SavedTabMember, TabGroupState, delete_saved_tab_group_in,
     put_saved_tab_group_in, read_saved_tab_groups, write_tab_group_state,
 };
@@ -46,6 +46,9 @@ pub(crate) struct TabStateUpdate {
     pub(crate) zoom: Option<Option<f64>>,
     pub(crate) back: Option<Vec<String>>,
     pub(crate) forward: Option<Vec<String>>,
+    /// Install id of the app hosting a frontend-rendered browser tab, stored
+    /// on its browser record. Only that app sends it; the CLI never does.
+    pub(crate) owner: Option<String>,
 }
 
 impl TabStateUpdate {
@@ -56,13 +59,19 @@ impl TabStateUpdate {
                 "bad request: zoom must be between {MIN_ZOOM} and {MAX_ZOOM}"
             );
         }
+        if let Some(owner) = &self.owner {
+            crate::state::window_record_store::validate_key("owner", owner)?;
+        }
         for list in [&self.back, &self.forward].into_iter().flatten() {
             anyhow::ensure!(
                 list.len() <= MAX_HISTORY_URLS,
                 "bad request: a history list holds at most {MAX_HISTORY_URLS} URLs"
             );
             for url in list {
-                super::presentation_store::validate_frontend_browser_url("history URL", url)?;
+                crate::workspace_registry::presentation_store::validate_frontend_browser_url(
+                    "history URL",
+                    url,
+                )?;
             }
         }
         Ok(())
@@ -93,6 +102,14 @@ pub(crate) fn update_tab_state(
          WHERE tab_id = ?1 AND zoom IS NULL AND back_json IS NULL AND forward_json IS NULL",
         [tab_id],
     )?;
+    if let Some(owner) = &update.owner {
+        let updated = transaction.execute(
+            "UPDATE frontend_browser_tabs SET owner = ?2
+             WHERE browser_id = (SELECT content_id FROM resource_tabs WHERE public_id = ?1)",
+            params![tab_id, owner],
+        )?;
+        anyhow::ensure!(updated == 1, "bad request: owner applies only to frontend browser tabs");
+    }
     Ok(())
 }
 

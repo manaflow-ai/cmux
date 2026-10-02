@@ -100,7 +100,7 @@ pub(crate) fn pane_tab_groups(
     runs
 }
 
-pub(super) fn tab_public_id(state: &State, surface: SurfaceId) -> anyhow::Result<String> {
+pub(crate) fn tab_public_id(state: &State, surface: SurfaceId) -> anyhow::Result<String> {
     state
         .resource_indexes
         .tab_ids
@@ -109,7 +109,7 @@ pub(super) fn tab_public_id(state: &State, surface: SurfaceId) -> anyhow::Result
         .with_context(|| format!("surface {surface} has no tab identity"))
 }
 
-pub(super) fn pane_public_id(state: &State, pane: PaneId) -> anyhow::Result<String> {
+pub(crate) fn pane_public_id(state: &State, pane: PaneId) -> anyhow::Result<String> {
     state
         .resource_indexes
         .pane_ids
@@ -118,7 +118,7 @@ pub(super) fn pane_public_id(state: &State, pane: PaneId) -> anyhow::Result<Stri
         .with_context(|| format!("unknown pane {pane}"))
 }
 
-pub(super) fn pane_by_public_id(state: &State, pane: &str) -> Option<PaneId> {
+pub(crate) fn pane_by_public_id(state: &State, pane: &str) -> Option<PaneId> {
     state
         .resource_indexes
         .panes
@@ -127,7 +127,7 @@ pub(super) fn pane_by_public_id(state: &State, pane: &str) -> Option<PaneId> {
 }
 
 /// The current members of `group` in strip order.
-pub(super) fn group_members(state: &State, groups: &TabGroupState, group: &str) -> Vec<SurfaceId> {
+pub(crate) fn group_members(state: &State, groups: &TabGroupState, group: &str) -> Vec<SurfaceId> {
     let Some(record) = groups.groups.get(group) else { return Vec::new() };
     let Some(pane) = pane_by_public_id(state, &record.pane_id) else { return Vec::new() };
     state.panes[&pane]
@@ -147,7 +147,7 @@ pub(super) fn group_members(state: &State, groups: &TabGroupState, group: &str) 
 
 /// Remove `group` from `groups` and return its member placements, for a
 /// batch close that commits the group rows with the closed members.
-pub(super) fn take_tab_group(
+pub(crate) fn take_tab_group(
     state: &State,
     groups: &mut TabGroupState,
     group: &str,
@@ -161,7 +161,7 @@ pub(super) fn take_tab_group(
 
 /// Reorder `pane` so `block` sits contiguously starting at insertion index
 /// `index` among the pane's other tabs. The active tab stays active.
-pub(super) fn place_block(state: &mut State, pane: PaneId, block: &[SurfaceId], index: usize) {
+pub(crate) fn place_block(state: &mut State, pane: PaneId, block: &[SurfaceId], index: usize) {
     let Some(record) = state.panes.get_mut(&pane) else { return };
     let active = record.active_surface();
     let mut rest =
@@ -180,7 +180,7 @@ pub(super) fn place_block(state: &mut State, pane: PaneId, block: &[SurfaceId], 
 
 /// Drop memberships whose tab is gone or left the group's pane, and groups
 /// left without members.
-pub(super) fn prune_tab_groups(state: &State, groups: &mut TabGroupState) {
+pub(crate) fn prune_tab_groups(state: &State, groups: &mut TabGroupState) {
     let live = state
         .panes
         .values()
@@ -207,7 +207,7 @@ pub(super) fn prune_tab_groups(state: &State, groups: &mut TabGroupState) {
     groups.groups.retain(|id, _| occupied.contains(id));
 }
 
-pub(super) fn is_pinned(
+pub(crate) fn is_pinned(
     state: &State,
     presentation: &PresentationSnapshot,
     surface: SurfaceId,
@@ -221,7 +221,7 @@ pub(super) fn is_pinned(
 
 /// Move `members` (in order) into `pane` at insertion index `index`, across
 /// panes when needed. Returns the members that changed workspace.
-pub(super) fn move_members_into(
+pub(crate) fn move_members_into(
     mux: &Mux,
     state: &mut State,
     members: &[SurfaceId],
@@ -404,11 +404,10 @@ impl Mux {
         let group_id = group.to_string();
         let (_, commit) =
             self.commit_tab_strip_change(request, None, move |mux, state, edit| {
-                let record = edit
-                    .groups
-                    .groups
-                    .get_mut(&group_id)
-                    .ok_or_else(|| state_commit::state_not_found("tab_group", &group_id))?;
+                let record =
+                    edit.groups.groups.get_mut(&group_id).ok_or_else(|| {
+                        crate::state::commit::state_not_found("tab_group", &group_id)
+                    })?;
                 if let Some(name) = name {
                     record.name = name;
                 }
@@ -452,12 +451,10 @@ impl Mux {
         let (_, commit) =
             self.commit_tab_strip_change(request, None, move |mux, state, edit| {
                 let presentation = mux.presentation_snapshot();
-                let record = edit
-                    .groups
-                    .groups
-                    .get(&group_id)
-                    .cloned()
-                    .ok_or_else(|| state_commit::state_not_found("tab_group", &group_id))?;
+                let record =
+                    edit.groups.groups.get(&group_id).cloned().ok_or_else(|| {
+                        crate::state::commit::state_not_found("tab_group", &group_id)
+                    })?;
                 // First occurrence only: a repeated surface would be spliced
                 // into the pane's tab order twice and committed as the
                 // durable order.
@@ -719,7 +716,7 @@ impl Mux {
             let members = group_members(state, &edit.groups, &group_id);
             anyhow::ensure!(
                 edit.groups.groups.remove(&group_id).is_some(),
-                state_commit::state_not_found("tab_group", &group_id)
+                crate::state::commit::state_not_found("tab_group", &group_id)
             );
             edit.groups.members.retain(|_, member| member != &group_id);
             let tabs = members
@@ -751,7 +748,7 @@ impl Mux {
             self.commit_tab_strip_change(request, None, |mux, state, edit| {
                 let members = group_members(state, &edit.groups, &group_id);
                 if members.is_empty() {
-                    return Err(state_commit::state_not_found("tab_group", &group_id));
+                    return Err(crate::state::commit::state_not_found("tab_group", &group_id));
                 }
                 let tabs = members
                     .iter()
@@ -797,7 +794,7 @@ impl Mux {
                 let presentation = mux.presentation_snapshot();
                 let members = group_members(state, &edit.groups, &group_id);
                 if members.is_empty() {
-                    return Err(state_commit::state_not_found("tab_group", &group_id));
+                    return Err(crate::state::commit::state_not_found("tab_group", &group_id));
                 }
                 let target = match &pane {
                     Some(pane) => pane_by_public_id(state, pane).ok_or_else(|| {
@@ -826,7 +823,7 @@ impl Mux {
     }
 
     /// Add a new view of a running terminal to `pane` (its last tab).
-    pub(super) fn project_terminal_into_pane(
+    pub(crate) fn project_terminal_into_pane(
         self: &Arc<Self>,
         terminal_id: &str,
         pane: PaneId,
@@ -883,7 +880,7 @@ impl Mux {
 
     /// The refreshed saved record of a live group linked to one, built from
     /// `state` (the projected state of the change being committed).
-    pub(super) fn saved_record_for(
+    pub(crate) fn saved_record_for(
         &self,
         state: &State,
         groups: &TabGroupState,
@@ -931,11 +928,10 @@ impl Mux {
         let group_id = group.to_string();
         let (_, commit) =
             self.commit_tab_strip_change(request, None, move |mux, state, edit| {
-                let record = edit
-                    .groups
-                    .groups
-                    .get_mut(&group_id)
-                    .ok_or_else(|| state_commit::state_not_found("tab_group", &group_id))?;
+                let record =
+                    edit.groups.groups.get_mut(&group_id).ok_or_else(|| {
+                        crate::state::commit::state_not_found("tab_group", &group_id)
+                    })?;
                 let saved_id = record.saved_id.get_or_insert_with(new_saved_tab_group_id).clone();
                 let mut saved = mux
                     .saved_record_for(state, &edit.groups, &group_id)
@@ -996,7 +992,7 @@ impl Mux {
             .iter()
             .find(|record| record.id == saved_id)
             .cloned()
-            .ok_or_else(|| state_commit::state_not_found("saved_tab_group", saved_id))?;
+            .ok_or_else(|| crate::state::commit::state_not_found("saved_tab_group", saved_id))?;
         if let Some(live) = presentation
             .tab_groups
             .groups
@@ -1038,6 +1034,8 @@ impl Mux {
                                 title: title.clone(),
                                 favicon_url: None,
                                 profile_id: profile_id.clone(),
+                                // The app that shows the reopened tab claims it.
+                                owner: None,
                             },
                             None,
                         )?

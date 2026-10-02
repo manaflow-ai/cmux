@@ -93,7 +93,7 @@ impl WorkspaceRegistry {
 
     /// Create a room at `index` (default last). The same id and name again
     /// is an idempotent retry that returns the stored room with `false`.
-    pub(super) fn create_profile_in(
+    pub(crate) fn create_profile_in(
         tx: &Transaction<'_>,
         input: ProfileInput,
     ) -> anyhow::Result<(PersonalProfile, bool)> {
@@ -161,7 +161,7 @@ impl WorkspaceRegistry {
         Ok((profile, true))
     }
 
-    pub(super) fn update_profile_in(
+    pub(crate) fn update_profile_in(
         tx: &Transaction<'_>,
         id: &str,
         update: ProfileUpdate,
@@ -232,7 +232,7 @@ impl WorkspaceRegistry {
         Ok((after, changed))
     }
 
-    pub(super) fn move_profile_in(
+    pub(crate) fn move_profile_in(
         tx: &Transaction<'_>,
         id: &str,
         index: usize,
@@ -264,7 +264,7 @@ impl WorkspaceRegistry {
     /// Delete a room. Its pins and groups move to `move_to`, or the pins are
     /// removed and the groups deleted (members ungrouped). Follows go with
     /// the room. `default` is refused.
-    pub(super) fn delete_profile_in(
+    pub(crate) fn delete_profile_in(
         tx: &Transaction<'_>,
         id: &str,
         move_to: Option<&str>,
@@ -323,7 +323,7 @@ impl WorkspaceRegistry {
         Ok(ProfileDeletion { moved_to: move_to.map(str::to_string), unpinned })
     }
 
-    pub(super) fn set_profile_follows_in(
+    pub(crate) fn set_profile_follows_in(
         tx: &Transaction<'_>,
         id: &str,
         sessions: &[String],
@@ -356,7 +356,7 @@ impl WorkspaceRegistry {
     /// Pin a qualified workspace to a room (exclusive; replaces any pin).
     /// The key need not exist yet. A personal group in another room is
     /// cleared from the workspace.
-    pub(super) fn pin_workspace_in(
+    pub(crate) fn pin_workspace_in(
         tx: &Transaction<'_>,
         session: &str,
         key: &str,
@@ -396,7 +396,7 @@ impl WorkspaceRegistry {
         Ok(changed)
     }
 
-    pub(super) fn unpin_workspace_in(
+    pub(crate) fn unpin_workspace_in(
         tx: &Transaction<'_>,
         session: &str,
         key: &str,
@@ -421,7 +421,7 @@ impl WorkspaceRegistry {
     /// Record or refresh a session in the registry. A new session is
     /// followed by `default` and by `follow_with` when given.
     #[allow(clippy::too_many_arguments)]
-    pub(super) fn put_session_in(
+    pub(crate) fn put_session_in(
         tx: &Transaction<'_>,
         session: &str,
         machine_name: Option<&str>,
@@ -482,7 +482,7 @@ impl WorkspaceRegistry {
     /// terminal rows.
     /// Refused while a room pins one of its workspaces unless `force`, which
     /// also removes those pins.
-    pub(super) fn forget_session_in(
+    pub(crate) fn forget_session_in(
         tx: &Transaction<'_>,
         session: &str,
         force: bool,
@@ -521,7 +521,7 @@ impl WorkspaceRegistry {
 
     /// The app's one-time copy of a remote daemon's shared groups and order.
     /// A no-op returning false once the session is marked migrated.
-    pub(super) fn import_session_organization_in(
+    pub(crate) fn import_session_organization_in(
         tx: &Transaction<'_>,
         session: &str,
         groups: &[(String, String, Option<String>, bool)],
@@ -584,7 +584,7 @@ impl WorkspaceRegistry {
 
     /// Create a personal group in a room (default `default`) at `index`
     /// among all personal groups. The same id and name is a no-op retry.
-    pub(super) fn create_personal_group_in(
+    pub(crate) fn create_personal_group_in(
         tx: &Transaction<'_>,
         id: Option<String>,
         profile: Option<&str>,
@@ -628,7 +628,7 @@ impl WorkspaceRegistry {
 
     /// Rename, recolor, collapse, or move a group to another room. Moving it
     /// pins every member workspace to that room in the same transaction.
-    pub(super) fn update_personal_group_in(
+    pub(crate) fn update_personal_group_in(
         tx: &Transaction<'_>,
         id: &str,
         name: Option<&str>,
@@ -693,7 +693,7 @@ impl WorkspaceRegistry {
     }
 
     /// Delete a group; its workspaces become ungrouped. Returns them.
-    pub(super) fn delete_personal_group_in(
+    pub(crate) fn delete_personal_group_in(
         tx: &Transaction<'_>,
         id: &str,
     ) -> anyhow::Result<Vec<(String, String)>> {
@@ -721,7 +721,7 @@ impl WorkspaceRegistry {
         Ok(members)
     }
 
-    pub(super) fn move_personal_group_in(
+    pub(crate) fn move_personal_group_in(
         tx: &Transaction<'_>,
         id: &str,
         index: usize,
@@ -754,7 +754,7 @@ impl WorkspaceRegistry {
     /// is its final position in the personal order (absent on create:
     /// last). The daemon does not check that a group belongs to the room
     /// showing the workspace; the app evaluates membership.
-    pub(super) fn set_personal_workspace_in(
+    pub(crate) fn set_personal_workspace_in(
         tx: &Transaction<'_>,
         session: &str,
         key: &str,

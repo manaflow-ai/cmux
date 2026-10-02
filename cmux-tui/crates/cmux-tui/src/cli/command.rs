@@ -5436,7 +5436,7 @@ mod tests {
 
         assert_eq!(cases.len(), 171);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 178);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 181);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
@@ -5513,16 +5513,25 @@ mod tests {
                         | "terminal.renderer_grant.create"
                         | "terminal.viewer.release"
                         | "terminal.viewer.resize"
+                        // Window records have one writer, the app that hosts
+                        // the window (OWNERSHIP-PRINCIPLES); the CLI reads app
+                        // windows through `cmux window list`.
+                        | "window_record.list"
+                        | "window_record.put"
+                        | "window_record.delete"
                 )
             })
             .map(String::as_str)
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(seen, expected, "safe CLI operation coverage drifted from the catalog");
+        // Fields only the hosting app sends: a browser record's owner.
+        let app_only_fields = [("tab.update", "owner")];
         for operation in &expected {
             let catalog_fields = catalog["operations"][operation]["params"]["fields"]
                 .as_object()
                 .unwrap()
                 .keys()
+                .filter(|field| !app_only_fields.contains(&(*operation, field.as_str())))
                 .cloned()
                 .collect::<std::collections::BTreeSet<_>>();
             assert_eq!(

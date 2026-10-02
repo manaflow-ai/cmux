@@ -383,6 +383,12 @@ pub enum ResourceOperation {
     ClosedList,
     #[serde(rename = "closed.reopen")]
     ClosedReopen,
+    #[serde(rename = "window_record.list")]
+    WindowRecordList,
+    #[serde(rename = "window_record.put")]
+    WindowRecordPut,
+    #[serde(rename = "window_record.delete")]
+    WindowRecordDelete,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -586,6 +592,7 @@ impl ResourceOperation {
                 | Self::AgentList
                 | Self::SidebarViewGet
                 | Self::ClosedList
+                | Self::WindowRecordList
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet
@@ -762,6 +769,9 @@ impl ResourceOperation {
             Self::StreamCancel => "stream.cancel",
             Self::ClosedList => "closed.list",
             Self::ClosedReopen => "closed.reopen",
+            Self::WindowRecordList => "window_record.list",
+            Self::WindowRecordPut => "window_record.put",
+            Self::WindowRecordDelete => "window_record.delete",
             Self::RoomCreate => "room.create",
             Self::RoomDelete => "room.delete",
             Self::RoomFollow => "room.follow",

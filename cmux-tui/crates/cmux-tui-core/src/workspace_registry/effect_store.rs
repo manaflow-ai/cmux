@@ -663,6 +663,7 @@ impl WorkspaceRegistry {
         created_path: &Value,
         deltas: &Value,
         workspace_ledger: Option<&ResourceWorkspaceLedger>,
+        extra: Option<RegistryTransactionWrite<'_>>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<u64>)> {
         validate_correlation_key(correlation_key)?;
         validate_identifier("mutation id", &mutation.id)?;
@@ -719,6 +720,11 @@ impl WorkspaceRegistry {
             })
             .transpose()?;
         let patch = &apply_resource_patch(&tx, patch, sqlite_revision)?;
+        // State rows (the ephemeral flag) land before the journal record, so
+        // the batch's upserts already carry them.
+        if let Some(extra) = extra {
+            extra(&tx)?;
+        }
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],

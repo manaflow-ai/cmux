@@ -21,7 +21,7 @@ use super::presentation_store::{
 };
 use super::{JournalSubject, WorkspaceRegistry, new_uuid_v4};
 
-pub(super) fn create_screen_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_screen_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     // A registry written by the state-resources daemon before the two
     // screen storages were merged keeps screen rows in `screen_state` and
     // groups keyed by the public workspace id. Move them here once.
@@ -201,7 +201,7 @@ fn validate_screen_group(group: &ScreenGroupRecord) -> anyhow::Result<()> {
 
 /// Replace every screen presentation, group, and membership row in the
 /// caller's transaction.
-pub(super) fn write_screen_state(
+pub(crate) fn write_screen_state(
     transaction: &Transaction<'_>,
     state: &ScreenPresentationState,
 ) -> anyhow::Result<()> {
@@ -259,7 +259,7 @@ pub(super) fn write_screen_state(
     )
 }
 
-pub(super) fn read_screen_state(
+pub(crate) fn read_screen_state(
     connection: &Connection,
 ) -> anyhow::Result<ScreenPresentationState> {
     let mut state = ScreenPresentationState::default();
@@ -325,7 +325,7 @@ pub(super) fn read_screen_state(
     Ok(state)
 }
 
-pub(super) fn read_saved_screen_groups(
+pub(crate) fn read_saved_screen_groups(
     connection: &Connection,
 ) -> anyhow::Result<Vec<SavedScreenGroupRecord>> {
     let mut statement = connection.prepare(

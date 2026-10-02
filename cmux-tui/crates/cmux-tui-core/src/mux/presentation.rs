@@ -138,7 +138,7 @@ fn tab_is_pinned(state: &State, presentation: &PresentationSnapshot, surface: Su
         .is_some_and(|tab| presentation.pinned_tabs.contains(tab.as_str()))
 }
 
-pub(super) fn tab_changed_delta(
+pub(crate) fn tab_changed_delta(
     state: &State,
     decorations: &TreeDecorations,
     surface: SurfaceId,
@@ -177,7 +177,7 @@ impl Mux {
 
     /// Reload the presentation snapshot from the registry. The caller holds
     /// the registry lock, so no other commit can interleave.
-    pub(super) fn reload_presentation(&self, registry: &WorkspaceRegistry) -> anyhow::Result<()> {
+    pub(crate) fn reload_presentation(&self, registry: &WorkspaceRegistry) -> anyhow::Result<()> {
         let snapshot = registry.presentation_snapshot()?;
         *self.presentation.lock().unwrap() = Arc::new(snapshot);
         Ok(())
@@ -713,7 +713,7 @@ impl Mux {
         self.frontend_browser_id(surface).is_some()
     }
 
-    fn frontend_browser_id(&self, surface: &Surface) -> Option<BrowserPublicId> {
+    pub(crate) fn frontend_browser_id(&self, surface: &Surface) -> Option<BrowserPublicId> {
         let identity = surface.resource_identity()?;
         let ContentPublicId::Browser(id) = &identity.content_id else { return None };
         self.presentation_snapshot().frontend_browsers.contains_key(id.as_str()).then(|| id.clone())
@@ -766,21 +766,26 @@ impl Mux {
         }
     }
 
-    /// Record the URL, title, or favicon a frontend-rendered browser
-    /// reports. `favicon_url: Some(None)` clears the favicon.
+    /// Record the URL, title, favicon, or owner (the hosting app's install
+    /// id) a frontend-rendered browser reports. `favicon_url: Some(None)`
+    /// clears the favicon.
     pub fn update_frontend_browser_tab(
         &self,
         surface: SurfaceId,
         url: Option<String>,
         title: Option<String>,
         favicon_url: Option<Option<String>>,
+        owner: Option<String>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
         let runtime =
             self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
         let browser_id = self.frontend_browser_id(&runtime).ok_or_else(|| {
             anyhow::anyhow!("surface {surface} is not a frontend-rendered browser")
         })?;
-        let (record, changed) = {
+        if let Some(owner) = &owner {
+            crate::state::window_record_store::validate_key("owner", owner)?;
+        }
+        let (mut record, mut changed) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             let result = registry.update_frontend_browser(
                 browser_id.as_str(),
@@ -793,6 +798,19 @@ impl Mux {
             }
             result
         };
+        // The owner commits on the state path, so the tab's `extra.owner`
+        // reaches `session.events` with the snapshot (invariant 4).
+        if let Some(owner) = owner
+            && record.owner.as_deref() != Some(owner.as_str())
+        {
+            let tab = runtime
+                .resource_identity()
+                .map(|identity| identity.tab_id.to_string())
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} has no public tab id"))?;
+            self.commit_browser_owner(&tab, &owner)?;
+            record.owner = Some(owner);
+            changed = true;
+        }
         if changed {
             if let Some(browser) = runtime.as_browser() {
                 browser.set_frontend_location(url, title.clone());
@@ -916,13 +934,13 @@ impl Mux {
 mod tests {
     use super::*;
 
-    pub(super) struct PresentationTestSession {
+    pub(crate) struct PresentationTestSession {
         root: std::path::PathBuf,
         session: &'static str,
     }
 
     impl PresentationTestSession {
-        pub(super) fn new(session: &'static str) -> Self {
+        pub(crate) fn new(session: &'static str) -> Self {
             let root = std::env::temp_dir().join(format!(
                 "cmux-presentation-{session}-{}",
                 WorkspacePublicId::random().unwrap()
@@ -930,7 +948,7 @@ mod tests {
             Self { root, session }
         }
 
-        pub(super) fn open(&self) -> Arc<Mux> {
+        pub(crate) fn open(&self) -> Arc<Mux> {
             let registry = WorkspaceRegistry::open(&self.root, self.session).unwrap();
             Mux::from_workspace_registry(
                 self.session.into(),
@@ -1260,6 +1278,7 @@ mod tests {
             title: Some("Example".into()),
             favicon_url: None,
             profile_id: Some("default".into()),
+            owner: Some("install_mac_a".into()),
         };
         assert!(
             mux.new_frontend_browser_tab(
@@ -1278,6 +1297,7 @@ mod tests {
         assert_eq!(tab["browser_renderer"], "frontend");
         assert_eq!(tab["browser_engine"], "webkit");
         assert_eq!(tab["browser_profile_id"], "default");
+        assert_eq!(tab["browser_owner"], "install_mac_a");
         assert_eq!(tab["url"], "https://example.com/start");
         assert_eq!(tab["title"], "Example");
         assert!(tab["browser_status"].is_null());
@@ -1288,16 +1308,26 @@ mod tests {
                 Some("https://example.com/next".into()),
                 Some("Next".into()),
                 Some(Some("https://example.com/favicon.ico".into())),
+                Some("install_mac_b".into()),
             )
             .unwrap();
         assert!(changed);
         assert_eq!(updated.url, "https://example.com/next");
+        assert_eq!(updated.owner.as_deref(), Some("install_mac_b"));
+        assert_eq!(tab_json(&mux, browser.id)["browser_owner"], "install_mac_b");
+        // An owner must be a valid install id.
+        assert!(
+            mux.update_frontend_browser_tab(browser.id, None, None, None, Some("bad/owner".into()))
+                .is_err()
+        );
         let tab = tab_json(&mux, browser.id);
         assert_eq!(tab["url"], "https://example.com/next");
         assert_eq!(tab["title"], "Next");
         assert_eq!(tab["favicon_url"], "https://example.com/favicon.ico");
         // A PTY tab is not a frontend browser.
-        assert!(mux.update_frontend_browser_tab(terminal, None, Some("x".into()), None).is_err());
+        assert!(
+            mux.update_frontend_browser_tab(terminal, None, Some("x".into()), None, None).is_err()
+        );
         let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&browser.id].clone());
         drop(browser);
         drop(mux);

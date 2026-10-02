@@ -9,12 +9,13 @@
 //! leaves the history in the commit that stores the request's result, so a
 //! retry with the same key replays it.
 
-use super::state_commit::{StateEffects, state_not_found};
-use super::tab_groups::pane_by_public_id;
-use super::tab_strip::StripRequest;
-use super::*;
-use crate::workspace_registry::closed_history_store::{closed_record, remove_closed};
-use crate::workspace_registry::state_store::{StateChanges, StateCommit, state_delete};
+use crate::mux::tab_groups::pane_by_public_id;
+use crate::mux::tab_strip::StripRequest;
+use crate::mux::*;
+use crate::state::closed_history_store::{closed_record, remove_closed};
+use crate::state::commit::{StateEffects, state_not_found};
+use crate::state::prelude::*;
+use crate::state::store::{StateChanges, StateCommit, state_delete};
 
 const OPERATION: &str = "closed.reopen";
 
@@ -112,6 +113,8 @@ impl Mux {
                                 title: None,
                                 favicon_url: None,
                                 profile_id: tab["browser_profile_id"].as_str().map(str::to_string),
+                                // The app that shows the reopened tab claims it.
+                                owner: None,
                             },
                             None,
                         )?

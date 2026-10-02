@@ -1050,6 +1050,10 @@ def _validate_catalog_type(
                 "types.StreamError.fields.details",
                 "errors.operation.failed.details.fields.extra.values",
                 "operations.frontend_projection.put.params.fields.projection",
+                # The app's own window state, opaque to the daemon like a
+                # frontend projection (OWNERSHIP-PRINCIPLES window records).
+                "types.WindowRecordSnapshot.fields.record",
+                "operations.window_record.put.params.fields.record",
             }
             is_explicit_extra = (
                 context.startswith("types.")

@@ -3,14 +3,13 @@
 
 use serde::Serialize;
 
-use super::state_commit::{StateEffects, workspace_identity};
-use super::*;
+use crate::mux::*;
+use crate::state::commit::{StateEffects, workspace_identity};
+use crate::state::prelude::*;
+use crate::state::store::{StateChanges, StateCommit, state_upsert, write_workspace_identity};
+use crate::state::values::{fresh_upserts, upserted_value};
+use crate::state::workspace_status_store as status;
 use crate::workspace_registry::WorkspacePresentationUpdate;
-use crate::workspace_registry::state_store::{
-    StateChanges, StateCommit, state_upsert, write_workspace_identity,
-};
-use crate::workspace_registry::state_values::{fresh_upserts, upserted_value};
-use crate::workspace_registry::workspace_status_store as status;
 
 /// One workspace status mutation.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -169,47 +168,10 @@ impl Mux {
 }
 
 impl Mux {
-    /// Mark a workspace this request created ephemeral and publish the
-    /// workspace with `extra.ephemeral`. Idempotent: a workspace already
-    /// marked commits nothing, so a replayed `workspace.create` that
-    /// repeats this step changes nothing.
-    pub(crate) fn mark_workspace_ephemeral(&self, workspace_id: &str) -> anyhow::Result<()> {
-        let marked = self.read_registry_state(|connection| {
-            Ok(crate::workspace_registry::state_store::ephemeral_workspaces(connection)?
-                .iter()
-                .any(|id| id == workspace_id))
-        })?;
-        if marked {
-            return Ok(());
-        }
-        let fingerprint = serde_json::json!({
-            "operation": "workspace.ephemeral",
-            "workspace": workspace_id,
-            "nonce": crate::workspace_registry::new_uuid_v4(),
-        });
-        self.commit_state(
-            &WorkspaceMutation::local("cmux-tui-ephemeral"),
-            "workspace.ephemeral",
-            &fingerprint,
-            None,
-            StateEffects::EVENTS_ONLY,
-            |transaction, _| {
-                crate::workspace_registry::state_store::mark_workspace_ephemeral(
-                    transaction,
-                    workspace_id,
-                )?;
-                let changes = fresh_upserts(transaction, &[workspace_id.to_string()], &[], &[])?;
-                Ok(StateChanges::new(serde_json::json!({}), changes))
-            },
-        )?;
-        Ok(())
-    }
-
     /// Close every ephemeral workspace left by an earlier run, and end the
     /// terminals that only it showed. Runs once at daemon start.
     pub(crate) fn close_ephemeral_workspaces(self: &Arc<Self>) -> anyhow::Result<()> {
-        let ephemeral =
-            self.read_registry_state(crate::workspace_registry::state_store::ephemeral_workspaces)?;
+        let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         for workspace_id in ephemeral {
             let target = self.with_state(|state| {
                 let index = state
