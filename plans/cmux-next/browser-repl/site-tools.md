@@ -1,4 +1,4 @@
-> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/site-tools.md at 3add499853b). History and authorship are in that PR. Paths below that name Resources/browser-repl, Sources/Panels/BrowserRepl or CmuxBrowser/Repl refer to the legacy app in #15570; the cmux-next homes are in browser-host.md.
+> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/site-tools.md at 3add499853b). History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
 
 # Site tools (`sites`)
 
@@ -32,7 +32,7 @@ rules neither reference enforces together:
    is reported, never solved; a wrong Google account is an HTTP 403 that names
    the `{ uid }` option.
 
-Load order and the hook: `Resources/browser-repl/sites/loader.js` defines
+Load order and the hook: `cmux-tui/crates/cmux-browser-host/js/sites/loader.js` defines
 `register` and `createSites`; each file in `sites/` registers one tool; the
 files are in `manifest.json`'s `repl` list after `api.js`, which builds
 `sites` on first use.

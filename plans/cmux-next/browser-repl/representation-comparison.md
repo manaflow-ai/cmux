@@ -1,4 +1,4 @@
-> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/representation-comparison.md at 3add499853b). History and authorship are in that PR. Paths below that name Resources/browser-repl, Sources/Panels/BrowserRepl or CmuxBrowser/Repl refer to the legacy app in #15570; the cmux-next homes are in browser-host.md.
+> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/representation-comparison.md at 3add499853b). History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
 
 # Agent page representations: head-to-head
 
@@ -17,7 +17,7 @@ node tests/browser-parity/compare/run.mjs   # about 6 minutes; --pages fixtures,
 
 | id | representation | how it was captured |
 | --- | --- | --- |
-| cmux | `snapshot()` | run: Resources/browser-repl runtime on Playwright WebKit through `lib/dev-driver.mjs` |
+| cmux | `snapshot()` | run: cmux-tui/crates/cmux-browser-host/js runtime on Playwright WebKit through `lib/dev-driver.mjs` |
 | cmux-i | `snapshot({ interactive: true })` | run, same |
 | aside | `snapshot(page)` | run: `aside repl` one-shot (Aside CLI 1.26.916.1741), own tab in Aside Browser |
 | aside-i | `snapshot(page, { interactive: true })` | run, same |

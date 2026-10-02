@@ -1,4 +1,4 @@
-> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/README.md at 3add499853b). History and authorship are in that PR. Paths below that name Resources/browser-repl, Sources/Panels/BrowserRepl or CmuxBrowser/Repl refer to the legacy app in #15570; the cmux-next homes are in browser-host.md.
+> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/README.md at 3add499853b). History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
 
 # cmux browser REPL
 
@@ -45,7 +45,7 @@ reference ([parity-report.md](parity-report.md)).
 | `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd) and the system temp directory. `import("node:fs")` and friends return the same modules. |
 | `sleep(ms)`, `display(value)` | Wait; show a value or image to the agent. |
 | `sites` | Site tools that run through the signed-in browser session: Google Docs/Sheets/Slides/Drive, Gmail, Calendar, Search, YouTube, Slack, Notion, LinkedIn, X, GitHub, Linear, Jira, page assets, WebMCP and a secure sign-in sheet. Writes to other people are drafts until confirmed. See [site-tools.md](site-tools.md). |
-| `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`Resources/browser-repl/guide.md`). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })` sets Playwright browser-context options for the tabs the session drives. The domain policy (`allowedDomains`, `prohibitedDomains`, `blockIPAddresses`, `blockedNavigations`, which also blocks subresources), `storageState` (the current tab's site by default, `{ all: true }` for the whole profile)/`setStorageState`, `downloads()` and `record()`: see [browser-use-parity.md](browser-use-parity.md). |
+| `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`cmux-tui/crates/cmux-browser-host/js/guide.md`). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })` sets Playwright browser-context options for the tabs the session drives. The domain policy (`allowedDomains`, `prohibitedDomains`, `blockIPAddresses`, `blockedNavigations`, which also blocks subresources), `storageState` (the current tab's site by default, `{ all: true }` for the whole profile)/`setStorageState`, `downloads()` and `record()`: see [browser-use-parity.md](browser-use-parity.md). |
 | `secret(name)`, `secrets` | Named secrets scoped to domains, typed with `locator.fill(secret(name))` and masked as `<secret:name>` in every output, read and file ([browser-use-parity.md](browser-use-parity.md#secrets)). |
 | `search(query, options)` | `[{ title, url, snippet }]` from DuckDuckGo, Bing or Google. |
 | `tools` | `register(name, fn, { description, params, domains })`, `list()`, `call(name, args)`: the session's own callable tools. |
@@ -329,7 +329,7 @@ agent -> cmux browser repl -> control socket -> REPL session (JavaScriptCore)
                                    WebKit driver (Swift, WKWebView)
 ```
 
-- Runtime: `Resources/browser-repl/` (`runtime-core.js` Playwright model,
+- Runtime: `cmux-tui/crates/cmux-browser-host/js/` (`runtime-core.js` Playwright model,
   `api.js` globals, `snapshot.js` host-side stitching and diff, `page-agent.js`
   per-frame script in an isolated content world, `repl-host.js`). Locators use
   Playwright's injected script (Apache-2.0).

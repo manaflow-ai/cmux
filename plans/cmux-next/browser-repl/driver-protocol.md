@@ -1,4 +1,4 @@
-> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/driver-protocol.md at 3add499853b). History and authorship are in that PR. Paths below that name Resources/browser-repl, Sources/Panels/BrowserRepl or CmuxBrowser/Repl refer to the legacy app in #15570; the cmux-next homes are in browser-host.md.
+> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/driver-protocol.md at 3add499853b). History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
 
 # Browser driver protocol
 
@@ -64,7 +64,7 @@ events) without changing the user's key window or first responder.
 | `frame.ownerBox` | `{ targetId, frameId }` | owner `<iframe>` content box in parent-frame coordinates |
 
 `world: "agent"` runs in an isolated content world where the driver has
-already installed the page agent (`Resources/browser-repl/page-agent.js`) and
+already installed the page agent (`cmux-tui/crates/cmux-browser-host/js/page-agent.js`) and
 Playwright's injected script. Cross-origin frames are reachable. `source` is a
 function expression called with `args`. The agent world survives until the
 frame navigates; after navigation the driver reinstalls it before the next call.
@@ -151,7 +151,7 @@ structured values cross the boundary as JSON strings.
 | `driverCall(callId, method, paramsJSON)` | the app later calls `globalThis.__cmuxHostOnResult(callId, errorJSON, resultJSON)`; exactly one of the two is `null`; `errorJSON` is `{ code, message }` |
 | `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store (`params.targetId` optional in the request) |
 | `fs(op, argsJSON)` | synchronous; returns `{"ok": value}` or `{"error": {"code": "ENOENT"\|"EACCES"\|"EEXIST"\|"ENOTDIR"\|"EISDIR"\|"ENOTEMPTY"\|"EINVAL", "message"}}` |
-| `readResource(relativePath)` | text of a bundled `Resources/browser-repl/` file, or `null` |
+| `readResource(relativePath)` | text of a bundled `cmux-tui/crates/cmux-browser-host/js/` file, or `null` |
 | `tmpdir`, `homedir` | canonical temporary and home directories, for `node:os` |
 
 `fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd` or
@@ -172,7 +172,7 @@ Entry points the runtime defines, called by the app:
 - `__cmuxHostOnEvent(name, payloadJSON)` delivers every driver event.
 - `__cmuxHostOnTimer(id)`, `__cmuxHostOnResult(callId, errorJSON, resultJSON)`.
 
-Script load order: `manifest.json` in `Resources/browser-repl/`,
+Script load order: `manifest.json` in `cmux-tui/crates/cmux-browser-host/js/`,
 `{ "repl": [...], "agent": [...] }`, paths relative to that directory. `repl`
 scripts run in order in the REPL context; `agent` scripts install in order in
 the agent world. A missing or malformed manifest, or a listed file that does
@@ -209,7 +209,7 @@ when present.
 
 ## Proposed changes (runtime)
 
-Needs found while building `Resources/browser-repl` against the `dev` driver.
+Needs found while building `cmux-tui/crates/cmux-browser-host/js` against the `dev` driver.
 The dev driver implements all of them.
 
 - `frame.contentFrame { targetId, frameId, element }` returns `{ frameId }` of

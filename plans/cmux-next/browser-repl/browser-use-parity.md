@@ -1,4 +1,4 @@
-> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/browser-use-parity.md at 3add499853b). History and authorship are in that PR. Paths below that name Resources/browser-repl, Sources/Panels/BrowserRepl or CmuxBrowser/Repl refer to the legacy app in #15570; the cmux-next homes are in browser-host.md.
+> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/browser-use-parity.md at 3add499853b). History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
 
 # browser-use parity
 
@@ -7,7 +7,7 @@ Every agent-facing capability of [browser-use](https://github.com/browser-use/br
 its own model loop over a numbered DOM list and a Python tool registry; the
 REPL is driven by an outside agent in JavaScript, so a browser-use tool
 becomes a Playwright call, a ref, or one of the additions in
-`Resources/browser-repl/agent-tools.js`. Nothing in cmux calls a model:
+`cmux-tui/crates/cmux-browser-host/js/agent-tools.js`. Nothing in cmux calls a model:
 browser-use's model-backed tools (`extract` with a query, `get_element_by_prompt`)
 map to deterministic reads the calling agent reasons over.
 
