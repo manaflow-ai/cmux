@@ -7,6 +7,7 @@ import {
   layoutConversation,
   paneHeader,
   placeRows,
+  plainEditLabels,
   transcriptRowWidth,
   visibleLayoutRange,
   type AcpmuxPermission,
@@ -22,9 +23,10 @@ import { ScrollPacing } from "./pacing";
 import { Composer } from "./Composer";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
-import { SessionSidebar } from "./SessionSidebar";
-import { turnFiles, turnRows } from "./diff";
-import { DiffPanel } from "./DiffPanel";
+import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
+import { turnFiles, turnRows, type TurnFile } from "./diff";
+import { Counts, DiffPanel } from "./DiffPanel";
+import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { WORKED, isFoldedCopy, turnView } from "./conversation/turns";
@@ -65,6 +67,16 @@ declare global {
     cmuxAcpmuxMockScript?: MockScript;
     React?: typeof React;
   }
+}
+
+/** Who mock mode is signed in as, for the sidebar's account row. */
+const MOCK_ACCOUNT: SidebarAccount = { name: "Leo", detail: "Max" };
+
+/** The host's `account`, kept only when its fields are strings. */
+function hostAccount(value: unknown): SidebarAccount | undefined {
+  const account = value as { name?: unknown; detail?: unknown } | undefined;
+  if (typeof account?.name !== "string" || !account.name) return undefined;
+  return { name: account.name, detail: typeof account.detail === "string" ? account.detail : undefined };
 }
 
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -149,44 +161,91 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const EDITED_FILES_SHOWN = 3;
+
+/// "Edited N files", after Codex's card (EditedFilesCard in codex-atlas-clone's
+/// src/conversation/cards.tsx): totals, View changes, and the first files with their counts;
+/// each file opens the changes at that file. One edited file is named in the title instead.
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
-    const files = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
-    const reviewable = onOpenDiff && files.some((file) => file.tool?.diffs?.length);
+    const [showAll, setShowAll] = useState(false);
+    const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
+    const files = useMemo(() => turnFiles([row]), [row]);
+    // An edit whose tool call carried no diff still lists, without counts.
+    const plain = plainEditLabels(edits);
+    const entries: { key: string; file?: TurnFile; text?: string }[] = [
+      ...files.map((file) => ({ key: file.path, file })),
+      ...plain.map((text, index) => ({ key: `plain-${index}`, text })),
+    ];
+    const total = entries.length;
+    const additions = files.reduce((sum, file) => sum + file.additions, 0);
+    const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
+    const single = total === 1 && files.length === 1 ? files[0] : undefined;
+    const shown = single ? [] : showAll ? entries : entries.slice(0, EDITED_FILES_SHOWN);
+    const more = single ? 0 : total - shown.length;
+    const reviewable = onOpenDiff && files.length > 0;
     return (
-      <div className="acpmux-edited-files">
-        <div className="acpmux-edited-title">
-          <strong>Edited files</strong>
+      <div className="acpmux-edited">
+        <div className="acpmux-edited-head">
+          <span className="acpmux-edited-icon">
+            <DiffFile />
+          </span>
+          <div className="acpmux-edited-title">
+            <div>
+              {single ? `Edited ${single.path.split("/").pop()}` : `Edited ${total} ${total === 1 ? "file" : "files"}`}
+            </div>
+            {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
+          </div>
           {reviewable && (
-            <button type="button" className="acpmux-review-changes" onClick={() => onOpenDiff(row.id)}>
-              Review changes
+            <button type="button" className="acpmux-review-changes" onClick={() => onOpenDiff(row.id, single?.path)}>
+              View changes
             </button>
           )}
         </div>
-        {files.map((file) => {
-          const diffs = file.tool?.diffs ?? [];
-          if (!diffs.length || !onOpenDiff)
-            return <div key={file.tool?.id || file.text}>▤ {file.tool?.inputSummary || file.text}</div>;
-          // One line per file the call changed; each opens the changes at its file.
-          return (
-            <div className="acpmux-edited-call" key={file.tool?.id || file.text}>
-              ▤{" "}
-              {diffs.map((diff, index) => (
-                <React.Fragment key={diff.path}>
-                  {index > 0 && ", "}
-                  <button
-                    type="button"
-                    className="acpmux-edited-file"
-                    title={diff.path}
-                    onClick={() => onOpenDiff(row.id, diff.path)}
-                  >
-                    {diff.path.split("/").pop()}
-                  </button>
-                </React.Fragment>
-              ))}
+        {shown.map((entry) => {
+          if (!entry.file)
+            return (
+              <div className="acpmux-edited-file" key={entry.key}>
+                <span className="acpmux-edited-path">{entry.text}</span>
+              </div>
+            );
+          const file = entry.file;
+          const slash = file.displayPath.lastIndexOf("/");
+          const label = (
+            <>
+              <span className="acpmux-edited-path" title={file.path}>
+                <span className="acpmux-edited-dir">{file.displayPath.slice(0, slash + 1)}</span>
+                <span className="acpmux-edited-base">{file.displayPath.slice(slash + 1)}</span>
+              </span>
+              <Counts additions={file.additions} deletions={file.deletions} />
+            </>
+          );
+          return onOpenDiff ? (
+            <button
+              type="button"
+              className="acpmux-edited-file"
+              key={entry.key}
+              onClick={() => onOpenDiff(row.id, file.path)}
+            >
+              {label}
+            </button>
+          ) : (
+            <div className="acpmux-edited-file" key={entry.key}>
+              {label}
             </div>
           );
         })}
+        {(more > 0 || showAll) && !single && total > EDITED_FILES_SHOWN && (
+          <button
+            type="button"
+            className="acpmux-edited-more"
+            aria-expanded={showAll}
+            onClick={() => setShowAll(!showAll)}
+          >
+            {showAll ? "Show fewer files" : `Show ${more} more ${more === 1 ? "file" : "files"}`}
+            <ChevronDown width={14} height={14} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
+          </button>
+        )}
       </div>
     );
   },
@@ -636,6 +695,8 @@ function AcpmuxPane() {
     return diffActivity.current.files;
   }, [diffView, diffOpen, snapshot.rows]);
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
+  /// Who is signed in, when the host says: the sidebar's account row.
+  const [account, setAccount] = useState<SidebarAccount>();
   /// The session list shows beside the transcript in a wide pane and on demand in a narrow one.
   const [sidebar, setSidebar] = useState<"auto" | "open" | "closed">("auto");
   const sidebarToggle = useRef<HTMLButtonElement>(null);
@@ -663,11 +724,17 @@ function AcpmuxPane() {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
     void callNative("chat.select", { sessionId });
   }, []);
+  const newChat = useCallback(() => {
+    setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
+    void callNative("chat.new").catch(() => undefined);
+  }, []);
   // While the narrow-pane overlay is open, Escape closes it and focus moves into it.
   useEffect(() => {
     if (sidebar !== "open" || wide) return;
     const list = document.getElementById("acpmux-sidebar");
-    (list?.querySelector<HTMLElement>(".is-selected") ?? list?.querySelector<HTMLElement>("button"))?.focus();
+    (
+      list?.querySelector<HTMLElement>(".is-selected") ?? list?.querySelector<HTMLElement>("[aria-current=page]")
+    )?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") closeOverlay();
     };
@@ -754,10 +821,12 @@ function AcpmuxPane() {
           token?: string;
           sessionId?: string;
           newSession?: boolean;
+          account?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
+        setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
         if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
         const client = await AcpmuxDirectClient.connect(
           mock ? mockHost : (host as AcpmuxHostConfig),
@@ -833,7 +902,13 @@ function AcpmuxPane() {
   const header = paneHeader(composerSnapshot);
   return (
     <section className="acpmux-shell" data-sidebar={sidebar}>
-      <SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />
+      <SessionSidebar
+        sessions={snapshot.sessions}
+        selectedId={snapshot.sessionId}
+        onSelect={selectSession}
+        onNewChat={newChat}
+        account={account}
+      />
       {sidebar === "open" && (
         <button
           type="button"
