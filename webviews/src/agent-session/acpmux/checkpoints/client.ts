@@ -95,6 +95,12 @@ function requestError(error: unknown): CheckpointRpcError {
     userMessage: error instanceof Error ? error.message : "Request failed",
   });
 }
+const reconciliationErrors = new WeakSet<CheckpointRpcError>();
+function reconciliationError(error: unknown): CheckpointRpcError {
+  const parsed = requestError(error);
+  reconciliationErrors.add(parsed);
+  return parsed;
+}
 function targetParams(target: CheckpointTarget): Record<string, unknown> {
   if (typeof target.cwd !== "string" || target.cwd.length === 0)
     throw new CheckpointRpcError("validation.invalid", "A working directory is required.");
@@ -174,6 +180,7 @@ export class CheckpointClient {
     }
   }
   setOnline(online: boolean): void {
+    if (online !== this.online) this.generation += 1;
     this.online = online;
     if (!online) {
       this.capabilityGeneration++;
@@ -331,7 +338,16 @@ export class CheckpointClient {
       const lookup = operation === "create" ? { idempotency_key: key } : { checkpoint_id: String(body.checkpoint_id) };
       checkpointRecord(await this.call(CHECKPOINT_OPS.get, { ...targetParams(target), ...lookup }));
     } catch (error) {
-      if (!isNotFound(error)) throw requestError(error);
+      if (!isNotFound(error)) throw reconciliationError(error);
+      if (generation !== this.generation || !this.online)
+        throw reconciliationError(
+          new CheckpointRpcError({
+            code: "native.not_connected",
+            userMessage: "Checkpoint retry paused until the selected session is connected.",
+            details: { reason: RECONCILIATION_BLOCKED_REASON },
+            origin: "native",
+          }),
+        );
       return undefined;
     }
     if (operation === "create") {
@@ -340,14 +356,18 @@ export class CheckpointClient {
       // ledger revision carried by the mutation envelope. Replay the exact
       // original write to recover that envelope instead of synthesizing one
       // from the record returned by the read-first reconciliation.
-      const replay = mutationEnvelope<Checkpoint>(
-        await this.call(CHECKPOINT_OPS.create, {
-          ...targetParams(target),
-          ...body,
-          idempotency_key: key,
-        }),
-      );
-      return { ...replay, result: checkpointRecord(replay.result) };
+      try {
+        const replay = mutationEnvelope<Checkpoint>(
+          await this.call(CHECKPOINT_OPS.create, {
+            ...targetParams(target),
+            ...body,
+            idempotency_key: key,
+          }),
+        );
+        return { ...replay, result: checkpointRecord(replay.result) };
+      } catch (error) {
+        throw reconciliationError(error);
+      }
     }
     return undefined;
   }
@@ -395,7 +415,8 @@ export class CheckpointClient {
       return { ...result, result: parsedRecord };
     } catch (error) {
       const parsed = requestError(error);
-      const preservePending = parsed.uncertain || parsed.reason === RECONCILIATION_BLOCKED_REASON;
+      const preservePending =
+        parsed.uncertain || parsed.reason === RECONCILIATION_BLOCKED_REASON || reconciliationErrors.has(parsed);
       if (!preservePending && storageKey) await this.persistence.delete(storageKey);
       if (generation === this.generation)
         this.state = { ...this.state, error: parsed, pending: preservePending ? this.state.pending : undefined };

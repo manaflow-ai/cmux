@@ -180,10 +180,104 @@ test("disconnect while recoverPending is reading does not replay or discard the 
   const recovery = client.recoverPending();
   await Promise.resolve();
   client.setOnline(false);
+  client.setOnline(true);
   gate.resolve(checkpoint);
   await expect(recovery).rejects.toMatchObject({ reason: "reconciliation_blocked" });
   expect(calls).toEqual(["git.checkpoint.create", "git.checkpoint.get"]);
   expect(client.getSnapshot().pending?.idempotency_key).toBe("recover-key");
+  expect(persistence.values.size).toBe(1);
+});
+
+test("a rejected retry lookup preserves the original intent after selection changes", async () => {
+  const persistence = new MemoryPersistence();
+  const gate = Promise.withResolvers<unknown>();
+  const calls: string[] = [];
+  let first = true;
+  const request = async (method: string) => {
+    calls.push(method);
+    if (method.endsWith(".create") && first) {
+      first = false;
+      throw { code: "native.timed_out", origin: "native" };
+    }
+    if (method.endsWith(".get")) return gate.promise;
+    return { result: checkpoint, revision: "12", replayed: true };
+  };
+  const client = new CheckpointClient(request, {
+    persistence,
+    capabilities: async () => ({ checkpoints: true }),
+    key: () => "reject-key",
+  });
+  client.select(target);
+  await client.refreshCapabilities();
+  await expect(client.create()).rejects.toMatchObject({ code: "native.timed_out" });
+  const retry = client.create();
+  for (let attempt = 0; attempt < 10 && calls.length < 2; attempt++) await Promise.resolve();
+  client.select({ cwd: "/other", sessionId: "other" });
+  gate.reject({ code: "native.not_connected", origin: "native" });
+  await expect(retry).rejects.toMatchObject({ code: "native.not_connected", origin: "native" });
+  expect(calls).toEqual(["git.checkpoint.create", "git.checkpoint.get"]);
+  expect(persistence.values.size).toBe(1);
+});
+
+test("a rejected recoverPending lookup preserves the original intent while disconnected", async () => {
+  const persistence = new MemoryPersistence();
+  const gate = Promise.withResolvers<unknown>();
+  const calls: string[] = [];
+  let first = true;
+  const request = async (method: string) => {
+    calls.push(method);
+    if (method.endsWith(".create") && first) {
+      first = false;
+      throw { code: "native.timed_out", origin: "native" };
+    }
+    if (method.endsWith(".get")) return gate.promise;
+    return { result: checkpoint, revision: "12", replayed: true };
+  };
+  const client = new CheckpointClient(request, {
+    persistence,
+    capabilities: async () => ({ checkpoints: true }),
+    key: () => "reject-recover-key",
+  });
+  client.select(target);
+  await client.refreshCapabilities();
+  await expect(client.create()).rejects.toMatchObject({ code: "native.timed_out" });
+  const recovery = client.recoverPending();
+  for (let attempt = 0; attempt < 10 && calls.length < 2; attempt++) await Promise.resolve();
+  client.setOnline(false);
+  gate.reject({ code: "native.not_connected", origin: "native" });
+  await expect(recovery).rejects.toMatchObject({ code: "native.not_connected", origin: "native" });
+  expect(calls).toEqual(["git.checkpoint.create", "git.checkpoint.get"]);
+  expect(client.getSnapshot().pending?.idempotency_key).toBe("reject-recover-key");
+  expect(persistence.values.size).toBe(1);
+});
+
+test("a rejected reconciliation lookup preserves the original intent while still online", async () => {
+  const persistence = new MemoryPersistence();
+  const gate = Promise.withResolvers<unknown>();
+  const calls: string[] = [];
+  let first = true;
+  const request = async (method: string) => {
+    calls.push(method);
+    if (method.endsWith(".create") && first) {
+      first = false;
+      throw { code: "native.timed_out", origin: "native" };
+    }
+    if (method.endsWith(".get")) return gate.promise;
+    return { result: checkpoint, revision: "12", replayed: true };
+  };
+  const client = new CheckpointClient(request, {
+    persistence,
+    capabilities: async () => ({ checkpoints: true }),
+    key: () => "online-reject-key",
+  });
+  client.select(target);
+  await client.refreshCapabilities();
+  await expect(client.create()).rejects.toMatchObject({ code: "native.timed_out" });
+  const retry = client.create();
+  for (let attempt = 0; attempt < 10 && calls.length < 2; attempt++) await Promise.resolve();
+  gate.reject({ code: "native.not_connected", origin: "native" });
+  await expect(retry).rejects.toMatchObject({ code: "native.not_connected", origin: "native" });
+  expect(calls).toEqual(["git.checkpoint.create", "git.checkpoint.get"]);
   expect(persistence.values.size).toBe(1);
 });
 
