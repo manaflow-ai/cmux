@@ -85,6 +85,8 @@ scenario (`key` its golden value), `unit:` a `node --test` file.
 
 ## Secrets
 
+cmux-next (2026-10-01): the vault, TOTP, the domain check, masking and capture masking run in the browser host below the agent's JS context (browser-host.md section 4). `secret(name)` is a `{__secret: name}` handle the host resolves; a secret set from agent code is agent-known (masked only, `agentKnown: true` in `secrets.list()`); a secret the user loads into the host never enters the agent context. Proof: unit `host-boundary.test.mjs` against `tests/browser-parity/lib/reference-host.mjs`, the oracle for the Rust host. Limit: once a value is typed into a page, agent code can read it back through the page in a transformed form (`btoa(field.value)`); masking stops accidental exposure, not a hostile agent.
+
 browser-use's `sensitive_data` keeps credentials out of the model's context:
 the model writes `<secret>name</secret>` and the value is substituted when
 typed, if the page's domain matches. In cmux the model is the caller, so the

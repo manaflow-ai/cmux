@@ -66,6 +66,19 @@ public nonisolated enum SettingsSchema {
                 default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
             ),
             SettingDescriptor(
+                WindowRailSetting.configPath, section: .general, group: window,
+                title: SettingsText.text("settings.window.rail", "Action Rail"),
+                help: SettingsText.text("settings.window.rail.help",
+                                        "A column of buttons for new tabs, agent chats, notifications, history and accounts."),
+                kind: .choice([
+                    SettingChoice(WindowRailPlacement.off.rawValue, SettingsText.text("settings.choice.off", "Off")),
+                    SettingChoice(WindowRailPlacement.leading.rawValue, SettingsText.text("settings.choice.railLeading", "Window Edge")),
+                    SettingChoice(WindowRailPlacement.afterSidebar.rawValue,
+                                  SettingsText.text("settings.choice.railAfterSidebar", "After Sidebar")),
+                ]),
+                default: .string(WindowRailSetting.fallback.rawValue), keywords: ["rail", "toolbar", "buttons", "inbox", "accounts"]
+            ),
+            SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.text("settings.app.quitBehavior", "When Quitting"),
                 help: SettingsText.text("settings.app.quitBehavior.help",
@@ -108,6 +121,16 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["niri", "scroll", "scrollbar", "minimap"]
             ),
+            SettingDescriptor(
+                CloseFocusSetting.configPath, section: .general, group: columns,
+                title: SettingsText.text("settings.layout.closeFocus", "Focus After Closing a Pane"),
+                help: SettingsText.text("settings.layout.closeFocus.help", "Which pane gets focus when the focused pane closes."),
+                kind: .choice([
+                    SettingChoice(CloseFocusPolicy.previousNeighbor.rawValue, SettingsText.text("settings.choice.closeFocusPreviousNeighbor", "Previous Neighbor")),
+                    SettingChoice(CloseFocusPolicy.mostRecent.rawValue, SettingsText.text("settings.choice.closeFocusMostRecent", "Most Recently Focused")),
+                ]),
+                default: .string(CloseFocusSetting.fallback.rawValue), keywords: ["close", "focus", "neighbor", "recent"]
+            ),
         ]
     }
 
@@ -138,6 +161,30 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(BorderMode.none.rawValue, SettingsText.text("settings.choice.none", "None")),
                 ]),
                 default: .string(BordersSetting.fallback.rawValue), keywords: ["border", "hairline", "separator", "outline", "line"]
+            ),
+            SettingDescriptor(
+                PaneFocusSettings.focusIndicatorPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.focusIndicator", "Focused Pane"),
+                help: SettingsText.text("settings.appearance.focusIndicator.help",
+                                        "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither."),
+                kind: .choice([
+                    SettingChoice(FocusIndicator.border.rawValue, SettingsText.text("settings.choice.border", "Border")),
+                    SettingChoice(FocusIndicator.tabs.rawValue, SettingsText.text("settings.choice.tabs", "Tabs")),
+                    SettingChoice(FocusIndicator.both.rawValue, SettingsText.text("settings.choice.both", "Both")),
+                    SettingChoice(FocusIndicator.none.rawValue, SettingsText.text("settings.choice.none", "None")),
+                ]),
+                default: .string(PaneFocusSettings.focusIndicatorFallback.rawValue), keywords: ["focus", "active", "pane", "tab", "ring"]
+            ),
+            SettingDescriptor(
+                PaneFocusSettings.tabBarBackgroundPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.tabBarBackground", "Tab Bar Background"),
+                help: SettingsText.text("settings.appearance.tabBarBackground.help",
+                                        "Window uses the window's own background around the tabs; Darker shades the tab bar."),
+                kind: .choice([
+                    SettingChoice(TabBarBackground.window.rawValue, SettingsText.text("settings.choice.window", "Window")),
+                    SettingChoice(TabBarBackground.darker.rawValue, SettingsText.text("settings.choice.darker", "Darker")),
+                ]),
+                default: .string(PaneFocusSettings.tabBarBackgroundFallback.rawValue), keywords: ["tab", "strip", "background", "bar"]
             ),
             SettingDescriptor(
                 AnimationSpeedSetting.configPath, section: .appearance, group: look,
@@ -195,6 +242,16 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(FocusRingStyle.none.rawValue, SettingsText.text("settings.choice.none", "None")),
                 ]),
                 default: .string(FocusRingSettings().style.rawValue)
+            ),
+            SettingDescriptor(
+                ["focusRing", "contrast"], section: .appearance, group: ring,
+                title: SettingsText.text("settings.focusRing.contrast", "Contrast"),
+                kind: .choice([
+                    SettingChoice(FocusRingContrast.subtle.rawValue, SettingsText.text("settings.choice.subtle", "Subtle")),
+                    SettingChoice(FocusRingContrast.standard.rawValue, SettingsText.text("settings.choice.standard", "Standard")),
+                    SettingChoice(FocusRingContrast.strong.rawValue, SettingsText.text("settings.choice.strong", "Strong")),
+                ]),
+                default: .string(FocusRingSettings().contrast.rawValue)
             ),
             SettingDescriptor(
                 ["focusRing", "color"], section: .appearance, group: ring,

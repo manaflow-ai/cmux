@@ -59,6 +59,7 @@ events) without changing the user's key window or first responder.
 
 | Method | Params | Result |
 | --- | --- | --- |
+| (world `host`) | cmux-next: `frame.evaluate` also takes `world: "host"`, a content world only the browser host uses (no page agent); the host refuses it from agent code | |
 | `frames.list` | `{ targetId }` | `[{ frameId, parentFrameId, url, name, crossOrigin }]`, parents before children, document order |
 | `frame.evaluate` | `{ targetId, frameId, world: "agent"\|"page", source, args, awaitPromise, timeoutMs }` | JSON-serializable return value |
 | `frame.ownerBox` | `{ targetId, frameId }` | owner `<iframe>` content box in parent-frame coordinates |
@@ -109,6 +110,7 @@ Every event carries `targetId`.
 | `tab.closed` | |
 | `tab.crashed` | (the web content process ended; calls other than navigation fail until a reload or navigation starts a new one) |
 | `tab.navigated` | `{ frameId, url, sameDocument }` |
+| `tab.navigationBlocked` | `{ url }` (cmux-next: a main-frame document the content rules blocked before its request was sent) |
 | `tab.loadState` | `{ state: "domcontentloaded"\|"load"\|"networkidle" }` |
 | `dialog.opened` | `{ dialogId, type: "alert"\|"confirm"\|"prompt"\|"beforeunload", message, defaultValue }` (stays open until `dialog.respond`) |
 | `filechooser.opened` | `{ chooserId, frameId, element, multiple }` (native panel suppressed while a REPL session is attached) |

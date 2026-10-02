@@ -97,3 +97,78 @@ fn sticky_column_registry_record_is_additive() {
     );
     assert_eq!(serde_json::to_value(&column).unwrap(), with_sticky);
 }
+
+/// Closing the last scrolling column clears the remaining flags, and the
+/// cleared flags are what the registry holds after a restart.
+#[test]
+fn sticky_column_flags_cleared_by_a_close_stay_cleared_after_restart() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-sticky-close-restart-{}", WorkspacePublicId::random().unwrap()));
+    let session = "sticky-close-restart";
+    let (fixture_snapshot, fixture_topology) = resource_restore_fixture();
+    {
+        let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-sticky-close", "test").unwrap(),
+                "session.restore_fixture",
+                &serde_json::json!({"fixture":"nested-columns"}),
+                None,
+                Some(0),
+                &resource_restore_patch(&fixture_snapshot, &fixture_topology),
+                &serde_json::json!({"restored":true}),
+                &serde_json::json!([{"event":"session.restored"}]),
+            )
+            .unwrap();
+    }
+    let left = ColumnSticky { edge: StickyEdge::Left, mode: StickyMode::Docked };
+    let right = ColumnSticky { edge: StickyEdge::Right, mode: StickyMode::Docked };
+
+    let mux = open_restart_mux(&root, session);
+    // Three columns: the fixture's two plus a new one holding a second tab
+    // of pane one (a pane's only tab cannot be dragged out).
+    let (from, middle) = mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        let from = state.resource_indexes.panes[&restore_pane_id(1)];
+        (from, screen.layout_columns[1].root.first_visible_pane())
+    });
+    let moved =
+        mux.new_browser_tab("about:blank#third".into(), Some(from), Some((80, 24))).unwrap();
+    mux.move_tab_to_column(moved.id, from, None, None, None).unwrap();
+    let (first, last) = mux.with_state(|state| {
+        let columns = &state.workspaces[0].screens[0].layout_columns;
+        assert_eq!(columns.len(), 3);
+        (columns[0].root.first_visible_pane(), columns[2].root.first_visible_pane())
+    });
+    mux.set_column_sticky(first, Some(left), None).unwrap();
+    mux.set_column_sticky(last, Some(right), None).unwrap();
+    assert!(mux.close_pane(middle).unwrap());
+    mux.with_state(|state| {
+        let columns = &state.workspaces[0].screens[0].layout_columns;
+        assert_eq!(columns.len(), 2);
+        assert!(columns.iter().all(|column| column.sticky.is_none()));
+    });
+    mux.shutdown();
+    drop(mux);
+
+    {
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let topology = registry.resource_topology_snapshot().unwrap();
+        let screen = topology
+            .screens
+            .iter()
+            .find(|screen| screen.public_id == restore_screen_id(1))
+            .unwrap();
+        assert_eq!(screen.viewport.columns.len(), 2);
+        assert!(screen.viewport.columns.iter().all(|column| column.sticky.is_none()));
+    }
+    let mux = open_restart_mux(&root, session);
+    mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        assert!(screen.layout_column_projection_is_consistent());
+        assert!(screen.layout_columns.iter().all(|column| column.sticky.is_none()));
+    });
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}

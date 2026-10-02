@@ -34,6 +34,8 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .auto
+    /// `layout.closeFocus`: who gets focus when the focused pane closes.
+    public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
     public var defaultColumnWidth: Double = 0.5
     /// `layout.newColumnWidth`: how a new column's width is chosen.
@@ -53,8 +55,19 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.focusIndicator`: what marks the focused pane.
+    public var focusIndicator: FocusIndicator = .both
+    /// `appearance.tabBarBackground`: the tab strip's negative space.
+    public var tabBarBackground: TabBarBackground = .window
+
+    /// `focusIndicator` unless Debug Settings overrides it.
+    public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }
+    /// `tabBarBackground` unless Debug Settings overrides it.
+    public var effectiveTabBarBackground: TabBarBackground { FocusIndicatorTunables.tabBarBackground.override ?? tabBarBackground }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
+    /// `window.rail`: the window's icon rail, off by default.
+    public var rail: WindowRailPlacement = .off
 
     public init() {}
 

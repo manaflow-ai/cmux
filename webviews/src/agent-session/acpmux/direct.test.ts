@@ -677,7 +677,7 @@ describe("direct client session state", () => {
           : {};
     await connect();
     const attach = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/attach")!;
-    expect(attach.params.kinds).toEqual(["transcript", "available_commands_update"]);
+    expect(attach.params.kinds).toEqual(["transcript", "available_commands_update", "usage_update"]);
     expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(false);
     expect(texts()).toEqual(["a five"]);
     expect(latest().commands).toEqual([{ name: "review", description: "review help", hint: undefined }]);
@@ -687,6 +687,38 @@ describe("direct client session state", () => {
       _meta: { acpmux: { seq: 7 } },
     });
     expect(latest().commands?.map((command) => command.name)).toEqual(["compact"]);
+  });
+
+  test("the context used comes from the agent's last usage update, stays out of the rows, and resets with the session", async () => {
+    const usage = (sessionId: string, seq: number, used: number) => ({
+      sessionId,
+      seq,
+      at: seq,
+      dir: "in",
+      kind: "usage_update",
+      msg: { method: "session/update", params: { update: { sessionUpdate: "usage_update", used, size: 200000 } } },
+    });
+    ScriptedSocket.respond = ({ method, params }) =>
+      method === "_acpmux/attach"
+        ? {
+            ...attachReply(params.sessionId),
+            events: params.sessionId === "a" ? [userEvent("a", 5, "a five"), usage("a", 6, 33551)] : [],
+            lastSeq: 6,
+          }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }, { sessionId: "b" }] }
+          : {};
+    const client = await connect();
+    expect(texts()).toEqual(["a five"]);
+    expect(latest().summary?.usage).toEqual({ used: 33551, size: 200000 });
+    ScriptedSocket.current.notify("session/update", {
+      sessionId: "a",
+      update: { sessionUpdate: "usage_update", used: 50000, size: 200000 },
+      _meta: { acpmux: { seq: 7 } },
+    });
+    expect(latest().summary?.usage).toEqual({ used: 50000, size: 200000 });
+    await client.select("b");
+    expect(latest().summary?.usage).toBeUndefined();
   });
 
   test("commands older than the attach page are fetched by kind, and a session switch drops them", async () => {
@@ -739,6 +771,43 @@ describe("direct client session state", () => {
     await settle();
     expect(texts()).toEqual(["a five", "a six", "a seven", "did not send"]);
     expect(latest().rows.find((row) => row.text === "did not send")?.failed).toBe(true);
+  });
+
+  /// ACP wraps a tool call's output as `{ type: "content", content: { type: "text" } }`.
+  test("a tool call's wrapped text content becomes its output", async () => {
+    const update: EventRecord = {
+      sessionId: "a",
+      seq: 2,
+      at: 2000,
+      dir: "in",
+      kind: "tool_call",
+      msg: {
+        method: "session/update",
+        params: {
+          sessionId: "a",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "t1",
+            kind: "execute",
+            title: "Run bun test",
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: "2 pass\n0 fail" } }],
+          },
+        },
+      },
+    };
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? { session: { sessionId: "a", status: "idle" }, events: [userEvent("a", 1, "test it"), update] }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    await connect();
+    await settle();
+    const call = latest()
+      .rows.flatMap((row) => row.items ?? [])
+      .find((item) => item.tool?.id === "t1");
+    expect(call?.tool?.output).toBe("2 pass\n0 fail");
   });
 
   test("a turn summary counts the turn's tool calls and its time", async () => {

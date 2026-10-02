@@ -14,6 +14,11 @@ import CmuxNextBrowser
 /// current. That is what keeps a late completion from hiding, showing or
 /// reparenting the view of a newer selection.
 extension TabContentCache {
+    /// Drops terminal surfaces whose tabs no longer exist.
+    func prune(liveTabs: Set<String>) {
+        for key in terminals.keys where !liveTabs.contains(key) { release(key) }
+    }
+
     // MARK: Presentation
 
     /// `presenter` shows `key` (its view is, or is about to be, in the
