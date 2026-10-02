@@ -25,7 +25,7 @@ use ip_network::IpNetwork;
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::socket::tcp;
 use smoltcp::time::Instant as SmolInstant;
-use smoltcp::wire::{HardwareAddress, IpAddress, IpCidr, IpEndpoint, IpListenEndpoint};
+use smoltcp::wire::{HardwareAddress, IpCidr, IpEndpoint, IpListenEndpoint};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{Notify, mpsc, oneshot};
@@ -37,7 +37,9 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use crate::config::{InterfaceAddress, WgConfig};
 use crate::device::VirtualDevice;
 pub use crate::error::WgError;
+use crate::pacing::Pacer;
 use crate::probing;
+use crate::wire::{ip_address, packet_source, socket_addr};
 use crate::stream::{Outbound, WgStream};
 use crate::timers::{SESSION_FRESH, TimerSchedule};
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
@@ -360,6 +362,10 @@ struct Driver {
     /// a probe sent or judged.
     probe_route: Option<(IpAddr, IpAddr)>,
     probe_deadline: Option<Instant>,
+    /// Per-connection pacing of the stack's output, and when it next lets
+    /// a queued packet leave.
+    pacer: Pacer,
+    pace_deadline: Option<Instant>,
     wakeups: Arc<AtomicU64>,
     next_port: u16,
     scratch: Vec<u8>,
@@ -438,6 +444,8 @@ impl Driver {
             schedule,
             probe_route,
             probe_deadline: None,
+            pacer: Pacer::default(),
+            pace_deadline: None,
             wakeups: Arc::new(AtomicU64::new(0)),
             next_port: random_ephemeral_port(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
@@ -469,10 +477,10 @@ impl Driver {
                     None => std::future::pending::<()>().await,
                 }
             };
-            let next_tick = match (self.schedule.next_tick(), self.probe_deadline) {
-                (Some(tick), Some(probe)) => Some(tick.min(probe)),
-                (tick, probe) => tick.or(probe),
-            };
+            let next_tick = [self.schedule.next_tick(), self.probe_deadline, self.pace_deadline]
+                .into_iter()
+                .flatten()
+                .min();
             let timers = async {
                 match next_tick {
                     Some(at) => tokio::time::sleep_until(at).await,
@@ -623,6 +631,7 @@ impl Driver {
                         probing::receive(tunn, &mut *self.underlay, scratch, probe, origin.path);
                     } else if allowed {
                         self.schedule.on_activity(Instant::now());
+                        self.pacer.received(packet, Instant::now());
                         self.device.push_rx(packet.to_vec());
                     }
                     break;
@@ -631,14 +640,28 @@ impl Driver {
         }
     }
 
-    /// Encrypt and send what smoltcp emitted, until the underlay backs up.
-    /// What is left stays in the device queue, which then refuses smoltcp
-    /// more packets: TCP waits instead of losing segments.
+    /// Move what smoltcp emitted into the pacer, then encrypt and send what
+    /// the pacer lets leave, until the underlay backs up. Nothing is
+    /// dropped: a full pacer leaves packets in the device queue, which then
+    /// refuses smoltcp more, so TCP waits instead of losing segments.
     fn flush_tx(&mut self) {
-        let mut sent = false;
-        while !self.underlay.backlogged()
+        let now = Instant::now();
+        while self.pacer.has_room()
             && let Some(packet) = self.device.pop_tx()
         {
+            self.pacer.push(packet, now);
+        }
+        let mut sent = false;
+        self.pace_deadline = None;
+        while !self.underlay.backlogged() {
+            let packet = match self.pacer.pop(now) {
+                Ok(Some(packet)) => packet,
+                Ok(None) => break,
+                Err(at) => {
+                    self.pace_deadline = Some(at);
+                    break;
+                }
+            };
             if let TunnResult::WriteToNetwork(encrypted) =
                 self.tunn.encapsulate(&packet, &mut self.scratch)
             {
@@ -1025,36 +1048,6 @@ impl Driver {
             index += 1;
         }
         progressed
-    }
-}
-
-fn ip_address(address: IpAddr) -> IpAddress {
-    match address {
-        IpAddr::V4(address) => IpAddress::Ipv4(address),
-        IpAddr::V6(address) => IpAddress::Ipv6(address),
-    }
-}
-
-fn socket_addr(endpoint: IpEndpoint) -> SocketAddr {
-    let address = match endpoint.addr {
-        IpAddress::Ipv4(address) => IpAddr::V4(address),
-        IpAddress::Ipv6(address) => IpAddr::V6(address),
-    };
-    SocketAddr::new(address, endpoint.port)
-}
-
-/// The source address of a raw IPv4 or IPv6 packet, for crypto-key routing.
-fn packet_source(packet: &[u8]) -> Option<IpAddr> {
-    match packet.first()? >> 4 {
-        4 if packet.len() >= 20 => {
-            let octets: [u8; 4] = packet[12..16].try_into().ok()?;
-            Some(IpAddr::V4(octets.into()))
-        }
-        6 if packet.len() >= 40 => {
-            let octets: [u8; 16] = packet[8..24].try_into().ok()?;
-            Some(IpAddr::V6(octets.into()))
-        }
-        _ => None,
     }
 }
 

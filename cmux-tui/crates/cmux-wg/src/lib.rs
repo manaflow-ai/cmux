@@ -30,6 +30,7 @@ mod device;
 mod error;
 mod multipath;
 mod net;
+mod pacing;
 mod probe_schedule;
 mod probing;
 mod stream;
@@ -38,6 +39,7 @@ mod stream;
 pub mod testing;
 mod timers;
 mod underlay;
+mod wire;
 
 pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};
 pub use ip_network::IpNetwork;

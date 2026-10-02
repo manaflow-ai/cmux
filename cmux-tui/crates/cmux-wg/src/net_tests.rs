@@ -1,4 +1,6 @@
 //! Unit tests of the driver internals in `net.rs`.
+use smoltcp::wire::IpAddress;
+
 use super::*;
 
 struct TcpPeer {
