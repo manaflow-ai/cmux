@@ -39,6 +39,16 @@ fn valid_vectors_round_trip() {
             PeerId(hex(field(line, "peer").expect("peer field")).try_into().expect("16 bytes"))
         );
         assert_eq!(frame.payload, hex(field(line, "payload").expect("payload field")));
+        if let Some(records) = field(line, "records") {
+            let expected: Vec<Vec<u8>> = records.split(',').map(hex).collect();
+            let split: Vec<Vec<u8>> = frame
+                .split_datagrams()
+                .expect("valid batch")
+                .into_iter()
+                .map(<[u8]>::to_vec)
+                .collect();
+            assert_eq!(split, expected);
+        }
         assert_eq!(frame.encode().expect("encodes"), bytes);
         checked += 1;
     }

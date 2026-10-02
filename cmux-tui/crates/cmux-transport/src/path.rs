@@ -47,10 +47,4 @@ impl PathKind {
             PathKind::DoRelay => "do_relay",
         }
     }
-
-    /// Whether a local network change invalidates the path's addresses.
-    /// Relays are reached by name over a fresh connection, so they survive.
-    pub fn depends_on_local_address(self) -> bool {
-        matches!(self, PathKind::DirectLan | PathKind::DirectWan)
-    }
 }

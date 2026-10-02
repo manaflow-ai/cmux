@@ -3,7 +3,10 @@
 //! `[u8 version = 1][u8 kind][16-byte peer install id][payload]`, one frame
 //! per WebSocket binary message. On the host's socket `peer` names the
 //! client the datagrams came from or go to; on a client's socket it names
-//! the host. The relay reads only `version`, `kind` and `peer`; datagrams
+//! the host. The relay never trusts `peer` in a client's frame: it forwards
+//! the frame to the host with `peer` rewritten to the install bound to the
+//! client's authenticated socket, so a client cannot speak as another.
+//! The relay reads only `version`, `kind` and `peer`; datagrams
 //! are WireGuard messages it cannot decrypt. The TypeScript relay checks
 //! itself against `tests/vectors/relay-frames.json`.
 //!
@@ -66,6 +69,9 @@ impl RelayFrame {
     pub fn encode(&self) -> Result<Vec<u8>, RelayFrameError> {
         if self.payload.len() > RELAY_FRAME_MAX_PAYLOAD {
             return Err(RelayFrameError::TooLarge(self.payload.len()));
+        }
+        if self.kind == FrameKind::Datagrams {
+            split_batch(&self.payload)?;
         }
         let mut bytes = Vec::with_capacity(RELAY_FRAME_HEADER_LEN + self.payload.len());
         bytes.push(RELAY_FRAME_VERSION);

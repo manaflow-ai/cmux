@@ -1,16 +1,16 @@
 //! One UDP socket carries WireGuard and STUN. This tells them apart.
 //!
 //! WireGuard messages start with a little-endian u32 type of 1 to 4, so the
-//! first byte is the type and the next three are zero, and each type has a
-//! fixed size (data messages: a 16-byte header plus a ciphertext that is a
-//! multiple of 16 bytes and at least the 16-byte tag). STUN messages start
+//! first byte is the type and the next three are zero. Handshake messages
+//! have fixed sizes; a data message is a 16-byte header plus a ciphertext of
+//! at least the 16-byte tag. Implementations differ on padding (boringtun
+//! does not pad; others pad to 16 bytes but only up to the MTU), so the
+//! data length is not checked against a multiple of 16. STUN messages start
 //! with two zero bits, carry the magic cookie 0x2112A442 at offset 4 and a
-//! body length that is a multiple of 4 and matches the datagram. No valid
-//! WireGuard message has the STUN cookie in that place with a matching
-//! length, because bytes 4..8 of a WireGuard message are the sender or
-//! receiver index chosen at random; the length checks make a collision need
-//! both a cookie match and an exact size, which the caller treats as STUN
-//! only when it has a transaction outstanding.
+//! body length that is a multiple of 4 and matches the datagram. The two
+//! cannot collide: bytes 2..4 of every WireGuard message are zero, so a
+//! WireGuard message read as STUN declares an empty body and would have to
+//! be 20 bytes long, and the smallest WireGuard message is 32 bytes.
 
 /// What a received datagram is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +43,7 @@ pub fn classify(datagram: &[u8]) -> DatagramClass {
         (1, WG_INITIATION_LEN) => DatagramClass::WireGuardInitiation,
         (2, WG_RESPONSE_LEN) => DatagramClass::WireGuardResponse,
         (3, WG_COOKIE_REPLY_LEN) => DatagramClass::WireGuardCookieReply,
-        (4, len) if len >= WG_DATA_MIN_LEN && (len - 16) % 16 == 0 => DatagramClass::WireGuardData,
+        (4, len) if len >= WG_DATA_MIN_LEN => DatagramClass::WireGuardData,
         _ => DatagramClass::Unknown,
     }
 }
@@ -80,7 +80,10 @@ mod tests {
     #[test]
     fn wrong_sizes_and_reserved_bytes_are_unknown() {
         assert_eq!(classify(&wg(1, 147)), DatagramClass::Unknown);
-        assert_eq!(classify(&wg(4, 33)), DatagramClass::Unknown);
+        assert_eq!(classify(&wg(4, 31)), DatagramClass::Unknown);
+        // Unpadded data (boringtun) and MTU-capped padding are both data.
+        assert_eq!(classify(&wg(4, 33)), DatagramClass::WireGuardData);
+        assert_eq!(classify(&wg(4, 1452)), DatagramClass::WireGuardData);
         assert_eq!(classify(&wg(5, 148)), DatagramClass::Unknown);
         let mut reserved = wg(1, 148);
         reserved[2] = 1;

@@ -11,10 +11,15 @@
 //!   `dead_after_lost` probes in a row is dead until it answers again.
 //! - Any alive direct path beats every relay, at once.
 //! - Inside a class the lower smoothed RTT wins, but only after the
-//!   challenger beat the current path by the margin on `switch_streak`
-//!   consecutive answers (hysteresis), so jitter never flaps the path.
-//! - A local network change sends direct paths back to probing and keeps
-//!   relays, so traffic moves to a relay until a direct path answers again.
+//!   challenger beat the current path by the margin on `switch_streak` of
+//!   its own consecutive answers (hysteresis), so neither jitter nor one
+//!   lucky sample flaps the path.
+//! - A local network change sends every path back to probing: direct
+//!   mappings changed, the relay WebSocket died with the old interface, and
+//!   the tunnel gateway learns the new source only from the next datagram.
+//!   The engine sends on every path until the first answers.
+//! - Path ids are never reused: a late answer for a removed path must not
+//!   make a new path alive.
 
 use crate::path::{PathId, PathKind};
 
@@ -76,6 +81,7 @@ pub struct Selector {
     config: SelectorConfig,
     paths: Vec<Path>,
     current: Option<PathId>,
+    retired: Vec<PathId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,7 +92,7 @@ pub enum SelectorError {
 
 impl Selector {
     pub fn new(config: SelectorConfig) -> Self {
-        Self { config, paths: Vec::new(), current: None }
+        Self { config, paths: Vec::new(), current: None, retired: Vec::new() }
     }
 
     pub fn current(&self) -> Option<PathId> {
@@ -102,7 +108,7 @@ impl Selector {
     }
 
     pub fn add_path(&mut self, id: PathId, kind: PathKind) -> Result<(), SelectorError> {
-        if self.find(id).is_some() {
+        if self.find(id).is_some() || self.retired.contains(&id) {
             return Err(SelectorError::DuplicatePath(id));
         }
         self.paths.push(Path {
@@ -116,6 +122,7 @@ impl Selector {
     pub fn remove_path(&mut self, id: PathId) -> Result<Option<Switch>, SelectorError> {
         let index = self.find(id).ok_or(SelectorError::UnknownPath(id))?;
         self.paths.remove(index);
+        self.retired.push(id);
         Ok(self.reselect())
     }
 
@@ -151,12 +158,10 @@ impl Selector {
     /// The local network changed (interface, address, or wake from sleep).
     pub fn on_network_change(&mut self) -> Option<Switch> {
         for path in &mut self.paths {
-            if path.view.kind.depends_on_local_address() {
-                path.view.state = PathState::Probing;
-                path.view.rtt_us = None;
-                path.lost = 0;
-                path.better_streak = 0;
-            }
+            path.view.state = PathState::Probing;
+            path.view.rtt_us = None;
+            path.lost = 0;
+            path.better_streak = 0;
         }
         self.reselect()
     }
@@ -181,27 +186,29 @@ impl Selector {
         new.saturating_add(margin) <= old
     }
 
-    /// After an answer on `answered`, advance or reset the streak of every
-    /// same-class challenger of the current path.
+    /// After an answer on `answered`: a challenger's own answer advances its
+    /// streak when it beats the current path by the margin and resets it
+    /// otherwise; an answer of the current path can only reset streaks (a
+    /// challenger that no longer beats it starts over), never advance them.
     fn update_streaks(&mut self, answered: PathId) {
         let Some(incumbent) = self.alive(self.current).map(|path| path.view) else {
             return;
         };
-        let decisions: Vec<(usize, bool)> = self
-            .paths
-            .iter()
-            .enumerate()
-            .filter(|(_, path)| {
-                path.view.id != incumbent.id
-                    && path.view.state == PathState::Alive
-                    && path.view.kind.class() == incumbent.kind.class()
-                    && (path.view.id == answered || incumbent.id == answered)
-            })
-            .map(|(index, path)| (index, self.beats_by_margin(&path.view, &incumbent)))
-            .collect();
-        for (index, beats) in decisions {
+        for index in 0..self.paths.len() {
+            let view = self.paths[index].view;
+            if view.id == incumbent.id
+                || view.state != PathState::Alive
+                || view.kind.class() != incumbent.kind.class()
+            {
+                continue;
+            }
+            let beats = self.beats_by_margin(&view, &incumbent);
             let path = &mut self.paths[index];
-            path.better_streak = if beats { path.better_streak.saturating_add(1) } else { 0 };
+            if view.id == answered {
+                path.better_streak = if beats { path.better_streak.saturating_add(1) } else { 0 };
+            } else if incumbent.id == answered && !beats {
+                path.better_streak = 0;
+            }
         }
     }
 

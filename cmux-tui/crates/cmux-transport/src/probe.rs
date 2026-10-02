@@ -5,7 +5,9 @@
 //! authenticates it and no second key exists. The sender puts it on one
 //! specific path; the receiver answers with a pong on the path the ping
 //! arrived on, which gives that path's round trip. `path` is the sender's
-//! own path id, echoed so the sender needs no lookup table for answers.
+//! own path id, echoed back. The sender keeps a table of outstanding probe
+//! ids with their send times, and accepts a pong only when it arrived on
+//! the path it names.
 
 use crate::path::PathId;
 

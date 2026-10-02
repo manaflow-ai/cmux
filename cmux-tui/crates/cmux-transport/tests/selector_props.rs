@@ -128,6 +128,33 @@ proptest! {
     }
 }
 
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(1_000))]
+
+    /// Hysteresis counts only the challenger's own answers: a challenger
+    /// that beats the current path on fewer than `switch_streak` of its own
+    /// answers never becomes current, however often the current path answers.
+    #[test]
+    fn a_short_lucky_streak_never_switches(
+        slow in 20_000u64..200_000,
+        lucky in 1u8..3,
+        incumbent_answers in 0usize..50,
+    ) {
+        let mut selector = Selector::new(SelectorConfig::default());
+        selector.add_path(PathId(0), PathKind::DoRelay).expect("fresh");
+        selector.add_path(PathId(1), PathKind::ViaCloudRegion).expect("fresh");
+        selector.on_probe(PathId(0), ProbeOutcome::Answered { rtt_us: slow }).expect("known");
+        for _ in 0..lucky {
+            selector.on_probe(PathId(1), ProbeOutcome::Answered { rtt_us: slow / 4 }).expect("known");
+        }
+        for _ in 0..incumbent_answers {
+            selector.on_probe(PathId(0), ProbeOutcome::Answered { rtt_us: slow }).expect("known");
+            prop_assert_eq!(selector.current(), Some(PathId(0)));
+        }
+        prop_assert_eq!(selector.current(), Some(PathId(0)));
+    }
+}
+
 #[test]
 fn direct_path_wins_at_once_over_a_faster_relay() {
     let mut selector = Selector::new(SelectorConfig::default());
@@ -140,18 +167,28 @@ fn direct_path_wins_at_once_over_a_faster_relay() {
 }
 
 #[test]
-fn network_change_keeps_the_relay_and_reprobes_direct() {
+fn network_change_reprobes_every_path_then_direct_wins_again() {
     let mut selector = Selector::new(SelectorConfig::default());
     selector.add_path(PathId(0), PathKind::DirectLan).expect("fresh");
     selector.add_path(PathId(1), PathKind::DoRelay).expect("fresh");
     selector.on_probe(PathId(1), ProbeOutcome::Answered { rtt_us: 30_000 }).expect("known");
     selector.on_probe(PathId(0), ProbeOutcome::Answered { rtt_us: 2_000 }).expect("known");
     assert_eq!(selector.current(), Some(PathId(0)));
-    selector.on_network_change();
-    assert_eq!(selector.current(), Some(PathId(1)));
-    assert_eq!(selector.path(PathId(0)).map(|path| path.state), Some(PathState::Probing));
+    let switch = selector.on_network_change();
+    assert_eq!(switch.map(|switch| switch.to), Some(None), "send on every path after a change");
+    assert!(selector.paths().all(|path| path.state == PathState::Probing && path.rtt_us.is_none()));
+    selector.on_probe(PathId(1), ProbeOutcome::Answered { rtt_us: 31_000 }).expect("known");
+    assert_eq!(selector.current(), Some(PathId(1)), "the relay answers first and carries traffic");
     selector.on_probe(PathId(0), ProbeOutcome::Answered { rtt_us: 3_000 }).expect("known");
     assert_eq!(selector.current(), Some(PathId(0)));
+}
+
+#[test]
+fn removed_path_ids_are_never_reused() {
+    let mut selector = Selector::new(SelectorConfig::default());
+    selector.add_path(PathId(3), PathKind::DoRelay).expect("fresh");
+    selector.remove_path(PathId(3)).expect("known");
+    assert!(selector.add_path(PathId(3), PathKind::DirectWan).is_err());
 }
 
 #[test]
