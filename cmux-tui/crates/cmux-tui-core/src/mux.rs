@@ -3938,7 +3938,7 @@ impl Mux {
                 root: Node::Leaf(pane_id),
                 active_pane: pane_id,
                 zoomed_pane: None,
-                zellij_auto_layout: Some(vec![pane_id]),
+                creation_order_auto_layout: Some(vec![pane_id]),
                 viewport_splits: Default::default(),
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
@@ -14338,7 +14338,7 @@ impl Mux {
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
                         zoomed_pane: None,
-                        zellij_auto_layout: Some(vec![pane_id]),
+                        creation_order_auto_layout: Some(vec![pane_id]),
                         viewport_splits: Default::default(),
                         viewport_base_width: None,
                         layout_columns: Vec::new(),
@@ -14573,7 +14573,7 @@ impl Mux {
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
                         zoomed_pane: None,
-                        zellij_auto_layout: Some(vec![pane_id]),
+                        creation_order_auto_layout: Some(vec![pane_id]),
                         viewport_splits: Default::default(),
                         viewport_base_width: None,
                         layout_columns: Vec::new(),
@@ -14660,7 +14660,7 @@ impl Mux {
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
                         zoomed_pane: None,
-                        zellij_auto_layout: Some(vec![pane_id]),
+                        creation_order_auto_layout: Some(vec![pane_id]),
                         viewport_splits: Default::default(),
                         viewport_base_width: None,
                         layout_columns: Vec::new(),
@@ -14824,7 +14824,7 @@ impl Mux {
                     root: Node::Leaf(pane_id),
                     active_pane: pane_id,
                     zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![pane_id]),
+                    creation_order_auto_layout: Some(vec![pane_id]),
                     viewport_splits: Default::default(),
                     viewport_base_width: None,
                     layout_columns: Vec::new(),
@@ -17244,7 +17244,7 @@ impl Mux {
                 root,
                 active_pane,
                 zoomed_pane: None,
-                zellij_auto_layout: None,
+                creation_order_auto_layout: None,
                 viewport_splits: Default::default(),
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
@@ -17660,7 +17660,7 @@ impl Mux {
                 root: Node::Leaf(pane),
                 active_pane: pane,
                 zoomed_pane: None,
-                zellij_auto_layout: Some(vec![pane]),
+                creation_order_auto_layout: Some(vec![pane]),
                 viewport_splits: Default::default(),
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
@@ -19001,7 +19001,7 @@ fn restore_resource_state(
                 })
             })
             .transpose()?;
-        let zellij_auto_layout = screen
+        let creation_order_auto_layout = screen
             .auto_layout
             .as_ref()
             .map(|panes| {
@@ -19039,7 +19039,7 @@ fn restore_resource_state(
             root,
             active_pane,
             zoomed_pane,
-            zellij_auto_layout,
+            creation_order_auto_layout,
             viewport_splits,
             viewport_base_width,
             layout_columns,
@@ -19199,7 +19199,7 @@ fn restore_registry_viewport(
             None => anyhow::bail!("viewport references unknown boundary split {}", column.id),
         };
         let root = restore_layout_node_from_known_splits(&column.layout, panes, splits)?;
-        let zellij_auto_layout = column
+        let creation_order_auto_layout = column
             .auto_layout
             .as_ref()
             .map(|members| {
@@ -19213,7 +19213,7 @@ fn restore_registry_viewport(
                     .collect::<anyhow::Result<Vec<_>>>()
             })
             .transpose()?;
-        columns.push(LayoutColumn { id, width: column.width, root, zellij_auto_layout });
+        columns.push(LayoutColumn { id, width: column.width, root, creation_order_auto_layout });
     }
     let viewport_splits = columns.iter().skip(1).map(|column| (column.id, column.width)).collect();
     Ok((viewport_splits, viewport.base_width, columns))
@@ -19338,7 +19338,7 @@ fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) 
         let stack_expanded = root.stack_expanded_pane();
         match root.remove_leaf(pane) {
             Some(mut root) => {
-                if let Some(panes) = column.zellij_auto_layout.as_mut() {
+                if let Some(panes) = column.creation_order_auto_layout.as_mut() {
                     panes.retain(|candidate| *candidate != pane);
                     if let Some(layout) =
                         crate::layout::zellij_default_pane_layout_with_ids(panes, &mut || {
@@ -19350,7 +19350,7 @@ fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) 
                             root.expand_stack_pane(expanded);
                         }
                     } else {
-                        column.zellij_auto_layout = None;
+                        column.creation_order_auto_layout = None;
                     }
                 }
                 column.root = root;
@@ -19371,7 +19371,7 @@ fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) 
     let Some(mut root) = root.remove_leaf(pane) else {
         return false;
     };
-    if let Some(panes) = screen.zellij_auto_layout.as_mut() {
+    if let Some(panes) = screen.creation_order_auto_layout.as_mut() {
         panes.retain(|candidate| *candidate != pane);
         if let Some(layout) =
             crate::layout::zellij_default_pane_layout_with_ids(panes, &mut || mux.next_id())
@@ -19381,7 +19381,7 @@ fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) 
                 root.expand_stack_pane(expanded);
             }
         } else {
-            screen.zellij_auto_layout = None;
+            screen.creation_order_auto_layout = None;
         }
     }
     screen.root = root;
@@ -28353,7 +28353,7 @@ mod tests {
                 vec![right_pane, right_added_pane]
             );
             assert_eq!(
-                screen.layout_columns[1].zellij_auto_layout.as_deref(),
+                screen.layout_columns[1].creation_order_auto_layout.as_deref(),
                 Some([right_pane, right_added_pane].as_slice())
             );
             assert_eq!(screen.viewport_splits.len(), 1);
@@ -28932,8 +28932,13 @@ mod tests {
                 panic!("test layout should have two stack branches");
             };
             screen.layout_columns = vec![
-                LayoutColumn { id: mux.next_id(), width: 1.0, root: *a, zellij_auto_layout: None },
-                LayoutColumn { id, width: 0.5, root: *b, zellij_auto_layout: None },
+                LayoutColumn {
+                    id: mux.next_id(),
+                    width: 1.0,
+                    root: *a,
+                    creation_order_auto_layout: None,
+                },
+                LayoutColumn { id, width: 0.5, root: *b, creation_order_auto_layout: None },
             ];
             screen.sync_layout_column_projection();
             Mux::rebuild_split_screen_index(&mut state);
@@ -29434,7 +29439,7 @@ mod tests {
             let mut order = Vec::new();
             screen.root.pane_ids(&mut order);
             assert_eq!(order, vec![p1, p2, p3, p4]);
-            assert_eq!(screen.zellij_auto_layout.as_deref(), Some(order.as_slice()));
+            assert_eq!(screen.creation_order_auto_layout.as_deref(), Some(order.as_slice()));
         });
     }
 
@@ -29515,7 +29520,7 @@ mod tests {
         mux.close_surface(surfaces[0].id).unwrap();
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            let order = screen.zellij_auto_layout.as_ref().unwrap();
+            let order = screen.creation_order_auto_layout.as_ref().unwrap();
             assert_eq!(order.len(), 4);
             let layout = layout_screen(
                 &screen.root,
@@ -29646,7 +29651,7 @@ mod tests {
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert_eq!(screen.active_pane, active);
-            assert!(screen.zellij_auto_layout.is_none());
+            assert!(screen.creation_order_auto_layout.is_none());
             let layout = layout_screen(
                 &screen.root,
                 Rect { x: 0, y: 0, width: 80, height: 40 },
@@ -29673,7 +29678,7 @@ mod tests {
         mux.close_surface(active_surface.id).unwrap();
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            assert!(screen.zellij_auto_layout.is_none());
+            assert!(screen.creation_order_auto_layout.is_none());
             let layout = layout_screen(
                 &screen.root,
                 Rect { x: 0, y: 0, width: 80, height: 40 },
@@ -29694,7 +29699,7 @@ mod tests {
             active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
         }
         let stack_pane = mux.with_state(|state| {
-            state.workspaces[0].screens[0].zellij_auto_layout.as_ref().unwrap()[1]
+            state.workspaces[0].screens[0].creation_order_auto_layout.as_ref().unwrap()[1]
         });
 
         assert!(mux.focus_pane(stack_pane));
@@ -29727,7 +29732,7 @@ mod tests {
             active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
         }
         let stack_pane = mux.with_state(|state| {
-            state.workspaces[0].screens[0].zellij_auto_layout.as_ref().unwrap()[1]
+            state.workspaces[0].screens[0].creation_order_auto_layout.as_ref().unwrap()[1]
         });
         let outside = mux.split(active, SplitDir::Right, None).unwrap();
         let outside_pane = mux.with_state(|state| state.pane_of(outside.id).unwrap());
@@ -29779,7 +29784,7 @@ mod tests {
                                     && matches!(b.as_ref(), Node::Leaf(pane) if *pane == split_pane)
                         )
             ));
-            assert!(screen.zellij_auto_layout.is_none());
+            assert!(screen.creation_order_auto_layout.is_none());
         });
     }
 
@@ -29794,7 +29799,7 @@ mod tests {
             active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
         }
         let target = mux.with_state(|state| {
-            state.workspaces[0].screens[0].zellij_auto_layout.as_ref().unwrap()[1]
+            state.workspaces[0].screens[0].creation_order_auto_layout.as_ref().unwrap()[1]
         });
 
         mux.split(target, SplitDir::Right, None).unwrap();
@@ -30124,10 +30129,15 @@ mod tests {
     fn unchanged_ratio_commands_preserve_undo_metadata_revision_and_events() {
         let mux = test_mux();
         let (p1, _, _, root_split, inner_split) = seed_split_ratio_tree(&mux);
-        mux.state.lock().unwrap().workspaces[0].screens[0].zellij_auto_layout = Some(vec![1, 2, 3]);
+        mux.state.lock().unwrap().workspaces[0].screens[0].creation_order_auto_layout =
+            Some(vec![1, 2, 3]);
         let before = mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            (screen.layout_revision, screen.layout_undo.len(), screen.zellij_auto_layout.clone())
+            (
+                screen.layout_revision,
+                screen.layout_undo.len(),
+                screen.creation_order_auto_layout.clone(),
+            )
         });
         let events = mux.subscribe();
 
@@ -30140,7 +30150,7 @@ mod tests {
                 (
                     screen.layout_revision,
                     screen.layout_undo.len(),
-                    screen.zellij_auto_layout.clone(),
+                    screen.creation_order_auto_layout.clone(),
                 ),
                 before
             );
@@ -30154,7 +30164,8 @@ mod tests {
     fn set_split_ratio_updates_only_the_exact_split_and_clamps() {
         let mux = test_mux();
         let (_, _, _, root_split, inner_split) = seed_split_ratio_tree(&mux);
-        mux.state.lock().unwrap().workspaces[0].screens[0].zellij_auto_layout = Some(vec![1, 2, 3]);
+        mux.state.lock().unwrap().workspaces[0].screens[0].creation_order_auto_layout =
+            Some(vec![1, 2, 3]);
         let events = mux.subscribe();
 
         assert!(mux.set_split_ratio_checked(root_split, 2.0).is_ok());
@@ -30170,7 +30181,7 @@ mod tests {
             };
             assert_eq!(*id, inner_split);
             assert_eq!(*inner_ratio, 0.5);
-            assert!(s.workspaces[0].screens[0].zellij_auto_layout.is_none());
+            assert!(s.workspaces[0].screens[0].creation_order_auto_layout.is_none());
         });
         assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(_)));
         assert!(events.try_recv().is_err());

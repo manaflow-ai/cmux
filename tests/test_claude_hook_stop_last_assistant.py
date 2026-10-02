@@ -156,7 +156,7 @@ def main() -> int:
         "session_id": f"sess-{uuid.uuid4().hex}",
         "hook_event_name": "Stop",
         "stop_hook_active": True,
-        "cwd": "/Users/lawrence/fun",
+        "cwd": "/Users/dev/fun",
         "last_assistant_message": "2",
     }
 
@@ -172,7 +172,7 @@ def main() -> int:
         cron_payload = {
             "session_id": f"sess-{uuid.uuid4().hex}",
             "hook_event_name": "PreToolUse",
-            "cwd": "/Users/lawrence/fun",
+            "cwd": "/Users/dev/fun",
             "tool_name": "CronCreate",
             "tool_input": {
                 "cron": "7 5 1 5 *",

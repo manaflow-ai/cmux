@@ -31,6 +31,7 @@ import {
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
 import { allocateVmSlug } from "./vmNaming";
+import { storedAgentUpdates, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
 import {
   VmCreateDisabledError,
@@ -343,6 +344,20 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly patch: Readonly<Record<string, unknown>>;
   }) => Effect.Effect<void, VmDatabaseError>;
+  /**
+   * Store a machine's network policy and/or its reconcile status. Either
+   * field may be omitted to leave it unchanged.
+   */
+  readonly setNetworkPolicy?: (input: {
+    readonly id: string;
+    readonly policy?: Readonly<Record<string, unknown>>;
+    readonly status?: Readonly<Record<string, unknown>>;
+  }) => Effect.Effect<void, VmDatabaseError>;
+  /** Store the machine's coding-agent update setting ("image" is stored as null). */
+  readonly setAgentUpdates?: (input: {
+    readonly id: string;
+    readonly agentUpdates: VmAgentUpdatesSetting;
+  }) => Effect.Effect<void, VmDatabaseError>;
   /** Atomically coalesce advisory samples; false also covers a replaced VM. */
   readonly recordResourceUsage?: (input: {
     readonly id: string;
@@ -376,6 +391,8 @@ export type VmRepositoryShape = {
     readonly forkPending?: boolean;
     /** Minimum source shape retained when a temporary fork claim is recovered. */
     readonly forkMinimumResourceReservation?: VmResourceReservation;
+    /** "latest" opts the machine into coding-agent updates; absent keeps the image's pins. */
+    readonly agentUpdates?: VmAgentUpdatesSetting;
   }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError>;
   readonly beginBaseOpen: (input: {
     readonly userId: string;
@@ -1652,6 +1669,26 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return rows.length > 0;
     }),
 
+  setNetworkPolicy: (input) =>
+    dbEffect("setNetworkPolicy", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVms)
+        .set({
+          ...(input.policy !== undefined ? { networkPolicy: { ...input.policy } } : {}),
+          ...(input.status !== undefined ? { networkPolicyStatus: { ...input.status } } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(cloudVms.id, input.id));
+    }),
+  setAgentUpdates: (input) =>
+    dbEffect("setAgentUpdates", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVms)
+        .set({ agentUpdates: storedAgentUpdates(input.agentUpdates), updatedAt: new Date() })
+        .where(eq(cloudVms.id, input.id));
+    }),
   mergeProviderMetadata: (input) =>
     dbEffect("mergeProviderMetadata", async () => {
       const db = cloudDb();
@@ -1836,6 +1873,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 status: "provisioning",
                 displayName: input.displayName ?? null,
                 idempotencyKey,
+                agentUpdates: storedAgentUpdates(input.agentUpdates),
                 providerMetadata: reservationMetadataForInput(
                   input.resourceReservation,
                   input.forkPending,
