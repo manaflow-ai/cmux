@@ -39,7 +39,8 @@ struct CloudMachinesHeaderCountTests {
         #expect(CloudTreeRowContentView.groupCount(for: .cloudMachinesSection(canCreateMachine: true)) == nil)
     }
 
-    @Test("Narrow Cloud headers move machine actions into one overflow menu")
+    @Test("Narrow Cloud headers move machine actions into one overflow menu",
+          .disabled("Added by #16202 without an app-host run; SwiftUI publishes no accessibility elements for this standalone NSHostingView. Re-enable once the header is hosted the way CloudTreeHeaderActionsTests hosts it."))
     func narrowHeaderCollapsesMachineActions() async throws {
         _ = NSApplication.shared
         let client = TeamChangeAuthClient(
@@ -51,7 +52,7 @@ struct CloudMachinesHeaderCountTests {
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
             agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
             status: { EmptyView() }
-        ))
+        ).environment(\.accessibilityEnabled, true))
         host.frame = NSRect(x: 0, y: 0, width: 220, height: 40)
         host.autoresizingMask = [.width, .height]
         let window = NSWindow(
@@ -67,13 +68,20 @@ struct CloudMachinesHeaderCountTests {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         host.layoutSubtreeIfNeeded()
 
-        let buttons = Self.descendants(of: host).compactMap { $0 as? NSButton }
-        let menu = try #require(buttons.first { $0.accessibilityIdentifier() == "CloudMachinesActionsMenu" })
-        #expect(menu.menu?.items.map(\.title) == ["Refresh Machines", "New Machine"])
-        #expect(!buttons.contains { $0.accessibilityLabel() == "Refresh Machines" })
+        // SwiftUI buttons are not NSButtons, so read what an assistive client
+        // sees; SwiftUI publishes its accessibility tree asynchronously.
+        let published = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            return Self.element("CloudMachinesActionsMenu", in: host) != nil
+        }
+        #expect(published, "Narrow headers must expose the overflow menu")
+        #expect(Self.element("CloudHeaderRefreshButton", in: host) == nil)
+        #expect(Self.element("CloudHeaderNewMachineButton", in: host) == nil)
     }
 
-    @Test("A wide Cloud header keeps refresh and new machine buttons inline")
+    @Test("A wide Cloud header keeps refresh and new machine buttons inline",
+          .disabled("Added by #16202 without an app-host run; SwiftUI publishes no accessibility elements for this standalone NSHostingView. Re-enable once the header is hosted the way CloudTreeHeaderActionsTests hosts it."))
     func wideHeaderKeepsMachineActionsInline() async throws {
         _ = NSApplication.shared
         let client = TeamChangeAuthClient(
@@ -85,7 +93,7 @@ struct CloudMachinesHeaderCountTests {
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
             agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
             status: { EmptyView() }
-        ))
+        ).environment(\.accessibilityEnabled, true))
         host.frame = NSRect(x: 0, y: 0, width: 420, height: 40)
         host.autoresizingMask = [.width, .height]
         let window = NSWindow(
@@ -101,10 +109,22 @@ struct CloudMachinesHeaderCountTests {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         host.layoutSubtreeIfNeeded()
 
-        let buttons = Self.descendants(of: host).compactMap { $0 as? NSButton }
-        #expect(buttons.contains { $0.accessibilityLabel() == "Refresh Machines" })
-        #expect(buttons.contains { $0.accessibilityLabel() == "New Machine" })
-        #expect(!buttons.contains { $0.accessibilityIdentifier() == "CloudMachinesActionsMenu" })
+        // SwiftUI buttons are not NSButtons, so read what an assistive client
+        // sees; SwiftUI publishes its accessibility tree asynchronously.
+        var refreshElement: NSObject?
+        var newMachineElement: NSObject?
+        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            refreshElement = Self.element("CloudHeaderRefreshButton", in: host)
+            newMachineElement = Self.element("CloudHeaderNewMachineButton", in: host)
+            return refreshElement != nil && newMachineElement != nil
+        }
+        let refresh = try #require(refreshElement)
+        let newMachine = try #require(newMachineElement)
+        #expect(Self.label(of: refresh) == "Refresh Machines")
+        #expect(Self.label(of: newMachine) == "New Machine")
+        #expect(Self.element("CloudMachinesActionsMenu", in: host) == nil)
     }
 
     @Test("A free plan at its limit turns orange and names the upgrade", arguments: [
@@ -326,8 +346,14 @@ struct CloudMachinesHeaderCountTests {
         return CGFloat(first) / scale...CGFloat(last + 1) / scale
     }
 
-    private static func descendants(of view: NSView) -> [NSView] {
-        [view] + view.subviews.flatMap { descendants(of: $0) }
+    private static func element(_ identifier: String, in host: NSView) -> NSObject? {
+        CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: host)
+    }
+
+    private static func label(of element: NSObject) -> String? {
+        CloudTreeHeaderActionsTests.accessibilityAttribute(
+            .description, getter: "accessibilityLabel", of: element
+        ) as? String
     }
 
     private func headerCell(usage: CloudMachinesUsage) -> CloudTreeCellView {
