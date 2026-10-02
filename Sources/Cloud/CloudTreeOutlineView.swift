@@ -783,13 +783,23 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     remoteView: remoteView
                 ) + renameRemoteViewMenuItems(resource: resource, remoteView: remoteView)
             case .port(let resource, let url, let openIn):
-                return resourceMenuItems(
+                var items = resourceMenuItems(
                     resource,
                     isLocal: false,
                     openInLocalWorkspace: openIn,
                     openAction: { [weak self] in self?.open(node) },
                     portURL: url
                 )
+                if let url {
+                    items.append(.separator())
+                    items.append(item(String(localized: "cloudTree.menu.share", defaultValue: "Share")) { [nodeActions] in
+                        nodeActions.sharePort(resource, url, false)
+                    })
+                    items.append(item(String(localized: "cloudTree.menu.shareNewWorkspace", defaultValue: "Share in New Workspace")) { [nodeActions] in
+                        nodeActions.sharePort(resource, url, true)
+                    })
+                }
+                return items
             case .portsGroup(let machine):
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshMachine(machine) }]
             case .browsersGroup:

@@ -60,6 +60,10 @@ struct CloudTreeNodeActions {
     var renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
+    /// Share a discovered port using the same URL and workspace placement path
+    /// as the row's other actions. `inNewWorkspace` never changes selection in
+    /// the current workspace.
+    var sharePort: @MainActor (_ resource: SurfaceResource, _ url: String, _ inNewWorkspace: Bool) -> Void = { _, _, _ in }
     /// Copy the machine port's private URL without changing network state.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
@@ -505,6 +509,30 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.sharePort = { resource, url, inNewWorkspace in
+            Self.copyToPasteboard(url)
+            guard inNewWorkspace else { return }
+            let group = SurfaceResourceGroup(title: resource.title, resources: [resource.id])
+            let currentWorkspace = selectedWorkspaceID()
+            run(openingLabel(resource.machine)) { catalog in
+                let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+                    group,
+                    title: Self.localWorkspaceTitle(hostName: machineName(resource.machine), group: group),
+                    focus: false,
+                    host: .appOptimistic,
+                    layout: nil
+                )
+                catalog.bindCloudWorkspace(
+                    localWorkspaceID: opened.workspaceID,
+                    machine: resource.machine,
+                    remoteWorkspaceID: group.remoteWorkspaceID,
+                    generatedTitle: Self.localWorkspaceTitle(hostName: machineName(resource.machine), group: group)
+                )
+                if let currentWorkspace {
+                    await MainActor.run { selectLocalWorkspace(currentWorkspace) }
+                }
+            }
+        }
         actions.openWorkspace = { machine, workspace, group in
             let host = workspaceCreationHost() ?? selectedWorkspaceID()
                 .flatMap { Workspace.liveWorkspace(id: $0)?.owningTabManager }

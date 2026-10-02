@@ -131315,6 +131315,34 @@
         }
       }
     },
+    "cloudTree.menu.share": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Share"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "共有"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Teilen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Partager"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مشاركة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Compartir"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "分享"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "分享"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "공유"}}
+      }
+    },
+    "cloudTree.menu.shareNewWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Share in New Workspace"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいワークスペースで共有"}},
+        "de": {"stringUnit": {"state": "translated", "value": "In neuem Arbeitsbereich teilen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Partager dans un nouvel espace de travail"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "المشاركة في مساحة عمل جديدة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Compartir en un nuevo espacio de trabajo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在新工作區分享"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在新工作区分享"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "새 작업 공간에서 공유"}}
+      }
+    },
     "cloudTree.menu.open": {
       "extractionState": "manual",
       "localizations": {
