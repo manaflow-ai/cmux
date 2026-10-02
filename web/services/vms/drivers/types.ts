@@ -126,6 +126,32 @@ export type ProviderNetworkRef = {
   readonly memberIngress?: boolean;
 };
 
+export type VMFirewallEndpoint = {
+  readonly vmId?: string;
+  readonly vpcId?: string;
+  readonly tunnelId?: string;
+  readonly cidr?: string;
+  readonly public?: true;
+  readonly port?: number;
+  readonly protocol?: "tcp" | "udp" | "icmp";
+};
+
+export type VMFirewallRule = {
+  readonly id: string;
+  readonly action: "allow";
+  readonly source: VMFirewallEndpoint;
+  readonly destination: VMFirewallEndpoint;
+  readonly description?: string | null;
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
+};
+
+export type VMFirewallRuleInput = {
+  readonly source: VMFirewallEndpoint;
+  readonly destination: VMFirewallEndpoint;
+  readonly description?: string;
+};
+
 /** One edge header-injection rule; see CreateOptions.edgeRules. */
 export type VmEdgeRule = {
   /** Exact host name the guest dials (no port, no scheme). */
@@ -477,6 +503,10 @@ export interface VMPrivateNetworking {
   detachTunnelNetwork?(tunnelId: string, networkId: string): Promise<void>;
   /** Ids of every tunnel attached to a network. */
   listNetworkTunnelIds?(networkId: string): Promise<string[]>;
+  listFirewallRules?(options?: { vmId?: string; vpcId?: string; tunnelId?: string }): Promise<VMFirewallRule[]>;
+  getFirewallRule?(ruleId: string): Promise<VMFirewallRule>;
+  createFirewallRule?(options: VMFirewallRuleInput): Promise<VMFirewallRule>;
+  deleteFirewallRule?(ruleId: string): Promise<void>;
 }
 
 export interface VMProvider {
