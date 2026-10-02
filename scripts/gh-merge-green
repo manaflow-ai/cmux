@@ -5,9 +5,14 @@
 set -euo pipefail
 ref="${1:?usage: gh-merge-green OWNER/REPO#NUMBER [--squash|--merge] }"; shift
 repo="${ref%#*}"; num="${ref#*#}"
-# --main-fix: a fix-forward PR for a red main. Skips the CI wait (Leo: don't wait on main-greening PRs), keeps the conflict-marker check.
+# --main-fix delegates to the existing compile/test evidence validator. That
+# path posts the required audit comment before merging a red-main fix-forward.
 fix=0; args=(); for a in "$@"; do [ "$a" = --main-fix ] && fix=1 || args+=("$a"); done; set -- "${args[@]+"${args[@]}"}"
 [ $# -gt 0 ] || set -- --squash
+if [ "$fix" -eq 1 ]; then
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  exec python3 "$script_dir/ci/main_fix_evidence.py" "$ref" "$@"
+fi
 read -r sha base < <(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName -q '.headRefOid+" "+.baseRefName')
 # merge-gate is the authority for ci-status: a reviewed override can make the
 # gate successful while ci-status remains red. Missing counts as not green.
@@ -34,7 +39,6 @@ if [ "$base" = main ] && printf '%s\n' "$runs" | grep -q '^macos / macOS compile
   must+=("macos / macOS compile admission")
 fi
 bad=0
-[ "$fix" -eq 1 ] && must=("merge-gate")
 for name in "${must[@]+"${must[@]}"}"; do
   line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n')
   if [ -z "$line" ]; then
