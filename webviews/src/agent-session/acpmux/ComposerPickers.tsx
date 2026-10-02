@@ -6,9 +6,14 @@ export const PICKER_LABELS = {
   model: "Model",
   mode: "Mode",
   effort: "Effort",
+  plan: "Plan",
+  build: "Build",
+  planHint: "Plan reads and proposes without editing; Build makes the changes",
+  /// `{percent}` is the share of the context window used.
+  context: "{percent}% of context used",
 };
 
-type Choice = { id: string; name: string; description?: string };
+export type Choice = { id: string; name: string; description?: string; icon?: React.ReactNode; hint?: string };
 
 type Props = {
   snapshot: AcpmuxSnapshot;
@@ -17,19 +22,29 @@ type Props = {
   onEffort(configId: string, value: string): void;
 };
 
-/// The composer bar's pickers, drawn like Codex's: the session mode as a chip
-/// after the attach slot, and the model with its effort at the right. Each
-/// shows only when the agent offers a choice.
+/// The composer bar's controls, as Codex, Claude and T3 Code draw them: the
+/// permission mode (in the warning color when it skips approvals) and a
+/// Plan/Build toggle after the attach button, then the model and the effort as
+/// two dropdowns and the context used at the right. Groups are set apart by a
+/// hairline; each control shows only when the agent offers it.
 export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) {
   const summary = snapshot.summary;
   const models: Choice[] = (snapshot.catalog.find((harness) => harness.id === summary?.harness)?.models ?? []).map(
     (model) => ({ id: model.id, name: model.name || model.id }),
   );
-  const modes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
+  const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
     id: mode.id,
     name: mode.name || mode.id,
     description: mode.description,
   }));
+  const plan = allModes.find((choice) => isPlan(choice.id));
+  const modes = allModes.filter((choice) => choice !== plan);
+  const currentId = summary?.modes?.currentModeId;
+  const planning = plan !== undefined && currentId === plan.id;
+  // Leaving Plan returns to the permission mode the session had before it.
+  const lastMode = useRef<string | undefined>(undefined);
+  if (currentId && !planning) lastMode.current = currentId;
+  const mode = modes.find((choice) => choice.id === (planning ? lastMode.current : currentId));
   const effort = summary?.configOptions?.find(
     (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
   );
@@ -37,9 +52,9 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
     id: option.value,
     name: option.name || option.value,
   }));
-  const mode = modes.find((choice) => choice.id === summary?.modes?.currentModeId);
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
+  const usage = summary?.usage;
 
   return (
     <div className="acpmux-chips">
@@ -52,45 +67,95 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
             <>
               <ShieldIcon />
               <span>{mode?.name ?? PICKER_LABELS.mode}</span>
+              <ChevronIcon />
             </>
           }
           sections={[{ choices: modes, current: mode?.id, onPick: onMode }]}
           align="start"
         />
       )}
+      {plan && (
+        <button
+          type="button"
+          className="acpmux-plan"
+          aria-pressed={planning}
+          title={PICKER_LABELS.planHint}
+          onClick={() => onMode(planning ? (lastMode.current ?? modes[0]?.id ?? plan.id) : plan.id)}
+        >
+          {planning ? <PlanIcon /> : <BuildIcon />}
+          <span>{planning ? PICKER_LABELS.plan : PICKER_LABELS.build}</span>
+        </button>
+      )}
       <span className="acpmux-chips-spacer" />
-      {(models.length > 0 || efforts.length > 0) && (
+      {models.length > 0 && (
         <Picker
           label={PICKER_LABELS.model}
           className="acpmux-model"
           button={
             <>
-              <span className="acpmux-model-name">
-                {model?.name ?? summary?.model ?? (models.length > 0 ? PICKER_LABELS.model : "")}
-              </span>
-              {effortName && <span className="acpmux-model-effort">{effortName}</span>}
+              <span className="acpmux-model-name">{model?.name ?? summary?.model ?? PICKER_LABELS.model}</span>
               <ChevronIcon />
             </>
           }
-          sections={[
-            ...(models.length > 0
-              ? [{ title: PICKER_LABELS.model, choices: models, current: model?.id, onPick: onModel }]
-              : []),
-            ...(effort && efforts.length > 0
-              ? [
-                  {
-                    title: PICKER_LABELS.effort,
-                    choices: efforts,
-                    current: effort.currentValue,
-                    onPick: (value: string) => onEffort(effort.id, value),
-                  },
-                ]
-              : []),
-          ]}
+          sections={[{ choices: models, current: model?.id, onPick: onModel }]}
           align="end"
         />
       )}
+      {effort && efforts.length > 0 && (
+        <Picker
+          label={PICKER_LABELS.effort}
+          className="acpmux-effort"
+          button={
+            <>
+              <span>{effortName ?? PICKER_LABELS.effort}</span>
+              <ChevronIcon />
+            </>
+          }
+          sections={[{ choices: efforts, current: effort.currentValue, onPick: (value) => onEffort(effort.id, value) }]}
+          align="end"
+        />
+      )}
+      {usage && usage.size > 0 && <ContextRing used={usage.used} size={usage.size} />}
+      {(models.length > 0 || efforts.length > 0 || usage) && <span className="acpmux-separator" aria-hidden="true" />}
     </div>
+  );
+}
+
+/// Plan modes (Claude's "plan") read and propose without editing; the toggle sits apart from the permission chip.
+export function isPlan(modeId: string): boolean {
+  return /^plan|[-_]plan$/i.test(modeId);
+}
+
+/// How much of the context window the session has used, as Claude draws it: a ring that fills.
+export function ContextRing({ used, size }: { used: number; size: number }) {
+  const fraction = Math.min(1, Math.max(0, used / size));
+  const percent = Math.round(fraction * 100);
+  const label = PICKER_LABELS.context.replace("{percent}", String(percent));
+  const radius = 7;
+  const circumference = 2 * Math.PI * radius;
+  return (
+    <span
+      className={`acpmux-context-ring${fraction >= 0.8 ? " acpmux-context-full" : ""}`}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      <svg width={18} height={18} viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+        <circle cx="9" cy="9" r={radius} fill="none" stroke="currentColor" strokeOpacity={0.28} strokeWidth={2} />
+        <circle
+          cx="9"
+          cy="9"
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeDasharray={`${circumference * fraction} ${circumference}`}
+          transform="rotate(-90 9 9)"
+        />
+      </svg>
+    </span>
   );
 }
 
@@ -99,19 +164,20 @@ export function unrestricted(modeId: string): boolean {
   return /bypass|full|yolo|dangerous|auto[-_ ]?approve/i.test(modeId);
 }
 
-type Section = { title?: string; choices: Choice[]; current?: string; onPick(id: string): void };
+export type Section = { title?: string; choices: Choice[]; current?: string; onPick(id: string): void };
 
 /// A button that opens a menu above the composer: a select-only combobox, so
 /// focus stays on the button, which names the active option. Each section is
 /// a group with a check on its current choice; arrows move, Enter, Space or a
 /// click picks, and Escape, a click elsewhere or focus leaving the pane closes.
-function Picker({
+export function Picker({
   label,
   className,
   button,
   sections,
   align,
   warnUnrestricted = false,
+  returnFocus = true,
 }: {
   label: string;
   className: string;
@@ -119,6 +185,8 @@ function Picker({
   sections: Section[];
   align: "start" | "end";
   warnUnrestricted?: boolean;
+  /// An action menu hands focus to whatever its pick focuses, not back to the button.
+  returnFocus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -157,8 +225,9 @@ function Picker({
   const pick = (index: number) => {
     const row = rows[index];
     if (!row) return;
+    if (returnFocus) close();
+    else setOpen(false);
     sections[row.section].onPick(row.choice.id);
-    close();
   };
   const keyDown = (event: React.KeyboardEvent) => {
     if (!open) {
@@ -250,7 +319,7 @@ function Picker({
                       role="option"
                       tabIndex={-1}
                       aria-selected={at === selected}
-                      aria-checked={current}
+                      aria-checked={section.current === undefined ? undefined : current}
                       className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
                       onMouseMove={() => {
                         if (at !== selected) setActive(at);
@@ -260,10 +329,12 @@ function Picker({
                         pick(at);
                       }}
                     >
+                      {choice.icon}
                       <span className="acpmux-menu-text">
                         <span className="acpmux-menu-label">{choice.name}</span>
                         {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
                       </span>
+                      {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
                       {current && <CheckIcon />}
                     </div>
                   );
@@ -277,8 +348,8 @@ function Picker({
   );
 }
 
-// Icons from the Codex chrome (16px box, stroke in currentColor).
-function Icon({ children, size = 16 }: { children: React.ReactNode; size?: number }) {
+// Icons from the Codex chrome (a 16px grid drawn at 18px, stroke in currentColor).
+function Icon({ children, size = 18 }: { children: React.ReactNode; size?: number }) {
   return (
     <svg
       className="acpmux-icon"
@@ -325,7 +396,37 @@ export const ArrowUpIcon = () => (
   </Icon>
 );
 export const StopIcon = () => (
-  <svg className="acpmux-icon" width={16} height={16} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+  <svg className="acpmux-icon" width={18} height={18} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
     <rect x="4.5" y="4.5" width="7" height="7" rx="1.5" fill="currentColor" />
   </svg>
+);
+export const PlanIcon = () => (
+  <Icon>
+    <path d="M5.5 4.25h7.25M5.5 8h7.25M5.5 11.75h7.25" />
+    <circle cx="3" cy="4.25" r=".6" fill="currentColor" />
+    <circle cx="3" cy="8" r=".6" fill="currentColor" />
+    <circle cx="3" cy="11.75" r=".6" fill="currentColor" />
+  </Icon>
+);
+export const BuildIcon = () => (
+  <Icon>
+    <path d="m9.6 3.2 3.2 3.2-6.9 6.9H2.7V10.1Z" />
+    <path d="m8.2 4.6 3.2 3.2" />
+  </Icon>
+);
+export const PaperclipIcon = () => (
+  <Icon>
+    <path d="m13.1 7.6-5 5a3.2 3.2 0 0 1-4.5-4.5l5.3-5.3a2.1 2.1 0 0 1 3 3L6.6 11a1.05 1.05 0 0 1-1.5-1.5L10 4.6" />
+  </Icon>
+);
+export const AtIcon = () => (
+  <Icon>
+    <circle cx="8" cy="8" r="2.4" />
+    <path d="M10.4 8v.9a1.8 1.8 0 0 0 3.6 0V8A6 6 0 1 0 11 13.2" />
+  </Icon>
+);
+export const SlashIcon = () => (
+  <Icon>
+    <path d="M10.5 2.5 5.5 13.5" />
+  </Icon>
 );

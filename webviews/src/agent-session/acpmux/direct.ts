@@ -28,6 +28,8 @@ type Listener = (snapshot: AcpmuxSnapshot) => void;
 
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 const COMMANDS_KIND = "available_commands_update";
+/// How much of the context window the session has used; not transcript, so attach asks for it by kind.
+const USAGE_KIND = "usage_update";
 
 export function permissionFromMessage(message: any, selectedSessionId: string): AcpmuxPermission | undefined {
   const envelope = message ?? {};
@@ -179,6 +181,7 @@ export class AcpmuxDirectClient {
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
   private commands: SlashCommand[] = [];
+  private usage: { used: number; size: number } | undefined;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
@@ -310,6 +313,7 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.summary = undefined;
+    this.usage = undefined;
     this.queue = [];
     this.turnOpen = false;
     this.streamingAssistant = undefined;
@@ -442,7 +446,7 @@ export class AcpmuxDirectClient {
     const result = await this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
-      kinds: ["transcript", COMMANDS_KIND],
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND],
       eventStream: true,
     });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
@@ -575,6 +579,12 @@ export class AcpmuxDirectClient {
   private reduce(event: EventRecord): void {
     const msg = event.msg ?? {};
     const update = sessionUpdate(event);
+    if (update?.sessionUpdate === USAGE_KIND) {
+      const used = Number(update.used);
+      const size = Number(update.size);
+      if (Number.isFinite(used) && Number.isFinite(size) && size > 0) this.usage = { used, size };
+      return;
+    }
     if (event.dir === "mux") {
       if (event.kind === "user_message") {
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
@@ -756,6 +766,7 @@ export class AcpmuxDirectClient {
             sessionId: summary.sessionId,
             cwd: summary.cwd,
             turnCount: summary.turnCount,
+            usage: this.usage,
             title: summary.title,
             name: summary.name,
             harness: summary.harness,

@@ -7,18 +7,21 @@ export const CONTEXT_LABELS = {
   project: "Project",
   branch: "Branch",
   worktree: "Worktree",
+  noWorktree: "Works in the project folder, not a git worktree",
 };
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
-/// Where the session runs, as Codex draws it on the tray behind its composer:
-/// the project and the machine at the left, the branch (a worktree's when the
-/// session has one) at the right. Each shows only when the daemon reports it.
+/// Where the session runs, on the tray behind the composer: the project, the
+/// machine and the branch as filled pills (Claude's Local / Projects chips),
+/// and at the right whether the session works in its own git worktree (Codex).
+/// Each pill shows only when the daemon reports it.
 export function ComposerContext({ summary }: { summary?: Summary }) {
   const project = projectName(summary?.cwd);
   const host = summary?.host;
   const branch = summary?.branch;
   if (!project && !host && !branch) return null;
+  const worktree = summary?.worktree;
   return (
     <div className="acpmux-composer-context">
       {project && (
@@ -34,16 +37,18 @@ export function ComposerContext({ summary }: { summary?: Summary }) {
         </span>
       )}
       {branch && (
-        <span
-          className="acpmux-context-chip acpmux-context-branch"
-          title={
-            summary?.worktree
-              ? `${CONTEXT_LABELS.worktree}: ${summary.worktree}`
-              : `${CONTEXT_LABELS.branch}: ${branch}`
-          }
-        >
-          {summary?.worktree ? <WorktreeIcon /> : <BranchIcon />}
+        <span className="acpmux-context-chip" title={`${CONTEXT_LABELS.branch}: ${branch}`}>
+          {worktree ? <WorktreeIcon /> : <BranchIcon />}
           <span>{branch}</span>
+        </span>
+      )}
+      {branch && (
+        <span
+          className={`acpmux-context-worktree${worktree ? " acpmux-on" : ""}`}
+          title={worktree ? `${CONTEXT_LABELS.worktree}: ${worktree}` : CONTEXT_LABELS.noWorktree}
+        >
+          <span>{CONTEXT_LABELS.worktree}</span>
+          <span className="acpmux-switch" aria-hidden="true" />
         </span>
       )}
     </div>

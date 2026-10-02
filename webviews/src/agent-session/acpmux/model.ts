@@ -57,6 +57,8 @@ export type AcpmuxSnapshot = {
     sessionId: string;
     cwd?: string;
     turnCount?: number;
+    /// Context-window tokens used of the session's window, from the agent's last usage update.
+    usage?: { used: number; size: number };
     host?: string;
     hostKind?: "local" | "cloud";
     branch?: string;

@@ -79,6 +79,7 @@ export function themeTokens(input) {
     paneBorder: withAlpha(fg, isDark ? 0.07 : 0.09),
     shadow: mixed(bg, black, 0.85),
     attention: readable(palette[3], bg, 3),
+    highlight: readable(palette[4], bg, 3),
     danger: readable(palette[1], bg, 3),
   };
 }
@@ -106,6 +107,13 @@ export function agentPaneTheme(input) {
     // Labels on the accent: the page background, opaque so a translucent backdrop doesn't thin them.
     accentText: css(withAlpha(page, 1)),
     warning: css(t.attention),
+    // The action color (Send) and the glyph on it: whichever of the page and the text contrasts more.
+    highlight: css(t.highlight),
+    highlightText: css(
+      contrast(withAlpha(input.background, 1), t.highlight) >= contrast(withAlpha(input.foreground, 1), t.highlight)
+        ? withAlpha(input.background, 1)
+        : withAlpha(input.foreground, 1),
+    ),
     danger: css(t.danger),
     shadow: css(t.shadow),
   };

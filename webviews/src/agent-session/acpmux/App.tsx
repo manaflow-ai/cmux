@@ -580,6 +580,8 @@ function AcpmuxPane() {
     canLoadOlder: false,
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // A new chat centers its composer under the hero, as Codex's home does.
+  const newChat = isNewChat(snapshot);
   // Codex's turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
   // The open changes view: a turn of one session, and the control that opened it.
@@ -843,7 +845,7 @@ function AcpmuxPane() {
           onClick={closeOverlay}
         />
       )}
-      <div className="acpmux-main">
+      <div className="acpmux-main" data-new-chat={newChat ? "" : undefined}>
         <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
           <header className="acpmux-header">
             <div>
@@ -861,7 +863,7 @@ function AcpmuxPane() {
               {header.status && <span className="acpmux-status">{header.status}</span>}
             </div>
           </header>
-          {isNewChat(snapshot) ? (
+          {newChat ? (
             <EmptyState project={projectName(snapshot.summary?.cwd)} />
           ) : (
             <VirtualTranscript
