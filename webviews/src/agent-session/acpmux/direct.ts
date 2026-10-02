@@ -535,6 +535,16 @@ export class AcpmuxDirectClient {
     );
   }
 
+  /// Whether the user trusts `cwd` (folderTrust.ts).
+  trustGet(cwd: string): Promise<unknown> {
+    return this.request("acp.trust.get", { cwd });
+  }
+
+  /// Records the user's trust in `cwd` in acpmux's own record, never the agents' config files (folderTrust.ts).
+  trustSet(cwd: string, level: string): Promise<unknown> {
+    return this.request("acp.trust.set", { cwd, level });
+  }
+
   /// Files under `path` whose path matches `query`, best first (fileSearchModel.ts).
   fileSearch(path: string | undefined, query: string, limit: number): Promise<unknown> {
     return this.request("file.search", { ...(path ? { path } : {}), query, limit });

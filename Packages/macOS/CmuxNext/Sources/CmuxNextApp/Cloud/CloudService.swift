@@ -55,6 +55,8 @@ final class CloudService {
         return "cmux-" + String(String(cleaned).prefix(40))
     }
 
+    func localDeviceID() throws -> String { try paths.loadOrCreateDeviceID() }
+
     var isSignedIn: Bool { auth.isSignedIn }
 
     /// Why Cloud cannot run in this build, or nil.

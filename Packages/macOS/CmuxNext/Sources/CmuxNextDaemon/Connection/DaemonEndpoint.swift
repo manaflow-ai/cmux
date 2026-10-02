@@ -35,6 +35,9 @@ public struct DaemonCapabilities: Sendable {
     public let workspaceMetadata = "workspace-metadata-v1"
     public let tabMetadata = "tab-metadata-v1"
     public let frontendBrowserTabs = "frontend-browser-tabs-v1"
+    /// A frontend browser tab's back/forward entries and scroll positions,
+    /// stored opaque and outside the journal (`set-`/`get-frontend-browser-history`).
+    public let frontendBrowserHistory = "frontend-browser-history-v1"
     public let tabDrag = "tab-drag-v1"
     public let notificationAck = "notification-ack-v1"
     public let tabGroups = "tab-groups-v1"
@@ -145,7 +148,7 @@ public struct DaemonCapabilities: Sendable {
     public let tabSplitRespawn = "tab-split-respawn-v1"
     public var awaitingPin: [String] {
         [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
-         endTerminalsKeepLayout, stateResources, localConversations, sidebarLayout, tabSplitRespawn]
+         endTerminalsKeepLayout, stateResources, localConversations, sidebarLayout, tabSplitRespawn, frontendBrowserHistory]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
