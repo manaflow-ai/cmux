@@ -87,13 +87,17 @@ extension PaneController {
     /// reap grace period once its last tab closes.
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil) {
         let handle = pane.handle
+        // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
+        let agent = cwd == nil ? selectedAgentView : nil
         let cwd = cwd ?? selectedTab?.cwd
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()
         services.registry.track(Task {
             do {
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
+                var start = cwd
+                if let agent { start = await agent.workingContext()?.cwd ?? start }
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep))
                 if let text { try await connection.send(created.surface, text: text) }
                 pendingSelectSurface = created.surface
                 apply(snapshot())

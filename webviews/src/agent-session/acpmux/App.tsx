@@ -6,6 +6,7 @@ import { applyAgentTheme } from "../shared/theme";
 import { diffRows, layoutConversation, markdownBlocks, paneHeader, placeRows, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { seedComposer } from "./composerDraft";
+import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { MockAcpmuxSocket, mockHost } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -357,6 +358,8 @@ function AcpmuxPane() {
     return () => document.removeEventListener("keydown", onKey);
   }, [sidebar, wide, closeOverlay]);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
+  /// The newest snapshot, for host requests that read it (pane.context).
+  const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   // The pane keeps the last client's catalog until the next client's arrives;
   // ids only grow, so a new client never reads an older client's cache entry.
@@ -395,6 +398,7 @@ function AcpmuxPane() {
         if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
         const client = await AcpmuxDirectClient.connect(mock ? mockHost : host as AcpmuxHostConfig, (next) => {
           rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
+          snapshotRef.current = next;
           setSnapshot(next);
         }, () => {
           // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
@@ -422,6 +426,8 @@ function AcpmuxPane() {
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
+          // What the agent works on, for a terminal or browser opened from this chat (#16620).
+          "pane.context": async () => snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] },
         };
         client.snapshot();
         // A chat opened from another tab starts with what it inherited (#16620).
