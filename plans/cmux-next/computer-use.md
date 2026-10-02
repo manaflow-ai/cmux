@@ -189,15 +189,40 @@ Performance: idle pane with no live session: zero wakeups. Live session: one wak
 - A user's real desktop: X11 works in the background today; Wayland is foreground-only through the portal and libei, recorded as `delivery: foreground_only` and shown in the pane.
 - Frames from a VM reach the pane through the relay as thumbnails; live watch uses the same push sources (XDamage, compositor callbacks). Remote view (spec section "Remote view") is a later lane; its producer is the same CUA host.
 
-## 9. Decisions for Lawrence (via the coordinator)
+## 9. Decisions (Lawrence, 2026-10-02, via the coordinator)
 
-1. Activity store location: in the cmux-cua repo (`cmux-cua-core::activity` + daemon store), pinned into cmux. Rec. Alternative: a new crate under `cmux-tui/crates` that cmux-cua depends on (one repo for all hosts, but cmux-cua would depend on the cmux monorepo).
-2. Interim attribution `process_tree` (kernel peer credentials + session host ancestry lookup) until the launch credential exists. Rec. Alternative: wait for the credential (the pane would show every session as unattributed until then).
-3. JavaScript passed to `page.execute_javascript`: redacted by default like typed text, opt-in to keep 4 KB. Rec. Alternative: store it in clear (better debugging, can leak secrets).
-4. Durability `synchronous=NORMAL` for the activity database (power loss can drop the last events; a process crash cannot). Rec. Alternative: FULL (an fsync per act, a few ms each).
-5. Pane form: tab kind + palette action only, no separate global panel. Rec. Alternative: also a floating panel.
-6. Phase-1 Linux headless display: one per machine, per-workspace later. Rec.
-7. Helper build, signing and notarization return to the cmux-next nightly and release lanes (step h). This touches CI files other lanes edit; needs the coordinator's go-ahead and the owner of the release lanes.
+1. Activity store lives in the cmux-cua repo, brought into cmux by a pin bump.
+2. Agent identity by process match (`attribution: process_tree`, pane badge "Matched by process") until launch credentials exist.
+3. JavaScript through `page.execute_javascript` is hidden like typed text by default; a user policy `store_javascript` keeps the first 4 KB.
+4. Fast-mode writes are acceptable (power loss may drop the last events; a process crash loses nothing).
+5. The pane is a tab kind plus a palette action; no floating panel.
+6. Linux: one headless display per machine first; per workspace later.
+7. Helper build, signing and notarization return to nightly and release CI: coordinate with the release lane's existing jobs, use the release environment secrets, same notarization path via the team App Store Connect API key.
+8. Default layout: split.
+9. A user stop blocks the same label; "Stop agent" refuses new sessions from that agent until the user allows it.
+10. Before dogfood, the pane views are rewritten in AppKit (CALayer filmstrip, virtualized lists) as section 7 asks; the SwiftUI views are prototype only.
+
+Storage format (decided in step b, consequence of the no-local-cargo rule and `--locked` CI): no new crate dependency is added, so the store is plain files instead of SQLite: per session `<state>/cua/activity-<profile>/sessions/<id>/record.json` (rewritten atomically by rename) and `events.jsonl` (append-only, one event per line, fsync on session end only), blobs content-addressed under `<state>/cua/activity-<profile>/blobs/`. Retention deletes session directories, rewrites `events.jsonl` without a truncated prefix, and unlinks blobs whose last reference went. A SQLite index can be added later behind the same `ActivityStore` API.
+
+## 6a. Wire protocol (CUA host socket)
+
+Same socket, framing and envelope as the existing daemon (`{"method":...,"args":{...}}` lines, `{"ok":true,"result":...}` replies, optional `auth_token`/`host_auth_token` envelope). User operations require `host_auth_token` (the embedding cmux app holds it; the daemon marks the request `host_authenticated`), which is how the host knows the caller is the user's own client. Agent connections are identified by the proxy's kernel peer pid and start time.
+
+| Method | Args | Result | Who |
+| --- | --- | --- | --- |
+| `activity_sessions_list` | `{status?: "live"\|"ended"\|"all", since_ms?, limit?}` | `{profile, machine, sessions: [SessionRecord]}` | any local client |
+| `activity_session_get` | `{id}` | `SessionRecord` | any |
+| `activity_timeline` | `{id, after_seq?, limit?}` (default limit 500) | `{events: [Event], next_seq}` | any |
+| `activity_frame` | `{blob, size: "thumb"\|"full"}` | `{mime, width, height, data_base64}` | any |
+| `activity_subscribe` | `{sessions: bool, events_for: [id]}` | stream: one line per update, `{"ok":true,"result":{"type":"sessions","sessions":[...]}}` or `{"type":"events","session":id,"events":[...]}`; ends when the client closes | any |
+| `activity_session_stop` / `_pause` / `_resume` | `{id}` | `{applied: bool}` | host-authenticated |
+| `activity_agent_stop` / `activity_agent_allow` | `{actor}` | `{applied: bool}` | host-authenticated |
+| `activity_recording_set` | `{id, mode: "events"\|"events+frames"\|"video"}` | `{applied: bool}` | host-authenticated or the session's own actor |
+| `activity_policy_get` / `_set` | `{store_javascript?: bool}` | policy | set: host-authenticated |
+
+`SessionRecord` and `Event` are the serde shapes of `cmux-cua-core::activity::model` (snake_case enums, `status: {"state": "active"|"idle"|"paused"|"ended", "reason"?}`, timestamps in ms since the epoch). Catalog names map one to one: `cua.sessions.list` = `activity_sessions_list`, `cua.session.timeline` = `activity_timeline`, `cua.session.stop` = `activity_session_stop`, and so on.
+
+Session host lookup for `process_tree` attribution: the CUA host calls the cmux-tui daemon at `CMUX_CUA_SESSION_HOST_SOCKET` (set by whoever starts the host; else the default cmux-tui socket) with `terminal.for_pid {pid, start_seconds}` and caches the answer per proxy connection. No answer within 200 ms means `attribution: none`.
 
 ## 10. Steps (each lands with failing tests first)
 
