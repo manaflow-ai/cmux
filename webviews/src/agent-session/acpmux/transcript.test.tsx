@@ -1019,13 +1019,9 @@ describe("acpmux turn diff", () => {
       expect(dom.window.localStorage.getItem("cmux.acpmux.diffLayout")).toBe("split");
       // The tree filters by path, and the toolbar hides it.
       const filter = panel.querySelector<HTMLInputElement>('input[aria-label="Filter files"]')!;
-      // Typed as a browser does: React DOM loaded before a DOM existed (another test file can
-      // import it first) listens for focus and keys instead of input events.
       await act(async () => {
-        filter.focus();
-        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(filter, "zzz");
+        filter.value = "zzz";
         filter.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-        filter.dispatchEvent(new dom.window.KeyboardEvent("keyup", { key: "z", bubbles: true }));
       });
       expect(panel.querySelector(".acpmux-diff-tree-empty")?.textContent).toBe("No matching files");
       await click(panel.querySelector('[aria-label="File tree"]')!);
