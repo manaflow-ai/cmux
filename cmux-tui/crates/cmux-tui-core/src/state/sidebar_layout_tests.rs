@@ -159,7 +159,7 @@ fn limits_reset_and_unknown_refs() {
 #[test]
 fn titles_count_unicode_scalars_and_ids_are_unique_across_sections_and_items() {
     let d = defaults();
-    let flags = "\u{1F1EF}\u{1F1F5}".repeat(40);
+    let flags = "\u{1F1EF}\u{1F1F5}".repeat(41); // 82 scalars, 41 graphemes
     assert_eq!(err(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": flags}})), Reject::InvalidTitle);
     let ok_title = "\u{1F1EF}\u{1F1F5}".repeat(20);
     ok(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": ok_title}}));
