@@ -164,6 +164,31 @@ struct BrowserTabTests {
         #expect(writer.recorded.url == "https://two.test/")
         writer.cancel()
     }
+
+    /// Quit sends a page change still waiting out the delay at once, and
+    /// only once: the record reopened at relaunch is the last page.
+    @Test func quitSendsAWaitingChangeNow() async throws {
+        let engine = MockBrowserEngine()
+        let page = engine.makeMockTab(BrowserTabConfiguration())
+        let gate = SleepGate()
+        var sent: [BrowserRecordUpdate] = []
+        let writer = BrowserRecordWriter(tab: page, recorded: BrowserRecord(url: "about:blank"), delay: .milliseconds(500),
+                                         sleep: { _ in try await gate.wait() }) { update in
+            sent.append(update)
+            return true
+        }
+        page.load(URL(string: "https://last.test/")!)
+        page.simulate(.titleChanged("Last"))
+        await Self.settle { gate.waiters > 0 }
+        await writer.flushNow()
+        #expect(sent == [BrowserRecordUpdate(url: "https://last.test/", title: "Last", favicon: .unchanged)])
+        gate.releaseAll()
+        await Self.settle { false }
+        #expect(sent.count == 1, "the delayed write does not send it again")
+        await writer.flushNow()
+        #expect(sent.count == 1, "nothing waits after a flush")
+        writer.cancel()
+    }
 }
 
 /// A sleep the test releases by hand; a cancelled sleep throws.

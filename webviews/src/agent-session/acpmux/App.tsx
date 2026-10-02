@@ -41,6 +41,10 @@ import { SearchChats } from "./SearchChats";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
+import { ContinueMenu } from "./handoff/ContinueMenu";
+import { HandoffReviewMessage } from "./handoff/ReviewMessage";
+import { handoffStrings, localizedHandoffStrings } from "./handoff/strings";
+import type { HandoffReviewInput } from "./handoff/review";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -683,6 +687,10 @@ function AcpmuxPane() {
     catalog: [],
     canLoadOlder: false,
   });
+  const [handoffLabels, setHandoffLabels] = useState(handoffStrings);
+  const [continuing, setContinuing] = useState(false);
+  const [reviewReload, setReviewReload] = useState(0);
+  useEffect(() => setContinuing(false), [snapshot.sessionId]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // The footer's fork shows only when acpmux serves forks and is reachable. The client reports a
   // failed fork in the transcript; a bridge that cannot route it has nothing to add.
@@ -696,7 +704,14 @@ function AcpmuxPane() {
     [forkable],
   );
   // A new chat centers its composer under the hero.
-  const freshChat = isNewChat(snapshot);
+  const handoff = snapshot.handoff?.record;
+  const reviewing =
+    !!handoff &&
+    handoff.target.sessionId === snapshot.sessionId &&
+    ["draft", "starting"].includes(handoff.state) &&
+    !snapshot.handoff?.receipt;
+  const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
+  const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot);
   // Turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(
     () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
@@ -837,11 +852,20 @@ function AcpmuxPane() {
     window.cmuxAcpmuxBridge = {
       command(name) {
         if (name === "searchChats") setSearching((open) => !open);
+        if (
+          name === "continueIn" &&
+          snapshotRef.current?.canHandoff &&
+          snapshotRef.current.handoff?.ready &&
+          !snapshotRef.current.isWorking &&
+          !snapshotRef.current.queue.length
+        )
+          setContinuing(true);
       },
       receive(next) {
         if (next.protocolVersion !== 1) return;
         const change = diffRows(rowsRef.current, next.rows);
         rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
+        snapshotRef.current = next;
         setSnapshot(next);
         void change;
       },
@@ -902,10 +926,12 @@ function AcpmuxPane() {
           draft?: string;
           prompt?: string;
           account?: unknown;
+          handoffStrings?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
+        setHandoffLabels(localizedHandoffStrings(host.handoffStrings));
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
@@ -918,7 +944,16 @@ function AcpmuxPane() {
           (next) => {
             rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
             snapshotRef.current = next;
-            setSnapshot(next);
+            setSnapshot((previous) => {
+              if (
+                next.canHandoff &&
+                !next.handoff?.ready &&
+                next.sessionId === previous.sessionId &&
+                previous.handoff?.record
+              )
+                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
+              return next;
+            });
           },
           () => {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
@@ -960,6 +995,11 @@ function AcpmuxPane() {
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
           "chat.fork": async ({ throughSeq }) => persistSession(await client.fork(Number(throughSeq))),
+          "chat.handoff.prepare": async ({ harness }) => persistSession(await client.continueIn(String(harness))),
+          "chat.handoff.get": () => client.refreshHandoff(),
+          "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
+          "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
+          "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.scope.diff": ({ scope }) => client.gitScopeDiff(String(scope)),
           "git.status": () => client.gitStatus(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
@@ -997,6 +1037,20 @@ function AcpmuxPane() {
   const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot);
+  const sourceHarness = snapshot.summary?.harness?.split(/[-_]/)[0];
+  const handoffTargets = composerSnapshot.catalog.filter((entry) => {
+    const family = entry.id.split(/[-_]/)[0];
+    return sourceHarness === "claude" ? family === "codex" : sourceHarness === "codex" && family === "claude";
+  });
+  const canContinue =
+    !!snapshot.canHandoff &&
+    !!snapshot.handoff?.ready &&
+    !snapshot.isWorking &&
+    !snapshot.queue.length &&
+    !snapshot.handoff?.busy &&
+    !reviewing &&
+    handoffTargets.length > 0;
+  const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   return (
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" data-sidebar={sidebar}>
@@ -1033,8 +1087,45 @@ function AcpmuxPane() {
                 <strong className="acpmux-title">{header.title}</strong>
                 {header.status && <span className="acpmux-status">{header.status}</span>}
               </div>
+              <div className="acpmux-handoff-header-tools">
+                <span
+                  className="acpmux-session-coverage"
+                  title={`${handoffLabels.unverified} · ${snapshot.summary?.enforcement?.detail ?? handoffLabels.unverifiedDetail}`}
+                >
+                  {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
+                </span>
+                {snapshot.canHandoff && handoffTargets.length > 0 && (
+                  <ContinueMenu
+                    label={handoffLabels.continueIn}
+                    targets={handoffTargets}
+                    disabled={!canContinue}
+                    open={continuing}
+                    setOpen={setContinuing}
+                    onChoose={(harness) => ignoreFailure(callNative("chat.handoff.prepare", { harness }))}
+                  />
+                )}
+              </div>
             </header>
-            {freshChat ? (
+            {!reviewing && snapshot.handoff?.error && (
+              <p className="acpmux-handoff-error" role="alert">
+                {snapshot.handoff.error}
+              </p>
+            )}
+            {reviewing && handoff && snapshot.handoff ? (
+              <HandoffReviewMessage
+                key={`${handoff.handoffId}:${reviewReload}`}
+                record={handoff}
+                state={snapshot.handoff}
+                strings={handoffLabels}
+                onSave={(review) => callNative("chat.handoff.draft", { review })}
+                onStart={(review) => callNative("chat.handoff.start", { review })}
+                onReturn={() => selectSession(handoff.source.sessionId)}
+                onDiscard={() => ignoreFailure(callNative("chat.handoff.discard"))}
+                onReload={() =>
+                  ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
+                }
+              />
+            ) : freshChat ? (
               <EmptyState project={projectName(snapshot.summary?.cwd)} />
             ) : (
               <TurnActionsContext.Provider value={turnActions}>
@@ -1070,13 +1161,15 @@ function AcpmuxPane() {
               <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
             </div>
           )}
-          <Composer
-            snapshot={composerSnapshot}
-            chips={ComposerChips}
-            draft={draft}
-            onSend={(text) => void callNative("chat.send", { text })}
-            onStop={() => void callNative("chat.cancel")}
-          />
+          {!reviewing && !handoffLoading && (
+            <Composer
+              snapshot={composerSnapshot}
+              chips={ComposerChips}
+              draft={draft}
+              onSend={(text) => void callNative("chat.send", { text })}
+              onStop={() => void callNative("chat.cancel")}
+            />
+          )}
         </div>
         {searching && (
           <SearchChats
