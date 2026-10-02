@@ -2,6 +2,7 @@ import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, Acpmu
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
+import { FORK_OP, servesOperation } from "./operations";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -198,6 +199,8 @@ export class AcpmuxDirectClient {
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
+  /// acpmux lists `acp.session.fork` among the operations it serves.
+  private canFork = false;
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
   private streamingActivity?: string;
@@ -280,11 +283,12 @@ export class AcpmuxDirectClient {
       socket.onmessage = (message) => this.receive(String(message.data));
     });
     try {
-      await this.request("initialize", {
+      const initialized = await this.request("initialize", {
         protocolVersion: 1,
         clientInfo: { name: "cmux-react-agent-pane", version: "1" },
         clientCapabilities: {},
       });
+      this.canFork = servesOperation(initialized, FORK_OP);
       const watched = await this.request("_acpmux/watch", { enabled: true });
       this.sessions = this.reread(watched?.sessions);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
@@ -673,6 +677,7 @@ export class AcpmuxDirectClient {
             version: 1,
             at: event.at,
             kind: "turnSummary",
+            seq: event.seq,
             ...this.turnTotals(event.at),
             status: String(msg.status ?? "completed"),
             error: msg.errorText,
@@ -824,6 +829,7 @@ export class AcpmuxDirectClient {
       connection,
       sessionId: this.selectedSessionId,
       isWorking: this.turnOpen || summary?.status === "running",
+      canFork: this.canFork,
       queue: this.queue,
       permission: this.pendingPermission,
       catalog: [],
@@ -893,6 +899,13 @@ export class AcpmuxDirectClient {
     const result = await this.request("session/new", newSessionParams(this.host, harness));
     // The inherited cwd is the first chat's; later new chats start where acpmux defaults.
     if (result?.sessionId) this.host = { ...this.host, cwd: undefined };
+    if (result?.sessionId) return this.select(String(result.sessionId));
+    return undefined;
+  }
+  /// Forks the open session through the turn whose summary is `throughSeq`, and opens the fork.
+  async fork(throughSeq: number): Promise<string | undefined> {
+    if (!this.canFork || !this.selectedSessionId) return undefined;
+    const result = await this.request(FORK_OP, { sessionId: this.selectedSessionId, throughSeq });
     if (result?.sessionId) return this.select(String(result.sessionId));
     return undefined;
   }
