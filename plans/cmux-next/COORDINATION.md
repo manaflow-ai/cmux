@@ -14,6 +14,7 @@ One line per landed change to a shared surface (daemon protocol or state, layout
 
 ## Landed
 
+- 2026-10-01 270b069f273 CLI/control: `ActionDescriptor.waitsForResult` (JSON `waits_for_result`) and a 40 s `action.run` limit with `wait` (ControlMethod.withLimit) for accounts.connect/remove; socket methods accounts.list, coderouter.claude_upstream.*, coderouter.machines, coderouter.accounts.list (fdb08f68315); the Rust CLI port must add accounts.show/refresh/reauthenticate/connect/remove to cliActionIDs (CodeRouter agent)
 - 2026-10-01 63626e2d798 build: pin cmux-tui f39636c811a (verified run 36814040800, artifacts 36814037092); optional gains notification-source-v1, terminal-shell-args-v1, launch-snapshot-v1, personal-terminals-v1, browser-profiles-v1; awaitingPin keeps remote-terminal-tabs-v1, detached-terminals-v1 (daemon-features agent)
 - 2026-10-01 a88885ccb59 daemon: launch-snapshot-v1, launch-snapshot.json next to the registry, identify.launch_snapshot_path; app draws it before connect (d5fad6dfe4a) (daemon-features agent)
 - 2026-10-01 dfc7bc05347 daemon: terminal-shell-args-v1, `shell_args` on new-tab/split/new-pane/new-pane-right/create-terminal; app sends bash --posix / nushell --execute (a84f244800d) (daemon-features agent)
