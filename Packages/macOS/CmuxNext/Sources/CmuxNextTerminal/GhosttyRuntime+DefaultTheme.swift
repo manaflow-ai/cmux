@@ -18,6 +18,8 @@ extension GhosttyRuntime {
 
     /// Loads the default before the user's files.
     static func loadThemeDefault(into config: ghostty_config_t) {
+        let line = "theme = \(defaultThemeSpec)"
+        line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
     }
 
     /// The colors a user config made of `text` (Ghostty config lines)

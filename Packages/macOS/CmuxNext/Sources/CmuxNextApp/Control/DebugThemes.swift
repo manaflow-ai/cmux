@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextTerminal
 
 /// `debug.themes`: per window its room scope, per mounted workspace its
 /// workspace scope, per live terminal its scope and the Ghostty theme its
@@ -30,7 +31,12 @@ enum DebugThemes {
             object["badge"] = services.themes.badge(forTerminal: entry.themeKey).map { .string($0.name) } ?? .null
             return .object(object)
         }
-        return .object(["windows": .array(windows), "terminals": .array(terminals)])
+        // The applied Ghostty config (its light/dark variant), which every
+        // terminal without a theme of its own draws with.
+        let ghostty = GhosttyRuntime.shared.themeColors.map {
+            JSONValue.string(String(format: "#%02X%02X%02X", $0.background.r, $0.background.g, $0.background.b))
+        } ?? .null
+        return .object(["windows": .array(windows), "terminals": .array(terminals), "ghostty_background": ghostty])
     }
 
     /// Every scroll view's edge-fade mask (`ScrollEdgeFade`): its gradient
