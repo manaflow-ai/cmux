@@ -1716,6 +1716,7 @@ describe("acpmux turn diff", () => {
     });
     const diffs: unknown[] = [];
     let statuses = 0;
+    let skipped = 1234;
     const file = {
       path: "src/main.ts",
       status: "modified",
@@ -1734,7 +1735,7 @@ describe("acpmux turn diff", () => {
               files: [file],
               total_files: 1,
               files_omitted: 0,
-              untracked_skipped: 1234,
+              untracked_skipped: skipped,
             };
       },
       "git.status": async () => {
@@ -1806,7 +1807,9 @@ describe("acpmux turn diff", () => {
       // Last turn comes from the transcript: no skipped files and no branch.
       expect([banner(), branch(), statuses]).toEqual([null, null, 0]);
       await pick("Uncommitted");
-      expect(banner()?.getAttribute("role")).toBe("status");
+      // Only the message is announced, not the buttons beside it.
+      expect(banner()?.getAttribute("role")).toBeNull();
+      expect(banner()?.querySelector('[role="status"]')?.className).toBe("acpmux-changes-banner-text");
       expect(banner()?.querySelector(".acpmux-changes-banner-title")?.textContent).toBe("Showing tracked changes only");
       expect(banner()?.querySelector(".acpmux-changes-banner-body")?.textContent).toBe(
         "The Changes tab skipped 1,234 untracked files to stay responsive. If these files are generated, clean them up and refresh",
@@ -1814,11 +1817,17 @@ describe("acpmux turn diff", () => {
       expect([branch(), statuses]).toEqual([null, 0]);
       const action = (label: string) =>
         [...banner()!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === label)!;
-      // The cleanup command only lists what git clean would remove.
+      // The cleanup command is a dry run that lists the untracked files the scope left out.
       await click(action("Copy cleanup command"));
-      expect(copied).toEqual(["git clean -ndX"]);
+      expect(copied).toEqual(["git clean -nd"]);
+      // Refresh replaces the banner, so focus moves to the scope pill; the new count shows.
+      skipped = 1;
       await click(action("Refresh"));
       expect(diffs).toEqual(["uncommitted", "uncommitted"]);
+      expect(document.activeElement).toBe(panel.querySelector(".acpmux-diff-scope"));
+      expect(banner()?.querySelector(".acpmux-changes-banner-body")?.textContent).toBe(
+        "The Changes tab skipped 1 untracked file to stay responsive. If these files are generated, clean them up and refresh",
+      );
       // The branch scope names the branch and the base it is compared with.
       await pick("Branch");
       expect(banner()).toBeNull();
@@ -1832,10 +1841,35 @@ describe("acpmux turn diff", () => {
         [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
       );
       expect([diffs.length, statuses]).toEqual([4, 2]);
-      // A detached head has no branch to name.
+      // A status asked before a refresh never names the branch after it.
+      const pending: ((branch: string) => void)[] = [];
+      host.cmuxAcpmuxActions["git.status"] = () =>
+        new Promise((resolve) => pending.push((name) => resolve({ branch: name, base: "origin/main" })));
+      await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
+      await click(
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
+      );
+      expect([branch(), pending.length]).toEqual([null, 1]);
+      await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
+      await click(
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
+      );
+      await act(async () => pending[1]!("feat-new"));
+      await act(async () => pending[0]!("feat-old"));
+      await settle();
+      expect(branch()?.querySelector(".acpmux-branch-from")?.textContent).toBe("feat-new");
+      // A failed status leaves the scope's diffs and names no branch.
+      host.cmuxAcpmuxActions["git.status"] = async () => {
+        throw new Error("Not a git repository");
+      };
+      await pick("Uncommitted");
+      await pick("Branch");
+      expect([branch(), panel.querySelectorAll(".acpmux-diff-file").length > 0]).toEqual([null, true]);
+      // A detached head has no branch to name, even when the host still sends its last one.
       host.cmuxAcpmuxActions["git.status"] = async () => ({
         root: "/repo",
         detached: true,
+        branch: "feat-retry",
         base: "origin/main",
         ahead: 0,
         behind: 0,
