@@ -2,11 +2,11 @@
  "format": "cmux-conversation-conformance/1",
  "notes": [
   "Each case is {name, head, request, expect} or {name, create, expect}. expect is {commit}, {head} (create) or {reject: code}.",
-  "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, last_message) plus recent (newest first) and actor_addresses.",
-  "A runner calls apply(head, request); when request.recent is an array and the op is message.send, it also runs check_agent_budget(head, actor, parts, recent, parse(now)) after every other rule passes.",
+  "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, last_message) plus actor_addresses (cloud only).",
+  "A runner calls apply(head, request). REQUIRED for the Rust owner: every head carries agent_text_streak (0 at create) and last_agent_text_at; a text send by an agent adds 1 and sets last_agent_text_at, a human text resets the streak to 0, a text-less work card changes neither; an agent text is refused with agent_budget at streak >= 4 and agent_rate within 2000 ms of last_agent_text_at, after every other rule passes.",
   "Compare JSON values: optional fields are omitted when absent; object key order does not matter.",
   "Commit = {head, message?, change}; change kinds: message, message-updated, read-cursor, conversation, invite.",
-  "Cloud heads (with kind) keep the agent loop guard in the head (agent_text_streak, last_agent_text_at) and ignore request.recent; local heads use the Rust row window. Same limits; the head guard also counts a retracted agent message and applies the gap to the last agent text message however old.",
+  "The head guard counts a retracted agent message and applies the gap to the last agent text message however old. The cases named 'loop guard:' are the work-card bypass that a row window misses.",
   "Cloud participants.add of an agent: only its owner (a stored record's owner_user wins over the op's), unless request.trusted_participant is true (the host's reach policy approved it and stamped owner_user and display_name).",
   "Cloud invite.accept: request.actor_addresses holds the address ids of the actor's verified emails; the host passes it only when the email is verified. Group invites bind at once only for email with a matching address; otherwise status pending_approval.",
   "The host derives token_hash: invite.create stores hash(hash(secret)), and the Domain hashes the accept proof hash(secret), so no event carries a value that can accept."
@@ -79,6 +79,7 @@
      "created_at": "2026-10-01T12:00:00.000Z",
      "updated_at": "2026-10-01T12:00:00.000Z",
      "read_cursors": {},
+     "agent_text_streak": 0,
      "kind": "group",
      "created_by": "user_alice",
      "state": "active",
@@ -90,8 +91,7 @@
       },
       "history_visible": "all"
      },
-     "invites": [],
-     "agent_text_streak": 0
+     "invites": []
     }
    }
   },
@@ -130,6 +130,7 @@
      "created_at": "2026-10-01T12:00:00.000Z",
      "updated_at": "2026-10-01T12:00:00.000Z",
      "read_cursors": {},
+     "agent_text_streak": 0,
      "kind": "group",
      "created_by": "user_alice",
      "state": "active",
@@ -141,8 +142,7 @@
       },
       "history_visible": "all"
      },
-     "invites": [],
-     "agent_text_streak": 0
+     "invites": []
     }
    }
   },
@@ -210,6 +210,7 @@
      "created_at": "2026-10-01T12:00:00.000Z",
      "updated_at": "2026-10-01T12:00:00.000Z",
      "read_cursors": {},
+     "agent_text_streak": 0,
      "kind": "group",
      "created_by": "user_alice",
      "state": "active",
@@ -221,8 +222,7 @@
       },
       "history_visible": "since_join"
      },
-     "invites": [],
-     "agent_text_streak": 0
+     "invites": []
     }
    }
   },
@@ -297,6 +297,7 @@
      "created_at": "2026-10-01T12:00:00.000Z",
      "updated_at": "2026-10-01T12:00:00.000Z",
      "read_cursors": {},
+     "agent_text_streak": 0,
      "kind": "dm",
      "created_by": "user_alice",
      "state": "active",
@@ -308,8 +309,7 @@
       },
       "history_visible": "all"
      },
-     "invites": [],
-     "agent_text_streak": 0
+     "invites": []
     }
    }
   },
@@ -386,6 +386,7 @@
      "created_at": "2026-10-01T12:00:00.000Z",
      "updated_at": "2026-10-01T12:00:00.000Z",
      "read_cursors": {},
+     "agent_text_streak": 0,
      "kind": "dm",
      "created_by": "user_alice",
      "state": "active",
@@ -397,8 +398,7 @@
       },
       "history_visible": "all"
      },
-     "invites": [],
-     "agent_text_streak": 0
+     "invites": []
     }
    }
   },
@@ -486,6 +486,7 @@
      "created_at": "2026-10-01T12:00:00.000Z",
      "updated_at": "2026-10-01T12:00:00.000Z",
      "read_cursors": {},
+     "agent_text_streak": 0,
      "kind": "chief",
      "created_by": "user_alice",
      "state": "active",
@@ -497,8 +498,7 @@
       },
       "history_visible": "all"
      },
-     "invites": [],
-     "agent_text_streak": 0
+     "invites": []
     }
    }
   },
@@ -566,6 +566,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -577,8 +578,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_bob",
@@ -638,6 +638,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -649,8 +650,7 @@
        },
        "history_visible": "all"
       },
-      "invites": [],
-      "agent_text_streak": 0
+      "invites": []
      },
      "message": {
       "id": "msg_00000000000000000000000001",
@@ -727,6 +727,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -738,8 +739,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_bob",
@@ -819,6 +819,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -830,8 +831,7 @@
        },
        "history_visible": "all"
       },
-      "invites": [],
-      "agent_text_streak": 0
+      "invites": []
      },
      "change": {
       "kind": "conversation",
@@ -960,6 +960,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -971,8 +972,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_bob",
@@ -1056,6 +1056,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -1067,8 +1068,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_bob",
@@ -1148,6 +1148,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -1159,8 +1160,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_alice",
@@ -1240,6 +1240,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -1251,8 +1252,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_alice",
@@ -1329,6 +1329,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -1340,8 +1341,7 @@
        },
        "history_visible": "all"
       },
-      "invites": [],
-      "agent_text_streak": 0
+      "invites": []
      },
      "change": {
       "kind": "conversation",
@@ -1472,6 +1472,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -1483,8 +1484,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "agent_alicechief",
@@ -1571,6 +1571,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -1582,8 +1583,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_bob",
@@ -1671,6 +1671,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -1682,8 +1683,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_bob",
@@ -1778,6 +1778,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -1789,8 +1790,7 @@
        },
        "history_visible": "all"
       },
-      "invites": [],
-      "agent_text_streak": 0
+      "invites": []
      },
      "change": {
       "kind": "conversation",
@@ -1943,6 +1943,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -1954,8 +1955,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_carol",
@@ -2054,6 +2054,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -2065,8 +2066,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_carol",
@@ -2173,6 +2173,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -2184,8 +2185,7 @@
        },
        "history_visible": "all"
       },
-      "invites": [],
-      "agent_text_streak": 0
+      "invites": []
      },
      "change": {
       "kind": "conversation",
@@ -2360,6 +2360,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -2371,8 +2372,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_alice",
@@ -2477,6 +2477,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -2488,8 +2489,7 @@
        },
        "history_visible": "all"
       },
-      "invites": [],
-      "agent_text_streak": 0
+      "invites": []
      },
      "change": {
       "kind": "conversation",
@@ -2662,6 +2662,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -2673,8 +2674,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_bob",
@@ -2786,6 +2786,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -2815,8 +2816,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -3022,6 +3022,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -3051,8 +3052,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "addr_00000000000000000000000001",
@@ -3168,6 +3168,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -3197,8 +3198,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "agent_alicechief",
@@ -3314,6 +3314,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -3343,8 +3344,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -3460,6 +3460,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -3489,8 +3490,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -3606,6 +3606,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -3635,8 +3636,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -3749,6 +3749,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -3778,8 +3779,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "system",
@@ -3893,6 +3893,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -3922,8 +3923,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "system",
@@ -4033,6 +4033,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -4063,8 +4064,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "invite",
@@ -4167,6 +4167,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -4197,8 +4198,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "system",
@@ -4311,6 +4311,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -4341,8 +4342,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_bob",
@@ -4453,6 +4453,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -4483,8 +4484,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_dave",
@@ -4595,6 +4595,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -4625,8 +4626,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_dave",
@@ -4733,6 +4733,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -4766,8 +4767,7 @@
         "requested_name": "Dave",
         "requested_at": "2026-10-01T12:00:00.000Z"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -4977,6 +4977,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -5010,8 +5011,7 @@
       "requested_name": "Dave",
       "requested_at": "2026-10-01T12:00:00.000Z"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_erin",
@@ -5122,6 +5122,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -5155,8 +5156,7 @@
       "requested_name": "Dave",
       "requested_at": "2026-10-01T12:00:00.000Z"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_carol",
@@ -5266,6 +5266,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -5299,8 +5300,7 @@
       "requested_name": "Dave",
       "requested_at": "2026-10-01T12:00:00.000Z"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_bob",
@@ -5411,6 +5411,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -5444,8 +5445,7 @@
       "requested_name": "Dave",
       "requested_at": "2026-10-01T12:00:00.000Z"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_bob",
@@ -5551,6 +5551,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -5583,8 +5584,7 @@
         "accepted_by": "user_dave",
         "accepted_at": "2026-10-01T12:00:00.000Z"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -5793,6 +5793,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -5825,8 +5826,7 @@
       "accepted_by": "user_dave",
       "accepted_at": "2026-10-01T12:00:00.000Z"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -5936,6 +5936,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -5968,8 +5969,7 @@
       "accepted_by": "user_dave",
       "accepted_at": "2026-10-01T12:00:00.000Z"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_carol",
@@ -6089,6 +6089,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -6138,8 +6139,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -6380,6 +6380,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -6429,8 +6430,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_bob",
@@ -6548,6 +6548,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -6597,8 +6598,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -6704,6 +6704,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -6753,8 +6754,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -6979,6 +6979,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -7028,8 +7029,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "agent_alicechief",
@@ -7140,6 +7140,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -7189,8 +7190,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_bob",
@@ -7300,6 +7300,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -7349,8 +7350,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -7459,6 +7459,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -7508,8 +7509,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -7618,6 +7618,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -7667,8 +7668,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -7893,6 +7893,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -7942,8 +7943,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "agent_alicechief",
@@ -8055,6 +8055,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -8105,7 +8106,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 1,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
@@ -8221,6 +8221,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -8271,7 +8272,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -8385,6 +8385,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -8435,7 +8436,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 1,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
@@ -8553,6 +8553,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -8603,7 +8604,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -8717,6 +8717,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -8767,7 +8768,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 2,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
@@ -8883,6 +8883,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -8933,7 +8934,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 2,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -9047,6 +9047,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -9097,7 +9098,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 2,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
@@ -9215,6 +9215,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -9265,7 +9266,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 2,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -9380,6 +9380,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -9430,7 +9431,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 2,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
@@ -9548,6 +9548,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -9598,7 +9599,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 2,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -9713,6 +9713,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -9763,7 +9764,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 2,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
@@ -9881,6 +9881,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -9931,7 +9932,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 2,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -10046,6 +10046,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -10096,7 +10097,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 2,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
@@ -10214,6 +10214,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -10264,7 +10265,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 2,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -10379,6 +10379,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -10429,7 +10430,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 2,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
@@ -10547,6 +10547,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -10597,7 +10598,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 2,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -10712,6 +10712,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -10762,7 +10763,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 2,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
@@ -10880,6 +10880,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -10930,7 +10931,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 2,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -11048,6 +11048,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -11098,7 +11099,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 2,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -11212,6 +11212,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -11262,7 +11263,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 0,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
@@ -11378,6 +11378,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -11428,7 +11429,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 0,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -11541,6 +11541,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -11591,7 +11592,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 1,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "message": {
@@ -11707,6 +11707,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -11757,7 +11758,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -11865,6 +11865,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -11915,7 +11916,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 1,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "change": {
@@ -12143,6 +12143,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -12193,7 +12194,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -12302,6 +12302,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -12352,7 +12353,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 1,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "change": {
@@ -12582,6 +12582,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -12632,7 +12633,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -12742,6 +12742,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -12792,7 +12793,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 1,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "change": {
@@ -13024,6 +13024,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -13074,7 +13075,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -13185,6 +13185,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
       "state": "archived",
@@ -13235,7 +13236,6 @@
         "locale": "en"
        }
       ],
-      "agent_text_streak": 1,
       "last_agent_text_at": "2026-10-01T12:00:00.000Z"
      },
      "change": {
@@ -13469,6 +13469,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
     "state": "archived",
@@ -13519,7 +13520,6 @@
       "locale": "en"
      }
     ],
-    "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
    },
    "request": {
@@ -13598,6 +13598,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -13609,8 +13610,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_alice",
@@ -13678,6 +13678,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -13707,8 +13708,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -13839,6 +13839,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -13868,8 +13869,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_carol",
@@ -13935,6 +13935,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-02T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -13966,8 +13967,7 @@
         "accepted_by": "user_carol",
         "accepted_at": "2026-10-02T12:00:00.000Z"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -14092,6 +14092,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -14103,8 +14104,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_alice",
@@ -14172,6 +14172,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -14201,8 +14202,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -14333,6 +14333,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -14362,8 +14363,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_carol",
@@ -14429,6 +14429,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -14461,8 +14462,7 @@
         "requested_name": "Carol",
         "requested_at": "2026-10-01T12:00:00.000Z"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -14596,6 +14596,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -14628,8 +14629,7 @@
       "requested_name": "Carol",
       "requested_at": "2026-10-01T12:00:00.000Z"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -14695,6 +14695,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -14727,8 +14728,7 @@
       "requested_name": "Carol",
       "requested_at": "2026-10-01T12:00:00.000Z"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -14796,6 +14796,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-15T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -14845,8 +14846,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -14988,6 +14988,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -14999,8 +15000,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_alice",
@@ -15068,6 +15068,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -15097,8 +15098,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -15229,6 +15229,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -15258,8 +15259,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_carol",
@@ -15322,6 +15322,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -15354,8 +15355,7 @@
         "requested_name": "Carol",
         "requested_at": "2026-10-01T12:00:00.000Z"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -15489,6 +15489,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -15521,8 +15522,7 @@
       "requested_name": "Carol",
       "requested_at": "2026-10-01T12:00:00.000Z"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -15577,6 +15577,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -15606,8 +15607,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -15722,6 +15722,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -15751,8 +15752,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -15810,6 +15810,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -15821,8 +15822,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_alice",
@@ -15890,6 +15890,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
       "state": "active",
@@ -15919,8 +15920,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -16051,6 +16051,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
     "state": "active",
@@ -16080,8 +16081,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_carol",
@@ -16129,6 +16129,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "dm",
     "created_by": "user_alice",
     "state": "active",
@@ -16140,8 +16141,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_alice",
@@ -16194,6 +16194,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "dm",
     "created_by": "user_alice",
     "state": "active",
@@ -16205,8 +16206,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_alice",
@@ -16255,6 +16255,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "dm",
       "created_by": "user_alice",
       "state": "active",
@@ -16284,8 +16285,7 @@
         "copy_variant": "A",
         "locale": "en"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -16378,6 +16378,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "dm",
     "created_by": "user_alice",
     "state": "active",
@@ -16407,8 +16408,7 @@
       "copy_variant": "A",
       "locale": "en"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_carol",
@@ -16452,6 +16452,7 @@
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
       "read_cursors": {},
+      "agent_text_streak": 0,
       "kind": "dm",
       "created_by": "user_alice",
       "state": "active",
@@ -16483,8 +16484,7 @@
         "accepted_by": "user_carol",
         "accepted_at": "2026-10-01T12:00:00.000Z"
        }
-      ],
-      "agent_text_streak": 0
+      ]
      },
      "change": {
       "kind": "conversation",
@@ -16579,6 +16579,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "dm",
     "created_by": "user_alice",
     "state": "active",
@@ -16610,8 +16611,7 @@
       "accepted_by": "user_carol",
       "accepted_at": "2026-10-01T12:00:00.000Z"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -16658,6 +16658,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "dm",
     "created_by": "user_alice",
     "state": "active",
@@ -16689,8 +16690,7 @@
       "accepted_by": "user_carol",
       "accepted_at": "2026-10-01T12:00:00.000Z"
      }
-    ],
-    "agent_text_streak": 0
+    ]
    },
    "request": {
     "actor": "user_alice",
@@ -16740,6 +16740,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "chief",
     "created_by": "user_alice",
     "state": "active",
@@ -16751,8 +16752,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_alice",
@@ -16806,6 +16806,7 @@
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
     "read_cursors": {},
+    "agent_text_streak": 0,
     "kind": "chief",
     "created_by": "user_alice",
     "state": "active",
@@ -16817,8 +16818,7 @@
      },
      "history_visible": "all"
     },
-    "invites": [],
-    "agent_text_streak": 0
+    "invites": []
    },
    "request": {
     "actor": "user_alice",
@@ -16866,7 +16866,8 @@
     "rev": 1,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {}
+    "read_cursors": {},
+    "agent_text_streak": 0
    },
    "request": {
     "actor": "user_local",

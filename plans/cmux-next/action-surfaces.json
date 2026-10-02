@@ -2318,6 +2318,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "tab new-page",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "newTab"
+      ],
+      "id" : "newTab.page",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "tab new-terminal",
       "context_menu" : "offered",
       "context_menus" : [
