@@ -269,7 +269,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkError: linkError,
             stats: nil,
             remoteWorkspaces: info.remoteWorkspaces,
-            portDiscoveryState: portDiscovery.state
+            portDiscoveryState: portDiscovery.state,
+            observedDaemonBuild: info.observedDaemonBuild
         )
         if shouldMarkStale {
             catalog.markCloudStateStale(on: machine, reason: "machine_\(summary.status)", info: info)
@@ -352,6 +353,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let preservedNonPortResources = previousResources.filter { !$0.id.isForwardedPort }
         let vmClient = summary.cloudSummary == nil ? nil : VMClient.shared
         let privateAddress = summary.preferredPrivateAddress
+        var observedDaemonBuild = info.observedDaemonBuild
         portDiscovery.reconcile(
             supportsPreviews: supportsPortPreviews,
             isAwake: isAwake,
@@ -382,7 +384,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 linkState: linkState,
                 linkError: linkError,
                 stats: nil,
-                portDiscoveryState: portDiscovery.state
+                portDiscoveryState: portDiscovery.state,
+                observedDaemonBuild: observedDaemonBuild
             )
             info.remoteWorkspaces = remoteWorkspaces
             let resources: [SurfaceResource]
@@ -440,6 +443,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
+            observedDaemonBuild = connected.daemonBuild ?? observedDaemonBuild
             // The port scan and graph snapshot use independent daemon requests.
             // Start both after the link is ready. The graph publishes as soon as
             // the snapshot lands; ports publish when their scan finishes. The
@@ -531,7 +535,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkError: linkError,
             stats: nil,
             remoteWorkspaces: remoteWorkspaces,
-            portDiscoveryState: portDiscovery.state
+            portDiscoveryState: portDiscovery.state,
+            observedDaemonBuild: observedDaemonBuild
         ).carryingGauges(from: info)
         if let cloudState {
             // A successful read or an event install proves the retained graph is

@@ -16,13 +16,16 @@ public actor CloudMachineLinkManager {
     public struct LinkStatus: Sendable, Equatable {
         public let state: SurfaceLinkState
         public let error: String?
+        public let observedDaemonBuild: SurfaceDaemonBuild?
 
         public init(
             state: SurfaceLinkState,
-            error: String?
+            error: String?,
+            observedDaemonBuild: SurfaceDaemonBuild? = nil
         ) {
             self.state = state
             self.error = error
+            self.observedDaemonBuild = observedDaemonBuild
         }
     }
 
@@ -67,6 +70,9 @@ public actor CloudMachineLinkManager {
     /// to another team's machine keeps working after the selected team changes.
     private var ownerTeams: [String: String] = [:]
     private var links: [String: CloudMachineLink] = [:]
+    /// Last live build observed for each machine. Carrier reconnects can skip
+    /// the attach endpoint, so retain the last known value without guessing.
+    private var observedDaemonBuilds: [String: SurfaceDaemonBuild] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
@@ -272,6 +278,7 @@ public actor CloudMachineLinkManager {
             let capabilities = self.resolvedClientCapabilities(clientURL: clientURL)
             let knownFingerprint = paths.deviceFingerprint(for: machineID)
             var session = "cmux"
+            var daemonBuild = self.observedDaemonBuilds[machineID]
             // The machine's daemon serves a trusted listener inside the private
             // network, so a link needs no enrollment: the first use asks the
             // control plane once (it also brings an older daemon to the trusted
@@ -293,6 +300,13 @@ public actor CloudMachineLinkManager {
                     teamID: self.ownerTeam(for: machineID)
                 )
                 session = endpoint.session
+                if let endpointBuild = endpoint.daemonBuild {
+                    daemonBuild = SurfaceDaemonBuild(
+                        commit: endpointBuild.commit,
+                        remoteProtocol: endpointBuild.remoteProtocol,
+                        version: endpointBuild.version
+                    )
+                }
                 guard endpoint.trustedCarrier else {
                     throw ManagerError.retryLater(String(
                         localized: "cloud.link.trustedListenerPending",
@@ -328,6 +342,7 @@ public actor CloudMachineLinkManager {
                     carrier: carrier,
                     timeout: connectTimeout,
                     wireguardHubSocket: claim.ready.socketPath,
+                    daemonBuild: daemonBuild,
                     releaseHubLease: releaseLease
                 )
                 try Task.checkCancellation()
@@ -345,6 +360,9 @@ public actor CloudMachineLinkManager {
         do {
             let connected = try await task.value
             guard connecting[machineID] == task, !task.isCancelled, isCloudEnabled() else { throw CancellationError() }
+            if let daemonBuild = connected.daemonBuild {
+                observedDaemonBuilds[machineID] = daemonBuild
+            }
             lastFailure[machineID] = nil
             #if DEBUG
             CMUXDebugLog.logDebugEvent("cloud.link.connected machine=\(machineID) socket=\(connected.socketPath)")
@@ -541,13 +559,18 @@ public actor CloudMachineLinkManager {
 
     public func status(machineID: String) async -> LinkStatus? {
         if let link = links[machineID] {
-            return LinkStatus(state: await link.state, error: await link.lastError)
+            let connected = await link.connected
+            return LinkStatus(
+                state: await link.state,
+                error: await link.lastError,
+                observedDaemonBuild: connected?.daemonBuild ?? observedDaemonBuilds[machineID]
+            )
         }
         if connecting[machineID] != nil {
-            return LinkStatus(state: .connecting, error: nil)
+            return LinkStatus(state: .connecting, error: nil, observedDaemonBuild: observedDaemonBuilds[machineID])
         }
         if let failure = lastFailure[machineID], Date().timeIntervalSince(failure.at) < retryBackoff {
-            return LinkStatus(state: .error, error: failure.error)
+            return LinkStatus(state: .error, error: failure.error, observedDaemonBuild: observedDaemonBuilds[machineID])
         }
         return nil
     }
@@ -577,6 +600,7 @@ public actor CloudMachineLinkManager {
         for task in connecting.values { task.cancel() }
         connecting.removeAll()
         lastFailure.removeAll()
+        observedDaemonBuilds.removeAll()
     }
 
     /// Drops stale routing facts immediately. The registry owns and awaits
@@ -587,6 +611,7 @@ public actor CloudMachineLinkManager {
         machineStatuses = machineStatuses.filter { machineIDs.contains($0.key) }
         localStatusChanges = localStatusChanges.filter { machineIDs.contains($0.key) }
         ownerTeams = ownerTeams.filter { machineIDs.contains($0.key) }
+        observedDaemonBuilds = observedDaemonBuilds.filter { machineIDs.contains($0.key) }
     }
 
     /// Re-sends this Mac's theme to every connected machine (a Ghostty config reload

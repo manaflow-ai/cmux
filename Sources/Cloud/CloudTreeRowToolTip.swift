@@ -13,8 +13,8 @@ enum CloudTreeRowToolTip {
         presenceHeads: [WorkspacePresenceParticipant]
     ) -> CloudTreeRowDescription {
         switch node.kind {
-        case .machine(let machine, _):
-            let content = CloudTreeMachineRowContent(machine: machine, style: style, resources: node.resourceSection)
+        case .machine(let machine, let info):
+            let content = CloudTreeMachineRowContent(machine: machine, info: info, style: style, resources: node.resourceSection)
             return .init(toolTip: content.toolTip, accessibilityLabel: content.accessibilityLabel)
         case .pendingMachine(let operation):
             // The failure's first line rides along so a red row explains itself on hover.

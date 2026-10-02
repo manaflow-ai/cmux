@@ -1,12 +1,14 @@
 import CmuxCloud
 import CmuxCloudMachines
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 /// Compact rows keep identity, resources and usage on one baseline; cards stack details.
 /// This view receives only an immutable snapshot; the panel owns stats refreshes.
 struct CloudTreeMachineRowContent: View {
     let machine: MachineSnapshot
+    var info: SurfaceMachineInfo? = nil
     var style: CloudTreeStyle = CloudTreeStyleStore.current
     var now: Date = .now
     var resources: CloudTreeMachineResourceSection? = nil
@@ -79,6 +81,9 @@ struct CloudTreeMachineRowContent: View {
     var accessibilityLabel: String {
         var parts = [machine.displayName, machine.activityLabel, metrics.summary]
         parts.append(subtitle)
+        if let build = info?.observedDaemonBuild {
+            parts.append(Self.daemonBuildSummary(build))
+        }
         parts.append(usageSummary)
         return parts.joined(separator: ", ")
     }
@@ -94,6 +99,9 @@ struct CloudTreeMachineRowContent: View {
         }
         lines.append(subtitle)
         lines.append(machine.image)
+        if let build = info?.observedDaemonBuild {
+            lines.append(Self.daemonBuildSummary(build))
+        }
         lines.append(usageSummary)
         // A machine the catalog found before the fleet list named it is built
         // with `image: info.image ?? ""`, and an empty line in the middle of a
@@ -188,11 +196,21 @@ struct CloudTreeMachineRowContent: View {
                 .joined(separator: " · "))
         }
         parts.append(usageSummary)
+        if let build = info?.observedDaemonBuild {
+            parts.append(Self.daemonBuildSummary(build))
+        }
         return parts.joined(separator: " · ")
     }
 
     private func scaled(_ size: CGFloat) -> CGFloat {
         GlobalFontMagnification.scaledSize(size, percent: fontMagnification)
+    }
+
+    private static func daemonBuildSummary(_ build: SurfaceDaemonBuild) -> String {
+        String(
+            format: String(localized: "cloudTree.daemonBuild.observed", defaultValue: "Last observed live daemon: %@"),
+            build.displayName
+        )
     }
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {

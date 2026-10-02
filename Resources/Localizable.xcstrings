@@ -123863,6 +123863,56 @@
         }
       }
     },
+    "cloudTree.daemonBuild.observed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Last observed live daemon: %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "最後に確認したライブデーモン: %@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "上次观察到的实时守护进程：%@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zuletzt beobachteter Live-Daemon: %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Dernier démon actif observé : %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "آخر خادم حي تمت ملاحظته: %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Último daemon activo observado: %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "上次觀察到的即時守護程序：%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "마지막으로 관찰된 라이브 데몬: %@"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Posljednji uočeni aktivni demon: %@"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Senest observerede aktive daemon: %@"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Ultimo demone attivo osservato: %@"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ដេមិនសកម្មដែលបានសង្កេតចុងក្រោយ៖ %@"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Sist observerte aktive daemon: %@"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Ostatnio zaobserwowany aktywny demon: %@"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Último daemon ativo observado: %@"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Последний обнаруженный активный демон: %@"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ดีมอนที่ทำงานล่าสุดที่สังเกตพบ: %@"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Son gözlemlenen etkin arka plan hizmeti: %@"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Останній виявлений активний демон: %@"}}
+      }
+    },
+    "cloudTree.daemonBuild.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "unknown"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "不明"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "未知"}},
+        "de": {"stringUnit": {"state": "translated", "value": "unbekannt"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "inconnu"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "غير معروف"}},
+        "es": {"stringUnit": {"state": "translated", "value": "desconocido"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "未知"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "알 수 없음"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "nepoznato"}},
+        "da": {"stringUnit": {"state": "translated", "value": "ukendt"}},
+        "it": {"stringUnit": {"state": "translated", "value": "sconosciuto"}},
+        "km": {"stringUnit": {"state": "translated", "value": "មិនស្គាល់"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "ukjent"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "nieznany"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "desconhecido"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "неизвестно"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ไม่ทราบ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "bilinmiyor"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "невідомо"}}
+      }
+    },
     "cloudTree.group.browsers": {
       "extractionState": "manual",
       "localizations": {
