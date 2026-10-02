@@ -1535,7 +1535,7 @@ describe("acpmux turn diff", () => {
       expect(document.activeElement?.textContent).toBe("Staged");
       await key(document.activeElement!, "Enter");
       await settle();
-      expect(asked.at(-1)).toEqual({ scope: "staged" });
+      expect(asked.at(-1)).toEqual({ scope: "staged", include_patch: true });
       expect(asked.length).toBe(4);
       expect(panel.querySelector("output strong")?.textContent).toBe("No changes");
       // Last turn is the transcript's own files again, without asking the host.

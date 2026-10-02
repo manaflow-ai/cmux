@@ -1,8 +1,8 @@
-// The mock daemon's git: what `git.scope.diff` and `git.status` answer for the seeded
-// sessions. The worked session's branch holds the worked turn's edits, half staged, on top of
+// The mock daemon's git: what `git.diff` and `git.status` answer for the seeded sessions, in
+// the shapes of cmux-tui's resource catalog. The worked session's branch holds the worked turn's edits, half staged, on top of
 // one earlier commit; the dotfiles sessions sit outside a repository and fail to load.
 import { diffHunks, diffLines, editPatch, type TurnFile } from "./diff";
-import type { ChangedFile, ChangeScope, ChangeSet, GitStatus } from "./changes/model";
+import type { ChangedFile, ChangeScope } from "./changes/model";
 import { mockSessions, WORKED_SESSION, workedSources } from "./mockFixture";
 
 const manifestBefore = `export type Manifest = { name: string; files: string[] };
@@ -51,22 +51,42 @@ const workedScopes: Record<Exclude<ChangeScope, "lastTurn">, ChangedFile[]> = {
 /// The sessions whose folder is not a git repository.
 const outsideGit = new Set(mockSessions.filter((session) => session.cwd === "~/code/dotfiles").map((s) => s.sessionId));
 
-export function mockScopeDiff(sessionId: string, scope: ChangeScope): ChangeSet {
+const rootOf = (sessionId: string) =>
+  mockSessions.find((session) => session.sessionId === sessionId)?.cwd ?? workedSources.root;
+
+/// A GitDiffResult: patches only when asked for, as the session host does.
+export function mockGitDiff(sessionId: string, scope: ChangeScope, includePatch: boolean) {
   if (outsideGit.has(sessionId)) throw new Error("Not a git repository");
   const files = sessionId === WORKED_SESSION && scope !== "lastTurn" ? workedScopes[scope] : [];
   return {
     scope,
-    root: mockSessions.find((session) => session.sessionId === sessionId)?.cwd ?? workedSources.root,
+    root: rootOf(sessionId),
     head: "4be1c2e",
     base: scope === "branch" ? "origin/main" : undefined,
-    files,
+    files: files.map(({ previousPath, patch, ...file }) => ({
+      ...file,
+      ...(previousPath ? { previous_path: previousPath } : {}),
+      ...(includePatch ? { patch } : {}),
+    })),
     additions: files.reduce((sum, file) => sum + file.additions, 0),
     deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+    total_files: files.length,
+    files_omitted: 0,
   };
 }
 
-export function mockGitStatus(sessionId: string): GitStatus {
+/// A GitStatusResult.
+export function mockGitStatus(sessionId: string) {
   if (outsideGit.has(sessionId)) throw new Error("Not a git repository");
   const session = mockSessions.find((entry) => entry.sessionId === sessionId);
-  return { branch: session?.branch ?? "main", upstream: "origin/main", base: "main", ahead: 1, behind: 0 };
+  const branch = session?.branch ?? "main";
+  return {
+    root: rootOf(sessionId),
+    detached: false,
+    branch,
+    upstream: "origin/main",
+    base: "main",
+    ahead: 1,
+    behind: 0,
+  };
 }
