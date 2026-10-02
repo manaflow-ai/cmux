@@ -111,3 +111,16 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(value["cwd"] == nil)
     }
 }
+
+/// The page's `pane.context` answer (#16620).
+@Suite struct AgentPaneContextTests {
+    @Test func readsTheCwdAndWebURLs() {
+        let context = AgentPaneContext(page: ["cwd": "/w/app", "urls": ["http://localhost:5173/", "javascript:alert(1)", 7, "https://github.com/o/r/pull/2"]])
+        #expect(context == AgentPaneContext(cwd: "/w/app", urls: [URL(string: "http://localhost:5173/")!, URL(string: "https://github.com/o/r/pull/2")!]))
+    }
+
+    @Test func anEmptyOrMissingAnswerIsNotAContext() {
+        #expect(AgentPaneContext(page: nil) == nil)
+        #expect(AgentPaneContext(page: ["cwd": "", "urls": []]) == AgentPaneContext())
+    }
+}
