@@ -4,12 +4,14 @@ import type { AcpmuxSnapshot } from "./model";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
 const globals = globalThis as Record<string, unknown>;
-const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
+const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "customElements", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  // The diff viewer registers a custom element when App loads.
+  customElements: dom.window.customElements,
   ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
   cancelAnimationFrame: (handle: number) => clearTimeout(handle),
