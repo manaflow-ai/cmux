@@ -23,18 +23,23 @@ import CmuxTerminal
 /// repeat the key into the terminal, but macOS instead pops up the
 /// alternate-character picker unless the app opts out. Like Ghostty, cmux opts
 /// out at launch. See https://github.com/manaflow-ai/cmux/issues/5457.
-enum PressAndHoldDefaults {
+struct PressAndHoldDefaults {
     /// The user-default key macOS reads to decide between repeating a held key
     /// and showing the accent-character popup.
     static let pressAndHoldEnabledKey = "ApplePressAndHoldEnabled"
 
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
     /// Disables the press-and-hold accent popup so held keys repeat into the
-    /// terminal. Pure with respect to the injected `defaults`, so it is
-    /// unit-testable against a scratch `UserDefaults(suiteName:)`.
-    static func registerDisabled(defaults: UserDefaults = .standard) {
-        // Intentionally empty in this commit so the regression test in
-        // PressAndHoldDefaultsTests goes red first, proving it catches the bug.
-        // The actual registration is added in the following commit. See #5457.
+    /// terminal.
+    func registerDisabled() {
+        // Registration is the lowest-priority defaults source, so an explicit
+        // user preference still wins.
+        defaults.register(defaults: [Self.pressAndHoldEnabledKey: false])
     }
 }
 
@@ -242,7 +247,7 @@ struct cmuxApp: App {
         )
         // Disable the macOS press-and-hold accent popup so held keys repeat into
         // the terminal instead of opening the alternate-character picker.
-        PressAndHoldDefaults.registerDisabled(defaults: defaults)
+        PressAndHoldDefaults(defaults: defaults).registerDisabled()
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
             launchArguments: ProcessInfo.processInfo.arguments

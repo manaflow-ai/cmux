@@ -26,7 +26,7 @@ final class PressAndHoldDefaultsTests: XCTestCase {
         let (defaults, suiteName) = try makeScratchDefaults()
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        PressAndHoldDefaults.registerDisabled(defaults: defaults)
+        PressAndHoldDefaults(defaults: defaults).registerDisabled()
 
         // With no explicit user preference, the registration domain must resolve
         // the key to a concrete `false` so held keys repeat into the terminal
@@ -62,7 +62,7 @@ final class PressAndHoldDefaultsTests: XCTestCase {
         // explicit value takes precedence over our registered fallback.
         defaults.set(true, forKey: PressAndHoldDefaults.pressAndHoldEnabledKey)
 
-        PressAndHoldDefaults.registerDisabled(defaults: defaults)
+        PressAndHoldDefaults(defaults: defaults).registerDisabled()
 
         XCTAssertTrue(
             defaults.bool(forKey: PressAndHoldDefaults.pressAndHoldEnabledKey),
