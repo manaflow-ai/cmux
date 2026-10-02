@@ -191,14 +191,14 @@ impl Inner {
                 return;
             };
             tab.main_frame.as_ref().and_then(|frame| {
-                tab.contexts.get(&(frame.clone(), super::state::World::Agent)).copied()
+                tab.contexts.get(&(frame.clone(), super::state::World::Agent)).cloned()
             })
         };
-        let Some(context) = context else {
+        let Some((context_session, context)) = context else {
             return;
         };
         let reply = self.conn.call(
-            Some(&session.session_id),
+            Some(&context_session),
             "Runtime.evaluate",
             json!({"expression": "document.title", "contextId": context, "returnByValue": true}),
             Duration::from_secs(2),
