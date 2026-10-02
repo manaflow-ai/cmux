@@ -19,10 +19,10 @@ public nonisolated enum SidebarLayoutPlanner {
         return .sectionAdd(LayoutSection(id: newSection, region: region, look: look, items: [item]), index: index)
     }
 
-    /// Removes the first item with `ref` in document order (built-in
-    /// commands such as "Remove Home from Sidebar" target it).
+    /// Removes every item with `ref` ("Remove Home from Sidebar"); nil
+    /// when the layout holds none.
     public static func remove(_ ref: LayoutItemRef, in document: SidebarLayoutDocument) -> SidebarLayoutOp? {
-        document.firstItem(with: ref).map { .itemRemove($0.id) }
+        document.firstItem(with: ref) == nil ? nil : .itemRemoveRef(ref)
     }
 }
 

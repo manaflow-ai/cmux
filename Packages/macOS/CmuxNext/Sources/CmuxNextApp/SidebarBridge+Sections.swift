@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDesign
@@ -17,6 +18,7 @@ extension SidebarBridge {
         .notifications: "showNotifications",
         .history: "history.show",
         .bookmarks: "bookmark.manager",
+        .appStore: "appStore.show",
     ]
 
     func activateLayoutItem(_ id: LayoutItemID) {
@@ -62,6 +64,15 @@ extension SidebarBridge {
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to
     /// the layout owner; a refusal shows in the refusal HUD.
+    /// The right-click menu of a layout item: Hide only on app items.
+    func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
+        let isApp = model.layout.item(id)?.ref.kind == LayoutItemRef.appKind
+        let menus = ContextMenuCatalog.shared
+        let entries = isApp ? menus.entries(for: .sidebarItem) : menus.entries(for: .sidebarItem, removing: ["sidebar.item.hideApp"])
+        return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
+                                                 entries: entries)
+    }
+
     func applyLayoutOp(_ op: SidebarLayoutOp) {
         do { try services.sidebarLayout.send(op) } catch { services.registry.refuse(String(describing: error)) }
     }

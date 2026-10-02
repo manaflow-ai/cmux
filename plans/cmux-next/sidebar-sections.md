@@ -11,7 +11,7 @@ The left sidebar is an ordered list of **sections** in three **regions**:
 
 | Region | Behavior | Default content |
 | --- | --- | --- |
-| Top | sticky under the titlebar row; never scrolls with the list | section "Home" (hidden title): Home, built-in look |
+| Top | sticky under the titlebar row; never scrolls with the list | section (hidden title): Home, then the App Store, built-in look |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
 | Bottom | sticky above the room bar | section (hidden title), one line: Settings (icon + label) at the leading edge, the account avatar (icon only) at the trailing edge |
 
@@ -127,6 +127,7 @@ Ops (each carries a client-chosen idempotency key; replay returns the stored res
 | `item.move` | `id`, `section`, `index` | across sections and regions |
 | `item.remove` | `id` | |
 | `item.update` | `id`, `shows_label` | |
+| `item.remove_ref` | `ref` | every copy ("Remove from Sidebar"); `item.remove` is "Remove from Section" |
 | `layout.reset` | — | back to the defaults |
 
 A remove-Home convenience is `item.remove` on the `builtIn(home)` item; re-adding inserts it at the
@@ -142,16 +143,22 @@ top of the first top-region section (creating one when the region is empty).
 | Region scroll offsets, hover, drag gap | client | client | gestures |
 | Look variants (prototype) | Debug Settings tunable | client | DEV only |
 
-Wire contract (capability `sidebar-layout-v1`, home daemon, personal store next to rooms and groups):
+Wire contract (capability `sidebar-layout-v1`, `cmux.protocol/2` state operations in
+`cmux-tui-core::state`, personal state of the home session; branch feat-cmux-next-sidebar-layout-store):
 
-| cmd | params | data |
+| operation | params | result |
 | --- | --- | --- |
-| `sidebar-layout-get` | `{}` | `{layout: SidebarLayoutDocument}` (defaults when never written) |
-| `sidebar-layout-op` | `{idempotency_key, transaction?, op}` | `{layout, revision, replayed}` |
+| `sidebar_layout.get` | `{}` | `SidebarLayoutSnapshot {revision: decimal string, sections}` |
+| `sidebar_layout.update` | `{op}` with the request's idempotency key | `MutationResult<SidebarLayoutSnapshot>` |
 
-Event: `personal-changed` with `kind: "sidebar-layout"` and the new revision. The reducer is the same
-pure function in Rust (store) and Swift (client overlay for the intent log); Swift tests and the
-Rust tests share fixture JSON (`Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-*.json`).
+`op` is one `SidebarLayoutOp` (section 4, plus `item.remove_ref {ref}`: every copy of a ref). The
+commit path writes the row, the replay record and one `session.events` batch with a `state_upsert`
+of resource `sidebar_layout`, id `user`; session snapshots carry `extra.state.sidebar_layout`. A
+reducer reject is `validation.invalid` with the reason and writes nothing (no replay record: a
+retry runs again); a no-op commits no change and keeps the layout revision. A stored row that no
+longer parses reads as the defaults. The reducer is the same in Rust and Swift; the shared cases in
+`Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json` run against
+both.
 
 Client: the confirmed mirror is written only by `sidebar-layout-get` replies and events; pending ops
 form the intent log (visible = mirror + pending; an op leaves on echo or reject, reject animates
