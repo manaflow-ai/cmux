@@ -81,3 +81,25 @@ test("a mark its vendor allows only in black or white draws only on a near-black
     await act(async () => root.unmount());
   }
 });
+
+test("every registered mark names its source in AGENT_MARKS.md", async () => {
+  const attributions = await Bun.file(new URL("./AGENT_MARKS.md", import.meta.url)).text();
+  for (const [key, spec] of Object.entries(AGENT_MARKS)) {
+    expect(attributions).toContain(`\`${key}\``);
+    expect(attributions).toContain(`\`${spec.source}\``);
+  }
+  expect(Object.keys(AGENT_MARKS).sort()).toEqual(["amp", "claude", "codex", "cursor", "gemini", "openai", "opencode"]);
+  expect(AGENT_MARKS.codex!.recolor).toBe("black-white");
+});
+
+test("a two-tone mark draws its second tone lighter", async () => {
+  const doc = dom.window.document;
+  const root = createRoot(doc.getElementById("root")!);
+  try {
+    await act(async () => root.render(createElement(AgentMark, { agent: "opencode" })));
+    const paths = [...doc.querySelectorAll("svg path")];
+    expect(paths.map((path) => path.getAttribute("opacity"))).toEqual([null, "0.35"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
