@@ -6,7 +6,6 @@ import {
   AUTH_PAGE_HANDLERS,
   HEXCLAVE_AUTH_PAGE_URLS,
   authPathRedirects,
-  canonicalAuthUrl,
   isSignInPath,
 } from "../app/lib/auth-paths";
 import { handlerHref } from "../app/handler/sign-in-entry";
@@ -113,11 +112,11 @@ describe("canonical auth URLs", () => {
     expect(isSignInPath("/login")).toBe(false);
   });
 
-  test("the sitemap lists each canonical page once and no alias", () => {
-    const urls = sitemap().map((entry) => entry.url);
-    expect(urls.filter((url) => url === canonicalAuthUrl("sign-in"))).toHaveLength(1);
-    expect(urls.filter((url) => url === canonicalAuthUrl("sign-up"))).toHaveLength(1);
-    expect(urls.some((url) => /\/(login|signin|signup|register|create-account)$|\/handler\//.test(url))).toBe(false);
-    expect(urls.some((url) => /\/[a-z]{2}(-[A-Z]{2})?\/sign-(in|up)$/.test(url))).toBe(false);
+  // Every sitemap URL must have agent-readable .md/.txt variants, which a
+  // sign-in form has no content for, so the pages are found through their
+  // canonical tags and links instead. No alias may be listed either.
+  test("the sitemap lists no auth page or alias", () => {
+    const urls = sitemap().map((entry) => new URL(String(entry.url)).pathname);
+    expect(urls.some((path) => /\/(sign-in|sign-up|login|log-in|signin|signup|register|create-account)$|^\/handler\//.test(path))).toBe(false);
   });
 });
