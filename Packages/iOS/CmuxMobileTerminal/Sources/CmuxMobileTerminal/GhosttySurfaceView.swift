@@ -3994,6 +3994,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     self.scrollInitialOutputToBottomIfNeeded()
                 }
                 let now = CACurrentMediaTime()
+                if self.window != nil {
+                    // Ghostty creates or replaces its IOSurface renderer
+                    // layer lazily, after the first output reaches the
+                    // surface. The initial geometry pass can therefore run
+                    // before that layer exists and leave the newly attached
+                    // drawable at the full view size. Its first frame is then
+                    // rejected by the presentation fence, which starts the
+                    // blank/flicker recovery loop. Bring a newly attached
+                    // renderer back to the current grid geometry before the
+                    // next render submission.
+                    self.resyncRendererLayerFrameIfNeeded()
+                }
                 if now - self.lastProcessOutputLogTime > 1.0 {
                     self.lastProcessOutputLogTime = now
                     if self.window != nil {
@@ -6044,6 +6056,42 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 restartInFlightRenderSubmissionForCurrentGeometry()
             }
         }
+    }
+
+    /// The Ghostty renderer layer may be attached after the geometry pass that
+    /// sized the surface. Detect that late attachment, or a stale drawable
+    /// size, and apply the existing no-animation placement transaction once
+    /// the layer has a concrete identity. This keeps the Metal target extent
+    /// aligned with libghostty's measured surface before verified replay tries
+    /// to acknowledge it.
+    private func resyncRendererLayerFrameIfNeeded() {
+        guard !lastRenderRect.isEmpty,
+              let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer) else {
+            return
+        }
+        let snapshot = viewportSnapshot()
+        let renderRect = rendererLayerRect(forGridRenderRect: lastRenderRect)
+        let placement = rendererLayerPlacement(displayRect: renderRect)
+        let expectedPosition = CGPoint(
+            x: renderRect.minX + renderRect.width * renderer.anchorPoint.x,
+            y: renderRect.minY + renderRect.height * renderer.anchorPoint.y
+        )
+        let scale = preferredScreenScale
+        guard renderer.bounds.size != placement.boundsSize
+                || !CATransform3DEqualToTransform(renderer.transform, placement.transform)
+                || renderer.position != expectedPosition
+                || abs(renderer.contentsScale - scale) > 0.001 else {
+            return
+        }
+        MobileDebugLog.anchormux(
+            "render.layer_resync bounds=\(Int(renderer.bounds.width))x\(Int(renderer.bounds.height)) "
+                + "expected=\(Int(placement.boundsSize.width))x\(Int(placement.boundsSize.height))"
+        )
+        syncRendererLayerFrame(
+            scale: scale,
+            gridRenderRect: lastRenderRect,
+            viewportRect: snapshot.layoutViewportRect
+        )
     }
 
     /// Reissues an ordinary or local-scroll submission after a layer resize.
