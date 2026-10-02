@@ -30,7 +30,6 @@ struct CloudTreeMachineDetailTabsView: View {
                 ) { select(tab) }
             }
         }
-        .fixedSize(horizontal: true, vertical: false)
         .padding(.leading, leading)
         .padding(.trailing, CloudTreeHoverStyle.horizontalInset)
         .padding(.top, GlobalFontMagnification.scaledSize(Self.topGap, percent: magnification))

@@ -13,30 +13,31 @@ struct RightSidebarModeBarTabWidths {
     ///   - selected: The selected tab's index, if any.
     ///   - available: The width for all tabs, with the gaps between them removed.
     init(natural: [CGFloat], floors: [CGFloat], selected: Int?, available: CGFloat) {
+        precondition(natural.count == floors.count)
         var result = floors
-        var remaining = available
+        var remaining = max(0, available - floors.reduce(0, +))
         var open = Array(natural.indices)
         if let selected, natural.indices.contains(selected) {
-            result[selected] = natural[selected]
-            remaining -= natural[selected]
+            let extra = min(max(0, natural[selected] - floors[selected]), remaining)
+            result[selected] += extra
+            remaining -= extra
             open.removeAll { $0 == selected }
         }
-        // Give every open tab an equal share; a tab whose full label is
-        // narrower than the share takes only that, and the rest is shared
-        // again among the tabs still open.
-        while !open.isEmpty {
-            let share = max(0, remaining) / CGFloat(open.count)
-            let satisfied = open.filter { natural[$0] <= share }
+        while !open.isEmpty, remaining > 0 {
+            let share = remaining / CGFloat(open.count)
+            let satisfied = open.filter { natural[$0] - result[$0] <= share }
             if satisfied.isEmpty {
-                for index in open { result[index] = max(floors[index], share) }
+                for index in open { result[index] += share }
                 break
             }
             for index in satisfied {
-                result[index] = natural[index]
-                remaining -= natural[index]
+                let extra = max(0, natural[index] - result[index])
+                result[index] += extra
+                remaining -= extra
             }
             open.removeAll { satisfied.contains($0) }
         }
+
         widths = result
     }
 }
