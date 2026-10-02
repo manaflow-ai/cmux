@@ -95,7 +95,7 @@ public struct DaemonLauncher: Sendable {
 
     /// The standard app launcher: bundled binary, session from the app's own
     /// tag (never an inherited `CMUX_TAG`), login-shell environment captured
-    /// once and cached. `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
+    /// once per launch and remembered for the next (`LoginEnvironmentCache`). `terminalEnvironment` (the app's `CMUX_SOCKET_PATH`,
     /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) reaches every shell the daemon spawns.
     public static func forApp(
         tag: String?,
@@ -118,8 +118,12 @@ public struct DaemonLauncher: Sendable {
     }
 
     /// The app launcher's `server ensure` environment: the login
-    /// environment `cache` has now (`LoginEnvironmentCache.immediate()`),
-    /// filtered, plus the app's identity keys and `overrides`.
+    /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
+    /// this launch's capture, else the one remembered from the last launch,
+    /// else the app's own), filtered, plus the app's identity keys and
+    /// `overrides`. It never waits for `$SHELL -l -i`, which takes 5-17 s
+    /// on some setups; the app's terminals do not depend on it, because
+    /// each carries its own login `env` (`TerminalEnvironment.shared`).
     static func appEnvironment(
         cache: LoginEnvironmentCache,
         base: [String: String],
@@ -199,10 +203,9 @@ public struct DaemonLauncher: Sendable {
     }
 
     /// Returns the live endpoint: a running owner from `server status`
-    /// (no login environment needed, about 50 ms), else `server ensure`
-    /// with the login environment, which spawns one. Capturing the login
-    /// environment runs `$SHELL -l -i` (about 0.9 s on a real zsh setup), so
-    /// a warm launch must not wait for it.
+    /// (no login environment needed, about 50 ms), else `server ensure`,
+    /// which spawns one with the provider's environment. The app's provider
+    /// (`appEnvironment`) never waits for the login shell.
     public func ensure() async throws -> EnsureResult {
         if let stateDirectory = configuration.stateDirectory {
             try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true,
@@ -249,9 +252,9 @@ public struct DaemonLauncher: Sendable {
         return parsed
     }
 
-    /// Starts capturing the login environment now, so a cold launch (no
-    /// daemon yet) has it by the time `server ensure` needs it. Call at the
-    /// top of `main`; the capture runs off the main thread.
+    /// Starts capturing the login environment now, so the first terminals
+    /// have it as early as possible and the next launch remembers it. Call
+    /// at the top of `main`; the capture runs off the main thread.
     public static func prewarmLoginEnvironment() {
         // task-owner: one-shot fill of the process-lifetime login-env cache; ends with the capture's own timeout.
         Task.detached(priority: .userInitiated) { await LoginEnvironmentCache.shared.start() }
