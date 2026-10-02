@@ -15,6 +15,13 @@ USAGE
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [<path>...]
+  cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
+    [--exclude <path,...>] [--reason manual|handoff] [--max-bytes <n>]
+    [--max-files <n>] [--expected-repository <id>] [--expected-worktree <id>]
+  cmux git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
+  cmux git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
+  cmux git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
+  cmux git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -38,4 +45,11 @@ base branch. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
 counted. Paths are relative to the repository root and taken literally.
+
+checkpoint create stores the index, the tracked worktree files and the named
+untracked files (or every eligible one) under refs/cmux/checkpoints/ without
+changing HEAD, the index or the worktree. Ignored, credential-like and
+oversized files are skipped and reported. A reused --idempotency-key replays
+the first result; get --key recovers it. Checkpoints expire after 7 days unless
+pinned; pins beginning handoff: or restore: belong to cmux.
 ";

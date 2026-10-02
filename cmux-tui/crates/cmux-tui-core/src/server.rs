@@ -255,17 +255,15 @@ pub const LAUNCH_SNAPSHOT_CAPABILITY: &str = "launch-snapshot-v1";
 /// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
 /// `create-terminal`: arguments for the terminal's shell.
 pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
-/// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`,
-/// `daemon`) on `notify`, the `notification` event, the tab marker and
-/// `list-notifications`; the daemon posts OSC 9, OSC 777 and OSC 99 from
-/// every terminal's output as `terminal`.
+/// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`, `daemon`) on
+/// `notify`, the `notification` event, the tab marker and `list-notifications`; the daemon
+/// posts OSC 9, OSC 777 and OSC 99 from every terminal's output as `terminal`.
 pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
-/// The `cmux.protocol/2` state resources (plans/cmux-next/state-ownership.md
-/// steps A and B): workspace metadata, tab pins and tab groups, personal
-/// workspace groups, rooms and saved tab groups, screen metadata, order and
-/// screen groups, closed history, ephemeral workspaces, and workspace
-/// status, progress and log, with `extra.state` on session snapshots and
-/// `state_upsert`/`state_delete` changes on `session.events`.
+/// The `cmux.protocol/2` state resources (plans/cmux-next/state-ownership.md steps A and B):
+/// workspace metadata, tab pins and tab groups, personal workspace groups, rooms and saved
+/// tab groups, screen metadata, order and screen groups, closed history, ephemeral
+/// workspaces, and workspace status, progress and log, with `extra.state` on session
+/// snapshots and `state_upsert`/`state_delete` changes on `session.events`.
 pub const STATE_RESOURCES_CAPABILITY: &str = "state-resources-v1";
 /// `window_record.list|put|delete`: one personal record per app window with
 /// a per-record revision (OWNERSHIP-PRINCIPLES single writer).
@@ -425,6 +423,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
+        crate::git_ops::CHECKPOINTS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -27569,6 +27568,7 @@ mod tests {
             STATE_RESOURCES_CAPABILITY,
             WINDOW_RECORDS_CAPABILITY,
             FRONTEND_BROWSER_OWNER_CAPABILITY,
+            crate::git_ops::CHECKPOINTS_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }

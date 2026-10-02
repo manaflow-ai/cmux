@@ -5,6 +5,7 @@ use std::fmt;
 use std::sync::OnceLock;
 
 use crate::{PaneId, ScreenId, SplitId, SurfaceId, WorkspaceId};
+use scope::canonical_resource_scope;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -199,6 +200,16 @@ pub enum ResourceOperation {
     FrontendProjectionGet,
     #[serde(rename = "frontend_projection.put")]
     FrontendProjectionPut,
+    #[serde(rename = "git.checkpoint.create")]
+    GitCheckpointCreate,
+    #[serde(rename = "git.checkpoint.get")]
+    GitCheckpointGet,
+    #[serde(rename = "git.checkpoint.list")]
+    GitCheckpointList,
+    #[serde(rename = "git.checkpoint.pin")]
+    GitCheckpointPin,
+    #[serde(rename = "git.checkpoint.unpin")]
+    GitCheckpointUnpin,
     #[serde(rename = "git.diff")]
     GitDiff,
     #[serde(rename = "git.status")]
@@ -574,6 +585,8 @@ impl ResourceOperation {
                 | Self::ClientGet
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
+                | Self::GitCheckpointGet
+                | Self::GitCheckpointList
                 | Self::GitDiff
                 | Self::GitStatus
                 | Self::WorkspaceList
@@ -628,6 +641,7 @@ impl ResourceOperation {
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
+mod scope;
 
 impl ResourceOperation {
     pub const fn wire_name(self) -> &'static str {
@@ -669,6 +683,11 @@ impl ResourceOperation {
             Self::RequestCancel => "request.cancel",
             Self::FrontendProjectionGet => "frontend_projection.get",
             Self::FrontendProjectionPut => "frontend_projection.put",
+            Self::GitCheckpointCreate => "git.checkpoint.create",
+            Self::GitCheckpointGet => "git.checkpoint.get",
+            Self::GitCheckpointList => "git.checkpoint.list",
+            Self::GitCheckpointPin => "git.checkpoint.pin",
+            Self::GitCheckpointUnpin => "git.checkpoint.unpin",
             Self::GitDiff => "git.diff",
             Self::GitStatus => "git.status",
             Self::WorkspaceList => "workspace.list",
@@ -1272,37 +1291,6 @@ impl ResourceError {
             }),
             true,
         )
-    }
-}
-
-fn canonical_resource_scope(kind: &str) -> &'static str {
-    match kind.trim_end_matches('s') {
-        "machine" | "MachinePublicId" => "machine",
-        "session" | "SessionPublicId" => "session",
-        "client" | "ClientPublicId" => "client",
-        "workspace" | "WorkspacePublicId" | "ws" => "workspace",
-        "screen" | "ScreenPublicId" => "screen",
-        "pane" | "PanePublicId" => "pane",
-        "split" | "SplitPublicId" => "split",
-        "tab" | "TabPublicId" => "tab",
-        "terminal" | "TerminalPublicId" | "term" => "terminal",
-        "browser" | "BrowserPublicId" => "browser",
-        "notification" | "NotificationPublicId" => "notification",
-        "agent" | "AgentPublicId" => "agent",
-        "frontend_projection" | "FrontendProjectionPublicId" | "projection" => {
-            "frontend_projection"
-        }
-        "pairing_request" | "PairingRequestPublicId" | "pairing" => "pairing_request",
-        "sidebar_view" | "SidebarViewPublicId" => "sidebar_view",
-        "sidebar_plugin" | "SidebarPluginPublicId" => "sidebar_plugin",
-        "stream" | "StreamPublicId" => "stream",
-        "tab_group" => "tab_group",
-        "saved_tab_group" => "saved_tab_group",
-        "workspace_group" => "workspace_group",
-        "room" => "room",
-        "screen_group" => "screen_group",
-        "closed" => "closed",
-        other => panic!("unknown catalog resource scope {other:?}"),
     }
 }
 

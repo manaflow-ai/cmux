@@ -9,6 +9,7 @@
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "collapse",
     "patch",
+    "candidates",
     "expand",
     "clear",
     "reply",

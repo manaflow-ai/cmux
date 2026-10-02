@@ -15,6 +15,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
     const PAIRING: &str = "pairing_0000000000000000000000000000000b";
     const PROJECTION: &str = "projection_0000000000000000000000000000000c";
     const VIEW: &str = "sidebar_view_0000000000000000000000000000000d";
+    const CHECKPOINT: &str = "ckpt_0000000000000000000000000000000e";
 
     let mut cases: Vec<(Vec<&'static str>, &'static str)> = vec![
         (vec!["machine", "list"], "machine.list"),
@@ -678,6 +679,53 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "src",
             ],
             "git.diff",
+        ),
+        (
+            vec![
+                "git",
+                "checkpoint",
+                "create",
+                "--path",
+                "/repo",
+                "--reason",
+                "handoff",
+                "--exclude",
+                "target,.env.local",
+                "--expected-repository",
+                "repo_00000000000000000000000000000001",
+                "--expected-worktree",
+                "wt_00000000000000000000000000000001",
+                "--max-bytes",
+                "1048576",
+                "--max-files",
+                "100",
+                "notes.md",
+            ],
+            "git.checkpoint.create",
+        ),
+        (vec!["git", "checkpoint", "get", CHECKPOINT, "--path", "/repo"], "git.checkpoint.get"),
+        (
+            vec![
+                "git",
+                "checkpoint",
+                "list",
+                "--path",
+                "/repo",
+                "--cursor",
+                "1.ckpt_1",
+                "--limit",
+                "10",
+                "--candidates",
+            ],
+            "git.checkpoint.list",
+        ),
+        (
+            vec!["git", "checkpoint", "pin", CHECKPOINT, "--pin", "user:keep", "--reason", "keep"],
+            "git.checkpoint.pin",
+        ),
+        (
+            vec!["git", "checkpoint", "unpin", CHECKPOINT, "--pin", "user:keep"],
+            "git.checkpoint.unpin",
         ),
     ];
     cases.extend(state_resource_cases(WORKSPACE, SCREEN, PANE, TAB));
