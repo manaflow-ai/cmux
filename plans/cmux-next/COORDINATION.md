@@ -31,3 +31,4 @@ One line per landed change to a shared surface (daemon protocol or state, layout
 - 2026-10-01 383bdf1a9a1 store: DaemonStore applies `tab-changed` pane moves from the daemon (tear-off desync) (tab-drag agent)
 - 2026-10-01 f6283380c5c app: all window paths use WindowPlacement.containedOnTestScreen; debug.mouse events are not user input (tab-drag agent)
 - 2026-10-01 155f8d0fb2b CLI: federation `--all-sessions`, local-only default, qualified refs to the app (federation agent)
+- 2026-10-01 d7e22f6a1c7 app: debug.mouse `scroll` goes to the view under the point (synthesized wheel events had no window); debug.themes edge_fades reports top_down and mask alphas (edge-fade agent)
