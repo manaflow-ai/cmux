@@ -145,12 +145,20 @@ try {
       .getByText("Use Keep checkpoint before sharing this reference in a manual handoff.", { exact: true })
       .waitFor();
     await review.getByRole("button", { name: "Cancel", exact: true }).click();
+    // Changes uses the same review without mutating merely by opening it.
+    await page.getByRole("button", { name: "View changes", exact: true }).first().click();
+    const changes = page.getByRole("region", { name: "Changes", exact: true });
+    await changes.getByRole("button", { name: "Create checkpoint", exact: true }).click();
+    await review.getByRole("button", { name: "Create", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.checkpointTour.creates), 1);
+    await review.getByRole("button", { name: "Cancel", exact: true }).click();
+    await changes.getByRole("button", { name: "Back to transcript", exact: true }).click();
     // The native palette enters exactly the same show path, not another capture path.
     await page.evaluate(() => window.cmuxAcpmuxBridge.command("createCheckpoint"));
     await review.getByRole("button", { name: "Create", exact: true }).waitFor();
     const scope = await page.evaluate(() => window.checkpointTour);
     assert.equal(scope.caps, 1);
-    assert.equal(scope.calls.filter((call) => call.method === "git.checkpoint.list").length, 2);
+    assert.equal(scope.calls.filter((call) => call.method === "git.checkpoint.list").length, 3);
     await page.evaluate(() => {
       window.checkpointTour.unsupported = true;
     });
@@ -159,7 +167,7 @@ try {
     assert.equal(await review.count(), 0);
     assert.deepEqual(errors, []);
     observations.push(
-      `${variant}: opening only reads, exact untracked approval, timeout recovery without a second create, partial receipt, keep/release, palette shared path, one capability read, unsupported hides actions.`,
+      `${variant}: opening only reads, exact untracked approval, timeout recovery without a second create, partial receipt, keep/release, Changes and palette shared path, one capability read, unsupported hides actions.`,
     );
     await context.close();
   }
