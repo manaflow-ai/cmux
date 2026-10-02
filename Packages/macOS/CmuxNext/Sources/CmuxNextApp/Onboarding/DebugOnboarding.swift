@@ -12,7 +12,9 @@ import CmuxNextSettings
 /// `action`: `open` (`step`), `state`, `next`, `back`, `skip`, `close`,
 /// `theme` (`name`, empty for the Ghostty theme), `detect`,
 /// `toggle_profile` (`id`), `toggle_kind` (`kind`), `import`,
-/// `cancel_import`, `claim` (`claim`).
+/// `cancel_import`, `claim` (`claim`), `gallery` (opens the review tool),
+/// `gallery_key` (`key`: left, right, up, down, 1-9, p, space, t, return,
+/// copy, escape), `gallery_state`.
 @MainActor
 enum DebugOnboarding {
     static func run(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -21,6 +23,7 @@ enum DebugOnboarding {
         if action == "open" {
             onboarding.show(step: params["step"]?.stringValue.flatMap(OnboardingModel.Step.init(rawValue:)))
         }
+        if let result = gallery(action, params, onboarding) { return result }
         guard let model = onboarding.controller?.model else { return state(onboarding) }
         switch action {
         case "next": model.next()
@@ -73,6 +76,28 @@ enum DebugOnboarding {
         }
         result["claimed"] = .array(model.defaults.claimed.map(\.rawValue).sorted().map(JSONValue.string))
         return .object(result)
+    }
+
+    /// Gallery actions; nil when `action` is not one.
+    private static func gallery(_ action: String, _ params: [String: JSONValue], _ onboarding: OnboardingService) -> JSONValue? {
+        switch action {
+        case "gallery": onboarding.showGallery()
+        case "gallery_key":
+            if let key = params["key"]?.stringValue.flatMap(GalleryKey.init(name:)) { onboarding.gallery?.handle(key) }
+        case "gallery_state": break
+        default: return nil
+        }
+        let store = onboarding.galleryStore
+        return .object([
+            "gallery_window": .number(Double(onboarding.gallery?.window?.windowNumber ?? 0)),
+            "file": .string(store.url.path),
+            "step": .string(store.review.step),
+            "index": .number(Double(store.review.index)),
+            "summary": .string(GalleryReviewStore.summary(store.review)),
+            "variants": .object(Dictionary(uniqueKeysWithValues: OnboardingModel.Step.allCases.map { step in
+                (step.rawValue, JSONValue.array(OnboardingVariantRegistry.variants(for: step).map { .string($0.id) }))
+            })),
+        ])
     }
 
     private static func phaseName(_ phase: ImportStepModel.Phase) -> String {
