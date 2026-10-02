@@ -37,7 +37,8 @@ export function FileMenu({
     return () => document.removeEventListener("pointerdown", away, true);
   }, [open]);
   const items = [
-    { label: "Copy path", run: () => void copyText(path) },
+    // The copy can fall back to a selection copy, which takes focus; focus returns after it.
+    { label: "Copy path", run: () => copyText(path) },
     { label: collapsed ? "Expand file" : "Collapse file", run: onToggleCollapsed },
   ];
   const onKeyDown = (event: React.KeyboardEvent) => {
@@ -70,7 +71,8 @@ export function FileMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         title="More actions"
-        onClick={() => setOpen(!open)}
+        // WebKit does not focus a clicked button, so closing from it puts focus there.
+        onClick={() => (open ? close(true) : setOpen(true))}
       >
         <More />
       </button>
@@ -91,8 +93,8 @@ export function FileMenu({
               tabIndex={-1}
               className="acpmux-file-menu-item"
               onClick={() => {
-                item.run();
-                close(true);
+                close(false);
+                void Promise.resolve(item.run()).finally(() => button.current?.focus());
               }}
             >
               {item.label}
