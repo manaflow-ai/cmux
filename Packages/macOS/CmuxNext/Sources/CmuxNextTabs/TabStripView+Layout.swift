@@ -226,7 +226,7 @@ extension TabStripView {
         scroll.step(dt)
         if !scroll.isSettled { active = true }
         // Tabs sliding under a still pointer update hover (applyFrames ->
-        // geometryDidChange), as in Chrome.
+        // geometryDidChange).
         applyFrames()
         if !active { MotionTrace.end("tabs") }
         return active

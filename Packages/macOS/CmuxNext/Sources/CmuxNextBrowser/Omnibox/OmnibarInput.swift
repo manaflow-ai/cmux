@@ -19,7 +19,7 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
     /// Where a commit opens.
     public enum Disposition: Equatable, Sendable {
         case currentTab
-        /// Cmd-Enter or Cmd-click (Chrome: background tab).
+        /// Cmd-Enter or Cmd-click: a background tab.
         case newBackgroundTab
         /// Option-Enter, Shift-Cmd-Enter.
         case newForegroundTab
@@ -33,15 +33,15 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
         case escape
         /// Cmd-A (the field editor's `selectAll:`). Never unelides.
         case selectAll
-        /// Cmd-L while the field already has focus (Chrome
+        /// Cmd-L while the field already has focus (Chromium
         /// `OmniboxViewViews::SetFocus(is_user_initiated=true)`): the full
         /// URL, all selected.
         case focusLocation
         /// The Home key (`scrollToBeginningOfDocument:`; Shift-Home extends).
-        /// Unelides even from select-all (Chrome `UnelisionGesture::kHomeKeyPressed`).
+        /// Unelides even from select-all (Chromium `UnelisionGesture::kHomeKeyPressed`).
         case home(extend: Bool)
         /// Shift-Delete (forward delete): removes the highlighted history row
-        /// (Chrome `OmniboxEditModel::TryDeletingPopupLine`).
+        /// (Chromium `OmniboxEditModel::TryDeletingPopupLine`).
         case deleteSuggestion
         case undo, redo
         /// Backspace with the caret at the start of the text: leaves an
@@ -69,7 +69,7 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
     // Mouse in the field. `word` is the word range under the pointer in the
     // text the field shows at the press (the field editor's word granularity);
     // the machine uses it to fix the second click of a double-click that
-    // follows an unelision (Chrome crbug.com/40693090).
+    // follows an unelision (Chromium crbug.com/40693090).
     case fieldMouseDown(clickCount: Int, button: MouseButton = .left, word: NSRange? = nil)
     case fieldMouseUp
 

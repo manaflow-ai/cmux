@@ -9,16 +9,15 @@ const sheets = ["./conversation.css", "../styles.css"].map((file) => ({
   css: readFileSync(new URL(file, import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, ""),
 }));
 
-/** Each `transition` or `animation` declaration with the at-rules it is nested in. */
-function motionDeclarations(source: string) {
+/** Each declaration matching `match` with the at-rules it is nested in. */
+function declarations(source: string, match: RegExp) {
   const found: { declaration: string; media: string[] }[] = [];
   const stack: string[] = [];
   let prelude = "";
   // A block's last declaration may end at its `}` without a semicolon.
   const take = () => {
     const declaration = prelude.trim();
-    if (/^(transition|animation)(-[a-z-]+)?\s*:/i.test(declaration) && !/:\s*none\s*$/i.test(declaration))
-      found.push({ declaration, media: stack.filter((rule) => rule.startsWith("@media")) });
+    if (match.test(declaration)) found.push({ declaration, media: stack.filter((rule) => rule.startsWith("@media")) });
     prelude = "";
   };
   for (const char of source) {
@@ -33,6 +32,10 @@ function motionDeclarations(source: string) {
   }
   return found;
 }
+const motionDeclarations = (source: string) =>
+  declarations(source, /^(transition|animation)(-[a-z-]+)?\s*:(?!\s*none\s*$)/i);
+const guarded = (media: string[]) =>
+  media.some((rule) => /^@media\s+\(\s*prefers-reduced-motion:\s*no-preference\s*\)/i.test(rule));
 
 describe("transcript motion", () => {
   const motion = sheets.flatMap(({ file, css }) =>
@@ -45,9 +48,20 @@ describe("transcript motion", () => {
   });
 
   test("nothing animates when Reduce Motion is on", () => {
-    const unguarded = motion.filter(
-      ({ media }) => !media.some((rule) => /^@media\s+\(\s*prefers-reduced-motion:\s*no-preference\s*\)/i.test(rule)),
-    );
+    const unguarded = motion.filter(({ media }) => !guarded(media));
     expect(unguarded.map(({ declaration }) => declaration)).toEqual([]);
+  });
+
+  test("text a sweep draws stays readable when Reduce Motion is on", () => {
+    // "Thinking" is clipped from a moving gradient; without the sweep it keeps its own color.
+    const hidden = sheets.flatMap(({ file, css }) =>
+      declarations(css, /^color\s*:\s*transparent\s*$/i)
+        .filter(({ media }) => !guarded(media))
+        .map(({ declaration }) => `${file}: ${declaration}`),
+    );
+    expect(hidden).toEqual([]);
+    const thinking = sheets.flatMap(({ css }) => declarations(css, /^animation\s*:\s*cv-thinking-sweep\b/i));
+    expect(thinking.length).toBe(1);
+    expect(guarded(thinking[0]!.media)).toBe(true);
   });
 });

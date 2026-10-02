@@ -36,7 +36,7 @@ import Testing
         chrome.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         chrome.layoutSubtreeIfNeeded()
         let toolbar = chrome.subviews.first { $0.subviews.contains(chrome.addressBar) }
-        // Helium geometry: the bar plus 3 pt above and below, whatever the
+        // Omnibar geometry: the bar plus 3 pt above and below, whatever the
         // tab strip override (the omnibar has its own size, not a tab's).
         #expect(toolbar?.frame.height == BrowserChromeView.toolbarHeight)
         #expect(chrome.addressBar.frame.height == BrowserChromeView.toolbarHeight - 6)

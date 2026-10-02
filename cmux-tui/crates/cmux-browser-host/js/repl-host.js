@@ -294,28 +294,16 @@
     const session = new core.Session({ driver, host });
     let gate = null;
     // Everything the runtime prints goes through the current call's gate.
-    // Registered secrets (agent-tools.js) never reach output, the output
-    // spill file or an error message.
-    const redact = (text) => (session.agentTools ? session.agentTools.redactText(text) : text);
+    // The host masks registered secrets in output, spill files and errors.
     const gatedHost = Object.create(host, {
-      print: { value: (level, text) => (gate ? gate.print(level, redact(text)) : host.print(level, redact(text))) },
+      print: { value: (level, text) => (gate ? gate.print(level, text) : host.print(level, text)) },
     });
     const api = ns.api.createGlobals(session, gatedHost);
     const repl = createReplSession({ host: gatedHost, globals: [timerGlobals(gatedHost, api.importModule), api.globals] });
-    const redactError = (r) => {
-      if (r.ok || !session.agentTools) return r;
-      if (r.exception instanceof Error) {
-        try {
-          r.exception.message = redact(r.exception.message);
-        } catch {}
-      }
-      return Object.assign(r, { error: redact(r.error) });
-    };
     return {
       session,
       api,
       scope: repl.scope,
-      redact,
       async evaluate(code, { maxOutput } = {}) {
         const own = createOutputGate(host, { maxOutput });
         gate = own;
@@ -325,10 +313,10 @@
             try {
               api.show(r.value);
             } catch (e) {
-              return redactError({ ok: false, error: formatError(e), exception: e, ms: r.ms });
+              return { ok: false, error: formatError(e), exception: e, ms: r.ms };
             }
           }
-          return redactError(r);
+          return r;
         } finally {
           own.finish();
           if (gate === own) gate = null;
@@ -406,6 +394,15 @@
         }
         return r.ok;
       },
+      // The host's secret vault and domain policy (browser-host.md section
+      // 4). Values set here are agent-known; user secrets never come here.
+      secretSet: (name, value, options) => JSON.parse(native.secretSet(name, value, JSON.stringify(options))),
+      secretList: () => JSON.parse(native.secretList()),
+      secretDelete: (name) => !!native.secretDelete(name),
+      policyNarrow: (change) => JSON.parse(native.policyNarrow(JSON.stringify(change))),
+      policyGet: () => JSON.parse(native.policyGet()),
+      policyLog: () => JSON.parse(native.policyLog()),
+      policyCheck: (targetId) => native.policyCheck(targetId) || null,
       fetchHandlesCookies: true,
       async fetch(url, init) {
         const r = await callAsync((id) => native.fetch(id, JSON.stringify({
@@ -437,7 +434,7 @@
       if (!r.ok) throw r.exception || new Error(r.error);
       return undefined;
     };
-    root.__cmuxFormatError = (e) => (repl ? repl.redact(formatError(e)) : formatError(e));
+    root.__cmuxFormatError = (e) => formatError(e);
   }
 
   ns.replHost = { rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, formatError, installNativeHost };

@@ -19,7 +19,7 @@ public enum ShortcutRefusal: Equatable, Sendable {
 
 /// Information shown before a chord is saved.
 public enum ShortcutNote: Equatable, Sendable {
-    /// Chrome defines the chord; `cmuxWins` says whether cmux's action now
+    /// A web page gives the chord a meaning; `cmuxWins` says whether cmux's action now
     /// takes it from a focused page (else the page keeps it, because the
     /// action runs only in another context).
     case chromeChord(cmuxWins: Bool)

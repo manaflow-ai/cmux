@@ -55,8 +55,8 @@ final class CEFExtensionPrompts {
         return NSApp.windows.first { $0.isVisible && $0.parent == nil && !($0 is NSPanel) && $0.canBecomeMain }
     }
 
-    /// Chrome shows an "added" bubble at its toolbar; cmux shows a notice on
-    /// the tab (the store page that installed it) and refreshes the menu.
+    /// Shows a notice on the tab (the store page that installed the
+    /// extension) and refreshes the menu.
     private func installed(_ notice: ExtensionInstalledNotice, browser: Int32) {
         runtime.logger.notice("Extension installed \(notice.extensionID, privacy: .public)")
         let tab = runtime.tabsByBrowser[browser] ?? runtime.lastShownHost?.visibleTab

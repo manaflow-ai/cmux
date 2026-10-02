@@ -1,4 +1,4 @@
-// The rest of the Playwright surface that Aside and ChatGPT expose: page and
+// The rest of the Playwright surface the REPL exposes: page and
 // frame reads, selector shortcuts, locator actions and states, nested frame
 // locators, keyboard and mouse primitives, viewport.
 // ---- cell session=surface

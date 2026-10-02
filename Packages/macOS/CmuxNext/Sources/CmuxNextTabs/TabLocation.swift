@@ -1,7 +1,7 @@
 public import Foundation
 
 /// The page address of a browser tab, shown in the strip's quiet location
-/// field while the tab is selected (Arc/Edge style). Only web pages have
+/// field while the tab is selected. Only web pages have
 /// one: `init?(page:)` turns away the New Tab page, `about:`, `file:`,
 /// `chrome:`, `cmux:` and every other internal address, since there is no
 /// host to show and the omnibox already presents those its own way.

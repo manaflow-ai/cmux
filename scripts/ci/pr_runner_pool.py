@@ -558,7 +558,7 @@ def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owne
     if not plan.side or not label or owned_slots.get(light, 0) <= owned_slots.get(root_label(light), 0):
         return "", ()
     # release-build stays with the picked pool: ci-macos.yml gives it only side_runner.
-    lanes = tuple(key for key in plan.side if key != RELEASE_BUILD_JOB)[:max(0, live_owned_free(runners, [label])[label])]
+    lanes = idle_placement(runners, label, tuple(key for key in plan.side if key != RELEASE_BUILD_JOB))
     return (label, lanes) if lanes else ("", ())
 
 
@@ -1115,6 +1115,19 @@ def live_owned_free(runners: Sequence[Mapping[str, Any]], labels: Sequence[str])
             if label in names:
                 free[label] += 1
     return free
+
+
+def idle_placement(runners: Sequence[Mapping[str, Any]], label: str, jobs: Sequence[str]) -> tuple[str, ...]:
+    """The first of `jobs` that `label`'s runners idle now take, one job per idle runner: no job queues.
+
+    The no-queue rule for jobs placed on an owned label as they start: the light
+    side lanes here (light_side_lanes()), and the macOS jobs of a side-lane
+    workflow, which has no picker (side_lane_placement.py). The rest keep their
+    fallback.
+    """
+    if not label:
+        return ()
+    return tuple(jobs)[:max(0, live_owned_free(runners, [label])[label])]
 
 
 def warm_key(commit: str | None) -> str:

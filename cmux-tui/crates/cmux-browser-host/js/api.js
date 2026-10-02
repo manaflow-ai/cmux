@@ -560,13 +560,11 @@
       }
     }
 
-    const redact = (text) => (session.agentTools ? session.agentTools.redactText(text) : text);
     // Standard fetch that sends, and stores, the current tab's cookies.
     async function fetchWithCookies(input, init = {}) {
       const page = state.current && !state.current.isClosed() ? state.current : null;
       const base = page && /^https?:/.test(page.url()) ? page.url() : undefined;
       const url = new core.URL(String(input && input.url ? input.url : input), base).href;
-      if (session.agentTools) session.agentTools.checkURL("fetch", url);
       const headers = {};
       const src = init.headers || {};
       if (typeof src.forEach === "function" && !Array.isArray(src)) src.forEach((v, k) => (headers[k] = v));
@@ -587,9 +585,10 @@
         url: r.url || url,
         redirected: !!r.redirected,
         headers: new Headers(r.headers),
-        // Registered secrets are masked in text, as in every page read.
-        text: async () => redact(bytes.toString("utf8")),
-        json: async () => JSON.parse(redact(bytes.toString("utf8"))),
+        // The host checked the URL against the domain policy and masked
+        // registered secrets in the body.
+        text: async () => bytes.toString("utf8"),
+        json: async () => JSON.parse(bytes.toString("utf8")),
         arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
         bytes: async () => new Uint8Array(bytes),
       };
@@ -736,7 +735,7 @@
         configurable: true,
       });
     }
-    // browser-use parity tools (agent-tools.js): secrets, domain policy,
+    // Agent tools (agent-tools.js): secrets, domain policy,
     // storage state, downloads, recording, search, custom tools, Markdown and
     // structured extraction.
     if (ns.agentTools) ns.agentTools.install({ session, host, globals, sessionApi, fetch: fetchWithCookies, fs, path, currentPage, tabs, show });

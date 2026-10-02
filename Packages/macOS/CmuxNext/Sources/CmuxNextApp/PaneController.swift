@@ -28,7 +28,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// How near the layout reports this pane to the viewport.
     private(set) var presence: SurfacePresence = .hidden
     var isVisible: Bool { presence == .visible }
-    /// Tabs closed locally while the daemon confirms (Chrome-speed close).
+    /// Tabs closed locally while the daemon confirms, so a close looks instant.
     var pendingClosed: Set<String> = []
     /// A tab this app just created here; selected once the daemon reports it.
     var pendingSelectSurface: SurfaceID?
@@ -186,7 +186,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
             pendingSelectTab = nil
             selectNew = true
         }
-        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue), defaultIndex: snapshot.defaultIndex)
+        // Members of a collapsed group are hidden: a closed selected tab's
+        // successor skips them while a shown tab survives (close-focus.md).
+        let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
+        let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
+        let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue),
+                                                defaultIndex: snapshot.defaultIndex, hidden: hidden)
         let selectedID = selected.map { StripTabID($0) }
         if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
         if selectNew {
@@ -247,7 +252,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func content(for key: String) -> TabContent? {
-        if key.hasPrefix(LocalAgentTab.prefix) { return services.agentTabs.view(for: key).map(TabContent.agent) }
+        if key.hasPrefix(LocalAgentTab.prefix) { return agentContent(key) }
         if key.hasPrefix(LocalBrowserTab.prefix) {
             let local = state?.localBrowserTabs[paneKey]?.first { $0.id == key }
             // A local tab of an incognito window uses its off-the-record profile.

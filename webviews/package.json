@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@chenglou/pretext": "0.0.9",
+    "@milkdown/kit": "7.22.2",
     "@pierre/diffs": "1.2.7",
     "@pierre/trees": "1.0.0-beta.4",
     "@tanstack/react-query": "5.104.0",
