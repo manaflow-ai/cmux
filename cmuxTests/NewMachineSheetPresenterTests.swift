@@ -25,7 +25,8 @@ struct NewMachineSheetPresenterTests {
                 attempts += 1
                 return attempts == 2 ? expected : nil
             },
-            retryDelays: [.zero]
+            retryDelays: [.zero],
+            retryClock: ContinuousClock()
         )
 
         let page = await presenter.fetchFleetPageForPresentation()
