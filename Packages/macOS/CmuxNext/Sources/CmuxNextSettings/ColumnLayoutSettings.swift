@@ -69,7 +69,12 @@ public nonisolated enum ColumnLayoutSettings {
         snapshot.newColumnWidth = mode
         if let fixed { snapshot.defaultColumnWidth = fixed }
         snapshot.stickyColumnEdge = choice(root, stickyEdgePath, fallback: stickyEdgeFallback, diagnostics: &diagnostics)
-        snapshot.stickyColumnMode = choice(root, stickyModePath, fallback: stickyModeFallback, diagnostics: &diagnostics)
+        // "floating" is the UI name of `overlay`; both are accepted.
+        if root.value(at: stickyModePath)?.stringValue == "floating" {
+            snapshot.stickyColumnMode = .overlay
+        } else {
+            snapshot.stickyColumnMode = choice(root, stickyModePath, fallback: stickyModeFallback, diagnostics: &diagnostics)
+        }
         snapshot.frameOrientation = choice(root, frameOrientationPath, fallback: frameOrientationFallback, diagnostics: &diagnostics)
         let width = number(root, minimumPaneWidthPath, fallback: minimumPaneWidthFallback, range: minimumPaneWidthRange, diagnostics: &diagnostics)
         let height = number(root, minimumPaneHeightPath, fallback: minimumPaneHeightFallback, range: minimumPaneHeightRange,
