@@ -57,7 +57,7 @@ struct CloudWorkspaceCreationSidebarTests {
 
             let admitted = try #require(fixture.manager.tabs.first { $0.id != fixture.originalWorkspaceID })
             #expect(fixture.manager.tabs.count == 2)
-            #expect(fixture.manager.selectedTabId == admitted.id)
+            #expect(fixture.manager.selectedTabId == fixture.originalWorkspaceID)
             #expect(fixture.catalog.snapshot.pendingWorkspaceCreations?[fixture.provider.machine]?[workspace.id] == admitted.id)
             let pendingRow = try #require(fixture.workspaceRows().first { node in
                 if case .workspace(_, let value, _, _, let openIn) = node.kind {

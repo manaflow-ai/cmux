@@ -266,6 +266,7 @@ final class CloudWorkspaceCreationCoordinator {
             host.complete(reservation, projection: projections[0])
             if focus, let manager = host.manager,
                manager.selectedTabId == host.selectedWorkspaceID,
+               manager.window?.isKeyWindow != false,
                let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
                 manager.selectWorkspace(workspace)
                 SurfacePaneFactory.focus(panelID: projections[0].panelID, in: workspace.id)

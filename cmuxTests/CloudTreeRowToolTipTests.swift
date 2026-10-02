@@ -135,7 +135,7 @@ struct CloudTreeRowToolTipTests {
         let cell = Self.cell(presence: [])
         cell.configure(node: node, machineActions: Self.machineActions(), nodeActions: Self.nodeActions())
         let toolTip = try #require(cell.toolTip)
-        #expect(toolTip == nil)
+        #expect(toolTip == "vite")
         #expect(cell.accessibilityLabel()?.contains("Port 3000") == true)
     }
 
