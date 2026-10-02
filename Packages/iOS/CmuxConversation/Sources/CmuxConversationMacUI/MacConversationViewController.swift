@@ -832,7 +832,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             popover?.close()
             self?.store.react(messageID: model.message.id, reaction: mine == reaction ? nil : reaction)
         }
-        popover.show(relativeTo: rowView.contentFrame, of: rowView, preferredEdge: .maxY)
+        popover.show(relativeTo: rowView.contentFrame, of: rowView, preferredEdge: rowView.isFlipped ? .minY : .maxY)
     }
 
     func contextMenu(for event: NSEvent, in table: NSTableView) -> NSMenu? {
@@ -844,8 +844,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             return item
         }
-        menu.addItem(item(String(localized: "conversation.menu.reply", defaultValue: "Reply", bundle: .module), "arrowshape.turn.up.left") { [weak self] in self?.enterReply(message) })
-        menu.addItem(item(String(localized: "conversation.menu.tapback", defaultValue: "Tapback…", bundle: .module), "heart") { [weak self] in self?.showTapbackBar(model, in: rowView) })
+        // Only stored messages can be answered or reacted to.
+        if message.seq != nil {
+            menu.addItem(item(String(localized: "conversation.menu.reply", defaultValue: "Reply", bundle: .module), "arrowshape.turn.up.left") { [weak self] in self?.enterReply(message) })
+            menu.addItem(item(String(localized: "conversation.menu.tapback", defaultValue: "Tapback…", bundle: .module), "heart") { [weak self] in self?.showTapbackBar(model, in: rowView) })
+        }
         if store.canEdit(message) {
             menu.addItem(item(String(localized: "conversation.menu.edit", defaultValue: "Edit", bundle: .module), "pencil") { [weak self] in self?.enterEdit(message) })
         }
@@ -858,8 +861,14 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             menu.addItem(item(String(localized: "conversation.retry.tryAgain", defaultValue: "Try Again", bundle: .module), "arrow.clockwise") { [weak self] in self?.store.retry(rowID: model.rowID) })
             menu.addItem(item(String(localized: "conversation.select.delete", defaultValue: "Delete", bundle: .module), "trash") { [weak self] in self?.store.discardFailed(rowID: model.rowID) })
         }
+        // Messages darkens the bubble while its menu is open.
+        menuHighlight.begin(rowView)
+        menu.delegate = menuHighlight
         return menu
     }
+
+    private let menuHighlight = MacMenuBubbleHighlight()
+    private var menuHighlightReleaseTask: Task<Void, Never>?
 
     private func showRetryMenu(_ model: MacMessageRowModel, at point: NSPoint, in view: NSView) {
         let menu = NSMenu()
@@ -948,7 +957,14 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 let point = NSPoint(x: rowView.contentFrame.midX, y: rowView.contentFrame.midY)
                 let event = NSEvent.mouseEvent(with: .rightMouseDown, location: rowView.convert(point, to: nil), modifierFlags: [], timestamp: 0, windowNumber: view.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
                 if let event, let menu = contextMenu(for: event, in: tableView) {
-                    return "menu " + menu.items.map(\.title).filter { !$0.isEmpty }.joined(separator: "|")
+                    // Hold the highlight briefly so a capture can see it, as with an open menu.
+                    let titles = menu.items.map(\.title).filter { !$0.isEmpty }.joined(separator: "|")
+                    menuHighlightReleaseTask?.cancel()
+                    menuHighlightReleaseTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .seconds(1.5))
+                        self?.menuHighlight.end()
+                    }
+                    return "menu " + titles
                 }
             }
             return "ok"
@@ -1221,7 +1237,6 @@ final class MacReplyBanner: MacFlippedView {
     @objc private func closeTapped() { onClose?() }
 }
 
-#endif
 
 /// The reply-mode backdrop: a within-window blur over the transcript with a
 /// snapshot of the answered message lifted above it. Clicking the blur cancels.
@@ -1366,3 +1381,25 @@ final class MacReplyFocusView: NSView {
         })
     }
 }
+
+/// Dims the pressed bubble for as long as its context menu is open.
+@MainActor
+final class MacMenuBubbleHighlight: NSObject, NSMenuDelegate {
+    private weak var row: MacMessageRowView?
+
+    func begin(_ row: MacMessageRowView) {
+        end()
+        self.row = row
+        row.bubble.opacity = 0.72
+    }
+
+    func end() {
+        row?.bubble.opacity = 1
+        row = nil
+    }
+
+    nonisolated func menuDidClose(_ menu: NSMenu) {
+        MainActor.assumeIsolated { end() }
+    }
+}
+#endif

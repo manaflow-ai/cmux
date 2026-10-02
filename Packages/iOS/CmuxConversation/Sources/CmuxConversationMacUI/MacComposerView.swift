@@ -416,7 +416,6 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         return (sender.draggingPasteboard.readObjects(forClasses: [NSImage.self]) as? [NSImage]) ?? []
     }
 }
-#endif
 
 /// Draws a fixed-color glyph image centered, through the layer, so inactive
 /// window dimming (applied to NSImageView/NSButton content) does not touch it.
@@ -432,3 +431,4 @@ final class MacGlyphView: MacFlippedView {
         layer.contentsGravity = .center
     }
 }
+#endif

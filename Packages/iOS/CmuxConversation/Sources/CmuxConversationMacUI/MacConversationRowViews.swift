@@ -257,7 +257,9 @@ final class MacMessageRowView: MacFlippedView {
             quoteLabel.isHidden = false
             quoteLabel.stringValue = quote.text
             quoteLabel.textColor = quote.isOutgoing ? .systemBlue : MacConversationTheme.secondaryText
-            quoteLabel.frame = textFrame
+            // NSTextField insets its text ~2 pt per side; without this a short
+            // quote (one emoji) measures exactly and truncates to nothing.
+            quoteLabel.frame = textFrame.insetBy(dx: -3, dy: 0)
         } else {
             quoteBubble.isHidden = true
             quoteLabel.isHidden = true

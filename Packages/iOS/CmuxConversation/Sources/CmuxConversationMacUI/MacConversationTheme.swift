@@ -87,8 +87,8 @@ func resolved(_ color: NSColor, in view: NSView) -> CGColor {
     }
     return result
 }
-#endif
 
 extension NSAppearance {
     var isDarkMac: Bool { bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
 }
+#endif

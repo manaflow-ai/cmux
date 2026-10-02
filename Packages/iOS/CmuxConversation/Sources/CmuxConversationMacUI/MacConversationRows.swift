@@ -358,15 +358,23 @@ extension MacMessageLayout {
         var quoteAvatarFrame: CGRect?
         if let quoteFrame, let quote = model.replyQuote {
             let tiny: CGFloat = 16
-            let column = margin + t.avatarSize / 2
-            if !quote.isOutgoing {
+            // Groups thread through the avatar column; 1:1 chats have none, so
+            // the line runs just outside the bubbles' leading edge.
+            // A reply to your own message threads down the trailing side.
+            let trailingThread = quote.isOutgoing && model.isOutgoing
+            let column = trailingThread
+                ? width - t.outgoingMargin + 8
+                : model.isGroup ? margin + t.avatarSize / 2 : max(4, incomingLeading - 8)
+            if !quote.isOutgoing, model.isGroup {
                 quoteAvatarFrame = CGRect(x: column - tiny / 2, y: quoteFrame.maxY - tiny + 3, width: tiny, height: tiny)
             }
             let startY = (quoteAvatarFrame?.maxY ?? quoteFrame.midY) + 4
             let endY = model.isOutgoing ? primary.maxY : (avatarFrame?.minY ?? primary.maxY) - 4
             let path = CGMutablePath()
             path.move(to: CGPoint(x: column, y: startY))
-            if model.isOutgoing {
+            if trailingThread {
+                path.addLine(to: CGPoint(x: column, y: max(startY + 6, primary.minY - 4)))
+            } else if model.isOutgoing {
                 path.addLine(to: CGPoint(x: column, y: max(startY + 10, endY - 10)))
                 path.addQuadCurve(to: CGPoint(x: column + 12, y: max(startY + 20, endY)), control: CGPoint(x: column, y: max(startY + 20, endY)))
             } else {
