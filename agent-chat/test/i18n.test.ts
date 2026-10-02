@@ -45,6 +45,11 @@ for (const locale of AGENT_CHAT_LOCALES) {
       assert.notEqual(copy[key], english[key], `${locale} copied English for ${key}`);
     }
   }
+  assert.equal(
+    (copy.transcriptGuideInput.match(/\{answerInTerminal\}/g) ?? []).length,
+    1,
+    `${locale} must provide one answerInTerminal placeholder`,
+  );
 }
 
 assert.equal(resolveAgentChatLocale(["zh-Hant-HK"]), "zh-TW");

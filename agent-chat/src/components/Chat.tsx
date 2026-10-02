@@ -23,6 +23,19 @@ function readTranscriptGuideSeen(): boolean {
   }
 }
 
+function TranscriptGuideInput() {
+  const sentence = agentChatText("transcriptGuideInput");
+  const marker = "{answerInTerminal}";
+  const parts = sentence.split(marker);
+  const answer = agentChatText("answerInTerminal");
+  return parts.map((part, index) => (
+    <span key={`${part}-${index}`}>
+      {part}
+      {index < parts.length - 1 ? <strong>{answer}</strong> : null}
+    </span>
+  ));
+}
+
 function usePersistSessionOptions(provider: string | undefined, options: SessionOption[], skip = false) {
   useEffect(() => {
     if (skip || !provider || !options.length) return;
@@ -74,6 +87,7 @@ export function Chat() {
   const [transcriptGuideOpen, setTranscriptGuideOpen] = useState(false);
   const taRef = useAutoGrow(text, 200);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const transcriptGuideRef = useRef<HTMLElement>(null);
   const stickRef = useRef(true);
   const pendingModelRestoreRef = useRef<string | null>(null);
   const cwd = session?.cwd ?? "";
@@ -133,6 +147,10 @@ export function Chat() {
     try { localStorage.setItem(TRANSCRIPT_GUIDE_SEEN_KEY, "1"); } catch { /* storage is optional */ }
   };
   const showTranscriptGuide = transcriptView && (!transcriptGuideSeen || transcriptGuideOpen);
+  useLayoutEffect(() => {
+    if (!showTranscriptGuide) return;
+    transcriptGuideRef.current?.scrollIntoView?.({ block: "start" });
+  }, [showTranscriptGuide, transcriptGuideOpen]);
   const switchHarnessModel = (provider: string, model: string) => {
     if (!session) return;
     if (provider === session.provider) {
@@ -169,7 +187,7 @@ export function Chat() {
           </div>
         ) : null}
         {showTranscriptGuide ? (
-          <aside className="transcript-guide" role="region" aria-labelledby="transcript-guide-title">
+          <aside ref={transcriptGuideRef} className="transcript-guide" role="region" aria-labelledby="transcript-guide-title">
             <div className="transcript-guide-heading">
               <div>
                 <h2 id="transcript-guide-title">{agentChatText("transcriptGuideTitle")}</h2>
@@ -182,7 +200,7 @@ export function Chat() {
             <ul>
               <li>{agentChatText("transcriptGuideLogin")}</li>
               <li>{agentChatText("transcriptGuidePrompts")}</li>
-              <li>{agentChatText("transcriptGuideInput")} <strong>{agentChatText("answerInTerminal")}</strong>.</li>
+              <li><TranscriptGuideInput /></li>
             </ul>
             <div className="transcript-guide-actions">
               <button type="button" onClick={focusTerminal}>{agentChatText("openTerminal")}</button>
