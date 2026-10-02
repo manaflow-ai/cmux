@@ -85,7 +85,7 @@ rust-file	cmux-tui/crates/cmux-tui/src/agent_hook_install.rs	3937	139
 rust-file	cmux-tui/crates/cmux-tui/src/app.rs	47141	1576
 rust-file	cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs	1139	54
 rust-file	cmux-tui/crates/cmux-tui/src/browser_input.rs	2025	101
-rust-file	cmux-tui/crates/cmux-tui/src/cli.rs	1020	27
+rust-file	cmux-tui/crates/cmux-tui/src/cli.rs	1030	28
 rust-file	cmux-tui/crates/cmux-tui/src/cli/command.rs	4773	149
 rust-file	cmux-tui/crates/cmux-tui/src/config.rs	9939	338
 rust-file	cmux-tui/crates/cmux-tui/src/localization.rs	2860	98
