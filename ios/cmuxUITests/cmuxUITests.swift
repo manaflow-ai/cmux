@@ -3331,6 +3331,11 @@ final class cmuxUITests: XCTestCase {
             settingsButton.frame.maxY - 1,
             "The first workspace row \(firstRow.frame) must clear the top toolbar \(settingsButton.frame)."
         )
+        XCTAssertLessThanOrEqual(
+            firstRow.frame.minY - settingsButton.frame.maxY,
+            32,
+            "The workspace list must not reserve an empty large-title area below the toolbar."
+        )
 
         for _ in 0..<20 where !lastRow.isHittable {
             table.swipeUp(velocity: .fast)
