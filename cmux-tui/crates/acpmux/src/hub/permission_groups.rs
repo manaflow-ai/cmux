@@ -55,10 +55,11 @@ pub(super) fn eligible(request: &Value) -> bool {
 }
 
 pub(super) fn option(request: &Value, kind: &str) -> Option<String> {
-    request["options"].as_array()?.iter().find_map(|o| {
-        (o["kind"] == kind)
-            .then(|| o["optionId"].as_str().filter(|id| !id.is_empty()).map(str::to_owned))
-            .flatten()
+    let options = request["options"].as_array()?;
+    options.iter().find_map(|o| {
+        let id = o["optionId"].as_str().filter(|id| !id.is_empty())?;
+        (o["kind"] == kind && options.iter().filter(|other| other["optionId"] == id).count() == 1)
+            .then(|| id.to_owned())
     })
 }
 
@@ -302,7 +303,7 @@ impl Hub {
         let mut replies = Vec::new();
         for (id, outcome) in answers {
             if let Some(pending) = state.pending.remove(&id) {
-                replies.push((pending.reply, outcome));
+                replies.push((id, pending.reply, outcome));
             }
         }
         if choice == "allow_chat" {
@@ -312,7 +313,9 @@ impl Hub {
         let g = &mut state.groups[index];
         for item in &mut g.items {
             if item.state == "pending" {
-                item.state = "resolved";
+                item.state = if replies.iter().any(|(id, _, outcome)| {
+                    id == &item.id && outcome["outcome"] == "cancelled"
+                }) { "cancelled" } else { "resolved" };
             }
         }
         g.state = "resolved";
@@ -324,7 +327,7 @@ impl Hub {
         self.append(session, "mux", "permission_group", json!({"group":result["group"]}));
         state.prune();
         // All callbacks were removed and the receipt saved before any wake.
-        for (reply, outcome) in replies {
+        for (_, reply, outcome) in replies {
             let _ = reply.send(outcome);
         }
         Ok(result)

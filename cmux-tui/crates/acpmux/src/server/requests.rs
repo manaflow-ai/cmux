@@ -746,7 +746,7 @@ pub(super) async fn handle_request(
                 .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
-            hub.respond_permission(&s, pid, option, answers)?;
+            hub.respond_permission(&s, pid, option, answers).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {

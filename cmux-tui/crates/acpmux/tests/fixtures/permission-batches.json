@@ -19,6 +19,9 @@
   "unknown": {
     "items": [{"title":"Unknown operation","kind":"custom"}]
   },
+  "no-reject": {
+    "items": [{"title":"No rejection option","kind":"execute","reject":false}]
+  },
   "single": {
     "items": [{"title":"Write a.txt","kind":"edit"}]
   }

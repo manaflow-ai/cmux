@@ -148,7 +148,7 @@ pub struct Session {
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
     pub(super) stream: StdMutex<StreamState>,
-    pub(super) permissions: StdMutex<permission_groups::PermissionState>,
+    permissions: StdMutex<permission_groups::PermissionState>,
     /// Bumped (under the `permissions` lock) whenever pending
     /// permissions are cancelled; a request that started before the bump
     /// is answered `cancelled` instead of being registered.

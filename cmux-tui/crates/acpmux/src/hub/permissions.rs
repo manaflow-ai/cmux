@@ -422,28 +422,34 @@ impl Hub {
     /// Answer a pending permission. `option_id = None` cancels. `answers`
     /// carries user input for interactive tools (AskUserQuestion), keyed by
     /// question text.
-    pub fn respond_permission(
+    pub async fn respond_permission(
         &self,
         session: &Session,
         permission_id: &str,
         option_id: Option<String>,
         answers: Option<Value>,
     ) -> Result<(), RpcError> {
+        let cfg = self.config.read().await;
         let pending = {
             let mut state = session.permissions.lock().unwrap();
             let map = &mut state.pending;
             let p = map.get(permission_id).ok_or_else(|| {
                 RpcError::not_found(format!("no pending permission {permission_id}"))
             })?;
-            // Only an option the request offered may answer it.
-            if let Some(o) = &option_id
-                && let Some(offered) = p.request.get("options").and_then(Value::as_array)
-                && !offered.is_empty()
-                && !offered.iter().any(|x| x["optionId"] == *o)
-            {
-                return Err(RpcError::invalid_params(format!(
-                    "option {o:?} was not offered for permission {permission_id}"
-                )));
+            // Legacy clients may answer items in a group, but cannot bypass
+            // a policy edit or choose an absent/ambiguous option.
+            if let Some(o) = &option_id {
+                let offered: Vec<_> = p.request["options"].as_array().into_iter().flatten()
+                    .filter(|x| x["optionId"] == *o).collect();
+                if offered.len() != 1 {
+                    return Err(RpcError::invalid_params(format!("option {o:?} was not uniquely offered for permission {permission_id}")));
+                }
+                let is_allow = matches!(offered[0]["kind"].as_str(), Some("allow_once" | "allow_always"));
+                let denied = self.policy_for(session,cfg.permission_policy) == PermissionPolicy::DenyAll
+                    || session.meta().permission_rules.as_ref().and_then(|r|super::rules::decide(r,&p.request)) == Some(super::rules::RuleDecision::Deny);
+                if is_allow && denied {
+                    return Err(RpcError::new(-32000,"policy_changed").with_data(json!({"reason":"policy_changed"})));
+                }
             }
             let p = map.remove(permission_id).unwrap();
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())

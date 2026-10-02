@@ -64,8 +64,9 @@ def handle_prompt(rid, params):
                     "toolCall":{"toolCallId":str(aid), "title":item["title"], "kind":item["kind"],
                                 "rawInput":{"fixture":item["title"]},
                                 "_meta":{"acpmux":{"interactive":item.get("interactive", False)}}},
-                    "options":[{"optionId":f"yes-{aid}", "kind":allow_kind, "name":"Allow"},
-                               {"optionId":f"no-{aid}", "kind":"reject_once", "name":"Deny"}]
+                    "options":[{"optionId":f"yes-{aid}", "kind":allow_kind, "name":"Allow"}] +
+                              ([{"optionId":f"no-{aid}", "kind":"reject_once", "name":"Deny"}]
+                               if item.get("reject", True) else [])
                 }})
             for aid in wave_ids:
                 pending[aid][0].wait()

@@ -76,6 +76,10 @@ fn permission_groups_legacy_partial_is_revision_checked() {
 
 #[test]
 fn permission_groups_eligibility_and_safe_option_kinds() {
+    assert!(option(&json!({"options":[
+        {"kind":"allow_once","optionId":"duplicate"},
+        {"kind":"allow_always","optionId":"duplicate"}
+    ]}),"allow_once").is_none());
     assert!(eligible(&request("edit")));
     for kind in ["other", "", "custom"] {
         assert!(!eligible(&request(kind)));
