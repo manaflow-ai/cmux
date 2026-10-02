@@ -31,7 +31,7 @@ describe("SSO connections (TeamDO reducer)", () => {
     const params = { issuer: "https://idp.acme.dev/", client_id: "cmux", domains: ["acme.dev"] }
     const r = teamDomain.reduce(withDomain(), "sso.connection.create", params, ctx())
     if (!r.ok) throw new Error(r.message)
-    expect(r.value).toMatchObject({ kind: "oidc", state: "draft", secret_set: false, oidc: { issuer: "https://idp.acme.dev", scopes: ["openid", "email", "profile"] } })
+    expect(r.value).toMatchObject({ kind: "oidc", state: "draft", secret_set: false, oidc: { issuer: "https://idp.acme.dev/", scopes: ["openid", "email", "profile"] } })
     expect(teamDomain.reduce(withDomain(), "sso.connection.create", { ...params, domains: ["other.dev"] }, ctx())).toMatchObject({ ok: false, code: "policy.invalid" })
     expect(teamDomain.reduce(withDomain(), "sso.connection.create", { ...params, issuer: "http://idp.acme.dev" }, ctx())).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(teamDomain.reduce(withDomain(), "sso.connection.create", params, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })

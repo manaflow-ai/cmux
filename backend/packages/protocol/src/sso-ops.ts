@@ -119,6 +119,8 @@ export const SsoConnection = Schema.Struct({
     jwks_uri: Schema.NullOr(HttpsUrl)
   }),
   secret_set: Schema.Boolean,
+  /** Generation of the sealed secret this record accepts (an older sealed row is never used). */
+  secret_generation: Schema.optionalKey(Schema.Int),
   jit: Schema.Struct({ enabled: Schema.Boolean, default_role: Schema.Literals(["member", "admin"]) }),
   created_at: Schema.Int,
   updated_at: Schema.Int

@@ -14,7 +14,13 @@ export const handleSsoDiscover = async (request: Request, env: Env): Promise<Res
   if (request.method !== "GET") return json({ error: "method not allowed" }, 405)
   const email = new URL(request.url).searchParams.get("email") ?? ""
   const at = email.lastIndexOf("@")
-  const domain = at > 0 ? email.slice(at + 1).trim().toLowerCase() : ""
+  let domain = at > 0 ? email.slice(at + 1).trim().toLowerCase() : ""
+  // Unicode domains in their ASCII (punycode) form, the form domain claims use.
+  try {
+    if (domain && !/^[\x00-\x7f]*$/.test(domain)) domain = new URL(`http://${domain}`).hostname
+  } catch {
+    domain = ""
+  }
   if (!DOMAIN.test(domain)) return json({ error: "a valid email is required" }, 400)
   const owner = await env.DOMAIN_DO.get(env.DOMAIN_DO.idFromName(domain)).owner()
   if (!owner) return json({ sso: false })

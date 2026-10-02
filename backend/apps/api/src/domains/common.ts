@@ -106,7 +106,8 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
                   authorization_endpoint: Schema.String,
                   token_endpoint: Schema.String,
                   jwks_uri: Schema.String,
-                  by: Schema.optionalKey(Schema.String)
+                  by: Schema.optionalKey(Schema.String),
+                  expected_updated_at: Schema.Number
                 }),
           result: Schema.Unknown,
           errors: [],

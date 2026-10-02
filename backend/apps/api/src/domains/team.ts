@@ -20,10 +20,15 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
  * Grants for team ops are checked by UserDO when it mints the token; TeamDO
  * checks membership and the op's principal kind.
  */
+const HTTP_ONLY_OPS: ReadonlySet<string> = new Set(["sso.connection.set_secret", "sso.connection.activate", "domain.verify", "domain.release"])
+
 export const teamDomain: Domain<TeamState> = {
   initial: () => ({ team: null, members: {}, hosts: {} }),
 
   authorize: (state, op, _params, principal) => {
+    // HTTP-only ops (external effects; a secret in params): refused before the ledger, which would
+    // otherwise keep an unsalted hash of the params (review P2). They run through the Worker's route.
+    if (HTTP_ONLY_OPS.has(op)) return { code: "validation.invalid", message: `${op} runs through POST /v1/ops only` }
     // TeamDO's own ops (alarm work); admit allows a system principal only for internal ops.
     if (principal.kind === "system") return admit("cloud:TeamDO", op, principal, () => undefined, Date.now())
     if (op !== "team.ensure_personal") {

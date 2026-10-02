@@ -2199,6 +2199,13 @@
             "name": "boolean"
           }
         },
+        "secret_generation": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
         "jit": {
           "required": true,
           "type": {
@@ -19656,6 +19663,9 @@
               "secret_set": {
                 "type": "boolean"
               },
+              "secret_generation": {
+                "type": "integer"
+              },
               "jit": {
                 "type": "object",
                 "properties": {
@@ -20000,6 +20010,9 @@
               "secret_set": {
                 "type": "boolean"
               },
+              "secret_generation": {
+                "type": "integer"
+              },
               "jit": {
                 "type": "object",
                 "properties": {
@@ -20239,6 +20252,9 @@
               },
               "secret_set": {
                 "type": "boolean"
+              },
+              "secret_generation": {
+                "type": "integer"
               },
               "jit": {
                 "type": "object",
@@ -20491,6 +20507,9 @@
               },
               "secret_set": {
                 "type": "boolean"
+              },
+              "secret_generation": {
+                "type": "integer"
               },
               "jit": {
                 "type": "object",
@@ -20747,6 +20766,9 @@
               },
               "secret_set": {
                 "type": "boolean"
+              },
+              "secret_generation": {
+                "type": "integer"
               },
               "jit": {
                 "type": "object",

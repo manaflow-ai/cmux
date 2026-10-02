@@ -376,6 +376,7 @@ export type SsoConnection = {
     readonly jwks_uri: string | null
   }
   readonly secret_set: boolean
+  readonly secret_generation?: number
   readonly jit: {
     readonly enabled: boolean
     readonly default_role: "member" | "admin"

@@ -25,6 +25,33 @@ const put = <S extends SsoState>(state: S, c: Connection): S => ({ ...state, sso
 const domainTaken = (state: SsoState, domain: string, except: string) =>
   Object.values(state.sso_connections ?? {}).some((c) => c.id !== except && c.state === "active" && c.domains.includes(domain))
 
+/**
+ * An issuer kept exactly as entered (OpenID Discovery 4.3 compares it
+ * exactly, and some providers end it with "/"), but only a plain https
+ * origin and path: no userinfo, query or fragment.
+ */
+export const issuerProblem = (issuer: string): string | undefined => {
+  let u: URL
+  try {
+    u = new URL(issuer)
+  } catch {
+    return "issuer is not a URL"
+  }
+  if (u.protocol !== "https:" || u.username || u.password || u.search || u.hash || issuer.includes("?") || issuer.includes("#")) return "issuer must be a plain https URL"
+  return undefined
+}
+
+/** Why a connection cannot activate now, or undefined (checked before discovery and again in the commit). */
+export const activationProblem = (state: SsoState, c: Connection): string | undefined => {
+  if (c.state === "active") return undefined
+  if (!c.secret_set) return "set the client secret first"
+  const unverified = c.domains.filter((x) => state.domains?.[x]?.state !== "verified")
+  if (unverified.length > 0) return `verify these domains first: ${unverified.join(", ")}`
+  const clash = c.domains.filter((x) => domainTaken(state, x, c.id))
+  if (clash.length > 0) return `another active connection already serves: ${clash.join(", ")}`
+  return undefined
+}
+
 export const reduceConnectionCreate = <S extends SsoState>(state: S, params: unknown, ctx: ReduceContext): Result<S> => {
   const d = decodeParams<typeof SsoConnectionCreate.params.Type>(SsoConnectionCreate, params)
   if (!d.ok) return d
@@ -32,7 +59,9 @@ export const reduceConnectionCreate = <S extends SsoState>(state: S, params: unk
   const domains = [...new Set(d.value.domains)].sort()
   const unknown = domains.filter((x) => !state.domains?.[x])
   if (unknown.length > 0) return reject("policy.invalid", `claim these domains first: ${unknown.join(", ")}`)
-  const issuer = d.value.issuer.replace(/\/+$/, "")
+  const issuer = d.value.issuer
+  const bad = issuerProblem(issuer)
+  if (bad) return reject("policy.invalid", bad)
   const c: Connection = {
     id: ctx.newId("ssoc"),
     kind: "oidc",
@@ -62,29 +91,36 @@ export const reduceSecretSet = <S extends SsoState>(state: S, params: unknown, c
   const p = params as { connection?: unknown; generation?: unknown; by?: unknown }
   const c = typeof p?.connection === "string" ? state.sso_connections?.[p.connection] : undefined
   if (!c) return reject("selector.not_found", "connection not found")
-  const next = { ...c, secret_set: true, updated_at: ctx.now }
+  const generation = typeof p.generation === "number" ? p.generation : 0
+  if (generation <= (c.secret_generation ?? 0)) return { ok: true, state, value: c, changed: false }
+  const next = { ...c, secret_set: true, secret_generation: generation, updated_at: ctx.now }
   return { ok: true, state: put(state, next), value: next, audit: { summary: `set the client secret of ${c.id}`, detail: { connection: c.id, generation: p.generation, by: p.by ?? null } } }
 }
 
 /** System op sso.connection.activated {connection, endpoints}: discovery succeeded and every precondition held. */
 export const reduceActivated = <S extends SsoState>(state: S, params: unknown, ctx: ReduceContext): Result<S> => {
-  const p = params as { connection?: unknown; authorization_endpoint?: string; token_endpoint?: string; jwks_uri?: string; by?: unknown }
+  const p = params as { connection?: unknown; authorization_endpoint?: string; token_endpoint?: string; jwks_uri?: string; by?: unknown; expected_updated_at?: unknown }
   const c = typeof p?.connection === "string" ? state.sso_connections?.[p.connection] : undefined
   if (!c) return reject("selector.not_found", "connection not found")
+  // The connection changed while discovery was fetched (for example an admin disabled it): never undo that.
+  if (p.expected_updated_at !== c.updated_at) return reject("revision.conflict", "the connection changed during activation; activate it again")
   // Rechecked in the commit: state may have changed while discovery was fetched.
-  if (!c.secret_set) return reject("policy.invalid", "set the client secret first")
-  const unverified = c.domains.filter((x) => state.domains?.[x]?.state !== "verified")
-  if (unverified.length > 0) return reject("policy.invalid", `verify these domains first: ${unverified.join(", ")}`)
-  const clash = c.domains.filter((x) => domainTaken(state, x, c.id))
-  if (clash.length > 0) return reject("policy.invalid", `another active connection already serves: ${clash.join(", ")}`)
-  if (!p.authorization_endpoint || !p.token_endpoint || !p.jwks_uri) return reject("validation.invalid", "discovery endpoints missing")
+  const problem = activationProblem(state, c)
+  if (problem) return reject("policy.invalid", problem)
+  const https = (v: unknown) => typeof v === "string" && v.length <= 500 && v.startsWith("https://")
+  if (!https(p.authorization_endpoint) || !https(p.token_endpoint) || !https(p.jwks_uri)) return reject("validation.invalid", "discovery endpoints missing or not https")
   const next: Connection = {
     ...c,
     state: "active",
-    oidc: { ...c.oidc, authorization_endpoint: p.authorization_endpoint, token_endpoint: p.token_endpoint, jwks_uri: p.jwks_uri },
+    oidc: { ...c.oidc, authorization_endpoint: p.authorization_endpoint as string, token_endpoint: p.token_endpoint as string, jwks_uri: p.jwks_uri as string },
     updated_at: ctx.now
   }
-  return { ok: true, state: put(state, next), value: next, audit: { summary: `activated SSO connection ${c.id}`, detail: { connection: c.id, domains: c.domains, by: p.by ?? null } } }
+  return {
+    ok: true,
+    state: put(state, next),
+    value: next,
+    audit: { summary: `activated SSO connection ${c.id}`, detail: { connection: c.id, domains: c.domains, issuer: c.oidc.issuer, endpoints: next.oidc, by: p.by ?? null } }
+  }
 }
 
 /** The active connection serving `domain`, if this team has one (sign-in discovery). */
