@@ -10,11 +10,14 @@ const commands: SlashCommand[] = [
 
 describe("slash commands", () => {
   test("reads an available_commands_update and ignores other updates", () => {
-    const update = { sessionUpdate: "available_commands_update", availableCommands: [
-      { name: "/review", description: "Review", input: { hint: " branch " } },
-      { name: "", description: "nameless" },
-      { name: "init", description: "Init", input: null },
-    ] };
+    const update = {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [
+        { name: "/review", description: "Review", input: { hint: " branch " } },
+        { name: "", description: "nameless" },
+        { name: "init", description: "Init", input: null },
+      ],
+    };
     expect(commandsFromUpdate(update)).toEqual([
       { name: "review", description: "Review", hint: "branch" },
       { name: "init", description: "Init", hint: undefined },
@@ -32,15 +35,39 @@ describe("slash commands", () => {
   });
 
   test("ranks prefix, then word start, then subsequence, keeping the agent's order", () => {
-    expect(matchCommands(commands, "").map((match) => match.command.name)).toEqual(["compact", "review", "pr-comments", "clear"]);
-    expect(matchCommands(commands, "c").map((match) => match.command.name)).toEqual(["compact", "clear", "pr-comments"]);
+    expect(matchCommands(commands, "").map((match) => match.command.name)).toEqual([
+      "compact",
+      "review",
+      "pr-comments",
+      "clear",
+    ]);
+    expect(matchCommands(commands, "c").map((match) => match.command.name)).toEqual([
+      "compact",
+      "clear",
+      "pr-comments",
+    ]);
     const comments = matchCommands(commands, "com");
     expect(comments.map((match) => match.command.name)).toEqual(["compact", "pr-comments"]);
     expect(comments[1].ranges).toEqual([[3, 6]]);
-    expect(matchCommands(commands, "rvw").map((match) => [match.command.name, match.ranges])).toEqual([["review", [[0, 1], [2, 3], [5, 6]]]]);
+    expect(matchCommands(commands, "rvw").map((match) => [match.command.name, match.ranges])).toEqual([
+      [
+        "review",
+        [
+          [0, 1],
+          [2, 3],
+          [5, 6],
+        ],
+      ],
+    ]);
     expect(matchCommands(commands, "xyz")).toEqual([]);
-    const skills = [{ name: "refactor-drive", description: "" }, { name: "$review-bot-rules", description: "" }];
-    expect(matchCommands(skills, "rev").map((match) => match.command.name)).toEqual(["$review-bot-rules", "refactor-drive"]);
+    const skills = [
+      { name: "refactor-drive", description: "" },
+      { name: "$review-bot-rules", description: "" },
+    ];
+    expect(matchCommands(skills, "rev").map((match) => match.command.name)).toEqual([
+      "$review-bot-rules",
+      "refactor-drive",
+    ]);
   });
 
   test("picking a command replaces the typed word and leaves room for arguments", () => {

@@ -2,9 +2,23 @@ import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { formatDuration, turnView, workedLabel } from "./turns";
 
-const row = (id: string, kind: string, at: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({ id, version: 1, at, kind, ...extra });
-const edit = { kind: "tool", text: "Edit a.ts", tool: { id: "e", title: "Edit a.ts", kind: "edit", status: "completed" } };
-const read = { kind: "tool", text: "Read a.ts", tool: { id: "r", title: "Read a.ts", kind: "read", status: "completed" } };
+const row = (id: string, kind: string, at: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+  id,
+  version: 1,
+  at,
+  kind,
+  ...extra,
+});
+const edit = {
+  kind: "tool",
+  text: "Edit a.ts",
+  tool: { id: "e", title: "Edit a.ts", kind: "edit", status: "completed" },
+};
+const read = {
+  kind: "tool",
+  text: "Read a.ts",
+  tool: { id: "r", title: "Read a.ts", kind: "read", status: "completed" },
+};
 const turn = [
   row("u", "user", 0, { text: "fix it" }),
   row("c", "assistant", 1_000, { text: "I'll look." }),
@@ -46,7 +60,10 @@ describe("turn view", () => {
   });
 
   test("rows before the first prompt draw as they are", () => {
-    expect(ids(turnView([row("g", "assistant", 0, { text: "hi" }), ...turn.slice(0, 1)], new Set()))).toEqual(["g", "u"]);
+    expect(ids(turnView([row("g", "assistant", 0, { text: "hi" }), ...turn.slice(0, 1)], new Set()))).toEqual([
+      "g",
+      "u",
+    ]);
   });
 
   test("a stopped turn says so", () => {
@@ -69,8 +86,14 @@ describe("turn view", () => {
 
   test("the fold line and footer change version when what they draw changes", () => {
     const before = turnView(turn, new Set());
-    const streamed = turnView(turn.map((entry) => entry.id === "a" ? { ...entry, version: 2, text: "Done. More." } : entry), new Set());
-    const settled = turnView(turn.map((entry) => entry.id === "s" ? { ...entry, version: 2, toolCount: 3 } : entry), new Set());
+    const streamed = turnView(
+      turn.map((entry) => (entry.id === "a" ? { ...entry, version: 2, text: "Done. More." } : entry)),
+      new Set(),
+    );
+    const settled = turnView(
+      turn.map((entry) => (entry.id === "s" ? { ...entry, version: 2, toolCount: 3 } : entry)),
+      new Set(),
+    );
     const opened = turnView(turn, new Set(["worked-u"]));
     for (const id of ["worked-u", "s"]) {
       const version = (rows: AcpmuxRow[]) => rows.find((entry) => entry.id === id)!.version;

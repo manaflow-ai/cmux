@@ -13,11 +13,7 @@ export type PaneLayoutView =
       second: PaneLayoutView;
     };
 
-export function visibleStackPanes(
-  panes: Id[],
-  expanded: Id,
-  _visibleHeaders: number | null,
-): Id[] {
+export function visibleStackPanes(panes: Id[], expanded: Id, _visibleHeaders: number | null): Id[] {
   if (panes.length === 0 || !panes.includes(expanded)) return [];
   return panes;
 }
@@ -33,9 +29,7 @@ export function layoutToViewModel(
     if (layout.panes.length === 0 || !layout.panes.includes(layout.expanded)) {
       throw new Error("invalid stack layout");
     }
-    const expanded = selectedPane !== null && layout.panes.includes(selectedPane)
-      ? selectedPane
-      : layout.expanded;
+    const expanded = selectedPane !== null && layout.panes.includes(selectedPane) ? selectedPane : layout.expanded;
     return { type: "stack", panes: layout.panes, expanded };
   }
 

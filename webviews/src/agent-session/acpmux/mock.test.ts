@@ -9,7 +9,12 @@ describe("mock transport", () => {
   test("a prompt streams a scripted turn through the real client", async () => {
     const snapshots: AcpmuxSnapshot[] = [];
     (globalThis as any).window ??= globalThis;
-    const client = await AcpmuxDirectClient.connect(mockHost, (snapshot) => snapshots.push(snapshot), undefined, () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket);
+    const client = await AcpmuxDirectClient.connect(
+      mockHost,
+      (snapshot) => snapshots.push(snapshot),
+      undefined,
+      () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
+    );
     client.snapshot();
     expect(snapshots.at(-1)?.rows.map((row) => row.kind)).toEqual(["assistant"]);
     expect(snapshots.at(-1)?.summary?.harness).toBe("claude");
@@ -17,7 +22,8 @@ describe("mock transport", () => {
     expect((await client.harnesses()).map((harness) => harness.id)).toEqual(["claude", "codex"]);
 
     await client.send("hello");
-    for (let tries = 0; tries < 20 && !snapshots.at(-1)?.rows.some((row) => row.kind === "turnSummary"); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let tries = 0; tries < 20 && !snapshots.at(-1)?.rows.some((row) => row.kind === "turnSummary"); tries += 1)
+      await new Promise((resolve) => setTimeout(resolve, 0));
     const rows = snapshots.at(-1)!.rows;
     expect(snapshots.at(-1)?.isWorking).toBe(false);
     expect(rows.find((row) => row.kind === "user")?.text).toBe("hello");
@@ -26,7 +32,16 @@ describe("mock transport", () => {
     const diffs = rows.flatMap((row) => row.items ?? []).flatMap((item) => item.tool?.diffs ?? []);
     expect(diffs.map((diff) => diff.path)).toEqual(["/mock/project/src/greeting.ts", "/mock/project/NOTES.md"]);
     // The reply splits around its tool calls, and the summary counts all three.
-    expect(rows.map((row) => row.kind)).toEqual(["assistant", "user", "assistant", "activity", "assistant", "activity", "assistant", "turnSummary"]);
+    expect(rows.map((row) => row.kind)).toEqual([
+      "assistant",
+      "user",
+      "assistant",
+      "activity",
+      "assistant",
+      "activity",
+      "assistant",
+      "turnSummary",
+    ]);
     expect(rows.find((row) => row.kind === "turnSummary")?.toolCount).toBe(3);
     client.close();
   });
@@ -34,28 +49,59 @@ describe("mock transport", () => {
   test("closing the daemon stops a queued prompt too", async () => {
     let steps = 0;
     const waiting: (() => void)[] = [];
-    const socket = new MockAcpmuxSocket(() => { steps += 1; return new Promise<void>((resolve) => waiting.push(resolve)); });
+    const socket = new MockAcpmuxSocket(() => {
+      steps += 1;
+      return new Promise<void>((resolve) => waiting.push(resolve));
+    });
     const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
     await tick();
-    const prompt = (id: number) => socket.send(JSON.stringify({ jsonrpc: "2.0", id, method: "session/prompt", params: { sessionId: mockHost.sessionId, prompt: [{ type: "text", text: `p${id}` }] } }));
-    prompt(1); prompt(2);
+    const prompt = (id: number) =>
+      socket.send(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id,
+          method: "session/prompt",
+          params: { sessionId: mockHost.sessionId, prompt: [{ type: "text", text: `p${id}` }] },
+        }),
+      );
+    prompt(1);
+    prompt(2);
     await tick();
     expect(steps).toBe(1);
     socket.close();
-    for (let round = 0; round < 5; round += 1) { while (waiting.length) waiting.shift()!(); await tick(); }
+    for (let round = 0; round < 5; round += 1) {
+      while (waiting.length) waiting.shift()!();
+      await tick();
+    }
     expect(steps).toBe(1);
   });
 
-  const connectMock = async (snapshots: AcpmuxSnapshot[], delay: (ms: number) => Promise<void> = () => Promise.resolve()) => {
+  const connectMock = async (
+    snapshots: AcpmuxSnapshot[],
+    delay: (ms: number) => Promise<void> = () => Promise.resolve(),
+  ) => {
     (globalThis as any).window ??= globalThis;
-    return AcpmuxDirectClient.connect(mockHost, (snapshot) => snapshots.push(snapshot), undefined, () => new MockAcpmuxSocket(delay) as unknown as WebSocket);
+    return AcpmuxDirectClient.connect(
+      mockHost,
+      (snapshot) => snapshots.push(snapshot),
+      undefined,
+      () => new MockAcpmuxSocket(delay) as unknown as WebSocket,
+    );
   };
-  const until = async (done: () => boolean) => { for (let tries = 0; tries < 50 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0)); };
+  const until = async (done: () => boolean) => {
+    for (let tries = 0; tries < 50 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  };
 
   test("Stop ends the scripted turn as cancelled", async () => {
     const snapshots: AcpmuxSnapshot[] = [];
     let release: () => void = () => {};
-    const client = await connectMock(snapshots, () => new Promise<void>((resolve) => { release = resolve; }));
+    const client = await connectMock(
+      snapshots,
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
     const sent = client.send("hello");
     await until(() => snapshots.at(-1)?.isWorking === true);
     await client.cancel();
@@ -82,8 +128,21 @@ describe("mock transport", () => {
   test("a recorded turn replays with its own timestamps and no greeting", async () => {
     const snapshots: AcpmuxSnapshot[] = [];
     (globalThis as any).window ??= globalThis;
-    const script = { steps: [{ atMs: 2_000, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Recorded answer." } } }], endAtMs: 15_000 };
-    const client = await AcpmuxDirectClient.connect(mockHost, (snapshot) => snapshots.push(snapshot), undefined, () => new MockAcpmuxSocket(() => Promise.resolve(), script) as unknown as WebSocket);
+    const script = {
+      steps: [
+        {
+          atMs: 2_000,
+          update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Recorded answer." } },
+        },
+      ],
+      endAtMs: 15_000,
+    };
+    const client = await AcpmuxDirectClient.connect(
+      mockHost,
+      (snapshot) => snapshots.push(snapshot),
+      undefined,
+      () => new MockAcpmuxSocket(() => Promise.resolve(), script) as unknown as WebSocket,
+    );
     client.snapshot();
     expect(snapshots.at(-1)?.rows).toEqual([]);
     await client.send("replay");

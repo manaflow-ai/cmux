@@ -23,4 +23,3 @@ describe("drawerReducer", () => {
     expect(drawerReducer("open", "close")).toBe("closed");
   });
 });
-

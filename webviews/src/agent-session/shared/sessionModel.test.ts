@@ -129,10 +129,9 @@ const providers: ProviderInfo[] = [
 ];
 
 test("provider started event records running session", () => {
-  const starting = reduceSession(
-    reduceSession(initialState("react"), { type: "context", context }),
-    { type: "starting" },
-  );
+  const starting = reduceSession(reduceSession(initialState("react"), { type: "context", context }), {
+    type: "starting",
+  });
   const state = reduceSession(starting, {
     type: "event",
     event: {
@@ -187,7 +186,7 @@ test("provider output is appended without changing running session", () => {
       providerId: "claude",
       sessionId: "session-1",
       stream: "stdout",
-      text: "{\"type\":\"assistant\"}",
+      text: '{"type":"assistant"}',
     },
   });
 
@@ -199,7 +198,7 @@ test("provider output is appended without changing running session", () => {
     role: "assistant",
     sessionId: "session-1",
     sentAtMs: expect.any(Number),
-    text: "{\"type\":\"assistant\"}",
+    text: '{"type":"assistant"}',
   });
 });
 
@@ -528,7 +527,7 @@ test("provider output for a different session is ignored", () => {
       providerId: "claude",
       sessionId: "session-x",
       stream: "stdout",
-      text: "{\"type\":\"assistant\"}",
+      text: '{"type":"assistant"}',
     },
   });
 
@@ -550,10 +549,9 @@ test("unknown provider events are ignored", () => {
 });
 
 test("accepted start reply tracks session before provider started event", () => {
-  const starting = reduceSession(
-    reduceSession(initialState("react"), { type: "context", context }),
-    { type: "starting" },
-  );
+  const starting = reduceSession(reduceSession(initialState("react"), { type: "context", context }), {
+    type: "starting",
+  });
   const accepted = reduceSession(starting, { type: "startAccepted", sessionId: "session-1" });
 
   expect(accepted.status).toBe("starting");
@@ -575,10 +573,9 @@ test("accepted start reply tracks session before provider started event", () => 
 });
 
 test("provider exit during pending start is applied before start reply", () => {
-  const starting = reduceSession(
-    reduceSession(initialState("react"), { type: "context", context }),
-    { type: "starting" },
-  );
+  const starting = reduceSession(reduceSession(initialState("react"), { type: "context", context }), {
+    type: "starting",
+  });
   const failed = reduceSession(starting, {
     type: "event",
     event: {
@@ -665,10 +662,10 @@ test("auto start is disabled after a provider has already been attempted", () =>
 });
 
 test("auto start attempts are remembered per provider switch", () => {
-  const loaded = reduceSession(
-    reduceSession(initialState("react"), { type: "context", context }),
-    { type: "providers", providers },
-  );
+  const loaded = reduceSession(reduceSession(initialState("react"), { type: "context", context }), {
+    type: "providers",
+    providers,
+  });
   const attemptedCodex = reduceSession(loaded, { type: "autoStartAttempted", providerId: "codex" });
   const selectedClaude = reduceSession(attemptedCodex, { type: "selectProvider", providerId: "claude" });
   const selectedCodexAgain = reduceSession(selectedClaude, { type: "selectProvider", providerId: "codex" });
@@ -677,10 +674,10 @@ test("auto start attempts are remembered per provider switch", () => {
 });
 
 test("auto start sends provider start from an explicit snapshot", async () => {
-  const loaded = reduceSession(
-    reduceSession(initialState("react"), { type: "context", context }),
-    { type: "providers", providers },
-  );
+  const loaded = reduceSession(reduceSession(initialState("react"), { type: "context", context }), {
+    type: "providers",
+    providers,
+  });
   const actions: Action[] = [];
   const messages: Array<{ method: string; params: Record<string, unknown> }> = [];
   const globalWithWindow = globalThis as unknown as { window?: unknown };
@@ -1054,10 +1051,10 @@ test("failed calls with an active session keep stop available", () => {
 
 test("claude does not auto start", () => {
   const claudeContext = { ...context, initialProviderId: "claude" as const };
-  const state = reduceSession(
-    reduceSession(initialState("react"), { type: "context", context: claudeContext }),
-    { type: "providers", providers },
-  );
+  const state = reduceSession(reduceSession(initialState("react"), { type: "context", context: claudeContext }), {
+    type: "providers",
+    providers,
+  });
 
   expect(shouldAutoStartProvider(state)).toBe(false);
 });

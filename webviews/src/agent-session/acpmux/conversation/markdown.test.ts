@@ -7,15 +7,18 @@ import { Markdown, parseMarkdown } from "./Markdown";
 import { normalizeMath } from "./mathDelimiters";
 import specimen from "../../../../scripts/agent-pane/specimen.json";
 
-const answerUpdate = specimen.steps.find((step) => "messageId" in step.update && step.update.messageId === "answer")!.update;
-const specimenAnswer = "content" in answerUpdate && answerUpdate.content && !Array.isArray(answerUpdate.content) ? answerUpdate.content.text : "";
+const answerUpdate = specimen.steps.find(
+  (step) => "messageId" in step.update && step.update.messageId === "answer",
+)!.update;
+const specimenAnswer =
+  "content" in answerUpdate && answerUpdate.content && !Array.isArray(answerUpdate.content)
+    ? answerUpdate.content.text
+    : "";
 const html = (source: string) => renderToStaticMarkup(createElement(Markdown, null, source));
 
 describe("math delimiters", () => {
   test("\\[ … \\] display blocks, also across lines, become $$ … $$", () => {
-    expect(normalizeMath(["\\[", "10x + (9-x) = 9x + 9", "\\]"])).toEqual([
-      "$$10x + (9-x) = 9x + 9$$",
-    ]);
+    expect(normalizeMath(["\\[", "10x + (9-x) = 9x + 9", "\\]"])).toEqual(["$$10x + (9-x) = 9x + 9$$"]);
     expect(normalizeMath(["\\[ x = 3 \\]"])).toEqual(["$$x = 3$$"]);
   });
 
@@ -58,10 +61,7 @@ describe("lists and quotes", () => {
 
   test("a blockquote keeps its two paragraphs (drawn without a gap by .cv-quote > .cv-p)", () => {
     const quote = parseMarkdown(src)[2]!;
-    expect(quote.type === "blockquote" && quote.children.map((c) => c.type)).toEqual([
-      "paragraph",
-      "paragraph",
-    ]);
+    expect(quote.type === "blockquote" && quote.children.map((c) => c.type)).toEqual(["paragraph", "paragraph"]);
   });
 });
 
@@ -95,14 +95,22 @@ describe("links", () => {
 describe("the specimen", () => {
   test("renders headings, lists, a table, code and math", () => {
     const types = new Set(parseMarkdown(specimenAnswer).map((block) => block.type));
-    for (const type of ["heading", "list", "table", "code", "blockquote", "hr", "math"]) expect(types.has(type as never)).toBe(true);
+    for (const type of ["heading", "list", "table", "code", "blockquote", "hr", "math"])
+      expect(types.has(type as never)).toBe(true);
   });
 });
 
 describe("streaming and everyday text", () => {
   /// Each of these once left the parser on the same line forever, freezing the pane.
   test("half-streamed blocks parse and advance", () => {
-    for (const source of ["$$", "$$ x + y", "```python title=x\nprint(1)\n```", "```foo bar```", "# x", "text\n$$\nmore"]) {
+    for (const source of [
+      "$$",
+      "$$ x + y",
+      "```python title=x\nprint(1)\n```",
+      "```foo bar```",
+      "# x",
+      "text\n$$\nmore",
+    ]) {
       expect(() => parseMarkdown(source)).not.toThrow();
       expect(parseMarkdown(source).length).toBeGreaterThan(0);
     }
