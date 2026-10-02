@@ -69,9 +69,10 @@
             category: "[9]/[14] a page tool that may change or send data",
             summary: `Call WebMCP tool "${name}" on ${url.split("?")[0]}`,
             preview: { page: url, tool: name, description: tool.description, input: input === undefined ? {} : input },
-            run: async () => {
+            // The confirmed call sends the previewed (frozen) input.
+            run: async (preview) => {
               if (page.url() !== url) throw new S.SiteError("page_changed", `webmcp.call: the tab navigated away from ${url}; nothing was called`);
-              return run(page, name, input);
+              return run(page, preview.tool, preview.input);
             },
           }));
         },

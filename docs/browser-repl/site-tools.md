@@ -24,7 +24,12 @@ rules neither reference enforces together:
    text ([confirmations.md](#confirmation-taxonomy)). cmux enforces it in the
    API: a write without a draft id is a draft, `{ confirm: true }` without a
    draft id is an error, a draft is single-use, expires after 30 minutes and
-   lives only in the REPL session that made it.
+   lives only in the REPL session that made it. The tool copies its input
+   when it makes the draft, and the draft it returns is a frozen copy with
+   a frozen preview, so changing the input object, the draft or its preview
+   afterwards changes nothing: the confirmed call performs the action the
+   preview showed. The status and expiry the confirm step checks stay in the
+   session; `sites.drafts.get(id)` reads the current status.
 3. **Failures say what to do.** A tab that reaches a sign-in page (at load or
    later from script) fails with `not_signed_in` and names the fix; a CAPTCHA
    is reported, never solved; a wrong Google account is an HTTP 403 that names
@@ -94,8 +99,8 @@ files go to `options.path`, else the session's temporary directory. Every
 error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 `not_found`, `forbidden`, `timeout`, `captcha`, `consent_required`,
 `no_captions`, `confirm_required`, `draft_required`, `draft_not_found`,
-`draft_used`, `draft_expired`, `compose_mismatch`, `write_requires_draft`,
-`unsupported`.
+`draft_mismatch`, `draft_used`, `draft_expired`, `draft_changed`,
+`compose_mismatch`, `write_requires_draft`, `unsupported`.
 
 | Method | Mechanism | Kind |
 | --- | --- | --- |
