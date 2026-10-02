@@ -33,6 +33,7 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
+    /// Completes one idempotent terminal mutation and records its authoritative workspace.
     private func createTerminalInMutationTurn(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?, request: CloudTerminalCreationRequest, lifecycle: UInt64) async throws -> SurfaceResource {
         try validateTerminalMutationLifecycle(lifecycle)
         let connected = try await links.connected(machineID: machineID)
@@ -73,8 +74,11 @@ extension CmuxTuiSurfaceProvider {
             // workspace field. The mutation still committed. Refresh the
             // authoritative graph and recover the focused workspace instead
             // of turning a successful create into a yellow placement error.
-            _ = await refreshCurrentGraph(force: true)
-            resolvedWorkspaceID = cloudState?.workspaces.first(where: \.focused)?.id
+            guard await refreshCurrentGraph(force: true),
+                  let focusedWorkspaceID = cloudState?.workspaces.first(where: \.focused)?.id else {
+                throw ProviderError.noWorkspaceOnMachine(machineID)
+            }
+            resolvedWorkspaceID = focusedWorkspaceID
         } else {
             resolvedWorkspaceID = workspaceID
         }
