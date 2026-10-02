@@ -25,6 +25,13 @@ cmux-next does not have a right sidebar. Do not port main's right-sidebar Cloud 
 4. Machine terminals and file operations are ordinary panes tagged with their machine.
 5. Team-level identities, tokens, VPC/network policy, and billing live under **Settings > Cloud**.
 
+The one-sidebar model has two compatible Cloud navigation options to prototype:
+
+- **Machines section:** keep all machines in one built-in left-sidebar section with status dots, inline pause/resume, and `+` create. Selecting a machine shows its workspaces, terminals, files, and the machine page in the same sidebar and content area.
+- **Machine spaces:** treat one machine or a selected set of machines as a Zen/Arc-style space. Space switching uses the existing sidebar-edge dots/swipe affordance; the active machine space fills the one sidebar with that machine set's workspaces, terminals, and files. There is no second permanent panel or default skinny icon rail.
+
+The implementation should keep the Machines section as the baseline and make the space projection a navigation mode over the same `MachineRegistry`, catalog actions, and machine-tagged panes. Both modes must expose the same operations and permissions.
+
 ## Freestyle 0.2.16 command inventory
 
 Global flags: `--api-key`, `--team`, `--proxy`, `--output pretty|json`, `-h`, `-v`. The package bin is `freestyle: dist/cli/index.js`.
