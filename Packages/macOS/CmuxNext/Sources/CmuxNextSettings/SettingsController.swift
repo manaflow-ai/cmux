@@ -45,6 +45,9 @@ public final class SettingsController {
     @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
     @ObservationIgnored var lastStatusBody: JSONValue?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
+    /// Writes `setSetting` validated and made, by dotted key (tests check
+    /// that palette actions write through it).
+    @ObservationIgnored var validatedWrites: [String: Int] = [:]
 
     private struct LoadWaiter {
         let token: UUID
@@ -142,79 +145,65 @@ public final class SettingsController {
         try await file.remove(["shortcuts", id.rawValue])
     }
 
-    /// Writes `browser.defaultEngine`.
+    /// Writes `browser.defaultEngine` through `setSetting`.
     public func setBrowserDefaultEngine(_ engine: BrowserDefaultEngine) async throws {
-        try await file.set(.string(engine.rawValue), at: BrowserDefaultEngine.configPath)
+        try await setSetting(at: BrowserDefaultEngine.configPath, to: .string(engine.rawValue))
     }
 
-    /// Writes `browser.showBookmarksBar`; off removes the key (the default).
+    /// Writes `browser.showBookmarksBar` through `setSetting`; off removes
+    /// the key (the default).
     public func setShowBookmarksBar(_ show: Bool) async throws {
-        guard show else { return try await file.remove(BookmarksBarSetting.configPath) }
-        try await file.set(.bool(true), at: BookmarksBarSetting.configPath)
+        try await setSetting(at: BookmarksBarSetting.configPath, to: show ? .bool(true) : nil)
     }
 
-    /// Writes `browser.hibernation` ("off", "moderate", "aggressive" or minutes).
+    /// Writes `browser.hibernation` ("off", "moderate", "aggressive" or
+    /// minutes) through `setSetting`.
     public func setBrowserHibernation(_ mode: BrowserHibernationSetting.Mode) async throws {
-        try await file.set(BrowserHibernationSetting(mode: mode).configValue, at: BrowserHibernationSetting.configPath)
+        try await setSetting(at: BrowserHibernationSetting.configPath, to: BrowserHibernationSetting(mode: mode).configValue)
     }
 
-    /// Writes `ui.animationSpeed`.
+    /// Writes `ui.animationSpeed` through `setSetting`.
     public func setAnimationSpeed(_ speed: MotionSpeed) async throws {
-        try await file.set(.string(speed.rawValue), at: AnimationSpeedSetting.configPath)
+        try await setSetting(at: AnimationSpeedSetting.configPath, to: .string(speed.rawValue))
     }
 
-    /// Writes `window.titlebar`; the default ("minimal") removes the key,
-    /// and the `window` object when it empties.
+    /// Writes `window.titlebar` through `setSetting`; the default
+    /// ("minimal") removes the key, and the `window` object when it empties.
     public func setTitlebar(_ style: TitlebarStyle) async throws {
-        guard style == WindowTitlebarSetting.fallback else {
-            return try await file.set(.string(style.rawValue), at: WindowTitlebarSetting.configPath)
-        }
-        try await file.remove(WindowTitlebarSetting.configPath)
-        if case .object(let members)? = try await file.value(at: ["window"]), members.isEmpty {
-            try await file.remove(["window"])
-        }
+        try await setSetting(at: WindowTitlebarSetting.configPath, to: style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue))
     }
 
+    /// Writes `appearance.density` through `setSetting` (the Settings
+    /// window, the palette and onboarding all land here).
     public func setDensity(_ density: Density) async throws {
-        try await file.set(.string(density.rawValue), at: ["appearance", "density"])
+        try await setSetting(at: ["appearance", "density"], to: .string(density.rawValue))
     }
 
     /// Writes `layout.panePadding` in points; nil removes it (density default).
     public func setPanePadding(_ points: Double?) async throws {
-        try await setLayoutValue(points.map(JSONValue.number), key: "panePadding")
+        try await setSetting(at: ["layout", "panePadding"], to: points.map(JSONValue.number))
     }
 
     /// Writes `layout.paneCornerRadius` in points; nil removes it.
     public func setPaneCornerRadius(_ points: Double?) async throws {
-        try await setLayoutValue(points.map(JSONValue.number), key: "paneCornerRadius")
+        try await setSetting(at: ["layout", "paneCornerRadius"], to: points.map(JSONValue.number))
     }
 
     /// Writes `layout.paneBorder`; nil removes it (subtle).
     public func setPaneBorder(_ border: PaneBorderStyle?) async throws {
-        try await setLayoutValue(border.map { .string($0.rawValue) }, key: "paneBorder")
+        try await setSetting(at: ["layout", "paneBorder"], to: border.map { .string($0.rawValue) })
     }
 
     /// Writes `layout.paneBorderWidth` in points; nil removes it (one device pixel).
     public func setPaneBorderWidth(_ points: Double?) async throws {
-        try await setLayoutValue(points.map(JSONValue.number), key: "paneBorderWidth")
+        try await setSetting(at: ["layout", "paneBorderWidth"], to: points.map(JSONValue.number))
     }
 
     /// Removes `layout.paneBorderColor` (the theme's color) or writes "#RRGGBB[AA]".
+    /// Like every typed setter, it goes through `setSetting`, so a removal
+    /// takes an emptied `layout` object with it and a bad value is refused.
     public func setPaneBorderColor(_ hex: String?) async throws {
-        try await setLayoutValue(hex.map(JSONValue.string), key: "paneBorderColor")
-    }
-
-    private func setLayoutValue(_ value: JSONValue?, key: String) async throws {
-        if let value {
-            try await file.set(value, at: ["layout", key])
-        } else {
-            try await file.remove(["layout", key])
-            // The last pane key going back to its default takes the empty
-            // `layout` object with it.
-            if case .object(let members)? = try await file.value(at: ["layout"]), members.isEmpty {
-                try await file.remove(["layout"])
-            }
-        }
+        try await setSetting(at: ["layout", "paneBorderColor"], to: hex.map(JSONValue.string))
     }
 
     // MARK: - Loading

@@ -10,6 +10,12 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     case history
     case bookmarks
     case appStore = "app_store"
+    /// New-tab launchers, for sections and the rail (`window.rail`).
+    case newTerminal = "new_terminal"
+    case newBrowser = "new_browser"
+    case newAgentChat = "new_agent_chat"
+    /// The appearance studio (Customize Appearance).
+    case customize
 }
 
 /// What an item points at: a kind and a string value. Kinds this client
