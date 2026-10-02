@@ -11,6 +11,8 @@ import CmuxNextSettings
 /// reapplies the same value.
 enum AppearanceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let studio = AppearanceStudioController(context: context)
+        registry.bind("appearance.customize", run: { _ in try studio.toggle() })
         registry.bind("appearance.density.compact", run: { _ in try setDensity(.compact, context) })
         registry.bind("appearance.density.comfortable", run: { _ in try setDensity(.comfortable, context) })
         for speed in MotionSpeed.allCases {

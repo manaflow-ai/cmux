@@ -58,6 +58,9 @@ nonisolated enum SettingsWindowStrings {
         text("settingsWindow.resetAllBody", "Every setting and shortcut in cmux.json goes back to its default. Custom actions stay.")
     }
     static var cancel: String { text("settingsWindow.cancel", "Cancel") }
+    static var studioTitle: String { text("settingsWindow.studio.title", "Customize Appearance") }
+    static var studioSubtitle: String { text("settingsWindow.studio.subtitle", "Changes show in this window as you make them.") }
+    static var studioClose: String { text("settingsWindow.studio.close", "Close") }
     static var problems: String { text("settingsWindow.problems", "Problems in cmux.json") }
     static var noProblems: String { text("settingsWindow.noProblems", "No problems.") }
     static func minutes(_ value: String) -> String { format("settingsWindow.minutes", "%@ min", value) }
