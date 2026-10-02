@@ -67,19 +67,31 @@ async function execute(script, signal) {
   await Bun.write(path, script);
   try {
     const child = Bun.spawn([runner, path], {
+      detached: true,
       env: { ...process.env },
       stdout: "pipe",
       stderr: "pipe",
     });
     let timedOut = false;
     let cancelled = false;
+    let killTimer;
+    let terminated = false;
+    const terminate = () => {
+      if (terminated) return;
+      terminated = true;
+      try { process.kill(-child.pid, "SIGTERM"); } catch {}
+      child.kill();
+      killTimer = setTimeout(() => {
+        try { process.kill(-child.pid, "SIGKILL"); } catch {}
+      }, 250);
+    };
     const cancel = () => {
       cancelled = true;
-      child.kill();
+      terminate();
     };
     if (signal?.aborted) cancel();
     else signal?.addEventListener("abort", cancel, { once: true });
-    const timer = setTimeout(() => { timedOut = true; child.kill(); }, EXEC_TIMEOUT_MS);
+    const timer = setTimeout(() => { timedOut = true; terminate(); }, EXEC_TIMEOUT_MS);
     const read = async (stream) => {
       const reader = stream.getReader();
       const decoder = new TextDecoder();
@@ -91,7 +103,7 @@ async function execute(script, signal) {
         bytes += value.byteLength;
         text += decoder.decode(value, { stream: true });
         if (bytes >= MAX_OUTPUT_BYTES) {
-          child.kill();
+          terminate();
           text += "\n[output truncated]";
           break;
         }
@@ -104,6 +116,7 @@ async function execute(script, signal) {
       return { exitCode, stdout, stderr, timedOut, cancelled };
     } finally {
       clearTimeout(timer);
+      clearTimeout(killTimer);
       signal?.removeEventListener("abort", cancel);
     }
   } finally {

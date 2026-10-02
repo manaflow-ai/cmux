@@ -35,8 +35,14 @@ script=$(CDPATH= cd -- "$(dirname -- "$script")" && pwd)/$(basename -- "$script"
 proxy_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-code-mode-proxy.XXXXXX")
 proxy_socket="$proxy_dir/cmux.sock"
 proxy="$sdk/code-mode/proxy.mjs"
-cleanup() { kill "${proxy_pid:-}" 2>/dev/null || true; rm -rf "$proxy_dir"; }
-trap cleanup EXIT INT TERM
+sandbox_pid=
+cleanup() {
+  if [ -n "$sandbox_pid" ]; then kill "$sandbox_pid" 2>/dev/null || true; sandbox_pid=; fi
+  kill "${proxy_pid:-}" 2>/dev/null || true
+  rm -rf "$proxy_dir"
+}
+trap cleanup EXIT
+trap 'exit 143' INT TERM
 "$bun" "$proxy" "$socket" "$proxy_socket" "$catalog" >/dev/null 2>&1 &
 proxy_pid=$!
 for _ in $(seq 1 100); do
@@ -50,7 +56,7 @@ done
 # source, a tmpfs for transient writes, and one explicitly bound cmux socket.
 # The runner fails closed when this sandbox is unavailable.
 if command -v bwrap >/dev/null 2>&1; then
-  if bwrap \
+  bwrap \
     --die-with-parent --new-session --unshare-all --clearenv \
     --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
     --ro-bind /lib64 /lib64 \
@@ -62,11 +68,14 @@ if command -v bwrap >/dev/null 2>&1; then
     --setenv HOME /tmp --setenv CMUX_TUI_SOCKET /run/cmux.sock \
     --setenv CMUX_TUI_SESSION "$session" \
     /run/cmux-bun /run/cmux-sdk/code-mode/run.ts \
-    /run/cmux-script.ts "$@"; then
+    /run/cmux-script.ts "$@" &
+  sandbox_pid=$!
+  if wait "$sandbox_pid"; then
     status=0
   else
     status=$?
   fi
+  sandbox_pid=
   exit "$status"
 fi
 
