@@ -24,11 +24,13 @@ import Testing
     func services(_ daemon: StateDaemon) async throws -> AppServices {
         let services = ActionBindingCoverageTests.boundServices()
         services.daemon.start(makeConnection: { daemon.connection() })
-        try await waitUntil { services.daemon.store.isLoaded && services.daemon.store.servesStateResources }
+        try await waitUntil { services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.sessionStateKnown }
         return services
     }
 
-    @Test func aFlaggedWorkspaceIsIncognitoAndALaunchLeftover() async throws {
+    /// The daemon closes ephemeral workspaces; the app never does, even ones
+    /// a crashed run left.
+    @Test func aFlaggedWorkspaceIsIncognitoAndNeverClosedByTheApp() async throws {
         let daemon = try StateDaemon(state: "{}", entities: Self.flagged)
         defer { daemon.stop() }
         let services = try await services(daemon)
@@ -36,7 +38,9 @@ import Testing
         let key = StateDaemon.workspaceKey
         #expect(services.daemon.store.workspaces.first?.ephemeral == true)
         #expect(services.windows.isIncognito(workspace: key))
-        #expect(await services.windows.ephemeralLeftovers() == [key])
+        await services.windows.awaitEphemeralFlags()
+        #expect(!services.windows.registry.value.discarding.contains(key))
+        #expect(!daemon.operations.contains("workspace.close"))
         // Its id is never written to the app's crash ledger.
         #expect(services.windows.isEphemeral(key))
     }

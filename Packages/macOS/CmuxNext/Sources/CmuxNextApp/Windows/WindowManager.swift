@@ -175,14 +175,18 @@ final class WindowManager {
         if let windowState = services.daemon.windowState {
             document = (try? await windowState.load()) ?? WindowStateDocument()
         }
-        // Incognito workspaces a crashed run left: closed, never shown. The
-        // daemon flags its ephemeral ones; the ledger lists the others.
-        let leftover = await incognitoLedger.load() + ephemeralLeftovers()
+        // Incognito workspaces a crashed run left on a daemon without state
+        // resources: the app's ledger owns them, so they close, never shown.
+        // A daemon with state resources owns its ephemeral workspaces (it
+        // closes them at its next start); until then they show in an
+        // incognito window, never a normal one, so wait for its flags.
+        let leftover = await incognitoLedger.load()
         if !leftover.isEmpty {
             registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
             discard(leftover)
         }
-        if services.daemon.store.workspaces.contains(where: { !leftover.contains($0.id) }) == false {
+        await awaitEphemeralFlags()
+        if services.daemon.store.workspaces.contains(where: { !leftover.contains($0.id) && !$0.ephemeral }) == false {
             _ = await createWorkspace()
         }
         let restoredRegistry = WindowRegistry(records: document.windows)

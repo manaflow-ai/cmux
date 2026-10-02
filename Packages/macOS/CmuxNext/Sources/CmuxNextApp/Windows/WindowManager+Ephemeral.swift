@@ -8,8 +8,8 @@ import CmuxNextDaemon
 // next start and never recorded in closed history. The flag replaces the
 // app's crash ledger (`IncognitoWorkspaceLedger`) for them: a workspace
 // that comes back flagged after a crash, while the daemon kept running, is
-// closed at launch. An ephemeral workspace no window lists goes to an
-// incognito window, never a normal one.
+// the daemon's to close (OWNERSHIP-PRINCIPLES.md); the app shows it in an
+// incognito window, never a normal one, and never closes it.
 extension WindowManager {
     /// True when `workspaceID` is flagged ephemeral by its daemon.
     func isEphemeral(_ workspaceID: String) -> Bool {
@@ -70,13 +70,12 @@ extension WindowManager {
         return result
     }
 
-    /// Ephemeral workspaces the last run left open (it crashed while the
-    /// daemon kept running): at launch no incognito window exists, so every
-    /// flagged workspace is a leftover. Waits until the local daemon said
-    /// whether it serves state resources.
-    func ephemeralLeftovers() async -> [String] {
-        guard services.daemon.connection?.mirrorsSessionState == true else { return [] }
+    /// Waits until the local daemon's ephemeral flags are known (its state
+    /// snapshot arrived, or it serves no state resources), so a workspace a
+    /// crashed run left ephemeral goes to an incognito window, never a
+    /// normal one. The daemon, not the app, closes it.
+    func awaitEphemeralFlags() async {
+        guard services.daemon.connection?.mirrorsSessionState == true else { return }
         await services.daemon.store.sessionStateResolved()
-        return services.daemon.store.workspaces.filter(\.ephemeral).map(\.id)
     }
 }

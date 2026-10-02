@@ -22,7 +22,7 @@ import Testing
         services.daemon.start(makeConnection: { daemon.connection() })
         defer { services.daemon.shutdownConnection() }
         let clock = ContinuousClock(), end = clock.now.advanced(by: .seconds(10))
-        while !(services.daemon.store.isLoaded && services.daemon.store.servesStateResources), clock.now < end {
+        while !(services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.sessionStateKnown), clock.now < end {
             try await clock.sleep(for: .milliseconds(20)) // test-only wait
         }
         let key = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first?.tabs.first?.id)
