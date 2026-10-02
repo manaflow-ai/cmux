@@ -69,7 +69,9 @@ export function CheckpointReview({
     <section className="acpmux-checkpoint-review" data-variant={variant} aria-label={s.title}>
       <header>
         <strong>{s.title}</strong>
-        <button type="button" onClick={onCancel}>{s.cancel}</button>
+        <button type="button" onClick={onCancel}>
+          {s.cancel}
+        </button>
       </header>
       {record ? (
         <div className="acpmux-checkpoint-receipt">
@@ -77,51 +79,128 @@ export function CheckpointReview({
             {record.complete ? s.complete : s.partial}
           </p>
           <dl className="acpmux-checkpoint-facts">
-            <div><dt>{s.reference}</dt><dd><code>{record.ref}</code></dd></div>
-            <div><dt>{s.base}</dt><dd>{record.base.head?.slice(0, 12) ?? s.noHead}</dd></div>
-            <div><dt>{s.created}</dt><dd>{date(record.created_at)}</dd></div>
-            <div><dt>{s.included}</dt><dd>{count(record.coverage.included)}</dd></div>
-            <div><dt>{s.omitted}</dt><dd>{count(record.coverage.omitted)}</dd></div>
-            <div><dt>{s.unavailable}</dt><dd>{count(record.coverage.unavailable)}</dd></div>
-            <div><dt>{s.bytes}</dt><dd>{count(record.bytes.logical)}</dd></div>
-            <div><dt>{pins.length ? s.retained : s.expires}</dt><dd>{pins.length ? s.pinned : record.expires_at ? date(record.expires_at) : s.unavailable}</dd></div>
+            <div>
+              <dt>{s.reference}</dt>
+              <dd>
+                <code>{record.ref}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>{s.base}</dt>
+              <dd>{record.base.head?.slice(0, 12) ?? s.noHead}</dd>
+            </div>
+            <div>
+              <dt>{s.created}</dt>
+              <dd>{date(record.created_at)}</dd>
+            </div>
+            <div>
+              <dt>{s.included}</dt>
+              <dd>{count(record.coverage.included)}</dd>
+            </div>
+            <div>
+              <dt>{s.omitted}</dt>
+              <dd>{count(record.coverage.omitted)}</dd>
+            </div>
+            <div>
+              <dt>{s.unavailable}</dt>
+              <dd>{count(record.coverage.unavailable)}</dd>
+            </div>
+            <div>
+              <dt>{s.bytes}</dt>
+              <dd>{count(record.bytes.logical)}</dd>
+            </div>
+            <div>
+              <dt>{pins.length ? s.retained : s.expires}</dt>
+              <dd>{pins.length ? s.pinned : record.expires_at ? date(record.expires_at) : s.unavailable}</dd>
+            </div>
           </dl>
           {record.skipped_total > 0 && (
-            <details open={variant === "expanded"}>
-              <summary>{s.skipped} · {count(record.skipped_total)}</summary>
-              <ul>{record.skipped.map((file, index) => <li key={`${file.path}:${index}`}><code>{file.path}</code><span>{reason(file.code)}</span></li>)}</ul>
+            <details open={variant === "expanded" || !record.complete}>
+              <summary>
+                {s.skipped} · {count(record.skipped_total)}
+              </summary>
+              <ul>
+                {record.skipped.map((file, index) => (
+                  <li key={`${file.path}:${index}`}>
+                    <code>{file.path}</code>
+                    <span>{reason(file.code)}</span>
+                  </li>
+                ))}
+              </ul>
             </details>
           )}
           <div className="acpmux-checkpoint-actions">
-            <button type="button" disabled={!!busy} onClick={() => {
-              setCopied(false);
-              void onCopy(record).then(() => setCopied(true)).catch(() => undefined);
-            }}>{copied ? s.copied : s.copyReference}</button>
-            <button type="button" disabled={!!busy || !!pending || pins.length > 0} onClick={() => onKeep(record)}>{s.keep}</button>
-            {userPins.map((pin) => <button type="button" key={pin.pin_id} disabled={!!busy || !!pending} onClick={() => onRelease(record, pin.pin_id)}>{s.release}</button>)}
+            <button
+              type="button"
+              disabled={!!busy}
+              onClick={() => {
+                setCopied(false);
+                void onCopy(record)
+                  .then(() => setCopied(true))
+                  .catch(() => undefined);
+              }}
+            >
+              {copied ? s.copied : s.copyReference}
+            </button>
+            <button type="button" disabled={!!busy || !!pending || pins.length > 0} onClick={() => onKeep(record)}>
+              {s.keep}
+            </button>
+            {userPins.map((pin) => (
+              <button
+                type="button"
+                key={pin.pin_id}
+                disabled={!!busy || !!pending}
+                onClick={() => onRelease(record, pin.pin_id)}
+              >
+                {s.release}
+              </button>
+            ))}
           </div>
           {!pins.length && <p className="acpmux-checkpoint-hint">{s.manualRetention}</p>}
         </div>
       ) : (
-        <form onSubmit={(event) => { event.preventDefault(); if (list && !busy && !pending) onCreate([...selected]); }}>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (list && !busy && !pending) onCreate([...selected]);
+          }}
+        >
           <fieldset disabled={!!busy || !!pending || !list}>
             <legend>{s.untracked}</legend>
             {list && !candidates.some((candidate) => candidate.eligible) && <p>{s.emptyUntracked}</p>}
             <ul className="acpmux-checkpoint-candidates">
-              {candidates.map((candidate) => <li key={candidate.path}>
-                <label><input type="checkbox" checked={candidate.eligible && selected.has(candidate.path)} disabled={!candidate.eligible} onChange={() => toggle(candidate.path)} /><code>{candidate.path}</code></label>
-                <span>{candidate.eligible ? count(candidate.bytes) : reason(candidate.reason)}</span>
-              </li>)}
+              {candidates.map((candidate) => (
+                <li key={candidate.path}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={candidate.eligible && selected.has(candidate.path)}
+                      disabled={!candidate.eligible}
+                      onChange={() => toggle(candidate.path)}
+                    />
+                    <code>{candidate.path}</code>
+                  </label>
+                  <span>{candidate.eligible ? count(candidate.bytes) : reason(candidate.reason)}</span>
+                </li>
+              ))}
             </ul>
           </fieldset>
           <div className="acpmux-checkpoint-actions">
-            <button type="submit" disabled={!!busy || !!pending || !list}>{s.create}</button>
-            <button type="button" disabled={!!busy || !!pending} onClick={onRefresh}>{s.refresh}</button>
+            <button type="submit" disabled={!!busy || !!pending || !list}>
+              {s.create}
+            </button>
+            <button type="button" disabled={!!busy || !!pending} onClick={onRefresh}>
+              {s.refresh}
+            </button>
           </div>
         </form>
       )}
       {busy && <output>{busy === "creating" ? s.creating : busy === "recovering" ? s.recovering : s.loading}</output>}
-      {pending && !busy && onRetry && <button type="button" onClick={onRetry}>{s.retry}</button>}
+      {pending && !busy && onRetry && (
+        <button type="button" onClick={onRetry}>
+          {s.retry}
+        </button>
+      )}
       {error && <p role="alert">{error}</p>}
     </section>
   );
