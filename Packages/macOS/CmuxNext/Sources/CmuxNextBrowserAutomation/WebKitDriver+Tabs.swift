@@ -31,10 +31,9 @@ extension WebKitDriver {
         }
         let session = session(for: tab)
         if let url {
-            let generation = session.waits.beginNavigation()
-            tab.load(url)
+            let ticket = session.waits.beginNavigation { tab.startLoad(url) }
             do {
-                try await session.waits.reach(.commit, after: generation, timeout: try params.timeout(), what: "tabs.open")
+                try await session.waits.reach(.commit, for: ticket, timeout: try params.timeout(), what: "tabs.open")
             } catch {
                 // The host never learns this tab's id, so it may not stay open.
                 tabClosedByDriver(tab)
@@ -95,9 +94,8 @@ extension WebKitDriver {
         let raw = try params.string("url")
         let url = try Self.navigableURL(raw, method: "tab.navigate")
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
-        let generation = session.waits.beginNavigation()
-        tab.load(url)
-        try await session.waits.reach(until, after: generation, timeout: try params.timeout(), what: "page.goto")
+        let ticket = session.waits.beginNavigation { tab.startLoad(url) }
+        try await session.waits.reach(until, for: ticket, timeout: try params.timeout(), what: "page.goto")
         return .object(["url": .string(tab.webView.url?.absoluteString ?? raw)])
     }
 
@@ -109,18 +107,16 @@ extension WebKitDriver {
         // The blank page a tab opened on is not an entry to go back to.
         if delta < 0, list.backList.count == 1, item.url.absoluteString == "about:blank" { return .null }
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
-        let generation = session.waits.beginNavigation()
-        if delta < 0 { tab.goBack() } else { tab.goForward() }
-        try await session.waits.reach(until, after: generation, timeout: try params.timeout(), what: delta < 0 ? "page.goBack" : "page.goForward")
+        let ticket = session.waits.beginNavigation { delta < 0 ? tab.startGoBack() : tab.startGoForward() }
+        try await session.waits.reach(until, for: ticket, timeout: try params.timeout(), what: delta < 0 ? "page.goBack" : "page.goForward")
         return .object(["url": .string(tab.webView.url?.absoluteString ?? "")])
     }
 
     func tabReload(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
         let (tab, session) = try target(params)
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
-        let generation = session.waits.beginNavigation()
-        tab.reload()
-        try await session.waits.reach(until, after: generation, timeout: try params.timeout(), what: "page.reload")
+        let ticket = session.waits.beginNavigation { tab.startReload() }
+        try await session.waits.reach(until, for: ticket, timeout: try params.timeout(), what: "page.reload")
         return .object([:])
     }
 
