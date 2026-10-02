@@ -153,4 +153,23 @@ import Testing
         }
         #expect(settings.snapshot.animationSpeed == .off)
     }
+
+    // MARK: Team device policy and enrollment
+
+    @Test func devicePolicyBecomesATeamLayerOnlyWhenManaged() {
+        let managed: JSONValue = .object([
+            "managed": true, "team_name": "Acme", "version": 3,
+            "defaults": .object(["updates.channel": "stable"]),
+            "enforced": .object(["telemetry.level": "crash_only", "NotASetting": true]),
+        ])
+        #expect(TeamPolicyLayer(devicePolicy: managed) == TeamPolicyLayer(teamName: "Acme", defaults: ["updates.channel": "stable"], enforced: ["telemetry.level": "crash_only"]))
+        #expect(TeamPolicyLayer(devicePolicy: .object(["managed": false, "enforced": .object(["telemetry.level": "off"])])) == nil)
+    }
+
+    /// Shared vector with backend/apps/api/test/team-enrollment.test.ts.
+    @Test func enrollmentTokenHashMatchesTheBackendVector() {
+        #expect(ManagedPreferences.enrollmentTokenHash("cmxe_shared_vector_v1") == "gBhFw31wF2LFrvU2l8Xgno2GFgrlOQQkj_hhy9_5fvw")
+        #expect(ManagedPreferences(forced: ["EnrollmentToken": "  tok \n"]).enrollmentToken == "tok")
+        #expect(ManagedPreferences(recommended: ["EnrollmentToken": ""]).enrollmentToken == nil)
+    }
 }
