@@ -351,8 +351,12 @@ describe("mock transport", () => {
     const rows = snapshots.at(-1)!.rows;
     expect(rows.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Recorded answer."]);
     const user = rows.find((row) => row.kind === "user")!;
-    expect(rows.find((row) => row.kind === "assistant")!.at - user.at).toBeGreaterThanOrEqual(2_000);
-    expect(rows.find((row) => row.kind === "turnSummary")!.at - user.at).toBeGreaterThanOrEqual(15_000);
+    // The recording's offsets, not the replay's few real milliseconds. The user row and the
+    // replay's start read the clock separately, so allow a little slack between them (CI once
+    // measured 1999 for the 2000 ms step).
+    const SLACK_MS = 50;
+    expect(rows.find((row) => row.kind === "assistant")!.at - user.at).toBeGreaterThanOrEqual(2_000 - SLACK_MS);
+    expect(rows.find((row) => row.kind === "turnSummary")!.at - user.at).toBeGreaterThanOrEqual(15_000 - SLACK_MS);
     client.close();
   });
 });

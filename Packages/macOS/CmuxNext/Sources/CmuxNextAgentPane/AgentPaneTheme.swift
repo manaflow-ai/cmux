@@ -12,7 +12,7 @@ import Foundation
 /// to text contrast over the code card (the elevated surface): terminals
 /// tolerate a dim yellow on white that code text can't.
 enum AgentPaneTheme {
-    static func values(_ tokens: ThemeTokens) -> [String: any Sendable] {
+    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.policy) -> [String: any Sendable] {
         let page = pageColor(tokens)
         var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
@@ -45,6 +45,14 @@ enum AgentPaneTheme {
             "palette": tokens.ansi.prefix(16).map { color in
                 css(ThemeTokens.readable(color, over: tokens.elevatedBackground, minimum: ThemeTokens.minimumTextContrast))
             },
+            // The page's hover fills, focus rings and menu fades (`--agent-motion-*`), in
+            // seconds after ui.animationSpeed and Reduce Motion, so they pace with the chrome.
+            "motion": [
+                "hover": motion.duration(MotionFade.hover),
+                "focus": motion.duration(MotionFade.focus),
+                "fadeIn": motion.duration(MotionFade.fadeIn),
+                "fadeOut": motion.duration(MotionFade.fadeOut),
+            ],
         ]
     }
 

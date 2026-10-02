@@ -374,7 +374,7 @@ export function Composer({
                 type="submit"
                 className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`}
                 aria-label={COMPOSER_LABELS.send}
-                title={COMPOSER_LABELS.send}
+                title={t("composer.sendTooltip")}
               >
                 <ArrowUpIcon />
               </button>
