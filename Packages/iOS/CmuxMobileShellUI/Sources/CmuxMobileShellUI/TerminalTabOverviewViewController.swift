@@ -94,8 +94,6 @@ final class TerminalTabOverviewViewController: UIViewController {
     private var hintIsVisible = true
     private var isPrivateMode = false
     private var manualOrderIDs: [MobileTerminalPreview.ID]?
-    private var menuDismissControl: UIControl?
-    private var tabMenu: TerminalTabOverviewMenuView?
     private var searchOverlay: TerminalTabOverviewSearchOverlay?
     private var draggingID: MobileTerminalPreview.ID?
     private var presentationBackgrounds: [(UIView, UIColor?)] = []
@@ -281,7 +279,14 @@ final class TerminalTabOverviewViewController: UIViewController {
             accessibilityLabel: L10n.string("mobile.terminal.overview.layout", defaultValue: "Tab Layout"),
             accessibilityIdentifier: "MobileTerminalOverviewLayout"
         )
-        layoutButton.addTarget(self, action: #selector(layoutTapped), for: .touchUpInside)
+        layoutButton.menu = UIMenu(children: [
+            UIAction(
+                title: "Organize Tabs",
+                subtitle: "Never",
+                image: UIImage(systemName: "rectangle.stack")
+            ) { _ in },
+        ])
+        layoutButton.showsMenuAsPrimaryAction = true
         topBar.addSubview(layoutButton)
 
         configureCircleButton(
@@ -293,6 +298,14 @@ final class TerminalTabOverviewViewController: UIViewController {
         // Safari presents these two actions through UIKit's menu presenter.
         // Using UIButton.menu keeps the Liquid Glass surface, focus behavior,
         // dismissal animation, and VoiceOver hierarchy in UIKit's ownership.
+        let arrangeTabsMenu = UIMenu(
+            title: "Arrange Tabs By",
+            image: UIImage(systemName: "arrow.up.arrow.down"),
+            children: [
+                UIAction(title: "Title") { _ in },
+                UIAction(title: "Website") { _ in },
+            ]
+        )
         moreButton.menu = UIMenu(children: [
             UIAction(
                 title: "Manage Tab Groups",
@@ -302,6 +315,7 @@ final class TerminalTabOverviewViewController: UIViewController {
                 title: "Select Tabs",
                 image: UIImage(systemName: "checkmark.circle")
             ) { _ in },
+            arrangeTabsMenu,
         ])
         moreButton.showsMenuAsPrimaryAction = true
         topBar.addSubview(moreButton)
@@ -421,7 +435,9 @@ final class TerminalTabOverviewViewController: UIViewController {
             width: max(0, bounds.width - 32),
             height: max(0, bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom - 160)
         )
-        privateBrowsingView.isHidden = !isPrivateMode
+        if !isTransitioning {
+            privateBrowsingView.isHidden = !isPrivateMode
+        }
         // Safari presents the locked-private explanation as a bottom sheet. It
         // leaves the status bar and the top controls in the warm canvas while
         // the sheet owns the lower edge and its safe-area backdrop.
@@ -618,7 +634,6 @@ final class TerminalTabOverviewViewController: UIViewController {
 
     @objc private func searchTapped() {
         guard searchOverlay == nil else { return }
-        dismissMenu(animated: true)
         let overlay = TerminalTabOverviewSearchOverlay()
         overlay.onClose = { [weak self] in
             self?.dismissSearch(animated: true)
@@ -641,10 +656,6 @@ final class TerminalTabOverviewViewController: UIViewController {
         // up the keyboard and makes the search affordance immediately usable.
         overlay.searchField.becomeFirstResponder()
         UIAccessibility.post(notification: .screenChanged, argument: overlay.searchField)
-    }
-
-    @objc private func layoutTapped() {
-        toggleMenu(kind: .layout)
     }
 
     @objc private func newTerminalTapped() {
@@ -682,80 +693,8 @@ final class TerminalTabOverviewViewController: UIViewController {
     }
 
     @objc private func groupChanged() {
+        guard !isTransitioning else { return }
         setPrivateMode(groupControl.selectedSegmentIndex == 0, animated: true)
-    }
-
-    private func toggleMenu(kind: TerminalTabOverviewMenuKind) {
-        guard searchOverlay == nil, !isPrivateMode else { return }
-        if tabMenu != nil {
-            dismissMenu(animated: true)
-            return
-        }
-
-        let dismissControl = UIControl(frame: view.bounds)
-        dismissControl.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        dismissControl.accessibilityIdentifier = "MobileTerminalOverviewMenuDismiss"
-        dismissControl.addTarget(self, action: #selector(menuBackgroundTapped), for: .touchUpInside)
-        view.addSubview(dismissControl)
-        view.bringSubviewToFront(topBar)
-        view.bringSubviewToFront(bottomBar)
-        menuDismissControl = dismissControl
-
-        let menu = TerminalTabOverviewMenuView(kind: kind)
-        menu.onAction = { [weak self] in
-            self?.dismissMenu(animated: true)
-        }
-        menu.translatesAutoresizingMaskIntoConstraints = true
-        let anchor = kind == .layout ? layoutButton : moreButton
-        let anchorFrame = view.convert(anchor.frame, from: anchor.superview)
-        let menuWidth = min(kind == .layout ? 240 : 258, view.bounds.width - 32)
-        let menuHeight: CGFloat = kind == .layout ? 84 : 112
-        let menuX: CGFloat
-        if kind == .layout {
-            menuX = (view.bounds.width - menuWidth) / 2
-        } else {
-            menuX = min(
-                max(anchorFrame.minX - menuWidth + anchorFrame.width, 16),
-                view.bounds.width - menuWidth - 8
-            )
-        }
-        menu.frame = CGRect(
-            x: menuX,
-            y: kind == .layout ? anchorFrame.minY + 2 : anchorFrame.minY,
-            width: menuWidth,
-            height: menuHeight
-        )
-        menu.alpha = 0
-        menu.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
-        view.addSubview(menu)
-        view.bringSubviewToFront(menu)
-        tabMenu = menu
-        UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
-            menu.alpha = 1
-            menu.transform = .identity
-        }
-    }
-
-    @objc private func menuBackgroundTapped() {
-        dismissMenu(animated: true)
-    }
-
-    private func dismissMenu(animated: Bool) {
-        guard let menu = tabMenu else { return }
-        let finish = { [weak self] in
-            menu.removeFromSuperview()
-            self?.menuDismissControl?.removeFromSuperview()
-            self?.menuDismissControl = nil
-            self?.tabMenu = nil
-        }
-        guard animated else {
-            finish()
-            return
-        }
-        UIView.animate(withDuration: 0.16, animations: {
-            menu.alpha = 0
-            menu.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
-        }, completion: { _ in finish() })
     }
 
     private func dismissSearch(animated: Bool) {
@@ -794,36 +733,72 @@ final class TerminalTabOverviewViewController: UIViewController {
 
     private func setPrivateMode(_ privateMode: Bool, animated: Bool) {
         guard privateMode != isPrivateMode else { return }
+        let regularViews: [UIView] = [hintCard] + Array(cards.values)
+        let horizontalOffset = view.bounds.width
         isPrivateMode = privateMode
-        dismissMenu(animated: false)
         groupControl.selectedSegmentIndex = privateMode ? 0 : 1
         if !privateMode {
             dismissPrivateLock(animated: false)
         }
 
+        // Safari keeps the fixed chrome in place and pages the tab content
+        // horizontally. Prepare both pages before layoutChrome updates their
+        // frames so the transition remains a single UIKit transaction.
+        regularViews.forEach {
+            $0.isHidden = false
+            $0.alpha = 1
+            $0.transform = privateMode
+                ? .identity
+                : CGAffineTransform(translationX: horizontalOffset, y: 0)
+        }
+        privateBrowsingView.isHidden = false
+        privateBrowsingView.alpha = 1
+        privateBrowsingView.transform = privateMode
+            ? CGAffineTransform(translationX: -horizontalOffset, y: 0)
+            : .identity
+        groupControl.isUserInteractionEnabled = false
+
         let changes = { [weak self] in
             guard let self else { return }
-            self.hintCard.alpha = privateMode ? 0 : (self.hintIsVisible ? 1 : 0)
-            self.cards.values.forEach { $0.alpha = privateMode ? 0 : 1; $0.isHidden = privateMode }
-            self.privateBrowsingView.alpha = privateMode ? 1 : 0
             self.layoutButton.isHidden = privateMode
             self.presentationBottomBackdrop?.backgroundColor = self.bottomCanvasColor
             self.view.setNeedsLayout()
             self.view.layoutIfNeeded()
+            regularViews.forEach {
+                $0.transform = privateMode ? CGAffineTransform(translationX: horizontalOffset, y: 0) : .identity
+            }
+            self.privateBrowsingView.transform = privateMode ? .identity : CGAffineTransform(translationX: -horizontalOffset, y: 0)
+            self.hintCard.alpha = privateMode ? 0 : (self.hintIsVisible ? 1 : 0)
             UIAccessibility.post(
                 notification: .screenChanged,
                 argument: privateMode ? self.privateBrowsingView : self.groupControl
             )
         }
+        let finish = { [weak self] in
+            guard let self else { return }
+            self.groupControl.isUserInteractionEnabled = true
+            regularViews.forEach {
+                $0.transform = .identity
+                $0.isHidden = privateMode
+            }
+            self.privateBrowsingView.transform = .identity
+            self.privateBrowsingView.isHidden = !privateMode
+            self.privateBrowsingView.alpha = 1
+            self.hintCard.alpha = privateMode ? 0 : (self.hintIsVisible ? 1 : 0)
+            self.isTransitioning = false
+        }
         if animated {
+            isTransitioning = true
             UIView.animate(
-                withDuration: 0.32,
+                withDuration: 0.36,
                 delay: 0,
                 options: [.curveEaseInOut, .beginFromCurrentState],
-                animations: changes
+                animations: changes,
+                completion: { _ in finish() }
             )
         } else {
             changes()
+            finish()
         }
     }
 
@@ -1059,138 +1034,6 @@ private final class TerminalTabOverviewPrivateLockView: UIView {
 
     @objc private func dismissTapped() {
         onDismiss?()
-    }
-}
-
-@MainActor
-private enum TerminalTabOverviewMenuKind: Equatable {
-    case layout
-    case more
-}
-
-@MainActor
-private final class TerminalTabOverviewMenuRow: UIControl {
-    private let iconView: UIImageView
-    private let titleLabel = UILabel()
-    private let subtitleLabel = UILabel()
-    private let chevronView = UIImageView(image: UIImage(systemName: "chevron.right"))
-
-    init(title: String, subtitle: String? = nil, imageName: String, showsChevron: Bool) {
-        iconView = UIImageView(image: UIImage(systemName: imageName))
-        super.init(frame: .zero)
-        isAccessibilityElement = true
-        accessibilityTraits = .button
-        accessibilityLabel = subtitle.map { "\(title), \($0)" } ?? title
-
-        iconView.tintColor = .label
-        iconView.contentMode = .scaleAspectFit
-        addSubview(iconView)
-
-        titleLabel.text = title
-        titleLabel.textColor = .label
-        titleLabel.font = .systemFont(ofSize: 18, weight: .regular)
-        addSubview(titleLabel)
-
-        subtitleLabel.text = subtitle
-        subtitleLabel.textColor = .secondaryLabel
-        subtitleLabel.font = .systemFont(ofSize: 14, weight: .regular)
-        subtitleLabel.isHidden = subtitle == nil
-        addSubview(subtitleLabel)
-
-        chevronView.tintColor = .label
-        chevronView.contentMode = .scaleAspectFit
-        chevronView.isHidden = !showsChevron
-        addSubview(chevronView)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        iconView.frame = CGRect(x: 4, y: (bounds.height - 24) / 2, width: 24, height: 24)
-        let textX: CGFloat = 46
-        if subtitleLabel.isHidden {
-            titleLabel.frame = CGRect(x: textX, y: 0, width: max(0, bounds.width - textX - 30), height: bounds.height)
-        } else {
-            titleLabel.frame = CGRect(x: textX, y: 7, width: max(0, bounds.width - textX - 30), height: 25)
-            subtitleLabel.frame = CGRect(x: textX, y: 38, width: max(0, bounds.width - textX - 30), height: 20)
-        }
-        chevronView.frame = CGRect(x: bounds.width - 23, y: (bounds.height - 18) / 2, width: 14, height: 18)
-    }
-}
-
-@MainActor
-private final class TerminalTabOverviewMenuView: UIView {
-    var onAction: (() -> Void)?
-
-    private let kind: TerminalTabOverviewMenuKind
-    private let blurView = UIVisualEffectView(effect: nil)
-    private let stack = UIStackView()
-
-    init(kind: TerminalTabOverviewMenuKind) {
-        self.kind = kind
-        super.init(frame: .zero)
-        layer.cornerRadius = 30
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.16
-        layer.shadowRadius = 20
-        layer.shadowOffset = CGSize(width: 0, height: 9)
-
-        blurView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        blurView.layer.cornerRadius = 30
-        blurView.clipsToBounds = true
-        configureLiquidGlassMaterial(blurView)
-        addSubview(blurView)
-
-        stack.axis = .vertical
-        stack.alignment = .fill
-        stack.distribution = .fill
-        stack.spacing = 0
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-        ])
-
-        switch kind {
-        case .layout:
-            let row = TerminalTabOverviewMenuRow(
-                title: "Organize Tabs",
-                subtitle: "Never",
-                imageName: "rectangle.stack",
-                showsChevron: true
-            )
-            row.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
-            stack.addArrangedSubview(row)
-            row.heightAnchor.constraint(equalToConstant: 68).isActive = true
-        case .more:
-            for (title, imageName) in [("Manage Tab Groups", "list.bullet"), ("Select Tabs", "checkmark.circle")] {
-                let row = TerminalTabOverviewMenuRow(title: title, imageName: imageName, showsChevron: false)
-                row.addTarget(self, action: #selector(actionTapped), for: .touchUpInside)
-                stack.addArrangedSubview(row)
-                row.heightAnchor.constraint(equalToConstant: 48).isActive = true
-            }
-        }
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        blurView.frame = bounds
-    }
-
-    @objc private func actionTapped() {
-        onAction?()
     }
 }
 
