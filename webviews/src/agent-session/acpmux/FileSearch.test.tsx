@@ -159,6 +159,48 @@ test("only the newest query's answer lands, and a failed search says so", async 
   expect(note()).toBe("Couldn't search files");
 });
 
+test("an input method's Enter and Escape stay with it; Enter mid-search picks the row on screen; Tab closes", async () => {
+  const picked: string[] = [];
+  let closed = 0;
+  let hold: ((value: unknown) => void) | undefined;
+  await act(async () =>
+    root.render(
+      createElement(FileSearch, {
+        search: (query: string) =>
+          query === "retry"
+            ? Promise.resolve(mockFileSearch("~/code/cmux", query, 50))
+            : new Promise((resolve) => {
+                hold = resolve;
+              }),
+        onPick: (path: string) => picked.push(path),
+        onClose: () => closed++,
+        debounceMs: 0,
+      }),
+    ),
+  );
+  await act(async () => typeInto(field(), "retry"));
+  await settle();
+  const composing = (name: string) =>
+    act(async () => {
+      const event = new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true });
+      Object.defineProperty(event, "isComposing", { value: true });
+      field().dispatchEvent(event);
+    });
+  await composing("Enter");
+  await composing("Escape");
+  expect(picked).toEqual([]);
+  expect(closed).toBe(0);
+  // A newer query is out; the row on screen is still the one Enter picks.
+  await act(async () => typeInto(field(), "retry."));
+  await settle();
+  expect(results()[0]).toBe("retry.tsSources/Fleet >");
+  await key("Enter");
+  expect(picked).toEqual(["Sources/Fleet/retry.ts"]);
+  hold?.(mockFileSearch("~/code/cmux", "retry.", 50));
+  await key("Tab");
+  expect(closed).toBe(1);
+});
+
 const snapshot = (): AcpmuxSnapshot => ({
   type: "snapshot",
   protocolVersion: 1,
@@ -217,6 +259,30 @@ test("+ then Search files mentions the picked file at the caret, and Escape retu
   await key("Escape");
   expect(doc.querySelector(".acpmux-file-search")).toBeNull();
   expect(doc.activeElement).toBe(prompt);
+});
+
+test("a picked path with a space is quoted, so the agent reads the whole mention", async () => {
+  await act(async () =>
+    root.render(
+      createElement(Composer, {
+        snapshot: snapshot(),
+        chips: () => null,
+        onSend: () => {},
+        onStop: () => {},
+        searchFiles: async () => ({ root: "~/notes", results: [{ path: 'docs/My "big" Notes.md' }] }),
+      }),
+    ),
+  );
+  await act(async () => doc.querySelector<HTMLButtonElement>('[aria-label="Add"]')!.click());
+  await act(async () => {
+    [...doc.querySelectorAll("[role=option]")]
+      .find((option) => option.textContent === "Search files")!
+      .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+  await act(async () => typeInto(field(), "notes"));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 120)));
+  await key("Enter");
+  expect(doc.querySelector("textarea")!.value).toBe('@"docs/My \\"big\\" Notes.md" ');
 });
 
 test("the mock daemon answers git.files.search for the session's own folder", async () => {

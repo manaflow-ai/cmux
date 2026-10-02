@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
 import {
@@ -59,6 +60,9 @@ type Props = {
 /// so its arguments can follow.
 export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, accessory, onAttach, searchFiles }: Props) {
   const [findingFiles, setFindingFiles] = useState(false);
+  // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
+  // main column), not inside the composer the slash menu anchors to.
+  const form = useRef<HTMLFormElement>(null);
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -131,7 +135,9 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     if (composing.current) return;
     const at = textarea.current?.selectionStart ?? text.length;
     const before = text.slice(0, at);
-    const insert = (before && !/\s$/.test(before) ? " @" : "@") + (path ? `${path} ` : "");
+    // A path with a space is quoted, or an agent would read the mention only up to it.
+    const mentioned = path && /\s/.test(path) ? `"${path.replace(/"/g, '\\"')}"` : path;
+    const insert = (before && !/\s$/.test(before) ? " @" : "@") + (mentioned ? `${mentioned} ` : "");
     plusDraft.current = undefined;
     pendingCaret.current = at + insert.length;
     edit(before + insert + text.slice(at), at + insert.length);
@@ -202,7 +208,7 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     else if (open) setDismissed(text);
   };
   return (
-    <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
+    <form ref={form} className="acpmux-composer" onSubmit={submit} onBlur={blur}>
       {snapshot.queue.length > 0 && (
         <ol className="acpmux-composer-queue" aria-label={COMPOSER_LABELS.queue}>
           {snapshot.queue.map((entry) => (
@@ -216,19 +222,23 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
         </ol>
       )}
       <ComposerContext summary={snapshot.summary} />
-      {findingFiles && searchFiles && (
-        <FileSearch
-          search={searchFiles}
-          onClose={() => {
-            setFindingFiles(false);
-            textarea.current?.focus();
-          }}
-          onPick={(path) => {
-            setFindingFiles(false);
-            mention(path);
-          }}
-        />
-      )}
+      {findingFiles &&
+        searchFiles &&
+        form.current?.parentElement &&
+        createPortal(
+          <FileSearch
+            search={searchFiles}
+            onClose={() => {
+              setFindingFiles(false);
+              textarea.current?.focus();
+            }}
+            onPick={(path) => {
+              setFindingFiles(false);
+              mention(path);
+            }}
+          />,
+          form.current.parentElement,
+        )}
       <div className="acpmux-composer-box">
         {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
         {open && (

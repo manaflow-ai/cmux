@@ -51,7 +51,12 @@ export function FileSearch({
       if (!root.current?.contains(event.target as Node)) onCloseRef.current();
     };
     document.addEventListener("pointerdown", away);
-    return () => document.removeEventListener("pointerdown", away);
+    const requests = generation;
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      // A request still in flight answers into a closed palette; its answer is dropped.
+      requests.current++;
+    };
   }, []);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -92,6 +97,8 @@ export function FileSearch({
   };
 
   const keyDown = (event: React.KeyboardEvent) => {
+    // Keys that commit or cancel an input method's text belong to it, not the palette.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -102,7 +109,10 @@ export function FileSearch({
         setActive((selected + (event.key === "ArrowDown" ? 1 : -1) + results.length) % results.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      if (state.kind === "done") pick(results[selected]);
+      // While a newer query is out, the highlighted row on screen is still what Enter picks.
+      pick(results[selected]);
+    } else if (event.key === "Tab") {
+      onClose();
     }
   };
 
