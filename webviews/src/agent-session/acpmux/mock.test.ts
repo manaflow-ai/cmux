@@ -26,4 +26,37 @@ describe("mock transport", () => {
     expect(diffs.map((diff) => diff.path)).toEqual(["/mock/project/src/greeting.ts", "/mock/project/NOTES.md"]);
     client.close();
   });
+
+  const connectMock = async (snapshots: AcpmuxSnapshot[], delay: (ms: number) => Promise<void> = () => Promise.resolve()) => {
+    (globalThis as any).window ??= globalThis;
+    return AcpmuxDirectClient.connect(mockHost, (snapshot) => snapshots.push(snapshot), undefined, () => new MockAcpmuxSocket(delay) as unknown as WebSocket);
+  };
+  const until = async (done: () => boolean) => { for (let tries = 0; tries < 50 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0)); };
+
+  test("Stop ends the scripted turn as cancelled", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    let release: () => void = () => {};
+    const client = await connectMock(snapshots, () => new Promise<void>((resolve) => { release = resolve; }));
+    const sent = client.send("hello");
+    await until(() => snapshots.at(-1)?.isWorking === true);
+    await client.cancel();
+    release();
+    await sent;
+    await until(() => snapshots.at(-1)?.rows.some((row) => row.kind === "turnSummary") === true);
+    expect(snapshots.at(-1)?.rows.find((row) => row.kind === "turnSummary")?.status).toBe("cancelled");
+    expect(snapshots.at(-1)?.isWorking).toBe(false);
+    client.close();
+  });
+
+  test("a new chat is a session of its own with an empty transcript", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const client = await connectMock(snapshots);
+    const created = await client.create();
+    client.snapshot();
+    expect(created).not.toBe(mockHost.sessionId);
+    expect(snapshots.at(-1)?.sessionId).toBe(created);
+    expect(snapshots.at(-1)?.rows).toEqual([]);
+    expect(snapshots.at(-1)?.sessions.map((entry) => entry.sessionId)).toContain(created);
+    client.close();
+  });
 });

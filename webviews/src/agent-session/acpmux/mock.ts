@@ -49,14 +49,17 @@ export class MockAcpmuxSocket {
   onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
+  private sessions = [{ ...session }];
   private events: EventRecord[] = [];
   private seq = 0;
   private turns = 0;
   private running?: { cancelled: boolean };
+  /// Prompts run one at a time, as the daemon queues them.
+  private queue: Promise<unknown> = Promise.resolve();
 
   /// `delay` paces the scripted turn; tests pass one that resolves at once.
   constructor(private readonly delay: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))) {
-    this.record({ update: text("Mock agent session. Type a prompt to see the pane render a turn.") });
+    this.record(sessionId, { update: text("Mock agent session. Type a prompt to see the pane render a turn.") });
     queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
   }
 
@@ -70,46 +73,59 @@ export class MockAcpmuxSocket {
     );
   }
 
-  close(): void { this.readyState = 3; }
+  close(): void {
+    this.readyState = 3;
+    if (this.running) this.running.cancelled = true;
+  }
 
   private async answer(method: string, params: Record<string, any>): Promise<unknown> {
+    const target = String(params.sessionId ?? sessionId);
     switch (method) {
-      case "_acpmux/watch": return { sessions: [session] };
+      case "_acpmux/watch": return { sessions: this.sessions };
       case "_acpmux/harnesses": return { harnesses };
-      case "_acpmux/attach": return { session, events: this.events };
-      case "_acpmux/events": return { events: this.events.filter((event) => event.seq > Number(params.afterSeq ?? 0)) };
-      case "session/new": return { sessionId };
-      case "session/prompt": return this.prompt(String(params.prompt?.[0]?.text ?? ""), params._meta?.acpmux?.promptId);
+      case "_acpmux/attach": return { session: this.sessions.find((entry) => entry.sessionId === target), events: this.events.filter((event) => event.sessionId === target) };
+      case "_acpmux/events": return { events: this.events.filter((event) => event.sessionId === target && event.seq > Number(params.afterSeq ?? 0)) };
+      case "session/new": {
+        const created = { ...session, sessionId: `mock-session-${this.sessions.length + 1}`, title: "New chat" };
+        this.sessions.push(created);
+        this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
+        return { sessionId: created.sessionId };
+      }
+      case "session/prompt": {
+        const turn = this.queue.then(() => this.prompt(target, String(params.prompt?.[0]?.text ?? ""), params._meta?.acpmux?.promptId));
+        this.queue = turn.catch(() => undefined);
+        return turn;
+      }
       default: return {};
     }
   }
 
-  private async prompt(prompt: string, promptId?: string): Promise<unknown> {
+  private async prompt(target: string, prompt: string, promptId?: string): Promise<unknown> {
     this.turns += 1;
     const running = { cancelled: false };
     this.running = running;
-    this.emit({ mux: "user_message", msg: { text: prompt, promptId } });
-    this.emit({ mux: "turn_started" });
+    this.emit(target, { mux: "user_message", msg: { text: prompt, promptId } });
+    this.emit(target, { mux: "turn_started" });
     for (const step of mockTurn(prompt, this.turns)) {
       await this.delay(350);
       if (running.cancelled) break;
-      this.emit(step);
+      this.emit(target, step);
     }
-    this.emit({ mux: "turn_result", msg: { status: running.cancelled ? "cancelled" : "completed" } });
+    this.emit(target, { mux: "turn_result", msg: { status: running.cancelled ? "cancelled" : "completed" } });
     this.running = undefined;
     return { stopReason: running.cancelled ? "cancelled" : "end_turn" };
   }
 
-  private record(step: Step): EventRecord {
+  private record(target: string, step: Step): EventRecord {
     this.seq += 1;
     const event: EventRecord = "update" in step
-      ? { sessionId, seq: this.seq, at: Date.now(), dir: "in", kind: String(step.update.sessionUpdate), msg: { method: "session/update", params: { sessionId, update: step.update } } }
-      : { sessionId, seq: this.seq, at: Date.now(), dir: "mux", kind: step.mux, msg: step.msg ?? {} };
+      ? { sessionId: target, seq: this.seq, at: Date.now(), dir: "in", kind: String(step.update.sessionUpdate), msg: { method: "session/update", params: { sessionId: target, update: step.update } } }
+      : { sessionId: target, seq: this.seq, at: Date.now(), dir: "mux", kind: step.mux, msg: step.msg ?? {} };
     this.events.push(event);
     return event;
   }
 
-  private emit(step: Step): void { this.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: this.record(step) }); }
+  private emit(target: string, step: Step): void { this.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: this.record(target, step) }); }
 
   private deliver(message: unknown): void {
     queueMicrotask(() => { if (this.readyState === 1) this.onmessage?.({ data: JSON.stringify(message) }); });
