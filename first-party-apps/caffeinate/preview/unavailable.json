@@ -1,0 +1,35 @@
+{
+  "grant": [
+    "power:read",
+    "power:write",
+    "terminal:read",
+    "mcp:expose",
+    "actions:run"
+  ],
+  "scopes": {
+    "power.assertion.list": {
+      "scope": "power:read",
+      "class": "read"
+    },
+    "power.assertion.create": {
+      "scope": "power:write",
+      "class": "mutation"
+    },
+    "power.assertion.release": {
+      "scope": "power:write",
+      "class": "mutation"
+    },
+    "app.settings.set": {
+      "scope": "settings:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "power.assertion.list": {
+      "$error": {
+        "code": "operation.unsupported",
+        "message": "power.assertion.list is not supported by this host yet"
+      }
+    }
+  }
+}

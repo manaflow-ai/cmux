@@ -208,6 +208,15 @@ Ports and policy: a host's overlay endpoint accepts only registered ports: 4100 
 
 In-process TCP defaults (`cmux-wg`): Nagle off; keepalive probe after 15 s idle; link connections use a 10-minute user timeout (60 s today, being raised); a FIN lost on close is a known bug from the remote desktop prototype, with a regression test in the engine round.
 
+### 12b. Answers to lanes 13 and 17 (round 3)
+
+- Port numbers: overlay UDP 4102 is taken by path probes inside the session. Remote desktop media, input, cursor and feedback datagrams use 4103 (service name `remote-desktop`). remote-desktop.md section 6 and its policy example (`autogroup:self:4102`) should move to 4103 and to the service name (`autogroup:self:remote-desktop`).
+- Datagram payload: `max_datagram` is 1152 bytes for a session that may use the Freestyle path (VPC hosts) and 1332 bytes otherwise, fixed for the session's life and reported in every `path.changed` event. remote-desktop.md's estimates (about 1150 and about 1350) match within the headers.
+- Relay batching is landed (`cmux_transport::relay_frame`, kind `datagrams`, up to 16 KiB of length-prefixed datagrams per message): one relay message carries about 14 media datagrams, so the per-object ceiling of about 4,000 messages per second is no longer the video limit; the relay's byte rate (21 MB/s measured with 16 KiB messages) is. remote-desktop.md section 6.6 ("one WireGuard datagram per message") is out of date.
+- Session close: a lost FIN on a stream close is resent by TCP (end seen after 3.02 s in the engine test); a close lost at tunnel shutdown is now resent after shutdown (end seen after 410 ms instead of 60 s). Landed in 99ca23d8102.
+- Terminal frame fields (`kind` snapshot or bytes, `generation`, `offset`), per-viewer credit and `presence.set {visible, counts}` are `cmux.wire/1` channel and presence fields (sync-and-transport.md sections 3 and 4). The overlay carries those frames unchanged and adds nothing to them; the spec owner adds the fields there. The overlay's part is section 12a: the interactive and bulk connections, no drops, and path events for the badge and RTT.
+- First connect on a long-idle Freestyle tunnel: the engine forces one new handshake when a fresh session gets no answer within max(1 s, 2x RTT) (round 3), so a remote desktop or terminal attach after idle waits about 1 s, not 15 s.
+
 ## 13. Measurements (2026-10-02)
 
 The local development Mac had a load of about 800 on 18 cores, so no timing was taken from it. Ends were Fly.io machines (shared-cpu-1x, 256 MB, sjc unless named), a Freestyle VM (`freestyle/ubuntu-sm`, San Francisco) and a lightly loaded fleet Mac mini behind the office NAT. Raw files and scripts are in the lane's private scratch directory.
