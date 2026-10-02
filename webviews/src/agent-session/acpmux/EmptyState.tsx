@@ -17,13 +17,15 @@ export function projectName(cwd: string | undefined): string | undefined {
 }
 
 /// A new chat: the attached session's own summary says it has no turns yet and
-/// nothing is on screen. Requiring that summary keeps the hero away while no
-/// daemon is reachable and between a session's reset and its attach.
+/// nothing is on screen or queued. Requiring that summary keeps the hero away while
+/// no daemon is reachable and between a session's reset and its attach. A daemon
+/// that doesn't count turns still has older history to page in for an old session.
 export function isNewChat(snapshot: AcpmuxSnapshot): boolean {
   const summary = snapshot.summary;
   if (!summary || summary.sessionId !== snapshot.sessionId) return false;
   if (/^(connecting|disconnected|failed)/.test(snapshot.connection)) return false;
-  return snapshot.rows.length === 0 && !snapshot.isWorking && (summary.turnCount ?? 0) === 0;
+  const turns = summary.turnCount ?? (snapshot.canLoadOlder ? 1 : 0);
+  return snapshot.rows.length === 0 && !snapshot.isWorking && snapshot.queue.length === 0 && turns === 0;
 }
 
 /// A new chat's hero, centered in place of the empty transcript as Codex's home and

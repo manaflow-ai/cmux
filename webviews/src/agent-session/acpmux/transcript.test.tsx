@@ -657,10 +657,10 @@ describe("acpmux turn counts", () => {
 
 describe("acpmux new chat", () => {
   /// A new chat drew an empty transcript; it now names the project, as Codex's home and new-chat screens do.
-  test("an attached session with no turns shows the hero with its folder; rows, turns, a lost daemon or a missing summary hide it", async () => {
+  test("an attached session with no turns shows the hero with its folder; rows, turns, a queued prompt, a lost daemon or a missing summary hide it", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window;
-    const snapshot = ({ rows = [] as unknown[], connection = "connected", cwd = "/Users/me/harness-research/" as string | undefined, turnCount = 0, summary = true } = {}) => ({ type: "snapshot", protocolVersion: 1, rows, sessions: [], connection, sessionId: "s", isWorking: false, queue: [], canLoadOlder: true, catalog: [], summary: summary ? { sessionId: "s", cwd, turnCount } : undefined });
+    const snapshot = ({ rows = [] as unknown[], connection = "connected", cwd = "/Users/me/harness-research/" as string | undefined, turnCount = 0 as number | null, summary = true, queue = [] as { id: string; prompt: string }[], canLoadOlder = true } = {}) => ({ type: "snapshot", protocolVersion: 1, rows, sessions: [], connection, sessionId: "s", isWorking: false, queue, canLoadOlder, catalog: [], summary: summary ? { sessionId: "s", cwd, turnCount: turnCount ?? undefined } : undefined });
     const hero = () => dom.window.document.querySelector(".acpmux-empty-title")?.textContent;
     const show = async (value: ReturnType<typeof snapshot>) => act(async () => host.cmuxAcpmuxBridge!.receive(value as never));
     try {
@@ -677,6 +677,14 @@ describe("acpmux new chat", () => {
       expect(hero()).toBeUndefined();
       await show(snapshot({ turnCount: 2 }));
       expect(hero()).toBeUndefined();
+      // A prompt waiting to start is not an empty chat.
+      await show(snapshot({ queue: [{ id: "p1", prompt: "first" }] }));
+      expect(hero()).toBeUndefined();
+      // A daemon that doesn't count turns (null here): older history means an old session.
+      await show(snapshot({ turnCount: null }));
+      expect(hero()).toBeUndefined();
+      await show(snapshot({ turnCount: null, canLoadOlder: false }));
+      expect(hero()).toBe("What should we build in harness-research?");
       await show(snapshot({ rows: [{ id: "u1", version: 1, at: 1, kind: "user", text: "hi" }] }));
       expect(hero()).toBeUndefined();
       expect(dom.window.document.querySelector(".acpmux-scroll")).not.toBeNull();
