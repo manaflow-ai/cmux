@@ -34,9 +34,9 @@ const GROUPS: Array<{ title: string; keys: Array<[string, Kind, string]> }> = [
   {
     title: "GitHub",
     keys: [
-      ["github.repoScope", { t: "enum", values: ["linking_user", "installation", "allow_list"] }, "linking_user"],
+      ["github.repoScope", { t: "enum", values: ["linking_user_repos", "installation"] }, "linking_user_repos"],
       ["github.requireOrgAdmin", { t: "bool" }, "false"],
-      ["github.repoAllowList", { t: "list" }, "none"]
+      ["github.repoAllowList", { t: "list" }, "none (no extra limit)"]
     ]
   },
   { title: "Integrations", keys: [["integrations.allowedProviders", { t: "listOrAll" }, "all"]] },
@@ -167,7 +167,8 @@ function Policy() {
       <p className="muted">
         Enforced keys are locked for every member and enforced by the owner of each operation. Default keys replace the product default; members can still
         change them. Unset keys stay the member's choice. Devices also honor MDM profiles (domain <code>com.manaflow.cmux</code>), which win over team policy.
-        Agent egress rules live in the team network policy.
+        GitHub and integration keys apply team-wide (enforced or default alike) and are enforced by the team's integrations. Agent egress rules live in the
+        team network policy.
       </p>
       {loaded.error ? <p className="error">{loaded.error}</p> : null}
       {policy ? (

@@ -4,6 +4,8 @@ import { admit, decodeParams, reject } from "./common.ts"
 import { reducePolicyRollback, reducePolicyUpdate, type PolicyState } from "./team-policy.ts"
 
 export interface TeamState extends PolicyState {
+  /** Last policy version ConnectionDO acknowledged (its integration projection). */
+  readonly integration_synced_version?: number
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
   readonly members: Readonly<Record<string, typeof TeamMember.Type>>
   readonly hosts: Readonly<Record<string, typeof Host.Type>>
@@ -19,6 +21,8 @@ export const teamDomain: Domain<TeamState> = {
   initial: () => ({ team: null, members: {}, hosts: {} }),
 
   authorize: (state, op, _params, principal) => {
+    // TeamDO's own ops (alarm work); admit allows a system principal only for internal ops.
+    if (principal.kind === "system") return admit("cloud:TeamDO", op, principal, () => undefined, Date.now())
     if (op !== "team.ensure_personal") {
       if (!principal.user || !state.members[principal.user]) return { code: "auth.forbidden", message: "not a member of this team" }
     }
@@ -78,6 +82,13 @@ export const teamDomain: Domain<TeamState> = {
           value: { host: host.id },
           outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }]
         }
+      }
+      case "team.policy.integration_synced": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        const version = (params as { version?: unknown })?.version
+        if (typeof version !== "number" || !Number.isInteger(version)) return reject("validation.invalid", "version must be an integer")
+        if (version <= (state.integration_synced_version ?? 0)) return { ok: true, state, value: { version }, changed: false }
+        return { ok: true, state: { ...state, integration_synced_version: version }, value: { version } }
       }
       case "team.policy.update":
       case "team.policy.rollback": {

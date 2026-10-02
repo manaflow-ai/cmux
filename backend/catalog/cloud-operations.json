@@ -2040,7 +2040,8 @@
               "default",
               "admin",
               "sso",
-              "mdm"
+              "mdm",
+              "team_policy"
             ]
           }
         },
@@ -2155,9 +2156,8 @@
                 "type": {
                   "kind": "enum",
                   "values": [
-                    "linking_user",
-                    "installation",
-                    "allow_list"
+                    "linking_user_repos",
+                    "installation"
                   ]
                 }
               },
@@ -2203,9 +2203,8 @@
                 "type": {
                   "kind": "array",
                   "items": {
-                    "kind": "primitive",
-                    "name": "string",
-                    "pattern": "^[A-Za-z0-9_.-]+\\/(\\*|[A-Za-z0-9_.-]+)$"
+                    "kind": "ref",
+                    "name": "RepoPattern"
                   }
                 }
               },
@@ -2238,9 +2237,8 @@
                     {
                       "kind": "array",
                       "items": {
-                        "kind": "primitive",
-                        "name": "string",
-                        "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+                        "kind": "ref",
+                        "name": "IntegrationProvider"
                       }
                     }
                   ]
@@ -17387,7 +17385,8 @@
                   "default",
                   "admin",
                   "sso",
-                  "mdm"
+                  "mdm",
+                  "team_policy"
                 ]
               },
               "locked": {
@@ -17676,7 +17675,8 @@
                   "default",
                   "admin",
                   "sso",
-                  "mdm"
+                  "mdm",
+                  "team_policy"
                 ]
               },
               "locked": {
@@ -18708,6 +18708,18 @@
               "default"
             ]
           },
+          "RepoPattern": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+          },
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          },
           "TeamPolicyValues": {
             "type": "object",
             "properties": {
@@ -18717,9 +18729,8 @@
                   "value": {
                     "type": "string",
                     "enum": [
-                      "linking_user",
-                      "installation",
-                      "allow_list"
+                      "linking_user_repos",
+                      "installation"
                     ]
                   },
                   "mode": {
@@ -18754,9 +18765,7 @@
                   "value": {
                     "type": "array",
                     "items": {
-                      "type": "string",
-                      "pattern": "^[A-Za-z0-9_.-]+\\/(\\*|[A-Za-z0-9_.-]+)$",
-                      "description": "owner/repo or owner/*"
+                      "$ref": "#/$defs/RepoPattern"
                     },
                     "maxItems": 500
                   },
@@ -18784,10 +18793,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
-                        },
-                        "maxItems": 200
+                          "$ref": "#/$defs/IntegrationProvider"
+                        }
                       }
                     ]
                   },
@@ -19383,6 +19390,18 @@
               "default"
             ]
           },
+          "RepoPattern": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+          },
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          },
           "TeamPolicyValues": {
             "type": "object",
             "properties": {
@@ -19392,9 +19411,8 @@
                   "value": {
                     "type": "string",
                     "enum": [
-                      "linking_user",
-                      "installation",
-                      "allow_list"
+                      "linking_user_repos",
+                      "installation"
                     ]
                   },
                   "mode": {
@@ -19429,9 +19447,7 @@
                   "value": {
                     "type": "array",
                     "items": {
-                      "type": "string",
-                      "pattern": "^[A-Za-z0-9_.-]+\\/(\\*|[A-Za-z0-9_.-]+)$",
-                      "description": "owner/repo or owner/*"
+                      "$ref": "#/$defs/RepoPattern"
                     },
                     "maxItems": 500
                   },
@@ -19459,10 +19475,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
-                        },
-                        "maxItems": 200
+                          "$ref": "#/$defs/IntegrationProvider"
+                        }
                       }
                     ]
                   },
@@ -20107,6 +20121,18 @@
               "default"
             ]
           },
+          "RepoPattern": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+          },
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          },
           "TeamPolicyValues": {
             "type": "object",
             "properties": {
@@ -20116,9 +20142,8 @@
                   "value": {
                     "type": "string",
                     "enum": [
-                      "linking_user",
-                      "installation",
-                      "allow_list"
+                      "linking_user_repos",
+                      "installation"
                     ]
                   },
                   "mode": {
@@ -20153,9 +20178,7 @@
                   "value": {
                     "type": "array",
                     "items": {
-                      "type": "string",
-                      "pattern": "^[A-Za-z0-9_.-]+\\/(\\*|[A-Za-z0-9_.-]+)$",
-                      "description": "owner/repo or owner/*"
+                      "$ref": "#/$defs/RepoPattern"
                     },
                     "maxItems": 500
                   },
@@ -20183,10 +20206,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
-                        },
-                        "maxItems": 200
+                          "$ref": "#/$defs/IntegrationProvider"
+                        }
                       }
                     ]
                   },
@@ -20857,6 +20878,18 @@
               "default"
             ]
           },
+          "RepoPattern": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,100}\\/([A-Za-z0-9_.-]{1,100}|\\*)$"
+          },
+          "IntegrationProvider": {
+            "type": "string",
+            "enum": [
+              "github",
+              "linear",
+              "slack"
+            ]
+          },
           "TeamPolicyValues": {
             "type": "object",
             "properties": {
@@ -20866,9 +20899,8 @@
                   "value": {
                     "type": "string",
                     "enum": [
-                      "linking_user",
-                      "installation",
-                      "allow_list"
+                      "linking_user_repos",
+                      "installation"
                     ]
                   },
                   "mode": {
@@ -20903,9 +20935,7 @@
                   "value": {
                     "type": "array",
                     "items": {
-                      "type": "string",
-                      "pattern": "^[A-Za-z0-9_.-]+\\/(\\*|[A-Za-z0-9_.-]+)$",
-                      "description": "owner/repo or owner/*"
+                      "$ref": "#/$defs/RepoPattern"
                     },
                     "maxItems": 500
                   },
@@ -20933,10 +20963,8 @@
                       {
                         "type": "array",
                         "items": {
-                          "type": "string",
-                          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
-                        },
-                        "maxItems": 200
+                          "$ref": "#/$defs/IntegrationProvider"
+                        }
                       }
                     ]
                   },

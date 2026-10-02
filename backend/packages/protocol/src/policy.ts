@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { IntegrationProvider, RepoPattern } from "./integrations.ts"
 
 /**
  * Team policy (spec/enterprise.md section 4): one typed record per team,
@@ -13,10 +14,6 @@ const policyValue = <S extends Schema.Top>(value: S) => Schema.Struct({ value, m
 
 const Int = Schema.Number.check(Schema.isInt())
 const intBetween = (min: number, max: number) => Int.check(Schema.isGreaterThanOrEqualTo(min), Schema.isLessThanOrEqualTo(max))
-const RepoPattern = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_.-]+\/(\*|[A-Za-z0-9_.-]+)$/)).annotate({
-  description: "owner/repo or owner/*"
-})
-const ProviderId = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9_-]{0,63}$/))
 const AppId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
 const Version = Schema.String.check(Schema.isPattern(/^[0-9]+(\.[0-9]+){0,3}$/))
 
@@ -27,10 +24,11 @@ export const AUDIT_RETENTION_MIN_DAYS = 365
 
 /** The value schema of every policy key, by dotted key. */
 export const policyKeySchemas = {
-  "github.repoScope": Schema.Literals(["linking_user", "installation", "allow_list"]),
+  // Same values as TeamIntegrationPolicy (integrations.ts), which ConnectionDO enforces as TeamDO's projection.
+  "github.repoScope": Schema.Literals(["linking_user_repos", "installation"]),
   "github.requireOrgAdmin": Schema.Boolean,
   "github.repoAllowList": Schema.Array(RepoPattern).check(Schema.isMaxLength(500)),
-  "integrations.allowedProviders": Schema.Union([Schema.Literal("all"), Schema.Array(ProviderId).check(Schema.isMaxLength(200))]),
+  "integrations.allowedProviders": Schema.Union([Schema.Literal("all"), Schema.Array(IntegrationProvider)]),
   "mcp.server": Schema.Literals(["user_choice", "disabled"]),
   "mcp.remoteTransport": Schema.Boolean,
   "apps.install": Schema.Literals(["any", "allow_list", "disabled"]),
@@ -60,7 +58,7 @@ export const policyKeys = Object.keys(policyKeySchemas) as ReadonlyArray<PolicyK
 
 /** Product defaults (what an absent key means). Documented in spec/enterprise.md 4.2. */
 export const policyProductDefaults: { readonly [K in PolicyKey]?: (typeof policyKeySchemas)[K]["Type"] } = {
-  "github.repoScope": "linking_user",
+  "github.repoScope": "linking_user_repos",
   "github.requireOrgAdmin": false,
   "github.repoAllowList": [],
   "integrations.allowedProviders": "all",

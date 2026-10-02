@@ -2,7 +2,7 @@ import type { Principal } from "@cmux/ownership"
 import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
-import { policyAt } from "./domains/team-policy.ts"
+import { currentPolicy, integrationSlice, integrationSyncPending, policyAt } from "./domains/team-policy.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
@@ -10,7 +10,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     // Members see each other's public ids and display name in events, never email,
     // Stack id, grant or token data.
     super(ctx, env, teamDomain, "team", (p) => ({
-      identity: p.install ?? `user:${p.user}`,
+      identity: p.kind === "system" ? p.identity : (p.install ?? `user:${p.user}`),
       ...(p.kind ? { kind: p.kind } : {}),
       ...(p.user ? { user: p.user } : {}),
       ...(p.team ? { team: p.team } : {}),
@@ -40,6 +40,42 @@ export class TeamDO extends OwnerDO<TeamState> {
       default:
         return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     }
+  }
+
+  /** Backoff after a failed push to ConnectionDO (in memory: a restart retries at once). */
+  private syncRetryAt: number | null = null
+  private syncAttempts = 0
+
+  /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6). */
+  protected override nextWakeAt(state: TeamState, now: number): number | null {
+    if (!state.team || !integrationSyncPending(state)) return null
+    return Math.max(now, this.syncRetryAt ?? now)
+  }
+
+  /**
+   * Pushes the integration slice of the current policy to the team's
+   * ConnectionDO (its enforcement projection), then records the version.
+   * Both steps are idempotent by version, so a crash between them replays.
+   */
+  protected override async onWake(now: number): Promise<void> {
+    const engine = this.boundEngine
+    const state = engine?.currentState
+    if (!state?.team || !integrationSyncPending(state)) return
+    if (this.syncRetryAt !== null && now < this.syncRetryAt) return
+    const policy = currentPolicy(state)
+    const team = state.team.id
+    const stub = this.env.CONNECTION_DO.get(this.env.CONNECTION_DO.idFromName(team))
+    try {
+      const r = (await stub.applyTeamPolicy(team, { policy: integrationSlice(policy.values), applied_by: `team_policy:v${policy.version}` }, `team-policy:${team}:v${policy.version}`)) as { ok: boolean; message?: string }
+      if (!r.ok) throw new Error(r.message ?? "refused")
+    } catch (e) {
+      this.syncAttempts += 1
+      this.syncRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.syncAttempts)
+      throw e
+    }
+    this.syncAttempts = 0
+    this.syncRetryAt = null
+    this.submitSystem("team.policy.integration_synced", { version: policy.version }, `integration-synced:${policy.version}`)
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {

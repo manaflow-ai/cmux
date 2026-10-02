@@ -45,9 +45,6 @@ const checkInvariants = (values: PolicyValues, sso: { activeConnections: number;
   if (on("sso.enforceForOwners") && !on("sso.enforce")) {
     return { code: "policy.invalid", message: "sso.enforceForOwners needs sso.enforce" }
   }
-  if (values["github.repoScope"]?.value === "allow_list" && (values["github.repoAllowList"]?.value.length ?? 0) === 0) {
-    return { code: "policy.invalid", message: "github.repoScope allow_list needs a non-empty github.repoAllowList" }
-  }
   return undefined
 }
 
@@ -121,3 +118,26 @@ export const policyAt = (state: PolicyState, version?: number): Policy | undefin
   const v = (state.policy_history ?? []).find((h) => h.version === version)
   return v ? { version: v.version, values: v.values, updated_at: v.at, updated_by: v.actor } : undefined
 }
+
+/**
+ * The integration slice of a policy, in ConnectionDO's TeamIntegrationPolicy
+ * fields. TeamDO is the single writer of these values; ConnectionDO holds them
+ * as an enforcement projection (spec/enterprise.md 4.6). Team-scoped keys have
+ * no user override, so `default` and `enforced` both apply team-wide.
+ */
+export const integrationSlice = (values: PolicyValues) => {
+  const providers = values["integrations.allowedProviders"]?.value
+  const allow = values["github.repoAllowList"]?.value
+  return {
+    allowed_providers: providers === undefined || providers === "all" ? null : [...providers],
+    github: {
+      scope: values["github.repoScope"]?.value ?? "linking_user_repos",
+      require_org_admin: values["github.requireOrgAdmin"]?.value ?? false,
+      repo_allowlist: allow === undefined || allow.length === 0 ? null : [...allow]
+    }
+  }
+}
+
+/** Whether TeamDO still owes ConnectionDO the current policy version. */
+export const integrationSyncPending = (state: PolicyState & { readonly integration_synced_version?: number }): boolean =>
+  currentPolicy(state).version > (state.integration_synced_version ?? 0)

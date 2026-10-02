@@ -70,6 +70,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
+  [
+    "team.policy.integration_synced",
+    {
+      name: "team.policy.integration_synced",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team_policy",
+      principals: ["system"],
+      params: Schema.Struct({ version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)) }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: ConnectionDO confirmed the integration slice of this policy version.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
   ...schedulerInternalOps.map((d) => [d.name, d] as const),
   ...connectionInternalOps.map((d) => [d.name, d] as const),
   ...feedInternalOps.map((d) => [d.name, d] as const)

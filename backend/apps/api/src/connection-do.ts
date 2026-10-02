@@ -176,6 +176,18 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * The Worker authenticated the principal and, for complete, verified the
    * signed state and that it names this principal.
    */
+  /**
+   * RPC from TeamDO: the team's TeamPolicy (single writer) replaces and locks
+   * this projection (spec/enterprise.md 4.6). Idempotent by key; a newer
+   * version always carries the full slice.
+   */
+  async applyTeamPolicy(team: string, params: { policy: unknown; applied_by: string }, idempotencyKey: string): Promise<{ ok: boolean; message?: string }> {
+    this.bind(team)
+    const res = this.submitSystem("integration.policy.apply_managed", { source: "team_policy", ...params }, idempotencyKey)
+    const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
+    return rej ? { ok: false, message: rej.message } : { ok: true }
+  }
+
   async external(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string; redirect_uri?: string; state?: { conn: string; provider: string } }): Promise<ExternalReply> {
     const engine = this.bind(entity)
     const identity = principal.identity

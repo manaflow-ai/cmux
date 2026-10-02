@@ -1,12 +1,13 @@
 import { env, exports } from "cloudflare:workers"
+import { runDurableObjectAlarm } from "cloudflare:test"
 import type { ReduceContext } from "@cmux/ownership"
 import { policyKeys } from "@cmux/protocol"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
-import { currentPolicy, POLICY_HISTORY_LIMIT } from "../src/domains/team-policy.ts"
+import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT } from "../src/domains/team-policy.ts"
 
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string }
+const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
 
 const OWNER = "user_00000000000000000001"
@@ -67,14 +68,25 @@ describe("team policy reducer (TeamDO single writer)", () => {
     })
   })
 
-  it("refuses lockouts: enforced SSO without a connection, allow_list scope without repos", () => {
+  it("refuses lockouts: enforced SSO without a connection", () => {
     const s = baseState()
     expect(run(s, "team.policy.update", { changes: [set("sso.enforce", true)], expected_version: 0 })).toMatchObject({ ok: false, code: "policy.invalid" })
     // A default (recommended) value cannot lock anyone out.
     expect(run(s, "team.policy.update", { changes: [set("sso.enforce", true, "default")], expected_version: 0 }).ok).toBe(true)
     expect(run(s, "team.policy.update", { changes: [set("github.repoScope", "allow_list")], expected_version: 0 })).toMatchObject({ ok: false, code: "policy.invalid" })
-    const ok = run(s, "team.policy.update", { changes: [set("github.repoScope", "allow_list"), set("github.repoAllowList", ["manaflow-ai/*"])], expected_version: 0 })
-    expect(ok.ok).toBe(true)
+    expect(run(s, "team.policy.update", { changes: [set("integrations.allowedProviders", ["notion"])], expected_version: 0 })).toMatchObject({ ok: false, code: "policy.invalid" })
+  })
+
+  it("maps the integration keys onto ConnectionDO's TeamIntegrationPolicy fields", () => {
+    expect(integrationSlice({})).toEqual({ allowed_providers: null, github: { scope: "linking_user_repos", require_org_admin: false, repo_allowlist: null } })
+    expect(
+      integrationSlice({
+        "integrations.allowedProviders": { value: ["github"], mode: "enforced" },
+        "github.repoScope": { value: "installation", mode: "default" },
+        "github.requireOrgAdmin": { value: true, mode: "enforced" },
+        "github.repoAllowList": { value: ["manaflow-ai/*"], mode: "enforced" }
+      })
+    ).toEqual({ allowed_providers: ["github"], github: { scope: "installation", require_org_admin: true, repo_allowlist: ["manaflow-ai/*"] } })
   })
 
   it("a change that sets the current values is a no-op (no new version, no event)", () => {
@@ -201,5 +213,34 @@ describe("team policy over the API (workerd)", () => {
 
     const stale = await call("/v1/ops", session, { ...body, idempotency_key: "policy-2" })
     expect(stale.json.error.code).toBe("revision.conflict")
+  })
+
+  it("pushes the integration keys to ConnectionDO, which then enforces and locks them", async () => {
+    const session = await sessionToken("stack-policy-sync")
+    expect((await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.ok).toBe(true)
+    const team = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.team as string
+    const before = await call("/v1/read", session, { op: "integration.policy.get", params: {} })
+    expect(before.json.value).toMatchObject({ source: "default", locked: false })
+
+    const upd = await call("/v1/ops", session, {
+      op: "team.policy.update",
+      params: { changes: [set("github.repoScope", "installation"), set("github.repoAllowList", ["manaflow-ai/*"])], expected_version: 0 },
+      idempotency_key: crypto.randomUUID(),
+      origin: "user"
+    })
+    expect(upd.json.ok).toBe(true)
+    const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
+    // The commit scheduled TeamDO's alarm for now; workerd may already have run it. Run any pending one.
+    await runDurableObjectAlarm(stub)
+
+    const after = await call("/v1/read", session, { op: "integration.policy.get", params: {} })
+    expect(after.json.value).toMatchObject({
+      source: "team_policy",
+      locked: true,
+      github: { scope: "installation", require_org_admin: false, repo_allowlist: ["manaflow-ai/*"] }
+    })
+    // The projection refuses direct edits: TeamPolicy is the single writer.
+    const direct = await call("/v1/ops", session, { op: "integration.policy.set", params: { github: { scope: "linking_user_repos" } }, idempotency_key: crypto.randomUUID() })
+    expect(direct.json.error.code).toBe("policy.locked")
   })
 })
