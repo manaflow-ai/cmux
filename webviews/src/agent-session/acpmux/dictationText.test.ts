@@ -133,6 +133,40 @@ describe("dictation text", () => {
     expect(prompt.value).toBe("abc hi");
   });
 
+  test("dictating in front of a word keeps the caret after the words, before the added space", () => {
+    const { seen } = run(caretAt("Please now", 7), [update("listening", "fix"), update("listening", "fix it"), update("listening", "fix it please")]);
+    expect(seen.map((prompt) => [prompt.value, prompt.selectionStart])).toEqual([
+      ["Please fix now", 10], ["Please fix it now", 13], ["Please fix it please now", 20],
+    ]);
+  });
+
+  test("a half-spelled word the user changed or deleted is not continued", () => {
+    const edits = (value: string) => (index: number, current: PromptState) => (index === 1 ? caretAt(value) : current);
+    const updates = [update("listening", "hello wor"), update("listening", "hello world"), update("listening", "hello world now")];
+    expect(run(caretAt(""), updates, edits("hello ")).prompt.value).toBe("hello now");
+    expect(run(caretAt(""), updates, edits("hello")).prompt.value).toBe("hello now");
+    expect(run(caretAt(""), updates, edits("hello war")).prompt.value).toBe("hello war now");
+  });
+
+  test("cancel after the user took the words over leaves their text and caret", () => {
+    const { prompt } = run(caretAt(""), [update("listening", "hello world"), update("idle", "", { cancelled: true })], (index, current) =>
+      index === 1 ? { value: "hello World", selectionStart: 7, selectionEnd: 7 } : current);
+    expect(prompt).toEqual({ value: "hello World", selectionStart: 7, selectionEnd: 7 });
+  });
+
+  test("a revision that merges or replaces words the user took over still adds the new words", () => {
+    const edit = (value: string) => (index: number, current: PromptState) => (index === 1 ? caretAt(value) : current);
+    expect(run(caretAt(""), [update("listening", "I will"), update("listening", "I'll go")], edit("I Will")).prompt.value).toBe("I Will go");
+    expect(run(caretAt(""), [update("listening", "a b c d"), update("listening", "a b e")], edit("A b c d")).prompt.value).toBe("A b c d e");
+    expect(run(caretAt(""), [update("listening", "a b c"), update("listening", "a b c")], edit("A b c")).prompt.value).toBe("A b c");
+  });
+
+  test("a revision of spaced words that adds another script is split by words", () => {
+    const { prompt } = run(caretAt(""), [update("listening", "hi there"), update("listening", "Hi, there 世界")], (index, current) =>
+      index === 1 ? caretAt("Hi there") : current);
+    expect(prompt.value).toBe("Hi there 世界");
+  });
+
   test("the final text replaces the partial without duplicates or lost words", () => {
     const { seen } = run(caretAt("Note: "), [
       update("listening", "the quick"), update("listening", "the quick brown"), update("listening", "the quick brown fox jumps"),

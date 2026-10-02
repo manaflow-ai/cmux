@@ -219,6 +219,22 @@ describe("composer dictation", () => {
     }
   });
 
+  test("a cancel that arrives during a composition is not lost behind the next session", async () => {
+    const pane = await mountPane();
+    try {
+      pane.prompt.value = "keep ";
+      pane.prompt.setSelectionRange(5, 5);
+      await pane.send({ state: "listening", text: "drop this" });
+      pane.prompt.dispatchEvent(new dom.window.Event("compositionstart"));
+      await pane.send({ state: "idle", cancelled: true });
+      await pane.send({ state: "starting" });
+      pane.prompt.dispatchEvent(new dom.window.Event("compositionend"));
+      expect(pane.prompt.value).toBe("keep ");
+    } finally {
+      await pane.unmount();
+    }
+  });
+
   test("a refused toggle shows the host's reason", async () => {
     const pane = await mountPane({ refuse: "Dictation is busy in another window." });
     try {

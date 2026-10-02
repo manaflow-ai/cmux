@@ -74,9 +74,9 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
   const [state, setState] = useState<DictationState>("idle");
   const [notice, setNotice] = useState<DictationUpdate | null>(null);
   const anchor = useRef<DictationAnchor | null>(null);
-  /// The latest update that arrived while an input method was composing; applied when it ends,
-  /// so a splice never breaks the user's composition.
-  const pending = useRef<DictationUpdate | null>(null);
+  /// Updates that arrived while an input method was composing; applied in order when it ends, so
+  /// a splice never breaks the user's composition. Level-only repeats replace the last one.
+  const pending = useRef<DictationUpdate[]>([]);
   /// A toggle went to the host and no update came back yet.
   const requested = useRef(false);
 
@@ -104,16 +104,21 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
       setLevel(isActive(update.state) ? update.level : 0);
       if (update.state === "failed" || update.state === "denied") setNotice(update);
       else if (update.state === "starting") setNotice(null);
-      if (composing) pending.current = update;
-      else apply(update);
+      if (!composing) apply(update);
+      else {
+        const queue = pending.current;
+        const last = queue.at(-1);
+        if (last && isActive(last.state) && last.state === update.state && !update.cancelled) queue[queue.length - 1] = update;
+        else queue.push(update);
+      }
     };
     const node = prompt.current;
     const compositionStart = () => { composing = true; };
     const compositionEnd = () => {
       composing = false;
-      const update = pending.current;
-      pending.current = null;
-      if (update) apply(update);
+      const queue = pending.current;
+      pending.current = [];
+      for (const update of queue) apply(update);
     };
     node?.addEventListener("compositionstart", compositionStart);
     node?.addEventListener("compositionend", compositionEnd);
