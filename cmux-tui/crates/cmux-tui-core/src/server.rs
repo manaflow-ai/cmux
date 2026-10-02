@@ -231,8 +231,7 @@ pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
 pub const TAB_GROUPS_CAPABILITY: &str = "tab-groups-v1";
 /// Saved (pinned) tab groups that outlive their placements.
 pub const SAVED_TAB_GROUPS_CAPABILITY: &str = "saved-tab-groups-v1";
-/// Per-terminal `env` on `new-tab`, `split`, and `create-terminal`, and
-/// `cwd` on `split`.
+/// Per-terminal `env` on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`.
 pub const TERMINAL_ENV_CAPABILITY: &str = "terminal-env-v1";
 /// `identify` carries `session_id` (the durable registry id) and
 /// `machine_name` (plans/cmux-next/data-model.md section 2).
@@ -245,8 +244,7 @@ pub const PROFILES_CAPABILITY: &str = "profiles-v1";
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// Browser profile records in personal state: `browser_profiles` in
-/// `list-personal` and the `*-browser-profile` commands
-/// (plans/cmux-next/data-model.md section 5).
+/// `list-personal` and the `*-browser-profile` commands (plans/cmux-next/data-model.md section 5).
 pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
 pub use bookmarks::BOOKMARKS_CAPABILITY;
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
