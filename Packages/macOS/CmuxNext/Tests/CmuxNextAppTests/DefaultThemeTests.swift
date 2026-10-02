@@ -53,4 +53,16 @@ import Testing
         let explicit = try #require(Self.colors("background = #123456\n"))
         #expect(Self.hex(explicit.background) == "#123456")
     }
+
+    /// The default theme loads before the user's config, so their theme
+    /// and translucency (`background-blur`) win over it, whatever order
+    /// the lines come in.
+    @Test func theUsersThemeAndBlurWinOverTheDefault() throws {
+        let theme = "theme = \(Self.themesFolder.appending(path: "Catppuccin Mocha").path)"
+        for text in ["\(theme)\nbackground-opacity = 0.85\nbackground-blur = 20\n", "background-blur = 20\nbackground-opacity = 0.85\n\(theme)\n"] {
+            let colors = try #require(Self.colors(text))
+            #expect(Self.hex(colors.background) == "#1e1e2e")
+            #expect(colors.backgroundBlur == 20)
+        }
+    }
 }

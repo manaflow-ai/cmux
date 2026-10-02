@@ -61,6 +61,11 @@ final class TerminalThemeStore {
         themes = loaded.merging(themes) { _, current in current }
     }
 
+    /// Waits for every queued write (tests).
+    func flush() async {
+        await lastWrite?.value
+    }
+
     private func save() {
         guard let url else { return }
         let data = try? JSONEncoder().encode(themes)
