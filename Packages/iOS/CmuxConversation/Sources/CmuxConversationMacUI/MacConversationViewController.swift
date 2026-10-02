@@ -192,7 +192,12 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     private func lastRowTrailingSpace() -> CGFloat {
-        guard let last = rows.last, case let .message(model) = last else { return 16.5 }
+        guard let last = rows.last else { return 0 }
+        guard case let .message(model) = last else {
+            // Measured: the typing bubble draws 3.5 pt past its row bottom.
+            if case .typing = last { return -3.5 }
+            return 0
+        }
         let layout = layoutCache.layout(model, width: transcriptWidth)
         var bottom = layout.contentFrame.maxY
         if let bubble = layout.bubbleFrame { bottom = max(bottom, bubble.maxY + MacConversationTheme.tailDrop) }
@@ -944,6 +949,11 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         case "send":
             composer.textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
             return "ok"
+        case "insets":
+            let last = rows.last.map { row -> String in
+                switch row { case .message: return "message"; case .typing: return "typing"; default: return "other" }
+            } ?? "none"
+            return String(format: "bottom %.1f trailing %.1f last %@ maxOffset %.1f origin %.1f", scrollView.contentInsets.bottom, lastRowTrailingSpace(), last, maxOffset, scrollView.contentView.bounds.origin.y)
         case "top":
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: -scrollView.contentInsets.top))
             scrollView.reflectScrolledClipView(scrollView.contentView)
