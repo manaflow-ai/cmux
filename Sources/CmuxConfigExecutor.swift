@@ -244,7 +244,8 @@ struct CmuxConfigExecutor {
     ) -> Bool {
         let descriptor = CmuxActionTrustDescriptor(
             actionID: actionID,
-            kind: "terminalText",
+            // Saved permission for inserting text must not also authorize Enter.
+            kind: payload.submit ? "terminalTextSubmit" : "terminalText",
             command: payload.text,
             target: CmuxConfigTerminalCommandTarget.currentTerminal.rawValue,
             workspaceCommand: nil,

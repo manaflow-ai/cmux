@@ -20,11 +20,16 @@ public struct CmuxTextActionPayload: Codable, Sendable, Hashable {
 
     /// Sanitised, non-blank text. Only the validating initializer can set it.
     public let text: String
+    /// Whether delivery presses Enter after pasting the text.
     public let submit: Bool
 
     /// Validating initializer: strips bidi and zero-width controls and
     /// returns nil when nothing meaningful remains, so a blank or disguised
     /// payload is unrepresentable anywhere in the module.
+    ///
+    /// - Parameters:
+    ///   - rawText: Text to paste, with newlines and indentation preserved.
+    ///   - submit: Whether to press Enter after pasting. Defaults to false.
     public init?(text rawText: String, submit: Bool = false) {
         guard let sanitized = Self.sanitizedText(rawText) else { return nil }
         self.text = sanitized
@@ -37,6 +42,9 @@ public struct CmuxTextActionPayload: Codable, Sendable, Hashable {
     }
 
     /// Decodes `text` (required, validated) and `submit` (default false).
+    ///
+    /// - Parameter decoder: Decoder containing the action payload.
+    /// - Throws: A decoding error for missing, invalid, or blank text.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let raw = try container.decode(String.self, forKey: .text)
@@ -52,6 +60,9 @@ public struct CmuxTextActionPayload: Codable, Sendable, Hashable {
     }
 
     /// Encodes `text` and, only when true, `submit`.
+    ///
+    /// - Parameter encoder: Encoder receiving the action payload.
+    /// - Throws: Any error reported by the encoder.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(text, forKey: .text)
@@ -100,6 +111,9 @@ public struct CmuxTextActionPayload: Codable, Sendable, Hashable {
     /// Strips bidi and zero-width controls that could disguise what a
     /// project-local config inserts, while preserving newlines and
     /// indentation. Returns nil when nothing meaningful remains.
+    ///
+    /// - Parameter raw: The unsanitized snippet text.
+    /// - Returns: Sanitized text, or nil for an empty or whitespace-only payload.
     public static func sanitizedText(_ raw: String) -> String? {
         let dangerous: Set<Unicode.Scalar> = [
             "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
@@ -113,10 +127,4 @@ public struct CmuxTextActionPayload: Codable, Sendable, Hashable {
         }
         return filtered
     }
-}
-
-/// One input operation against a terminal panel.
-public enum CmuxTextActionDeliveryStep: Sendable, Hashable {
-    case pasteText(String)
-    case namedKey(String)
 }
