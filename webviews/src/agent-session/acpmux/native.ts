@@ -16,9 +16,9 @@ type ReplyError = {
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: ReplyError };
 
 /// A refused native request. `message` is the localized text to show. With origin `session_host`,
-/// `code`, `details` and `retryable` are the session host's resource error verbatim; with origin
-/// `native`, `code` is `native.not_connected`, `native.timed_out`, `native.invalid_request` or
-/// `native.failed`.
+/// `code`, `details` and `retryable` are the session host's resource error verbatim. With origin
+/// `native`, a git read's `code` is `native.not_connected`, `native.timed_out`,
+/// `native.invalid_request` or `native.failed`; other requests may carry other codes.
 export class NativeError extends Error {
   readonly code: string;
   readonly details?: unknown;

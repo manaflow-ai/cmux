@@ -274,7 +274,7 @@ final class LineTransport: Sendable {
         }
 
         private struct ResourceError: Decodable {
-            var code: String?, message: String?, details: JSONValue?, retryable: Bool?
+            var code: String?, message: String?, details: JSONValue?, retryable: JSONValue?
         }
 
         init(from decoder: any Decoder) throws {
@@ -291,7 +291,7 @@ final class LineTransport: Sendable {
                 error = text
             } else if let structured = try? c.decodeIfPresent(ResourceError.self, forKey: .error) {
                 (error, errorCode) = (structured.message ?? structured.code, errorCode ?? structured.code)
-                (errorDetails, retryable) = (structured.details, structured.retryable)
+                (errorDetails, retryable) = (structured.details, structured.retryable?.boolValue)
             }
         }
     }

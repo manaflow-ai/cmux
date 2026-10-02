@@ -52,6 +52,23 @@ import Testing
         await connection.close()
     }
 
+    /// A `retryable` that is not a bool is left out; the error keeps its
+    /// code and message.
+    @Test func aNonBoolRetryableKeepsTheErrorsCode() async throws {
+        let server = try Self.server { _, id in
+            #"{"protocol":"cmux.protocol/2","type":"response","id":"\#(id)","ok":false,"error":{"code":"operation.failed","message":"no repository","details":null,"retryable":"yes"}}"#
+        }
+        defer { server.stop() }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
+        try await connection.start()
+        let client = GitResourceClient(connection: connection)
+        await #expect(throws: DaemonError.command(
+            cmd: "git.status", message: "no repository", code: "operation.failed", details: nil, retryable: nil)) {
+            try await client.read("git.status", params: ["path": .string("/repo")])
+        }
+        await connection.close()
+    }
+
     /// A raw protocol error (a string, no structured object) has neither.
     @Test func aPlainErrorHasNoDetailsOrRetryable() async throws {
         let server = try FakeDaemonServer(handler: ConnectionTests.handshake { _, id in
