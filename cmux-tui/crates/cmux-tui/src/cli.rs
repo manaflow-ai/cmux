@@ -35,6 +35,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "projection",
     "provider",
     "raw",
+    "docs",
 ];
 
 const REMOTE_COMMANDS: &[&str] = &[
@@ -228,7 +229,7 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "docs") => {
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
@@ -237,11 +238,8 @@ fn parse_command(
             Some(scope) => Err(unknown_scope(scope)),
         };
     }
-    if command_args[0] == "docs" {
-        if command_args[1..].iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
-            return Ok(ParsedCommand::Help(Some("docs".to_owned())));
-        }
-        return Ok(ParsedCommand::Docs(docs::parse(&command_args[1..], global.output)?));
+    if let Some(command) = docs::command(&command_args, global.clone())? {
+        return Ok(command);
     }
     if has_help_option(&command_args) {
         let words = command_args
@@ -485,30 +483,21 @@ fn scope_help_for(
         "raw" => Cow::Borrowed(RAW_HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
     };
-    if docs::has_scope_operations(scope) {
-        Cow::Owned(format!("{}\n{}", text, docs::scope_help(scope)))
-    } else {
-        text
-    }
+    docs::append_scope_help(scope, text)
 }
-
 const ROOT_HELP_PROCESS_PREFIX: &str = "\
 cmux - terminal multiplexer and resource client
-
 USAGE
   cmux [START OPTIONS]
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
   cmux wg hub --config <wg-quick file> --socket <unix socket>
 ";
-
 const ROOT_HELP_PROCESS_SUFFIX: &str = "\
   cmux machine-agent [OPTIONS]
 ";
-
 const ROOT_HELP_GLOBALS: &str = "\
   cmux [GLOBAL OPTIONS] <scope> <action>
-
 GLOBAL OPTIONS
   --socket <path>    Connect to an exact local session socket
   --session <name>   Route through a named local session
@@ -517,10 +506,6 @@ GLOBAL OPTIONS
   --jsonl            Print one JSON value per result or event
   --quiet            Suppress successful output
   -h, --help         Show command help
-
-PROGRESSIVE HELP
-  cmux docs search <query>
-
 PROCESS HELP
   cmux help start
   cmux help shorthands
@@ -528,10 +513,8 @@ PROCESS HELP
   cmux relay --help
   cmux wg hub --help
   cmux machine-agent --help
-
 RESOURCE SCOPES
 ";
-
 const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   machine       Inspect the local machine and session route
   session       Inspect and control a session
@@ -549,10 +532,8 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   projection    Read and update frontend projections
   provider      Install private provider authority
   raw           Send an explicit low-level operation
-
 Run `cmux <scope> --help` for scope-specific paths.
 ";
-
 fn root_help(messages: &crate::localization::LocalServerMessages) -> String {
     format!(
         "{ROOT_HELP_PROCESS_PREFIX}{}\n{ROOT_HELP_PROCESS_SUFFIX}{}\n{ROOT_HELP_GLOBALS}{}\n{ROOT_HELP_SCOPES_SUFFIX}",
@@ -928,33 +909,6 @@ mod tests {
         };
         assert_eq!(topic, "server stats");
         assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
-    }
-
-    #[test]
-    fn docs_search_is_local_and_preserves_json_output_mode() {
-        let ParsedCommand::Docs(plan) =
-            parse(&strings(&["--json", "docs", "search", "browser", "navigate"])).unwrap()
-        else {
-            panic!("docs search must stay local");
-        };
-        assert_eq!(plan.query, "browser navigate");
-        assert_eq!(plan.output, OutputMode::Json);
-    }
-
-    #[test]
-    fn docs_help_routes_before_search_parsing() {
-        assert!(matches!(
-            parse(&strings(&["docs", "--help"])).unwrap(),
-            ParsedCommand::Help(Some(topic)) if topic == "docs"
-        ));
-        assert!(matches!(
-            parse(&strings(&["docs", "search", "--help"])).unwrap(),
-            ParsedCommand::Help(Some(topic)) if topic == "docs"
-        ));
-        assert!(matches!(
-            parse(&strings(&["help", "docs"])).unwrap(),
-            ParsedCommand::Help(Some(topic)) if topic == "docs"
-        ));
     }
 
     #[test]
