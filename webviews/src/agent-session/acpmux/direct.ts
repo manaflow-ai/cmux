@@ -201,6 +201,7 @@ export class AcpmuxDirectClient {
   private turnOpen = false;
   /// acpmux lists `acp.session.fork` among the operations it serves.
   private canFork = false;
+  private forking = false;
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
   private streamingActivity?: string;
@@ -903,11 +904,33 @@ export class AcpmuxDirectClient {
     return undefined;
   }
   /// Forks the open session through the turn whose summary is `throughSeq`, and opens the fork.
+  /// One fork at a time; a second click while acpmux forks does nothing. A failure says so in the
+  /// transcript; a reader who opened another session meanwhile stays there.
   async fork(throughSeq: number): Promise<string | undefined> {
-    if (!this.canFork || !this.selectedSessionId) return undefined;
-    const result = await this.request(FORK_OP, { sessionId: this.selectedSessionId, throughSeq });
-    if (result?.sessionId) return this.select(String(result.sessionId));
-    return undefined;
+    if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
+    this.forking = true;
+    const generation = this.selectionGeneration;
+    try {
+      const result = await this.request(FORK_OP, { sessionId: this.selectedSessionId, throughSeq });
+      if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
+      return await this.select(String(result.sessionId));
+    } catch (error) {
+      if (generation === this.selectionGeneration) {
+        const at = Date.now();
+        const reason = error instanceof Error && error.message ? `: ${error.message}` : "";
+        this.rows.set(`notice-fork-${at}`, {
+          id: `notice-fork-${at}`,
+          version: 1,
+          at,
+          kind: "notice",
+          text: `Couldn't fork this chat${reason}`,
+        });
+        this.emit("fork failed");
+      }
+      return undefined;
+    } finally {
+      this.forking = false;
+    }
   }
   async setModel(modelId: string): Promise<void> {
     if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId });

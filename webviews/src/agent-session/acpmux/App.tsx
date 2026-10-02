@@ -645,12 +645,18 @@ function AcpmuxPane() {
     canLoadOlder: false,
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // Codex's turn shape: work folds under "Worked for" until opened.
-  // The footer's fork shows only when acpmux serves forks.
+  // The footer's fork shows only when acpmux serves forks and is reachable. The client reports a
+  // failed fork in the transcript; a bridge that cannot route it has nothing to add.
+  const forkable =
+    Boolean(snapshot.canFork) &&
+    snapshot.connection !== "disconnected" &&
+    !snapshot.connection.startsWith("connecting");
   const turnActions = useMemo<TurnActions>(
-    () => (snapshot.canFork ? { fork: (throughSeq) => void callNative("chat.fork", { throughSeq }) } : {}),
-    [snapshot.canFork],
+    () =>
+      forkable ? { fork: (throughSeq) => void callNative("chat.fork", { throughSeq }).catch(() => undefined) } : {},
+    [forkable],
   );
+  // Codex's turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{

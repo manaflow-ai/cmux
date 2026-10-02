@@ -24,6 +24,18 @@ class NoForkSocket extends MockAcpmuxSocket {
   }
 }
 
+/// An acpmux that serves forks but refuses this one.
+class FailingForkSocket extends MockAcpmuxSocket {
+  readonly sent: string[] = [];
+  override send(raw: string): void {
+    const request = JSON.parse(raw) as { id?: number; method: string };
+    this.sent.push(request.method);
+    if (request.method === FORK_OP)
+      return (this as any).deliver({ jsonrpc: "2.0", id: request.id, error: { message: "no such turn" } });
+    super.send(raw);
+  }
+}
+
 const connect = (snapshots: AcpmuxSnapshot[], socket: () => MockAcpmuxSocket) => {
   (globalThis as any).window ??= globalThis;
   return AcpmuxDirectClient.connect(
@@ -69,6 +81,34 @@ describe("fork support", () => {
     expect(snapshots.at(-1)!.sessions.map((entry) => entry.sessionId)).toEqual(
       expect.arrayContaining([source, forked]),
     );
+  });
+
+  test("a second click while acpmux forks sends nothing, and a failure says so", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    let socket: FailingForkSocket | undefined;
+    const client = await connect(snapshots, () => (socket = new FailingForkSocket(() => Promise.resolve())));
+    await client.create();
+    const first = client.fork(7);
+    expect(await client.fork(7)).toBeUndefined();
+    expect(await first).toBeUndefined();
+    expect(socket!.sent.filter((method) => method === FORK_OP)).toHaveLength(1);
+    expect(snapshots.at(-1)!.rows.find((row) => row.kind === "notice")?.text).toBe(
+      "Couldn't fork this chat: no such turn",
+    );
+  });
+
+  test("a reader who opens another session while acpmux forks stays there", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const client = await connect(snapshots, () => new MockAcpmuxSocket(() => Promise.resolve()));
+    await client.create();
+    await client.send("first");
+    await until(() => snapshots.at(-1)?.rows.some((row) => row.kind === "turnSummary") === true);
+    const through = snapshots.at(-1)!.rows.find((row) => row.kind === "turnSummary")!.seq!;
+    const elsewhere = snapshots.at(-1)!.sessions.find((entry) => entry.sessionId !== snapshots.at(-1)!.sessionId)!;
+    const forking = client.fork(through);
+    await client.select(elsewhere.sessionId);
+    expect(await forking).toBeUndefined();
+    expect(snapshots.at(-1)!.sessionId).toBe(elsewhere.sessionId);
   });
 
   test("an acpmux that does not serve forks is never asked", async () => {
