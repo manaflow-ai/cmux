@@ -256,3 +256,12 @@ export function visibleLayoutRange(layoutModel: ConversationLayout, scrollTop: n
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
+
+/// The pane header: the agent the session runs (its first prompt already titles the session
+/// picker and opens the transcript), and a status only when it says something to act on.
+export function paneHeader(snapshot: AcpmuxSnapshot): { title: string; status: string } {
+  const harness = snapshot.summary?.harness;
+  const title = (harness && snapshot.catalog?.find((entry) => entry.id === harness)?.name) || harness || "Agent Chat";
+  const status = snapshot.isWorking ? "Working" : snapshot.connection === "disconnected" ? "Reconnecting" : snapshot.connection === "mock" ? "Mock" : "";
+  return { title, status };
+}
