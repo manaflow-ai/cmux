@@ -145,6 +145,7 @@ struct CloudActivationCoordinatorTests {
             cleanup: {
                 cleanupCalls += 1
                 cleanupActive = true
+                defer { cleanupActive = false }
                 cleanupStarted.continuation.yield(())
                 if cleanupCalls == 1 {
                     await withCheckedContinuation { cleanupRelease = $0 }
@@ -166,7 +167,6 @@ struct CloudActivationCoordinatorTests {
         // The replacement waits for the cancelled attempt to unwind, so the
         // two setup owners can never overlap.
         firstRelease?.resume()
-        cleanupActive = false
         cleanupRelease?.resume()
         var secondIterator = secondStarted.stream.makeAsyncIterator()
         _ = await secondIterator.next()
