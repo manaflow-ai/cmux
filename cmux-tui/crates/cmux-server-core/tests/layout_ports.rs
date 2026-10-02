@@ -2,6 +2,9 @@
 
 use std::collections::BTreeSet;
 
+use cmux_server_core::access::{
+    Access, Ace, PosixOwner, WinPrincipal, WinRights, access_policy, socket_dir_check,
+};
 use cmux_server_core::layout::{LayoutEnv, LayoutError, ServiceKind, layout};
 use cmux_server_core::pg::AppId;
 use cmux_server_core::ports::{
@@ -11,7 +14,7 @@ use cmux_server_core::{HostPath, InstallMode, Platform};
 use proptest::prelude::*;
 
 fn unix_env(home: &str) -> LayoutEnv {
-    LayoutEnv { home: Some(home.to_owned()), ..LayoutEnv::default() }
+    LayoutEnv { home: Some(home.to_owned()), uid: Some(501), ..LayoutEnv::default() }
 }
 
 fn win_env() -> LayoutEnv {
@@ -38,7 +41,11 @@ fn linux_user_layout_matches_table() {
     let ServiceKind::SystemdUser { unit_path } = &l.service else { panic!("{:?}", l.service) };
     assert_eq!(unit_path.as_str(), "/home/ana/.config/systemd/user/cmux-server.service");
     assert_eq!(l.postgres_data().as_str(), "/home/ana/.local/state/cmux/server/postgres/17/data");
-    assert_eq!(l.postgres_socket_dir().as_str(), "/home/ana/.local/state/cmux/server/postgres/run");
+    assert_eq!(
+        l.postgres_socket_dir(17274).as_str(),
+        "/home/ana/.local/state/cmux/server/postgres/run"
+    );
+    assert_eq!(l.update_request(), None);
     assert_eq!(l.wal_archive().as_str(), "/home/ana/.local/state/cmux/server/backups/wal");
     assert_eq!(
         l.postgres_admin_pgpass().as_str(),
@@ -85,7 +92,8 @@ fn linux_system_layout_matches_table() {
     assert_eq!(l.state.as_str(), "/var/lib/cmux");
     assert_eq!(l.config_file.as_str(), "/etc/cmux/server.json");
     assert_eq!(l.cli_shim.as_str(), "/usr/local/bin/cmux");
-    assert_eq!(l.postgres_socket_dir().as_str(), "/run/cmux/postgres");
+    assert_eq!(l.postgres_socket_dir(17274).as_str(), "/run/cmux/postgres");
+    assert_eq!(l.update_request().unwrap().as_str(), "/run/cmux/update-request");
     let ServiceKind::SystemdSystem { unit_path } = &l.service else { panic!() };
     assert_eq!(unit_path.as_str(), "/etc/systemd/system/cmux-server.service");
 }
@@ -99,6 +107,10 @@ fn macos_headless_and_app_layouts() {
     assert_eq!(l.cli_shim.as_str(), "/Users/ana/.local/bin/cmux");
     let ServiceKind::LaunchAgent { plist_path } = &l.service else { panic!() };
     assert_eq!(plist_path.as_str(), "/Users/ana/Library/LaunchAgents/com.cmux.server.plist");
+    // <state> is too long for the 103-byte socket limit: the socket is in /tmp.
+    assert_eq!(l.postgres_socket_dir(17274).as_str(), "/tmp/cmux-501/pg-17274");
+    let no_uid = LayoutEnv { home: Some("/Users/ana".to_owned()), ..LayoutEnv::default() };
+    assert_eq!(layout(InstallMode::User, Platform::MacOs, &no_uid), Err(LayoutError::Missing("uid")));
 
     let mut env = unix_env("/Users/ana");
     env.mac_app_bundle = Some("/Applications/cmux.app".to_owned());
@@ -118,6 +130,10 @@ fn macos_headless_and_app_layouts() {
     let d = layout(InstallMode::System, Platform::MacOs, &LayoutEnv::default()).unwrap();
     let ServiceKind::LaunchDaemon { plist_path } = &d.service else { panic!() };
     assert_eq!(plist_path.as_str(), "/Library/LaunchDaemons/com.cmux.server.plist");
+    assert_eq!(
+        d.postgres_socket_dir(17274).as_str(),
+        "/Library/Application Support/cmux/server/postgres/run"
+    );
 }
 
 #[test]
@@ -131,7 +147,9 @@ fn windows_layouts_use_backslashes() {
     assert_eq!(u.service, ServiceKind::ScheduledTask { task_name: "cmux-server" });
 
     let s = layout(InstallMode::System, Platform::Windows, &win_env()).unwrap();
-    assert_eq!(s.store.as_str(), r"C:\ProgramData\cmux\store");
+    assert_eq!(s.root.as_str(), r"C:\Program Files\cmux");
+    assert_eq!(s.store.as_str(), r"C:\Program Files\cmux\store");
+    assert_eq!(s.current_cmux.as_str(), r"C:\Program Files\cmux\current\bin\cmux.exe");
     assert_eq!(s.state.as_str(), r"C:\ProgramData\cmux\server");
     assert_eq!(s.config_file.as_str(), r"C:\ProgramData\cmux\server.json");
     assert_eq!(s.cli_shim.as_str(), r"C:\Program Files\cmux\bin\cmux.exe");
@@ -143,6 +161,57 @@ fn windows_layouts_use_backslashes() {
         layout(InstallMode::User, Platform::Windows, &bad),
         Err(LayoutError::NotAbsolute("LOCALAPPDATA"))
     );
+}
+
+#[test]
+fn access_policy_linux_system_store_is_root_owned() {
+    let l = layout(InstallMode::System, Platform::Linux, &LayoutEnv::default()).unwrap();
+    let policy = access_policy(&l);
+    assert_eq!(policy[0].path.as_str(), "/opt/cmux");
+    assert_eq!(
+        policy[0].access,
+        Access::Posix { owner: PosixOwner::Root, group: Some("root"), mode: 0o755 }
+    );
+    assert_eq!(policy[1].path.as_str(), "/var/lib/cmux");
+    assert_eq!(
+        policy[1].access,
+        Access::Posix { owner: PosixOwner::Named("cmux"), group: Some("cmux"), mode: 0o700 }
+    );
+    assert!(policy.iter().all(|p| p.no_symlink));
+}
+
+#[test]
+fn access_policy_windows_system_acls() {
+    let l = layout(InstallMode::System, Platform::Windows, &win_env()).unwrap();
+    let policy = access_policy(&l);
+    let Access::Windows(bin) = &policy[0].access else { panic!() };
+    assert_eq!(policy[0].path.as_str(), r"C:\Program Files\cmux");
+    assert_eq!(bin.owner, WinPrincipal::Administrators);
+    assert!(bin.entries.contains(&Ace { principal: WinPrincipal::Users, rights: WinRights::ReadExecute }));
+    assert!(!bin.entries.iter().any(|a| a.principal == WinPrincipal::Service("cmux-server")));
+    let Access::Windows(state) = &policy[1].access else { panic!() };
+    assert_eq!(policy[1].path.as_str(), r"C:\ProgramData\cmux\server");
+    assert!(state.entries.contains(&Ace {
+        principal: WinPrincipal::Service("cmux-server"),
+        rights: WinRights::Modify
+    }));
+    assert!(!state.entries.iter().any(|a| a.principal == WinPrincipal::Users));
+    assert_eq!(WinPrincipal::Service("cmux-server").as_str(), r"NT SERVICE\cmux-server");
+    assert_eq!(WinPrincipal::Administrators.as_str(), "S-1-5-32-544");
+}
+
+#[test]
+fn macos_socket_dir_check_is_owner_only() {
+    let l = layout(InstallMode::User, Platform::MacOs, &unix_env("/Users/ana")).unwrap();
+    let checks = socket_dir_check(&l, 17274).unwrap();
+    let paths: Vec<&str> = checks.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(paths, ["/tmp/cmux-501", "/tmp/cmux-501/pg-17274"]);
+    for c in &checks {
+        assert_eq!(c.access, Access::Posix { owner: PosixOwner::Uid(501), group: None, mode: 0o700 });
+        assert!(c.no_symlink);
+    }
+    let linux = layout(InstallMode::User, Platform::Linux, &unix_env("/home/ana")).unwrap();
+    assert_eq!(socket_dir_check(&linux, 17274), None);
 }
 
 #[test]

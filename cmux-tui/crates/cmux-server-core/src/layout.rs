@@ -28,6 +28,9 @@ pub struct LayoutEnv {
     /// ("Make This Mac a Server"). The binary and the bundled launchd plist
     /// then come from the bundle (server.md 4.3, column "macOS (app)").
     pub mac_app_bundle: Option<String>,
+    /// The installing user's numeric id. Required in macOS user mode, where
+    /// the Postgres socket lives under `/tmp/cmux-<uid>` (server.md 8.2).
+    pub uid: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,7 +86,12 @@ pub struct Layout {
     pub service: ServiceKind,
     /// The CLI shim (or the bundled CLI on a Mac with the app).
     pub cli_shim: HostPath,
+    /// The installing user's numeric id, when known.
+    pub uid: Option<u32>,
 }
+
+/// Where the supervisor asks the root updater to run in Linux system mode.
+pub const UPDATE_REQUEST: &str = "/run/cmux/update-request";
 
 impl Layout {
     /// `<store>/<sha256>`, or `None` unless `sha256_hex` is 64 lowercase hex.
@@ -99,16 +107,27 @@ impl Layout {
         self.state.join("postgres/17/data")
     }
 
-    /// Socket directory: `<state>/postgres/run` (0700) in user mode,
-    /// `/run/cmux/postgres` (0750, group `cmux-db`) in Linux system mode
-    /// (server.md 8.2).
-    pub fn postgres_socket_dir(&self) -> HostPath {
-        match (self.mode, self.platform) {
-            (InstallMode::System, Platform::Linux) => {
-                HostPath::new(Platform::Linux, "/run/cmux/postgres").expect("absolute literal")
+    /// Socket directory (server.md 8.2): `/run/cmux/postgres` (0750, group
+    /// `cmux-db`) in Linux system mode; `/tmp/cmux-<uid>/pg-<port>` (0700,
+    /// owner-checked at every start, see `access::socket_dir_check`) in
+    /// macOS user mode, because `<state>` there is too long for the 103-byte
+    /// socket path limit; `<state>/postgres/run` (0700) everywhere else.
+    pub fn postgres_socket_dir(&self, port: u16) -> HostPath {
+        match (self.mode, self.platform, self.uid) {
+            (InstallMode::System, Platform::Linux, _) => abs(Platform::Linux, "/run/cmux/postgres"),
+            (InstallMode::User, Platform::MacOs, Some(uid)) => {
+                abs(Platform::MacOs, &format!("/tmp/cmux-{uid}/pg-{port}"))
             }
             _ => self.state.join("postgres/run"),
         }
+    }
+
+    /// Linux system mode: the file whose appearance triggers the root
+    /// `cmux-update.path` unit. `None` elsewhere (the service user owns the
+    /// store and updates it itself).
+    pub fn update_request(&self) -> Option<HostPath> {
+        (self.mode == InstallMode::System && self.platform == Platform::Linux)
+            .then(|| abs(Platform::Linux, UPDATE_REQUEST))
     }
 
     /// The admin secret in user mode and on Windows (server.md 8.3).
@@ -149,6 +168,10 @@ pub fn layout(
     if env.mac_app_bundle.is_some() && (platform != Platform::MacOs || mode != InstallMode::User) {
         return Err(LayoutError::AppBundleNotApplicable);
     }
+    let uid = env.uid;
+    if platform == Platform::MacOs && mode == InstallMode::User && uid.is_none() {
+        return Err(LayoutError::Missing("uid"));
+    }
     let parts = match (platform, mode) {
         (Platform::Linux, InstallMode::User) => linux_user(env)?,
         (Platform::Linux, InstallMode::System) => linux_system(),
@@ -176,6 +199,7 @@ pub fn layout(
         config_file: parts.config_file,
         service: parts.service,
         cli_shim: parts.cli_shim,
+        uid,
     })
 }
 
@@ -312,17 +336,20 @@ fn windows_user(env: &LayoutEnv) -> Result<Parts, LayoutError> {
     })
 }
 
+/// Windows system mode: binaries and the store under `%ProgramFiles%\cmux`
+/// (writable by administrators only), state and config under
+/// `%ProgramData%\cmux` with the ACL from `access::access_policy`.
 fn windows_system(env: &LayoutEnv) -> Result<Parts, LayoutError> {
     let p = Platform::Windows;
     let data = required(p, &env.program_data, "ProgramData")?;
     let files = required(p, &env.program_files, "ProgramFiles")?;
-    let root = data.join("cmux");
+    let root = files.join("cmux");
     Ok(Parts {
         store: root.join("store"),
-        state: root.join("server"),
-        config_file: root.join("server.json"),
+        cli_shim: root.join("bin/cmux.exe"),
         root,
+        state: data.join("cmux/server"),
+        config_file: data.join("cmux/server.json"),
         service: ServiceKind::WindowsService { service_name: WINDOWS_SERVICE },
-        cli_shim: files.join("cmux/bin/cmux.exe"),
     })
 }

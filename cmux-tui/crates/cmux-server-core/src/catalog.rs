@@ -2,7 +2,8 @@
 //! operation catalog generator (CLI, MCP, palette).
 //!
 //! `host.revoke` is in the table because it shares the revoke flow;
-//! `server.db.backup.status` comes from server.md 8.4.
+//! `server.db.backup.status` comes from server.md 8.4. `app.server.place`
+//! and `app.server.move` choose the host that runs an app server (7.2).
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Owner {
@@ -42,6 +43,9 @@ pub struct ServerOp {
     pub mcp: Mcp,
     /// Only `origin: user` may run it (never an agent or MCP).
     pub user_origin_only: bool,
+    /// What the owner checks before it runs the op, for the docs and the
+    /// generated CLI help.
+    pub precondition: Option<&'static str>,
 }
 
 const fn op(
@@ -52,8 +56,16 @@ const fn op(
     mcp: Mcp,
 ) -> ServerOp {
     let user_origin_only = matches!(mcp, Never);
-    ServerOp { name, owner, cli, risk, mcp, user_origin_only }
+    ServerOp { name, owner, cli, risk, mcp, user_origin_only, precondition: None }
 }
+
+const fn with_precondition(op: ServerOp, precondition: &'static str) -> ServerOp {
+    ServerOp { precondition: Some(precondition), ..op }
+}
+
+/// Precondition of `server.app.restart` (server.md 7.2, 7.4).
+pub const LEASE_PRECONDITION: &str = "this host holds the app's lease at the current epoch; \
+     otherwise the op is refused with owner_moving or not_lease_holder";
 
 use Mcp::{Approval, Never, OptIn};
 use Owner::{Local, LocalAndPairingDo, TeamDo};
@@ -96,10 +108,13 @@ pub static SERVER_OPS: &[ServerOp] = &[
     op("server.db.expose", Local("postgres"), Some("server db expose"), Mutate, Never),
     op("server.app.list", Local("apps"), Some("server app list"), Read, Mcp::Default),
     op("server.app.logs", Local("apps"), Some("server app logs"), Read, Mcp::Default),
-    op("server.app.start", Local("apps"), Some("server app start"), Mutate, OptIn),
-    op("server.app.stop", Local("apps"), Some("server app stop"), Mutate, OptIn),
-    op("server.app.restart", Local("apps"), Some("server app restart"), Mutate, OptIn),
-    op("server.app.deploy", Local("apps"), Some("server app deploy"), Mutate, OptIn),
+    with_precondition(
+        op("server.app.restart", Local("apps"), Some("server app restart"), Mutate, OptIn),
+        LEASE_PRECONDITION,
+    ),
+    op("server.app.restore", Local("apps"), Some("server app restore"), Destructive, Never),
+    op("app.server.place", TeamDo, Some("apps server place"), Mutate, Never),
+    op("app.server.move", TeamDo, Some("apps server move"), Mutate, Never),
     op("server.software.list", Local("server"), Some("server software list"), Read, Mcp::Default),
     op(
         "server.software.install",

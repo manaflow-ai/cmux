@@ -86,7 +86,7 @@ fn initdb_argv_unix_and_windows() {
     let argv = win.initdb_argv();
     assert_eq!(argv[0], r"C:\Users\ana\AppData\Local\cmux\current\pg\bin\initdb.exe");
     assert!(argv.contains(&"--auth-local=scram-sha-256".to_owned()));
-    assert!(argv.contains(&"--auth-host=scram-sha-256".to_owned()));
+    assert!(argv.contains(&"--auth-host=reject".to_owned()));
     assert!(argv.contains(
         &r"--pwfile=C:\Users\ana\AppData\Local\cmux\server\postgres\admin.pw".to_owned()
     ));
@@ -248,7 +248,7 @@ fn app_sql_schema_mode_user_with_password() {
     );
     assert_eq!(plan.cluster_sql().len(), 2);
     assert_eq!(
-        plan.read_only_sql(&a, true).sql,
+        plan.advisory_read_only_sql(&a, true).sql,
         "ALTER ROLE \"app_crm\" SET default_transaction_read_only = on"
     );
 }

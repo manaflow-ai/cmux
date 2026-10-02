@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+use sha2::{Digest, Sha256};
+
 pub const APP_ID_MAX: usize = 41;
 
 /// A validated app id: `[a-z][a-z0-9_]{0,40}`.
@@ -19,6 +21,22 @@ pub enum AppIdError {
     BadStart,
     /// A character outside `a-z`, `0-9`, `_` at this byte offset.
     BadChar(usize),
+    /// Not a manifest app id `<publisher>/<name>` (cmux-app.schema.json).
+    ManifestGrammar,
+}
+
+/// The manifest id grammar of `cmux-app-host/schema/cmux-app.schema.json`:
+/// `^(local|[a-z0-9](?:[a-z0-9-]{0,38}))/[a-z0-9][a-z0-9-]{0,63}$`.
+pub fn valid_manifest_id(id: &str) -> bool {
+    let Some((publisher, name)) = id.split_once('/') else { return false };
+    let part = |s: &str, max: usize| {
+        let b = s.as_bytes();
+        !b.is_empty()
+            && b.len() <= max
+            && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
+            && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+    };
+    part(publisher, 39) && part(name, 64)
 }
 
 impl AppId {
@@ -37,6 +55,37 @@ impl AppId {
             return Err(AppIdError::BadChar(pos));
         }
         Ok(AppId(id.to_owned()))
+    }
+
+    /// Maps a manifest app id to its Postgres and OS name (server.md 8.3):
+    /// lowercase; `/`, `-` and `.` become `_`; a leading digit gets the
+    /// prefix `a_`; a result longer than 40 bytes keeps its first 31 bytes,
+    /// then `_` and the first 8 hex characters of SHA-256 of the full id.
+    /// `cmux/tasks` becomes `cmux_tasks` (role `app_cmux_tasks`).
+    ///
+    /// The mapping is not injective (`a-b/c` and `a/b-c` both give
+    /// `a_b_c`): the caller keeps the installed ids and refuses an install
+    /// whose mapped id is already taken by another manifest id.
+    pub fn from_manifest_id(id: &str) -> Result<AppId, AppIdError> {
+        if !valid_manifest_id(id) {
+            return Err(AppIdError::ManifestGrammar);
+        }
+        let mut mapped: String = id
+            .to_ascii_lowercase()
+            .chars()
+            .map(|c| if matches!(c, '/' | '-' | '.') { '_' } else { c })
+            .collect();
+        if mapped.starts_with(|c: char| c.is_ascii_digit()) {
+            mapped.insert_str(0, "a_");
+        }
+        if mapped.len() > 40 {
+            let digest = Sha256::digest(id.as_bytes());
+            let hex: String = digest[..4].iter().map(|b| format!("{b:02x}")).collect();
+            mapped.truncate(31);
+            mapped.push('_');
+            mapped.push_str(&hex);
+        }
+        AppId::parse(&mapped)
     }
 
     pub fn as_str(&self) -> &str {

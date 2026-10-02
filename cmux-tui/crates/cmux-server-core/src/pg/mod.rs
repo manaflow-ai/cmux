@@ -13,7 +13,9 @@ mod scram;
 mod sql;
 
 pub use conf::{CONF_FILE, CONF_INCLUDE_LINE};
-pub use ident::{APP_ID_MAX, AppId, AppIdError, quote_ident, quote_literal, valid_os_user};
+pub use ident::{
+    APP_ID_MAX, AppId, AppIdError, quote_ident, quote_literal, valid_manifest_id, valid_os_user,
+};
 pub use scram::{
     SCRAM_ITERATIONS, admin_pgpass_line, password_from_random, pgpass_line, scram_verifier,
 };
@@ -73,12 +75,13 @@ pub struct ClusterSpec {
     pub port: u16,
     /// `<current>/bin/cmux`, used by `archive_command`.
     pub cmux_bin: HostPath,
-    /// OS user the cluster runs as: `cmux` in system mode, the installing
-    /// user in user mode. Mapped to [`ADMIN_ROLE`] by peer auth.
+    /// OS user the cluster runs as: `cmux` in Linux system mode, else the
+    /// account the service runs as. Mapped to [`ADMIN_ROLE`] by peer auth in
+    /// Linux system mode.
     pub service_user: String,
     /// The `initdb --pwfile` input with the random admin secret. Required
-    /// wherever the admin does not use peer auth: user mode on every
-    /// platform and Windows in both modes (server.md 8.1, 8.3). The caller
+    /// wherever the admin does not use peer auth: everything but Linux
+    /// system mode (server.md 8.1, 8.3). The caller
     /// keeps the secret in `<state>/postgres/admin.pgpass` (0600; DPAPI on
     /// Windows), see [`admin_pgpass_line`].
     pub admin_pwfile: Option<HostPath>,
@@ -117,12 +120,13 @@ impl PgPlan {
         &self.spec
     }
 
-    /// Peer auth for the admin and the apps: system mode on Linux and macOS
-    /// only. User mode uses SCRAM, because every app runs as the installing
-    /// user and peer auth would make each of them superuser (server.md 8.3,
-    /// measured on the Freestyle prototype). Windows has no peer auth.
+    /// Peer auth for the admin and the apps: Linux system mode only, where
+    /// each app runs as its own OS user `app-<app>`. Everywhere else every
+    /// app runs as the service user (user mode, and macOS system mode), so
+    /// peer auth would make each of them superuser (server.md 8.3, measured
+    /// on the Freestyle prototype); those use SCRAM. Windows has no peer auth.
     pub fn uses_peer(&self) -> bool {
-        self.spec.mode == InstallMode::System && self.spec.platform != Platform::Windows
+        uses_peer(self.spec.mode, self.spec.platform)
     }
 
     /// The cluster listens on a Unix socket (everywhere but Windows).
@@ -136,9 +140,13 @@ impl PgPlan {
         self.spec.platform == Platform::Windows || apps.iter().any(|a| a.tcp)
     }
 
-    /// The app role needs a password: user mode always, system mode only
-    /// for TCP or on Windows (peer auth needs none).
+    /// The app role needs a password unless it uses peer auth only (Linux
+    /// system mode without TCP).
     pub fn app_needs_password(&self, app: &AppDb) -> bool {
-        self.spec.mode == InstallMode::User || app.tcp || !self.uses_peer()
+        app.tcp || !self.uses_peer()
     }
+}
+
+pub(crate) fn uses_peer(mode: InstallMode, platform: Platform) -> bool {
+    mode == InstallMode::System && platform == Platform::Linux
 }

@@ -4,7 +4,7 @@ use super::{
     ADMIN_MAP, ADMIN_ROLE, APPS_MAP, AppDb, ClusterSpec, DbMode, MAX_SOCKET_PATH, PgError, PgPlan,
     SHARED_DATABASE, SOCKET_GROUP, valid_os_user,
 };
-use crate::platform::{HostPath, InstallMode, Platform};
+use crate::platform::{HostPath, Platform};
 use crate::ports::POSTGRES_DEFAULT;
 
 /// The file this crate owns inside the data directory.
@@ -31,8 +31,7 @@ pub(super) fn validate(spec: &ClusterSpec) -> Result<(), PgError> {
     {
         return Err(PgError::UnsafePath("admin_pwfile"));
     }
-    let peer = spec.mode == InstallMode::System && spec.platform != Platform::Windows;
-    if peer == spec.admin_pwfile.is_some() {
+    if super::uses_peer(spec.mode, spec.platform) == spec.admin_pwfile.is_some() {
         return Err(PgError::PwfileMismatch);
     }
     if spec.port == 0 || spec.port == POSTGRES_DEFAULT {
@@ -97,9 +96,10 @@ impl PgPlan {
                 argv.push("--auth-host=reject".to_owned());
             }
             Some(pwfile) => {
-                let host = if self.uses_socket() { "reject" } else { "scram-sha-256" };
+                // `pg_hba.conf` is replaced before the first start, so the
+                // initial host rule only has to be closed.
                 argv.push("--auth-local=scram-sha-256".to_owned());
-                argv.push(format!("--auth-host={host}"));
+                argv.push("--auth-host=reject".to_owned());
                 argv.push(format!("--pwfile={pwfile}"));
             }
         }
@@ -120,7 +120,7 @@ impl PgPlan {
         } else {
             let dirs = format!("\"{}\"", s.socket_dir);
             out.push_str(&format!("unix_socket_directories = {}\n", conf_string(&dirs)));
-            if s.mode == InstallMode::System {
+            if self.uses_peer() {
                 out.push_str(&format!("unix_socket_group = {}\n", conf_string(SOCKET_GROUP)));
                 out.push_str("unix_socket_permissions = 0770\n");
             } else {

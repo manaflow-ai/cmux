@@ -13,12 +13,26 @@ use super::{Alert, AlertKey, AlertSet, Facts, FixRef, Post};
 ///   first `reduce` that sees the condition and is kept in the set.
 /// - A raise and every severity change post `Notify`; a clear posts
 ///   `Resolve`. The same facts at the same `now` post nothing.
-/// - `wake_at_ms` is the next time the result can change without new facts.
+/// - A check whose facts are unknown (`None`) keeps its previous alert and
+///   timer: no resolve, no raise.
+/// - `wake_at_ms` is the next time the result can change without new facts
+///   (a delayed check, `lock.pending` at `due - window`, a stale backup).
 pub fn reduce(prev: &AlertSet, facts: &Facts, now_ms: u64) -> (AlertSet, Vec<Post>) {
-    let (holding, backup_deadline) = conditions(facts, now_ms, prev);
+    let eval = conditions(facts, now_ms, prev);
     let mut next = AlertSet::default();
-    let mut wake = backup_deadline;
-    for cond in holding {
+    let mut wake = eval.deadline;
+    // Unknown facts keep the previous state of their checks unchanged.
+    for (key, alert) in &prev.alerts {
+        if eval.unknown.contains(&key.check) {
+            next.alerts.insert(key.clone(), alert.clone());
+        }
+    }
+    for (key, since) in &prev.pending {
+        if eval.unknown.contains(&key.check) {
+            next.pending.insert(key.clone(), *since);
+        }
+    }
+    for cond in eval.holding {
         if cond.delay_ms > 0 {
             let since = prev.pending.get(&cond.key).copied().unwrap_or(now_ms).min(now_ms);
             next.pending.insert(cond.key.clone(), since);
@@ -44,7 +58,7 @@ fn diff(
     let mut posts = Vec::new();
     for key in prev.keys() {
         if !next.contains_key(key) {
-            posts.push(Post::Resolve { dedupe_key: key.dedupe_key(&facts.host) });
+            posts.push(Post::Resolve { dedupe_key: key.dedupe_key(&facts.host_id) });
         }
     }
     for (key, alert) in next {
@@ -55,8 +69,8 @@ fn diff(
             .map(|f| FixRef { id: f.id, title_key: f.title_key, needs_admin: f.needs_admin })
             .collect();
         posts.push(Post::Notify {
-            dedupe_key: key.dedupe_key(&facts.host),
-            host: facts.host.clone(),
+            dedupe_key: key.dedupe_key(&facts.host_id),
+            host_id: facts.host_id.clone(),
             check: key.check,
             subject: key.subject.clone(),
             severity: alert.severity,

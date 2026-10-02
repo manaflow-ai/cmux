@@ -1,5 +1,7 @@
 //! Per-check conditions with hysteresis (server.md 9.3 table).
 
+use std::collections::BTreeSet;
+
 use super::facts::{BackupFacts, DiskFacts, GIB, HealthSettings, PowerSource};
 use super::{AlertKey, AlertSet, CheckId, Facts, Severity};
 use crate::platform::InstallMode;
@@ -12,69 +14,107 @@ pub(super) struct Condition {
     pub delay_ms: u64,
 }
 
-/// The conditions that hold at `now`, and the earliest future time at which
-/// a time-based condition (backup age, WAL failure) starts to hold.
-pub(super) fn conditions(
-    facts: &Facts,
-    now_ms: u64,
-    prev: &AlertSet,
-) -> (Vec<Condition>, Option<u64>) {
+/// The result of evaluating facts at one instant.
+pub(super) struct Evaluation {
+    pub holding: Vec<Condition>,
+    /// Checks whose facts are unknown (`None`): their previous alerts and
+    /// timers are kept unchanged, neither resolved nor raised again.
+    pub unknown: BTreeSet<CheckId>,
+    /// The earliest future time at which a time-based condition (lock due,
+    /// backup age, WAL failure) starts to hold with unchanged facts.
+    pub deadline: Option<u64>,
+}
+
+fn earliest(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.min(y)),
+        (x, None) => x,
+        (None, y) => y,
+    }
+}
+
+pub(super) fn conditions(facts: &Facts, now_ms: u64, prev: &AlertSet) -> Evaluation {
     let s = &facts.settings;
     let prev_sev = |key: &AlertKey| prev.get(key).map(|a| a.severity);
-    let mut out = Vec::new();
+    let mut holding = Vec::new();
+    let mut unknown = BTreeSet::new();
+    let mut deadline = None;
     let mut push = |key: AlertKey, severity: Severity, delay_ms: u64| {
-        if !s.disabled.contains(&key.check) {
-            out.push(Condition { key, severity, delay_ms });
-        }
+        holding.push(Condition { key, severity, delay_ms });
     };
 
-    if let Some(power) = facts.power
-        && power.source == PowerSource::Battery
-    {
-        let key = AlertKey::check(CheckId::PowerOnBattery);
-        let latched = prev_sev(&key) == Some(Severity::Critical);
-        let severity = battery_severity(s, power.battery_percent, latched);
-        push(key, severity, s.on_battery_delay_ms);
+    match facts.power {
+        None => {
+            unknown.insert(CheckId::PowerOnBattery);
+        }
+        Some(power) if power.source == PowerSource::Battery => {
+            let key = AlertKey::check(CheckId::PowerOnBattery);
+            let latched = prev_sev(&key) == Some(Severity::Critical);
+            let severity = battery_severity(s, power.battery_percent, latched);
+            push(key, severity, s.on_battery_delay_ms);
+        }
+        Some(_) => {}
     }
     if !facts.link_up && !facts.has_route {
         push(AlertKey::check(CheckId::NetworkOffline), Severity::Critical, s.offline_delay_ms);
     }
-    if let Some(disk) = facts.disk {
-        let key = AlertKey::check(CheckId::DiskLow);
-        if let Some(severity) = disk_severity(s, &disk, prev_sev(&key)) {
-            push(key, severity, 0);
+    match facts.disk {
+        None => {
+            unknown.insert(CheckId::DiskLow);
+        }
+        Some(disk) => {
+            let key = AlertKey::check(CheckId::DiskLow);
+            if let Some(severity) = disk_severity(s, &disk, prev_sev(&key)) {
+                push(key, severity, 0);
+            }
         }
     }
-    if let Some(lock) = facts.lock
-        && !lock.display_assertion_held
-        && lock.gui_workload_active
-        && lock.idle_lock_due_secs.is_some_and(|due| due <= s.lock_due_window_secs)
-    {
-        push(AlertKey::check(CheckId::LockPending), Severity::Warning, 0);
+    match facts.lock {
+        None => {
+            unknown.insert(CheckId::LockPending);
+        }
+        Some(lock) if !lock.display_assertion_held && lock.gui_workload_active => {
+            if let Some(due) = lock.idle_lock_due_at_ms {
+                let warn_at = due.saturating_sub(s.lock_due_window_ms);
+                if warn_at <= now_ms {
+                    push(AlertKey::check(CheckId::LockPending), Severity::Warning, 0);
+                } else {
+                    deadline = earliest(deadline, Some(warn_at));
+                }
+            }
+        }
+        Some(_) => {}
     }
+    let filevault = match (facts.filevault_on, facts.autologin) {
+        (Some(false), _) => Some(false),
+        (Some(true), Some(autologin)) => Some(!autologin),
+        _ => None,
+    };
+    let inhibit = match (facts.mode, facts.inhibitors) {
+        (InstallMode::System, _) => Some(false),
+        (InstallMode::User, Some(i)) => Some(i.idle && !i.sleep && !i.handle_lid_switch),
+        (InstallMode::User, None) => None,
+    };
     let flags = [
-        (facts.sleep_on_ac_enabled == Some(true), CheckId::SleepEnabled, Severity::Info),
-        (facts.autorestart == Some(false), CheckId::RestartNoAutoRestart, Severity::Info),
-        (
-            facts.filevault_on == Some(true) && facts.autologin == Some(false),
-            CheckId::RestartFileVaultWait,
-            Severity::Warning,
-        ),
-        (facts.headless_agent_not_logged_in, CheckId::RestartNotLoggedIn, Severity::Warning),
-        (facts.linger == Some(false), CheckId::LingerOff, Severity::Critical),
-        (
-            facts.mode == InstallMode::User
-                && facts.inhibitors.is_some_and(|i| i.idle && !i.sleep && !i.handle_lid_switch),
-            CheckId::InhibitLimited,
-            Severity::Info,
-        ),
-        (facts.encryption_on == Some(false), CheckId::EncryptionOff, Severity::Info),
+        (facts.sleep_on_ac_enabled, CheckId::SleepEnabled, Severity::Info),
+        (facts.autorestart.map(|on| !on), CheckId::RestartNoAutoRestart, Severity::Info),
+        (filevault, CheckId::RestartFileVaultWait, Severity::Warning),
+        (Some(facts.headless_agent_not_logged_in), CheckId::RestartNotLoggedIn, Severity::Warning),
+        (facts.linger.map(|on| !on), CheckId::LingerOff, Severity::Critical),
+        (inhibit, CheckId::InhibitLimited, Severity::Info),
+        (facts.encryption_on.map(|on| !on), CheckId::EncryptionOff, Severity::Info),
     ];
     for (holds, check, severity) in flags {
-        if holds {
-            push(AlertKey::check(check), severity, 0);
+        match holds {
+            None => {
+                unknown.insert(check);
+            }
+            Some(true) => push(AlertKey::check(check), severity, 0),
+            Some(false) => {}
         }
     }
+    // The quota list is authoritative: an app missing from it has no
+    // database any more, so its alert resolves.
     for usage in &facts.quota {
         let key = AlertKey { check: CheckId::PostgresQuota, subject: Some(usage.app.clone()) };
         let latched = prev_sev(&key).is_some();
@@ -87,15 +127,22 @@ pub(super) fn conditions(
             push(key, Severity::Warning, 0);
         }
     }
-    let mut deadline = None;
-    if let Some(backup) = facts.backup {
-        let (stale, next) = backup_state(s, &backup, now_ms);
-        if stale {
-            push(AlertKey::check(CheckId::BackupStale), Severity::Warning, 0);
+    match facts.backup {
+        None => {
+            unknown.insert(CheckId::BackupStale);
         }
-        deadline = next;
+        Some(backup) => {
+            let (stale, next) = backup_state(s, &backup, now_ms);
+            if stale {
+                push(AlertKey::check(CheckId::BackupStale), Severity::Warning, 0);
+            }
+            deadline = earliest(deadline, next);
+        }
     }
-    (out, deadline)
+    // A disabled check is never raised and never kept, even when unknown.
+    holding.retain(|c| !s.disabled.contains(&c.key.check));
+    unknown.retain(|c| !s.disabled.contains(c));
+    Evaluation { holding, unknown, deadline }
 }
 
 fn battery_severity(s: &HealthSettings, percent: Option<u8>, latched_critical: bool) -> Severity {

@@ -7,6 +7,7 @@
 //!
 //! Modules:
 //! - [`layout`]: install mode x platform to paths (server.md 4.3).
+//! - [`access`]: required owners, modes and ACLs of those paths.
 //! - [`ports`]: the install's port block (server.md 8.2).
 //! - [`pg`]: the Postgres cluster plan and per-app provisioning (server.md 8).
 //! - [`pairing`]: pairing code, fingerprint words and QR payload (server.md 6.2).
@@ -15,6 +16,7 @@
 //! - [`manifest`]: signed channel manifest verification (server.md 4.2).
 //! - [`catalog`]: the `server.*` operations as static data (server.md 13).
 
+pub mod access;
 pub mod catalog;
 pub mod health;
 pub mod layout;

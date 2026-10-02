@@ -22,12 +22,14 @@ new_install_id() { printf 'inst_%s\n' "$(od -An -N10 -tx1 /dev/urandom | tr -d '
 # A random 32-byte secret, base64url without padding.
 random_secret() { head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n'; }
 
-# SCRAM-SHA-256 verifier for password $1, so the server, its logs and psql
-# history never see the clear password (PASSWORD takes the verifier).
+# SCRAM-SHA-256 verifier for the password on stdin, so the server, its logs
+# and psql history never see the clear password (PASSWORD takes the
+# verifier). The password never appears in argv (visible in ps):
+#   printf '%s' "$secret" | scram_verifier
 scram_verifier() {
-  python3 - "$1" <<'PY'
+  python3 -c '
 import base64, hashlib, hmac, os, sys
-pw = sys.argv[1].encode()
+pw = sys.stdin.buffer.read()
 salt = os.urandom(16)
 it = 4096
 salted = hashlib.pbkdf2_hmac("sha256", pw, salt, it)
@@ -36,7 +38,7 @@ sk = hmac.new(salted, b"Server Key", "sha256").digest()
 stored = hashlib.sha256(ck).digest()
 b = lambda x: base64.b64encode(x).decode()
 print(f"SCRAM-SHA-256${it}:{b(salt)}${b(stored)}:{b(sk)}")
-PY
+'
 }
 
 # Validates an app id before it becomes an identifier (server.md 8.3).

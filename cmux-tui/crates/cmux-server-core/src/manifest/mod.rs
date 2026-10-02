@@ -17,14 +17,17 @@
 //! Unknown fields are ignored so a newer manifest stays readable; anything a
 //! machine must understand raises `min_cmux_version` instead.
 
+mod semver;
 mod time;
 mod validate;
 
+pub use semver::SemVer;
 pub use time::parse_rfc3339_utc_ms;
 pub use validate::{Version, parse_version, valid_sha256};
 
 use ring::signature::{ED25519, UnparsedPublicKey};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::layout::Layout;
 use crate::platform::HostPath;
@@ -76,7 +79,10 @@ pub struct Verified {
     pub expires_at_ms: u64,
     /// The key that signed it.
     pub key_id: String,
-    /// Same sequence as the last applied manifest: applying it again is a
+    /// SHA-256 of the exact manifest bytes; stored with the sequence as
+    /// [`Applied`] after a successful apply.
+    pub sha256: [u8; 32],
+    /// The same bytes as the last applied manifest: applying it again is a
     /// no-op that only re-checks the store.
     pub reapply: bool,
     /// The running `cmux` is older than `min_cmux_version`: install the new
@@ -101,21 +107,48 @@ pub enum ManifestError {
         sequence: u64,
         last_applied: u64,
     },
+    /// The last applied sequence with different bytes: CI never signs two
+    /// manifests with one sequence, so this is a key misuse or an attack.
+    SequenceReused { sequence: u64 },
+    /// Signed for another channel (a `beta` manifest offered to `stable`).
+    ChannelMismatch { expected: String, got: String },
 }
 
-/// Verifies `bytes` with `signature`, then parses and checks the manifest.
-pub fn verify(
-    bytes: &[u8],
-    signature: &[u8],
-    keys: &[TrustedKey],
-    now_ms: u64,
-    last_applied: Option<u64>,
-    running_cmux: &str,
-) -> Result<Verified, ManifestError> {
+/// What the updater recorded after its last successful apply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Applied {
+    pub sequence: u64,
+    pub sha256: [u8; 32],
+}
+
+impl Verified {
+    pub fn applied(&self) -> Applied {
+        Applied { sequence: self.manifest.sequence, sha256: self.sha256 }
+    }
+}
+
+/// The machine's side of a verification.
+#[derive(Clone, Copy, Debug)]
+pub struct VerifyContext<'a> {
+    /// The baked release keys (current and next).
+    pub keys: &'a [TrustedKey],
+    pub now_ms: u64,
+    /// The machine's `server.channel` (`stable`, `beta`).
+    pub expected_channel: &'a str,
+    pub last_applied: Option<Applied>,
+    /// The running `cmux` version; a prerelease suffix is allowed.
+    pub running_cmux: &'a str,
+}
+
+/// Verifies `bytes` with `signature`, then parses and checks the manifest:
+/// signature, fields, channel, expiry, then sequence and bytes against the
+/// last applied manifest.
+pub fn verify(bytes: &[u8], signature: &[u8], ctx: &VerifyContext<'_>) -> Result<Verified, ManifestError> {
     if signature.len() != SIGNATURE_LEN {
         return Err(ManifestError::BadSignature);
     }
-    let key_id = keys
+    let key_id = ctx
+        .keys
         .iter()
         .find(|k| UnparsedPublicKey::new(&ED25519, &k.public_key).verify(bytes, signature).is_ok())
         .map(|k| k.id.clone())
@@ -123,23 +156,34 @@ pub fn verify(
     let manifest: ChannelManifest =
         serde_json::from_slice(bytes).map_err(|e| ManifestError::Parse(e.to_string()))?;
     let expires_at_ms = validate::check(&manifest)?;
-    if expires_at_ms <= now_ms {
-        return Err(ManifestError::Expired { expires_at_ms, now_ms });
+    if manifest.channel != ctx.expected_channel {
+        return Err(ManifestError::ChannelMismatch {
+            expected: ctx.expected_channel.to_owned(),
+            got: manifest.channel,
+        });
     }
-    let reapply = match last_applied {
-        Some(last) if manifest.sequence < last => {
+    if expires_at_ms <= ctx.now_ms {
+        return Err(ManifestError::Expired { expires_at_ms, now_ms: ctx.now_ms });
+    }
+    let sha256: [u8; 32] = Sha256::digest(bytes).into();
+    let reapply = match ctx.last_applied {
+        Some(last) if manifest.sequence < last.sequence => {
             return Err(ManifestError::Rollback {
                 sequence: manifest.sequence,
-                last_applied: last,
+                last_applied: last.sequence,
             });
         }
-        Some(last) => manifest.sequence == last,
+        Some(last) if manifest.sequence == last.sequence && last.sha256 != sha256 => {
+            return Err(ManifestError::SequenceReused { sequence: manifest.sequence });
+        }
+        Some(last) => manifest.sequence == last.sequence,
         None => false,
     };
-    let min = parse_version(&manifest.min_cmux_version).expect("checked by validate");
-    let running = parse_version(running_cmux)
-        .ok_or_else(|| ManifestError::Invalid(format!("running cmux version {running_cmux:?}")))?;
-    Ok(Verified { needs_newer_cmux: running < min, manifest, expires_at_ms, key_id, reapply })
+    let min = SemVer::release(parse_version(&manifest.min_cmux_version).expect("checked"));
+    let running = SemVer::parse(ctx.running_cmux).ok_or_else(|| {
+        ManifestError::Invalid(format!("running cmux version {:?}", ctx.running_cmux))
+    })?;
+    Ok(Verified { needs_newer_cmux: running < min, manifest, expires_at_ms, key_id, sha256, reapply })
 }
 
 /// `<store>/<sha256>`: where a package unpacks (lane 1 store layout).

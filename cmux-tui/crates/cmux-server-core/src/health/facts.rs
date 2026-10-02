@@ -7,7 +7,7 @@
 
 use std::collections::BTreeSet;
 
-use super::CheckId;
+use super::{CheckId, HostId};
 use crate::platform::{InstallMode, Platform};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,8 +33,9 @@ pub struct DiskFacts {
 pub struct LockFacts {
     /// cmux holds the display (idle lock) assertion.
     pub display_assertion_held: bool,
-    /// Seconds until the idle lock is due, if one is configured.
-    pub idle_lock_due_secs: Option<u64>,
+    /// When the idle lock is due (Unix ms), if one is configured. Absolute,
+    /// so the reducer can set a one-shot deadline at `due - window`.
+    pub idle_lock_due_at_ms: Option<u64>,
     /// A GUI workload runs (computer use, a headful browser).
     pub gui_workload_active: bool,
 }
@@ -83,7 +84,7 @@ pub struct HealthSettings {
     /// An alert clears (or de-escalates) only this many percentage points
     /// above its threshold, and this many GiB above the byte threshold.
     pub clear_margin: u8,
-    pub lock_due_window_secs: u64,
+    pub lock_due_window_ms: u64,
     pub quota_warning_percent: u8,
     pub backup_max_age_ms: u64,
     pub wal_failing_max_ms: u64,
@@ -103,7 +104,7 @@ impl Default for HealthSettings {
             disk_critical_percent: 5,
             disk_critical_bytes: 2 * GIB,
             clear_margin: 2,
-            lock_due_window_secs: 300,
+            lock_due_window_ms: 300_000,
             quota_warning_percent: 80,
             backup_max_age_ms: 48 * 3600 * 1000,
             wal_failing_max_ms: 10 * 60 * 1000,
@@ -114,8 +115,9 @@ impl Default for HealthSettings {
 /// Everything the reducer reads. The I/O crate fills it from probe events.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Facts {
-    /// The host id in dedupe keys (`host_…`, or the install id before pairing).
-    pub host: String,
+    /// The stable host id in dedupe keys (`host_…`, or the install id
+    /// `inst_…` before pairing); never a display name, which can change.
+    pub host_id: HostId,
     pub platform: Platform,
     pub mode: InstallMode,
     pub settings: HealthSettings,
@@ -142,10 +144,10 @@ pub struct Facts {
 }
 
 impl Facts {
-    /// Healthy facts with nothing known: no check raises.
-    pub fn healthy(host: &str, platform: Platform, mode: InstallMode) -> Facts {
+    /// Nothing known: no check raises, and every open alert is kept.
+    pub fn unknown(host_id: HostId, platform: Platform, mode: InstallMode) -> Facts {
         Facts {
-            host: host.to_owned(),
+            host_id,
             platform,
             mode,
             settings: HealthSettings::default(),
@@ -164,6 +166,29 @@ impl Facts {
             encryption_on: None,
             quota: Vec::new(),
             backup: None,
+        }
+    }
+
+    /// Every fact known and healthy, except backups (they depend on `now`;
+    /// the caller sets them). For tests and previews.
+    pub fn healthy(host_id: HostId, platform: Platform, mode: InstallMode) -> Facts {
+        let big = 1u64 << 50;
+        Facts {
+            power: Some(PowerFacts { source: PowerSource::Ac, battery_percent: None }),
+            disk: Some(DiskFacts { free_bytes: big, total_bytes: big }),
+            lock: Some(LockFacts {
+                display_assertion_held: true,
+                idle_lock_due_at_ms: None,
+                gui_workload_active: false,
+            }),
+            sleep_on_ac_enabled: Some(false),
+            autorestart: Some(true),
+            filevault_on: Some(false),
+            autologin: Some(false),
+            linger: Some(true),
+            inhibitors: Some(InhibitFacts { idle: true, sleep: true, handle_lid_switch: true }),
+            encryption_on: Some(true),
+            ..Facts::unknown(host_id, platform, mode)
         }
     }
 }

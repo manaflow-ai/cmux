@@ -46,9 +46,16 @@ fetch_pinned "$hook_url" "$out/work/cmux-hook" "$hook_sha"
 tui_size=$(wc -c <"$out/work/cmux-tui" | tr -d ' ')
 hook_size=$(wc -c <"$out/work/cmux-hook" | tr -d ' ')
 
-# Keys: current and next are trusted by the installer; rogue is not.
+# Keys: current and next are trusted by the installer; rogue is not. The
+# private keys are created under umask 077 (0600 files in a 0700 directory).
+(
+  umask 077
+  chmod 700 "$out/keys"
+  for k in current next rogue; do
+    openssl genpkey -algorithm ed25519 -out "$out/keys/$k.key" 2>/dev/null
+  done
+)
 for k in current next rogue; do
-  openssl genpkey -algorithm ed25519 -out "$out/keys/$k.key" 2>/dev/null
   openssl pkey -in "$out/keys/$k.key" -pubout -outform DER 2>/dev/null | base64 -w0 >"$out/keys/$k.pub.b64"
 done
 

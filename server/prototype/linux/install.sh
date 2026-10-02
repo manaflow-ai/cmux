@@ -149,24 +149,46 @@ layout_paths() {
 # ---------------------------------------------------------------- tools
 need() { command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"; }
 
+# Parses the URL strictly: scheme, then an authority up to the first `/`,
+# `?` or `#`. The authority may not carry userinfo (`@`), so
+# `https://cmux.com@evil.example/` and `http://127.0.0.1:1@evil/` are refused.
+# The test channel allows exactly `http://127.0.0.1:<port>`.
 allowed_url() {
   case "$1" in
-    https://*) return 0 ;;
-    http://127.0.0.1:*) [ "$CMUX_TEST_CHANNEL" = 1 ] && return 0 ;;
+    https://*) scheme=https rest=${1#https://} ;;
+    http://*) scheme=http rest=${1#http://} ;;
+    *) return 1 ;;
   esac
-  return 1
+  authority=${rest%%[/?#]*}
+  case "$authority" in
+    '' | *@* | *[!A-Za-z0-9.:-]*) return 1 ;;
+  esac
+  [ "$scheme" = https ] && return 0
+  [ "$CMUX_TEST_CHANNEL" = 1 ] || return 1
+  case "$authority" in
+    127.0.0.1:*) port=${authority#127.0.0.1:} ;;
+    *) return 1 ;;
+  esac
+  case "$port" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  return 0
 }
 
 download() {
   allowed_url "$1" || die "refusing non-HTTPS URL: $1"
   if command -v curl >/dev/null 2>&1; then
+    # A redirect may only go to HTTPS (never to plain HTTP, even in the test
+    # channel).
     if [ "$CMUX_TEST_CHANNEL" = 1 ]; then
-      curl -fsSL --proto '=https,http' --retry 3 --connect-timeout 20 -o "$2" "$1"
+      curl -fsSL --proto '=https,http' --proto-redir '=https' --retry 3 --connect-timeout 20 -o "$2" "$1"
     else
-      curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --connect-timeout 20 -o "$2" "$1"
+      curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --connect-timeout 20 -o "$2" "$1"
     fi
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$2" "$1"
+    # wget cannot restrict the scheme of a redirect, so it follows none.
+    # BusyBox wget lacks --max-redirect and fails here, which also refuses.
+    wget -q --max-redirect=0 -O "$2" "$1"
   else
     die 'need curl or wget'
   fi

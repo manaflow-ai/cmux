@@ -163,14 +163,47 @@ impl PgPlan {
         Ok(out)
     }
 
-    /// `server.db.limits.set {app, readOnly}` (server.md 8.3).
-    pub fn read_only_sql(&self, app: &AppDb, read_only: bool) -> Statement {
+    /// The advisory step at 100% of the quota (server.md 8.3):
+    /// `default_transaction_read_only` for new sessions of the role. It is
+    /// advisory only, because an app can `SET default_transaction_read_only
+    /// = off` in its own session; [`PgPlan::block_sql`] is the enforced cap.
+    pub fn advisory_read_only_sql(&self, app: &AppDb, read_only: bool) -> Statement {
         let value = if read_only { "on" } else { "off" };
         stmt(
             ADMIN_DATABASE,
             format!(
                 "ALTER ROLE {} SET default_transaction_read_only = {value}",
                 ident(&app.id.role())
+            ),
+        )
+    }
+
+    /// The hard cap, `server.db.limits.set {app, blocked: true}`: no new
+    /// connections for the role, and its open sessions end. This is the only
+    /// enforceable cap, because the app owns its tables (server.md 8.3).
+    pub fn block_sql(&self, app: &AppDb) -> Vec<Statement> {
+        let role = app.id.role();
+        vec![
+            stmt(ADMIN_DATABASE, format!("ALTER ROLE {} CONNECTION LIMIT 0", ident(&role))),
+            stmt(
+                ADMIN_DATABASE,
+                format!(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = {}",
+                    quote_literal(&role).expect("validated role name")
+                ),
+            ),
+        ]
+    }
+
+    /// `server.db.limits.set {app, blocked: false}`: restores the role's
+    /// connection limit.
+    pub fn unblock_sql(&self, app: &AppDb, limits: &AppLimits) -> Statement {
+        stmt(
+            ADMIN_DATABASE,
+            format!(
+                "ALTER ROLE {} CONNECTION LIMIT {}",
+                ident(&app.id.role()),
+                limits.connection_limit
             ),
         )
     }

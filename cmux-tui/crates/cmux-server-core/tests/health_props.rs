@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use cmux_server_core::health::{
-    AlertKey, AlertSet, BackupFacts, DiskFacts, Facts, InhibitFacts, LockFacts, Post, PowerFacts,
+    AlertKey, AlertSet, BackupFacts, DiskFacts, Facts, HostId, InhibitFacts, LockFacts, Post, PowerFacts,
     PowerSource, QuotaUsage, Severity, reduce,
 };
 use cmux_server_core::{InstallMode, Platform};
@@ -43,13 +43,13 @@ fn disk() -> impl Strategy<Value = Option<DiskFacts>> {
 fn lock() -> impl Strategy<Value = Option<LockFacts>> {
     prop::option::of((
         any::<bool>(),
-        prop::sample::select(vec![None, Some(10u64), Some(1000)]),
+        prop::sample::select(vec![None, Some(0u64), Some(200_000), Some(10 * HOUR)]),
         any::<bool>(),
     ))
     .prop_map(|o| {
         o.map(|(held, due, gui)| LockFacts {
             display_assertion_held: held,
-            idle_lock_due_secs: due,
+            idle_lock_due_at_ms: due,
             gui_workload_active: gui,
         })
     })
@@ -98,7 +98,7 @@ prop_compose! {
         quota in quota(),
         backup in backup(),
     ) -> Facts {
-        let mut f = Facts::healthy("host_p", platform, mode);
+        let mut f = Facts::healthy(hid(), platform, mode);
         f.power = power;
         f.link_up = link_up;
         f.has_route = has_route;
@@ -118,6 +118,33 @@ fn steps() -> impl Strategy<Value = Vec<(Facts, u64)>> {
         (facts(), prop::sample::select(vec![0u64, 1_000, 29_999, 30_000, 60_000, HOUR, 24 * HOUR])),
         1..24,
     )
+}
+
+fn hid() -> HostId {
+    HostId::parse("host_p").unwrap()
+}
+
+fn fresh_backup(now_ms: u64) -> BackupFacts {
+    BackupFacts { cluster_created_at_ms: 0, last_base_backup_at_ms: Some(now_ms), wal_failing_since_ms: None }
+}
+
+/// Replaces every unknown fact with its healthy known value.
+fn known(f: Facts, now_ms: u64) -> Facts {
+    let h = Facts::healthy(f.host_id.clone(), f.platform, f.mode);
+    Facts {
+        power: f.power.or(h.power),
+        disk: f.disk.or(h.disk),
+        lock: f.lock.or(h.lock),
+        sleep_on_ac_enabled: f.sleep_on_ac_enabled.or(h.sleep_on_ac_enabled),
+        autorestart: f.autorestart.or(h.autorestart),
+        filevault_on: f.filevault_on.or(h.filevault_on),
+        autologin: f.autologin.or(h.autologin),
+        linger: f.linger.or(h.linger),
+        inhibitors: f.inhibitors.or(h.inhibitors),
+        encryption_on: f.encryption_on.or(h.encryption_on),
+        backup: f.backup.or(Some(fresh_backup(now_ms))),
+        ..f
+    }
 }
 
 fn severities(s: &AlertSet) -> BTreeMap<AlertKey, Severity> {
@@ -175,12 +202,15 @@ proptest! {
             let (next, posts) = reduce(&state, &f, now);
             apply(&mut open, &posts)?;
             let expected: BTreeMap<String, Severity> =
-                severities(&next).into_iter().map(|(k, s)| (k.dedupe_key("host_p"), s)).collect();
+                severities(&next).into_iter().map(|(k, s)| (k.dedupe_key(&hid()), s)).collect();
             prop_assert_eq!(&open, &expected);
             state = next;
         }
-        let healthy = Facts::healthy("host_p", Platform::MacOs, InstallMode::User);
-        let (end, posts) = reduce(&state, &healthy, now + 1000 * HOUR);
+        // Every fact known and healthy, including a fresh base backup.
+        let end_ms = now + 1000 * HOUR;
+        let mut healthy = Facts::healthy(hid(), Platform::MacOs, InstallMode::User);
+        healthy.backup = Some(fresh_backup(end_ms));
+        let (end, posts) = reduce(&state, &healthy, end_ms);
         apply(&mut open, &posts)?;
         prop_assert!(open.is_empty(), "{:?}", open);
         prop_assert!(end.is_empty() && end.pending().is_empty() && end.wake_at_ms().is_none());
@@ -194,6 +224,9 @@ proptest! {
         let mut now = 0;
         for (f, dt) in steps {
             now += dt;
+            // Unknown facts keep the previous alert by design, so the
+            // from-scratch property is about known facts.
+            let f = known(f, now);
             let (next, _) = reduce(&state, &f, now);
             let (scratch, _) = reduce(&state.timers_only(), &f, now);
             prop_assert_eq!(severities(&next), severities(&scratch));

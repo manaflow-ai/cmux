@@ -123,7 +123,8 @@ impl AlertKey {
     }
 
     /// `server:<host>:<check>`, or `server:<host>:<check>:<subject>`.
-    pub fn dedupe_key(&self, host: &str) -> String {
+    pub fn dedupe_key(&self, host: &HostId) -> String {
+        let host = host.as_str();
         match &self.subject {
             None => format!("server:{host}:{}", self.check),
             Some(s) => format!("server:{host}:{}:{s}", self.check),
@@ -193,7 +194,7 @@ pub enum Post {
     /// On raise and on every severity change.
     Notify {
         dedupe_key: String,
-        host: String,
+        host_id: HostId,
         check: CheckId,
         subject: Option<String>,
         severity: Severity,
@@ -205,3 +206,21 @@ pub enum Post {
 }
 
 pub const FEED_KIND: &str = "server.health";
+
+/// A stable host id: `host_…` (paired) or `inst_…` (the install id before
+/// pairing), `[A-Za-z0-9]{1,64}` after the prefix. A display name never
+/// parses, so it can never become part of a dedupe key.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct HostId(String);
+
+impl HostId {
+    pub fn parse(id: &str) -> Option<HostId> {
+        let rest = id.strip_prefix("host_").or_else(|| id.strip_prefix("inst_"))?;
+        let ok = !rest.is_empty() && rest.len() <= 64 && rest.bytes().all(|b| b.is_ascii_alphanumeric());
+        ok.then(|| HostId(id.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}

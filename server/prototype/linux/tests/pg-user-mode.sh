@@ -77,7 +77,7 @@ UNITF
     secret=$(random_secret)
     printf '*:%s:app_%s:app_%s:%s\n' "$port" "$app" "$app" "$secret" >"$STATE/apps/$app/pgpass"
     chmod 600 "$STATE/apps/$app/pgpass"
-    app_sql "$app" "PASSWORD '$(scram_verifier "$secret")'" |
+    app_sql "$app" "PASSWORD '$(printf '%s' "$secret" | scram_verifier)'" |
       "$PGBIN/psql" -h "$RUN" -p "$port" -U cmux_admin -d postgres -v ON_ERROR_STOP=1 -q
     unset secret
   done
@@ -137,7 +137,7 @@ sandbox() {
   admin_secret=$(random_secret)
   printf '*:%s:*:cmux_admin:%s\n' "$port" "$admin_secret" >"$PGSTATE/admin.pgpass"
   chmod 600 "$PGSTATE/admin.pgpass"
-  printf "ALTER ROLE cmux_admin PASSWORD '%s';\n" "$(scram_verifier "$admin_secret")" |
+  printf "ALTER ROLE cmux_admin PASSWORD '%s';\n" "$(printf '%s' "$admin_secret" | scram_verifier)" |
     "$PGBIN/psql" -h "$RUN" -p "$port" -U cmux_admin -d postgres -q -v ON_ERROR_STOP=1
   unset admin_secret
   sed -i 's/^local all         cmux_admin peer map=cmuxadmin/local all         cmux_admin scram-sha-256/; s/^local replication cmux_admin peer map=cmuxadmin/local replication cmux_admin scram-sha-256/' "$DATA/pg_hba.conf"

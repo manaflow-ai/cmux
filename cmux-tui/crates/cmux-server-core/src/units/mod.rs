@@ -9,7 +9,10 @@ mod systemd;
 mod windows;
 
 pub use launchd::{launch_agent_plist, launch_daemon_plist};
-pub use systemd::{systemd_system_unit, systemd_user_unit};
+pub use systemd::{
+    systemd_app_server_template, systemd_system_unit, systemd_update_path_unit,
+    systemd_update_service_unit, systemd_user_unit,
+};
 pub use windows::{scheduled_task_xml, windows_service_create_argv, windows_service_failure_argv};
 
 use crate::layout::Layout;

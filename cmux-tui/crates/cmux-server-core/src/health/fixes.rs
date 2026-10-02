@@ -188,7 +188,7 @@ pub static FIXES: &[Fix] = &[
         Windows,
         None,
         "server.health.fix.noSleepOnAc",
-        &["powercfg.exe", "/change", "standby-timeout-ac", "0"],
+        &["C:\\Windows\\System32\\powercfg.exe", "/change", "standby-timeout-ac", "0"],
     ),
     url(
         "storageSense",

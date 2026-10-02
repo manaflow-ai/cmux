@@ -1,7 +1,7 @@
 //! Health reducer cases for each check of server.md 9.3, and fix data.
 
 use cmux_server_core::health::{
-    AlertKey, AlertSet, BackupFacts, CheckId, DiskFacts, FIXES, Facts, FixError, FixValues,
+    AlertKey, AlertSet, BackupFacts, CheckId, HostId, DiskFacts, FIXES, Facts, FixError, FixValues,
     InhibitFacts, LockFacts, Post, PowerFacts, PowerSource, QuotaUsage, Severity, fixes_for,
     reduce, render_argv,
 };
@@ -9,8 +9,12 @@ use cmux_server_core::{InstallMode, Platform};
 
 const GIB: u64 = 1 << 30;
 
+fn hid(id: &str) -> HostId {
+    HostId::parse(id).unwrap()
+}
+
 fn mac() -> Facts {
-    Facts::healthy("host_1", Platform::MacOs, InstallMode::User)
+    Facts::healthy(hid("host_1"), Platform::MacOs, InstallMode::User)
 }
 
 fn notify(post: &Post) -> (&str, Severity) {
@@ -93,14 +97,14 @@ fn offline_after_30s_needs_link_and_route_down() {
 
 #[test]
 fn disk_thresholds_and_hysteresis() {
-    let mut f = Facts::healthy("h", Platform::Linux, InstallMode::System);
+    let mut f = Facts::healthy(hid("host_h"), Platform::Linux, InstallMode::System);
     let total = 1000 * GIB;
     let at = |pct_tenths: u64| {
         Some(DiskFacts { free_bytes: total * pct_tenths / 1000, total_bytes: total })
     };
     f.disk = at(95); // 9.5%
     let (s, p) = reduce(&AlertSet::default(), &f, 0);
-    assert_eq!(notify(&p[0]), ("server:h:disk.low", Severity::Warning));
+    assert_eq!(notify(&p[0]), ("server:host_h:disk.low", Severity::Warning));
     let Post::Notify { fixes, .. } = &p[0] else { unreachable!() };
     assert!(fixes.is_empty(), "no storage pane on Linux");
     f.disk = at(110); // 11%: below the 12% clear line, still warning
@@ -117,7 +121,7 @@ fn disk_thresholds_and_hysteresis() {
     assert_eq!(notify(&p[0]).1, Severity::Warning);
     f.disk = at(120); // 12%: clear
     let (s, p) = reduce(&s, &f, 5);
-    assert_eq!(resolved(&p[0]), "server:h:disk.low");
+    assert_eq!(resolved(&p[0]), "server:host_h:disk.low");
     assert!(s.is_empty());
 
     // Bytes threshold on a small disk: 20% of 8 GiB is under 2 GiB.
@@ -131,27 +135,70 @@ fn disk_thresholds_and_hysteresis() {
 #[test]
 fn lock_pending_needs_gui_workload_and_due_lock() {
     let mut f = mac();
+    // The lock is due at 400 s; the window is 300 s, so the warning starts at 100 s.
     let lock = LockFacts {
         display_assertion_held: false,
-        idle_lock_due_secs: Some(300),
+        idle_lock_due_at_ms: Some(400_000),
         gui_workload_active: true,
     };
     f.lock = Some(lock);
     let (s, p) = reduce(&AlertSet::default(), &f, 0);
+    assert!(p.is_empty());
+    assert_eq!(s.wake_at_ms(), Some(100_000), "one-shot deadline at due - window");
+    let (s, p) = reduce(&s, &f, 100_000);
     assert_eq!(notify(&p[0]), ("server:host_1:lock.pending", Severity::Warning));
     let Post::Notify { fixes, .. } = &p[0] else { unreachable!() };
     let ids: Vec<&str> = fixes.iter().map(|f| f.id).collect();
     assert_eq!(ids, ["holdDisplayAssertion", "lockScreenSettings"]);
-    f.lock = Some(LockFacts { idle_lock_due_secs: Some(301), ..lock });
-    assert_eq!(resolved(&reduce(&s, &f, 1).1[0]), "server:host_1:lock.pending");
+    // The lock facts become unknown: the alert stays, nothing is posted.
+    f.lock = None;
+    let (s, p) = reduce(&s, &f, 110_000);
+    assert!(p.is_empty());
+    assert!(s.get(&AlertKey::check(CheckId::LockPending)).is_some());
+    // The display assertion is held again: resolved.
+    f.lock = Some(LockFacts { display_assertion_held: true, ..lock });
+    assert_eq!(resolved(&reduce(&s, &f, 120_000).1[0]), "server:host_1:lock.pending");
     for other in [
-        LockFacts { display_assertion_held: true, ..lock },
         LockFacts { gui_workload_active: false, ..lock },
-        LockFacts { idle_lock_due_secs: None, ..lock },
+        LockFacts { idle_lock_due_at_ms: None, ..lock },
     ] {
         f.lock = Some(other);
-        assert!(reduce(&AlertSet::default(), &f, 0).1.is_empty(), "{other:?}");
+        let (s, p) = reduce(&AlertSet::default(), &f, 200_000);
+        assert!(p.is_empty() && s.wake_at_ms().is_none(), "{other:?}");
     }
+}
+
+#[test]
+fn unknown_facts_keep_previous_state() {
+    let mut f = mac();
+    f.encryption_on = Some(false);
+    f.power = Some(PowerFacts { source: PowerSource::Battery, battery_percent: Some(50) });
+    let (s, p) = reduce(&AlertSet::default(), &f, 0);
+    assert_eq!(notify(&p[0]).0, "server:host_1:encryption.off");
+    let unknown = Facts::unknown(hid("host_1"), Platform::MacOs, InstallMode::User);
+    let (s2, p2) = reduce(&s, &unknown, 1_000);
+    assert!(p2.is_empty(), "no resolve on unknown: {p2:?}");
+    assert_eq!(s2.alerts(), s.alerts());
+    assert_eq!(s2.pending(), s.pending(), "the battery timer is kept");
+    assert_eq!(s2.wake_at_ms(), None, "an unknown fact never fires a timer");
+    // Known again and still bad: no re-raise.
+    let (s3, p3) = reduce(&s2, &f, 2_000);
+    assert!(p3.is_empty());
+    // The battery timer kept its start: raised at 60 s.
+    let (_, p4) = reduce(&s3, &f, 60_000);
+    assert_eq!(notify(&p4[0]).0, "server:host_1:power.onBattery");
+}
+
+#[test]
+fn host_ids_refuse_display_names() {
+    for good in ["host_1", "inst_A1b2", "host_x"] {
+        assert!(HostId::parse(good).is_some(), "{good}");
+    }
+    for bad in ["", "host_", "Lawrence's Mac mini", "mini", "host_a b", "host_a:b", "inst_é"] {
+        assert!(HostId::parse(bad).is_none(), "{bad}");
+    }
+    let key = AlertKey::check(CheckId::DiskLow);
+    assert_eq!(key.dedupe_key(&hid("host_7")), "server:host_7:disk.low");
 }
 
 #[test]
@@ -180,36 +227,36 @@ fn flag_checks_raise_with_table_severity() {
     assert!(fixes[0].needs_admin);
     assert_eq!(s.alerts().len(), 5);
 
-    let mut l = Facts::healthy("h", Platform::Linux, InstallMode::User);
+    let mut l = Facts::healthy(hid("host_h"), Platform::Linux, InstallMode::User);
     l.linger = Some(false);
     let (_, p) = reduce(&AlertSet::default(), &l, 0);
-    assert_eq!(notify(&p[0]), ("server:h:linger.off", Severity::Critical));
+    assert_eq!(notify(&p[0]), ("server:host_h:linger.off", Severity::Critical));
     let Post::Notify { fixes, .. } = &p[0] else { unreachable!() };
     assert_eq!(fixes[0].id, "loginctl.enableLinger");
 }
 
 #[test]
 fn inhibit_limited_when_user_mode_holds_only_idle() {
-    let mut f = Facts::healthy("h", Platform::Linux, InstallMode::User);
+    let mut f = Facts::healthy(hid("host_h"), Platform::Linux, InstallMode::User);
     let only_idle = InhibitFacts { idle: true, sleep: false, handle_lid_switch: false };
     f.inhibitors = Some(only_idle);
     let (s, p) = reduce(&AlertSet::default(), &f, 0);
-    assert_eq!(notify(&p[0]), ("server:h:inhibit.limited", Severity::Info));
+    assert_eq!(notify(&p[0]), ("server:host_h:inhibit.limited", Severity::Info));
     let Post::Notify { fixes, .. } = &p[0] else { unreachable!() };
     assert_eq!(fixes.len(), 1);
     assert_eq!((fixes[0].id, fixes[0].needs_admin), ("polkit.inhibitRule", true));
     // After the polkit rule, all three kinds are held: resolved.
     f.inhibitors = Some(InhibitFacts { idle: true, sleep: true, handle_lid_switch: true });
-    assert_eq!(resolved(&reduce(&s, &f, 1).1[0]), "server:h:inhibit.limited");
+    assert_eq!(resolved(&reduce(&s, &f, 1).1[0]), "server:host_h:inhibit.limited");
     // System mode installs the rule itself; it never raises the check.
-    let mut sys = Facts::healthy("h", Platform::Linux, InstallMode::System);
+    let mut sys = Facts::healthy(hid("host_h"), Platform::Linux, InstallMode::System);
     sys.inhibitors = Some(only_idle);
     assert!(reduce(&AlertSet::default(), &sys, 0).1.is_empty());
 }
 
 #[test]
 fn quota_is_per_app_with_hysteresis() {
-    let mut f = Facts::healthy("h", Platform::Linux, InstallMode::System);
+    let mut f = Facts::healthy(hid("host_h"), Platform::Linux, InstallMode::System);
     let usage = |app: &str, pct: u64| QuotaUsage {
         app: app.into(),
         bytes: pct * GIB,
@@ -218,19 +265,19 @@ fn quota_is_per_app_with_hysteresis() {
     f.quota = vec![usage("crm", 80), usage("notes", 10)];
     let (s, p) = reduce(&AlertSet::default(), &f, 0);
     assert_eq!(p.len(), 1);
-    assert_eq!(notify(&p[0]), ("server:h:postgres.quota:crm", Severity::Warning));
+    assert_eq!(notify(&p[0]), ("server:host_h:postgres.quota:crm", Severity::Warning));
     let key = AlertKey { check: CheckId::PostgresQuota, subject: Some("crm".into()) };
     assert!(s.get(&key).is_some());
     f.quota = vec![usage("crm", 79)];
     let (s, p) = reduce(&s, &f, 1);
     assert!(p.is_empty(), "holds until under 78%");
     f.quota = vec![usage("crm", 77)];
-    assert_eq!(resolved(&reduce(&s, &f, 2).1[0]), "server:h:postgres.quota:crm");
+    assert_eq!(resolved(&reduce(&s, &f, 2).1[0]), "server:host_h:postgres.quota:crm");
 }
 
 #[test]
 fn backup_stale_and_wake_deadline() {
-    let mut f = Facts::healthy("h", Platform::Linux, InstallMode::System);
+    let mut f = Facts::healthy(hid("host_h"), Platform::Linux, InstallMode::System);
     let h48 = 48 * 3600 * 1000;
     f.backup = Some(BackupFacts {
         cluster_created_at_ms: 0,
@@ -241,7 +288,7 @@ fn backup_stale_and_wake_deadline() {
     assert!(p.is_empty());
     assert_eq!(s.wake_at_ms(), Some(1_000 + h48));
     let (s, p) = reduce(&s, &f, 1_000 + h48);
-    assert_eq!(notify(&p[0]), ("server:h:backup.stale", Severity::Warning));
+    assert_eq!(notify(&p[0]), ("server:host_h:backup.stale", Severity::Warning));
     let Post::Notify { fixes, .. } = &p[0] else { unreachable!() };
     assert_eq!(fixes[0].id, "backupNow");
     f.backup = Some(BackupFacts {
@@ -250,10 +297,10 @@ fn backup_stale_and_wake_deadline() {
         wal_failing_since_ms: Some(h48 + 5),
     });
     let (s, p) = reduce(&s, &f, h48 + 10);
-    assert_eq!(resolved(&p[0]), "server:h:backup.stale");
+    assert_eq!(resolved(&p[0]), "server:host_h:backup.stale");
     assert_eq!(s.wake_at_ms(), Some(h48 + 5 + 600_000), "WAL failure deadline comes first");
     let (_, p) = reduce(&s, &f, h48 + 5 + 600_000);
-    assert_eq!(notify(&p[0]).0, "server:h:backup.stale");
+    assert_eq!(notify(&p[0]).0, "server:host_h:backup.stale");
     // A cluster that never had a base backup is stale 48 h after creation.
     f.backup = Some(BackupFacts {
         cluster_created_at_ms: 0,
@@ -313,5 +360,14 @@ fn fix_descriptors_are_well_formed() {
         )
         .unwrap(),
         ["/usr/bin/pmset", "-c", "sleep", "0", "disksleep", "0"]
+    );
+}
+
+#[test]
+fn windows_fix_uses_the_system_powercfg() {
+    let fix = fixes_for(CheckId::SleepEnabled, Platform::Windows, InstallMode::System).next().unwrap();
+    assert_eq!(
+        render_argv(fix, &FixValues::default()).unwrap()[0],
+        r"C:\Windows\System32\powercfg.exe"
     );
 }

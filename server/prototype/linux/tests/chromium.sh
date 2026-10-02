@@ -4,7 +4,14 @@
 # server user WITH the sandbox. Never falls back to --no-sandbox.
 #   chromium.sh <dir>     (run as the server user)
 set -eu
+# The archive is checked against a pinned SHA-256 before anything unpacks it.
+# A different CHS_VERSION needs its own CHS_SHA256.
 VERSION=${CHS_VERSION:-154.0.8037.92}
+if [ "$VERSION" = 154.0.8037.92 ]; then
+  PINNED_SHA256=${CHS_SHA256:-636aa5c79f2693632e9921b8bbb050038ba11672e02346c06c20f991aed096f9}
+else
+  PINNED_SHA256=${CHS_SHA256:?CHS_SHA256 is required with CHS_VERSION}
+fi
 dir=${1:-$HOME/chs}
 json=https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json
 mkdir -p "$dir"
@@ -19,8 +26,14 @@ for e in json.load(sys.stdin)["versions"]:
                 print(d["url"])' "$VERSION")
 [ -n "$url" ] || { echo "version $VERSION has no linux64 chrome-headless-shell"; exit 1; }
 echo "url=$url"
-curl -fsSL --proto '=https' -o chs.zip "$url"
-echo "zip_sha256=$(sha256sum chs.zip | awk '{print $1}') size=$(wc -c <chs.zip)"
+curl -fsSL --proto '=https' --proto-redir '=https' -o chs.zip "$url"
+zip_sha256=$(sha256sum chs.zip | awk '{print $1}')
+echo "zip_sha256=$zip_sha256 size=$(wc -c <chs.zip)"
+if [ "$zip_sha256" != "$PINNED_SHA256" ]; then
+  rm -f chs.zip
+  echo "RESULT chromium FAIL archive sha256 $zip_sha256 is not the pinned $PINNED_SHA256"
+  exit 1
+fi
 rm -rf chrome-headless-shell-linux64
 python3 -c 'import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(".")' chs.zip
 chmod 755 chrome-headless-shell-linux64/chrome-headless-shell chrome-headless-shell-linux64/chrome_crashpad_handler 2>/dev/null || true
