@@ -8,7 +8,7 @@
 //
 // Rule for writes: a file whose Share button says "Private to only me" is
 // edited at once (nobody else sees it); any other file, or one whose
-// sharing cannot be read, gets a draft first (ChatGPT's confirmation
+// sharing cannot be read, gets a draft first (reference B's confirmation
 // taxonomy, [9]: edits others can see).
 (function (root) {
   "use strict";

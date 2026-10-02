@@ -1,4 +1,4 @@
-// browser-use parity (docs/browser-repl/browser-use-parity.md): Markdown and
+// Reference C parity (docs/browser-repl/reference-c-parity.md): Markdown and
 // selector extraction, page text search, scrolling, drop-down options,
 // highlights, search result parsing, custom tools, downloads, recording,
 // secrets and the domain policy.

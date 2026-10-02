@@ -1,5 +1,5 @@
-// browser-use parity for the cmux browser REPL
-// (docs/browser-repl/browser-use-parity.md): what browser-use's tools,
+// Reference C parity for the cmux browser REPL
+// (docs/browser-repl/reference-c-parity.md): what reference C's tools,
 // browser profile and agent offer that a REPL-driving agent can use, in this
 // REPL's Playwright-shaped API and without a model inside cmux.
 //
@@ -20,12 +20,12 @@
   const AGENT = 'globalThis[Symbol.for("cmux.browserRepl.agent")]';
 
   // ---------------------------------------------------------------------------
-  // Domain patterns, browser-use's syntax (utils.match_url_with_domain_pattern
+  // Domain patterns, reference C's syntax (utils.match_url_with_domain_pattern
   // and the security watchdog): "example.com" (and www.example.com),
   // "*.example.com" (subdomains and the bare domain), "http*://example.com",
-  // "https://example.com", "*". A port in the pattern must match (browser-use
+  // "https://example.com", "*". A port in the pattern must match (reference C
   // drops it). Multiple wildcards, wildcard TLDs and embedded wildcards are
-  // refused when set, where browser-use logs and ignores them.
+  // refused when set, where reference C logs and ignores them.
 
   // Host names as the policy compares them: lower case, no trailing dot,
   // internationalized labels in Punycode, as the native session does
@@ -166,7 +166,7 @@
   const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;
 
   // `secure`: a pattern without a scheme matches https only (and http on a
-  // loopback host), as browser-use's secret matching does; otherwise it
+  // loopback host), as reference C's secret matching does; otherwise it
   // matches http and https, as its allowed_domains check does.
   function urlMatches(url, pattern, secure) {
     let u;
@@ -205,7 +205,7 @@
   const isIPHost = (host) => /^\[[0-9a-f:.]+\]$/i.test(host) || /(^|\.)(\d+|0x[0-9a-f]*)$/i.test(normalizeHost(host));
 
   // ---------------------------------------------------------------------------
-  // TOTP (RFC 6238) for secrets registered with { totp: true }: browser-use's
+  // TOTP (RFC 6238) for secrets registered with { totp: true }: reference C's
   // `bu_2fa_code` secrets.
 
   function base32Decode(s) {
@@ -865,7 +865,7 @@
       set(name, value, options) {
         return described(secretsHost("set", { name, value, domains: options && options.domains, totp: !!(options && options.totp) }));
       },
-      // browser-use's sensitive_data shape: { "<domain pattern>": { name: value } },
+      // Reference C's sensitive_data shape: { "<domain pattern>": { name: value } },
       // as an object or a JSON file path (read by the native session, so the
       // values never enter this context). A value { value, totp } is accepted.
       load(source) {
@@ -1466,7 +1466,7 @@
   };
 
   // Boxes and ref labels over elements, until hideHighlight() or the next
-  // highlight: every interactive element without targets (browser-use's
+  // highlight: every interactive element without targets (reference C's
   // highlight_elements), else the given refs or locators. Returns the count.
   P.highlight = async function (targets) {
     await this.hideHighlight();

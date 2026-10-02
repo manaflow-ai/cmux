@@ -1,6 +1,6 @@
 {
-  "$comment": "Every Aside and ChatGPT for Chrome browser capability (tests/browser-parity/reference) mapped to its cmux equivalent and the scenario:key that proves it, or to an exclusion from docs/browser-repl/README.md. unit/capabilities.test.mjs keeps this complete.",
-  "aside": {
+  "$comment": "Every reference A and reference B browser capability (tests/browser-parity/reference) mapped to its cmux equivalent and the scenario:key that proves it, or to an exclusion from docs/browser-repl/README.md. unit/capabilities.test.mjs keeps this complete.",
+  "reference-a": {
     "globals": {
       "page": {
         "cmux": "page",
@@ -714,7 +714,7 @@
       }
     }
   },
-  "chatgpt": {
+  "reference-b": {
     "Agent.browsers": {
       "cmux": "tabs (one browser: the workspace's panes)",
       "cases": [
@@ -758,7 +758,7 @@
       ]
     },
     "Browser.capabilities": {
-      "excluded": "Raw CDP: WebKit has no DevTools protocol, so there is no page.cdp; ChatGPT for Chrome also withholds it by default (case browser.capabilities records both lacking it). Its viewport capability is page.setViewportSize()."
+      "excluded": "Raw CDP: WebKit has no DevTools protocol, so there is no page.cdp; reference B also withholds it by default (case browser.capabilities records both lacking it). Its viewport capability is page.setViewportSize()."
     },
     "Browser.tabs": {
       "cmux": "tabs",
@@ -1669,7 +1669,7 @@
       ]
     },
     "BeforeUnloadDialog.type": {
-      "cmux": "page.dialog().type is \"beforeunload\" when WebKit raises the prompt; navigations the agent starts leave without one, as ChatGPT's Chrome accepts it itself",
+      "cmux": "page.dialog().type is \"beforeunload\" when WebKit raises the prompt; navigations the agent starts leave without one, as reference B's Chrome accepts it itself",
       "note": "Same held-dialog path as the other types. Playwright's headless WebKit (the dev driver) never fires beforeunload, so this type is unproven outside the app.",
       "cases": [
         "dialogs.beforeunload"
@@ -1728,8 +1728,8 @@
     }
   },
   "sites": {
-    "$comment": "Site integrations: every Aside site global and method (Aside CLI 1.26.916 skills and REPL globals) and every ChatGPT for Chrome site capability, mapped to the cmux sites.*/tabs.* equivalent with proving tests (sites/<file>: <test title prefix> in tests/browser-parity/sites, or diff:<case id>), or to a pending user decision with its reason (docs/browser-repl/site-tools.md, Decisions). reference/site-surface.txt lists the members; unit/capabilities.test.mjs fails on an unmapped one.",
-    "aside": {
+    "$comment": "Site integrations: every reference A site global and method (reference A CLI 1.26.916 skills and REPL globals) and every reference B site capability, mapped to the cmux sites.*/tabs.* equivalent with proving tests (sites/<file>: <test title prefix> in tests/browser-parity/sites, or diff:<case id>), or to a pending user decision with its reason (docs/browser-repl/site-tools.md, Decisions). reference/site-surface.txt lists the members; unit/capabilities.test.mjs fails on an unmapped one.",
+    "reference-a": {
       "gmail": {
         "cmux": "sites.gmail (search, inbox, thread, attachment, send as a confirmed draft)",
         "tests": [
@@ -1989,7 +1989,7 @@
       },
       "imagegen": {
         "decision": "imagegen",
-        "reason": "Image generation is not a browser operation and needs an API credential; Aside's imagegen printed OAuth tokens in a probe (docs/browser-repl/site-tools.md, decision 4)."
+        "reason": "Image generation is not a browser operation and needs an API credential; reference A's imagegen printed OAuth tokens in a probe (docs/browser-repl/site-tools.md, decision 4)."
       },
       "youtube": {
         "cmux": "sites.youtube",
@@ -2302,37 +2302,37 @@
           "diff:page.evaluate.forms"
         ]
       },
-      "aside.pdf": {
+      "referenceA.pdf": {
         "cmux": "page.pdf(options)",
         "tests": [
           "diff:page.pdf"
         ]
       },
-      "aside.sessions": {
+      "referenceA.sessions": {
         "cmux": "named REPL sessions (cmux browser repl --session NAME, reset)",
         "tests": [
           "diff:edge.sessions-two-tabs",
           "diff:edge.sessions-same-tab"
         ]
       },
-      "aside.settings": {
+      "referenceA.settings": {
         "decision": "agent-platform",
-        "reason": "Aside's own daemon settings, projects, routines and chat channels manage Aside, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
+        "reason": "Reference A's own daemon settings, projects, routines and chat channels manage reference A, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
       },
-      "aside.projects": {
+      "referenceA.projects": {
         "decision": "agent-platform",
-        "reason": "Aside's own daemon settings, projects, routines and chat channels manage Aside, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
+        "reason": "Reference A's own daemon settings, projects, routines and chat channels manage reference A, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
       },
-      "aside.routines": {
+      "referenceA.routines": {
         "decision": "agent-platform",
-        "reason": "Aside's own daemon settings, projects, routines and chat channels manage Aside, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
+        "reason": "Reference A's own daemon settings, projects, routines and chat channels manage reference A, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
       },
-      "aside.channels": {
+      "referenceA.channels": {
         "decision": "agent-platform",
-        "reason": "Aside's own daemon settings, projects, routines and chat channels manage Aside, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
+        "reason": "Reference A's own daemon settings, projects, routines and chat channels manage reference A, not a browser; cmux's equivalents are its app settings and workspaces, which an agent changes only if the user decides it may."
       }
     },
-    "chatgpt": {
+    "reference-b": {
       "content.exportGsuite": {
         "cmux": "sites.googleDocs/googleSheets/googleSlides.export(url, { format }); page.exportContent({ format })",
         "tests": [
@@ -2410,7 +2410,7 @@
       },
       "botDetection.report": {
         "decision": "bot-evasion",
-        "reason": "ChatGPT's botDetection is telemetry to its cloud; cmux reports CAPTCHA and sign-in blocks as error codes and does not disguise automation (docs/browser-repl/site-tools.md, decision 5)."
+        "reason": "Reference B's botDetection is telemetry to its cloud; cmux reports CAPTCHA and sign-in blocks as error codes and does not disguise automation (docs/browser-repl/site-tools.md, decision 5)."
       }
     }
   }

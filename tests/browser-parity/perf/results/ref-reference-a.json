@@ -1,5 +1,5 @@
 {
- "backend": "aside",
+ "backend": "reference-a",
  "label": "ref",
  "runs": 3,
  "date": "2026-09-30T08:55:04.859Z",
@@ -41,7 +41,7 @@
   },
   "cards-200k": {
    "name": "cards-200k",
-   "error": "aside exit 1 after 51893ms: fetch failed: other side closed\nAside isn't running on this machine.\n  - Start Aside Browser and retry, or\n  - control another machine / Aside Cloud instead: run 'aside login' once, then 'aside exec --host <host>' (see 'aside host list').\n"
+   "error": "reference-a exit 1 after 51893ms: fetch failed: other side closed (the CLI then reported that its browser was not running)"
   },
   "table-10k": {
    "name": "table-10k",
@@ -804,5 +804,5 @@
   301,
   397
  ],
- "note": "table-10k rerun (the first run returned no output); cards-200k: aside repl failed after 52 s with \"fetch failed: other side closed\""
+ "note": "table-10k rerun (the first run returned no output); cards-200k: the reference A REPL call failed after 52 s with \"fetch failed: other side closed\""
 }

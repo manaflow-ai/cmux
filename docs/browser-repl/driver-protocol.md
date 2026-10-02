@@ -1,7 +1,7 @@
 # Browser driver protocol
 
 The contract between the REPL runtime (JavaScript, engine-neutral) and an engine
-driver. The runtime builds the Aside and ChatGPT APIs on these primitives the
+driver. The runtime builds the reference A and reference B APIs on these primitives the
 same way Playwright builds its API on a browser protocol. Drivers:
 
 - `webkit`: cmux app, `WKWebView` panes (Swift).

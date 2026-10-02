@@ -1,4 +1,4 @@
-// sites.browserAuth: a secure sign-in handoff (ChatGPT for Chrome's
+// sites.browserAuth: a secure sign-in handoff (reference B's
 // browserAuth). The agent names the visible credential fields; cmux shows
 // its own sheet on the browser window, naming the origin of the frame that
 // holds them, the user types there, and the app fills the fields in the page

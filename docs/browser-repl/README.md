@@ -2,8 +2,8 @@
 
 `cmux browser repl` is a persistent JavaScript REPL that drives cmux browser
 panes for agents. It has one API. It covers every browser-operation capability
-of Aside's `aside repl` and ChatGPT for Chrome (the Codex `browser`/`chrome`
-plugins), and improves on both where they differ. It does not copy either
+of two reference browser REPLs (reference A and reference B), and improves
+on both where they differ. It does not copy either
 surface: there are no dialects, no `agent` object, and no numbered AX text.
 
 Parity is enforced by
@@ -11,13 +11,13 @@ Parity is enforced by
 differential cases in
 [tests/browser-parity/diff](../../tests/browser-parity/diff): every reference
 member maps to a cmux equivalent and to cases that run the same task in cmux,
-Aside and ChatGPT for Chrome, and no case may leave cmux worse than a
+reference A and reference B, and no case may leave cmux worse than a
 reference ([parity-report.md](parity-report.md)).
 
 ## Principles
 
 1. **Playwright is the action model.** Models know Playwright; both references
-   converge on it (Aside's `page` is Playwright-shaped, ChatGPT exposes
+   converge on it (reference A's `page` is Playwright-shaped, reference B exposes
    `tab.playwright`). `page`, `locator`, `keyboard`, `mouse`, events and waits
    follow Playwright semantics exactly where Playwright defines them.
 2. **One observation format.** A compact accessibility snapshot with refs. Refs
@@ -38,15 +38,15 @@ reference ([parity-report.md](parity-report.md)).
 | Global | Purpose |
 | --- | --- |
 | `page` | The current tab, a Playwright `Page`. |
-| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. `list()` returns `{ id, title, url, active, current }` without attaching; `list({ all: true })` adds tabs in the user's other workspaces and windows, which `use(id)` attaches (ChatGPT's `claimTab`). `open`, `current`, `use` and `get` return a `Page` with a stable `page.id`. `content({ urls, format })` loads URLs in background tabs and extracts text, Markdown, HTML or a snapshot. `history({ query, from, to, limit })` searches cmux browser history. |
+| `tabs` | `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`, `get(id)`. `list()` returns `{ id, title, url, active, current }` without attaching; `list({ all: true })` adds tabs in the user's other workspaces and windows, which `use(id)` attaches (reference B's `claimTab`). `open`, `current`, `use` and `get` return a `Page` with a stable `page.id`. `content({ urls, format })` loads URLs in background tabs and extracts text, Markdown, HTML or a snapshot. `history({ query, from, to, limit })` searches cmux browser history. |
 | `snapshot(target?, options?)` | Accessibility snapshot of `page`, a locator, or a ref string. See [Snapshot](#snapshot). |
 | `screenshot(target?, options?)` | PNG of the viewport, full page, locator or ref. `{ annotate: true }` draws each ref's box and label. Returns an `Image` that displays when printed. |
 | `fetch` | Standard `fetch` that sends the current tab's cookies (`credentials`: `"include"` by default, `"same-origin"`, `"omit"`). The domain policy is checked on every redirect hop; a body over 64 MiB fails (download it in a tab instead). |
 | `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd; `/` and the home directory are refused, and `repl mcp` started there uses a temporary directory) and the system temp directory; a symbolic link is never followed out of them, and `rm`, `rename` and `lstat` act on the link itself as in Node. `import("node:fs")` and friends return the same modules. |
 | `sleep(ms)`, `display(value)` | Wait; show a value or image to the agent. |
 | `sites` | Site tools that run through the signed-in browser session: Google Docs/Sheets/Slides/Drive, Gmail, Calendar, Search, YouTube, Slack, Notion, LinkedIn, X, GitHub, Linear, Jira, page assets, WebMCP and a secure sign-in sheet. Writes to other people are drafts until confirmed. See [site-tools.md](site-tools.md). |
-| `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`Resources/browser-repl/guide.md`). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })` sets Playwright browser-context options for the tabs the session drives. The domain policy (`allowedDomains`, `prohibitedDomains`, `blockIPAddresses`, `blockedNavigations`, which also blocks subresources), `storageState` (the current tab's site by default, `{ all: true }` for the whole profile)/`setStorageState`, `downloads()` and `record()`: see [browser-use-parity.md](browser-use-parity.md). |
-| `secret(name)`, `secrets` | Named secrets scoped to domains, typed with `locator.fill(secret(name))` and masked as `<secret:name>` in every output, read and file. Values stay in the native session, never in the REPL's JavaScript ([browser-use-parity.md](browser-use-parity.md#secrets)). |
+| `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`Resources/browser-repl/guide.md`). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })` sets Playwright browser-context options for the tabs the session drives. The domain policy (`allowedDomains`, `prohibitedDomains`, `blockIPAddresses`, `blockedNavigations`, which also blocks subresources), `storageState` (the current tab's site by default, `{ all: true }` for the whole profile)/`setStorageState`, `downloads()` and `record()`: see [reference-c-parity.md](reference-c-parity.md). |
+| `secret(name)`, `secrets` | Named secrets scoped to domains, typed with `locator.fill(secret(name))` and masked as `<secret:name>` in every output, read and file. Values stay in the native session, never in the REPL's JavaScript ([reference-c-parity.md](reference-c-parity.md#secrets)). |
 | `search(query, options)` | `[{ title, url, snippet }]` from DuckDuckGo, Bing or Google. |
 | `tools` | `register(name, fn, { description, params, domains })`, `list()`, `call(name, args)`: the session's own callable tools. |
 
@@ -54,19 +54,19 @@ reference ([parity-report.md](parity-report.md)).
 
 | Member | Purpose | Replaces |
 | --- | --- | --- |
-| `page.locator("e5")`, `page.ref("e5")` | Resolve a snapshot ref. Stale refs throw `ref e5 is stale: the element was removed; take a new snapshot`. | Aside refs, ChatGPT `ax.*(index)`, `dom_cua` node ids |
-| `page.dialog()` | The open JavaScript dialog or `null`: `{ type, message, defaultValue, accept(text?), dismiss() }`. | ChatGPT `getJsDialog()` |
-| `page.fileChooser()` | The open file chooser or `null`: `{ multiple, setFiles(files), cancel() }`. | ChatGPT chooser flow |
-| `page.consoleMessages({ level, filter, limit })`, `page.errors()` | Console history and uncaught errors since the tab opened. | ChatGPT `dev.logs()` |
-| `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard. Meta+V fires a trusted `paste` event whose `clipboardData` holds it; Meta+C and Meta+X fill it from a trusted `copy`/`cut`. The system clipboard is not touched, and other code (the terminal) keeps the system clipboard while a shortcut runs; one that WebKit does not finish within 5 s throws a timeout and still never reaches the system clipboard. | ChatGPT `clipboard` |
-| `page.elementAt(x, y)` | `{ ref, role, name, box }` for the topmost element at a viewport point. | ChatGPT `elementInfo()` |
-| `page.keep()` | Keep this tab open after a one-shot run. | ChatGPT `markDeliverable()` |
-| `page.exportContent(options)` | Write the page as Markdown, a Google Docs/Sheets/Slides tab in an export format (`{ format }`), or a YouTube watch page's captions (`{ transcript: true }`) to a file; returns the path. | ChatGPT `content.export*` |
-| `page.markdown(options)`, `page.extract(spec)`, `page.searchText(pattern)` | The page as Markdown (iframes and shadow roots included, `{ main: true }`, chunked with `{ start, maxChars }`); structured data by selectors; text matches with refs. | browser-use `extract`, `search_page`, `find_elements` |
-| `page.scrollToText(text)`, `page.scroll({ pages, target })`, `page.scrollInfo(target?)`, `page.dropdownOptions(ref)`, `page.highlight(targets?)` | Scrolling by text or pages, scroll position in pages, `<select>` and ARIA options, a ref overlay on the page. | browser-use `find_text`, `scroll`, `dropdown_options`, `highlight_elements` |
+| `page.locator("e5")`, `page.ref("e5")` | Resolve a snapshot ref. Stale refs throw `ref e5 is stale: the element was removed; take a new snapshot`. | Reference A refs, reference B `ax.*(index)`, `dom_cua` node ids |
+| `page.dialog()` | The open JavaScript dialog or `null`: `{ type, message, defaultValue, accept(text?), dismiss() }`. | Reference B `getJsDialog()` |
+| `page.fileChooser()` | The open file chooser or `null`: `{ multiple, setFiles(files), cancel() }`. | Reference B chooser flow |
+| `page.consoleMessages({ level, filter, limit })`, `page.errors()` | Console history and uncaught errors since the tab opened. | Reference B `dev.logs()` |
+| `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard. Meta+V fires a trusted `paste` event whose `clipboardData` holds it; Meta+C and Meta+X fill it from a trusted `copy`/`cut`. The system clipboard is not touched, and other code (the terminal) keeps the system clipboard while a shortcut runs; one that WebKit does not finish within 5 s throws a timeout and still never reaches the system clipboard. | Reference B `clipboard` |
+| `page.elementAt(x, y)` | `{ ref, role, name, box }` for the topmost element at a viewport point. | Reference B `elementInfo()` |
+| `page.keep()` | Keep this tab open after a one-shot run. | Reference B `markDeliverable()` |
+| `page.exportContent(options)` | Write the page as Markdown, a Google Docs/Sheets/Slides tab in an export format (`{ format }`), or a YouTube watch page's captions (`{ transcript: true }`) to a file; returns the path. | Reference B `content.export*` |
+| `page.markdown(options)`, `page.extract(spec)`, `page.searchText(pattern)` | The page as Markdown (iframes and shadow roots included, `{ main: true }`, chunked with `{ start, maxChars }`); structured data by selectors; text matches with refs. | Reference C `extract`, `search_page`, `find_elements` |
+| `page.scrollToText(text)`, `page.scroll({ pages, target })`, `page.scrollInfo(target?)`, `page.dropdownOptions(ref)`, `page.highlight(targets?)` | Scrolling by text or pages, scroll position in pages, `<select>` and ARIA options, a ref overlay on the page. | Reference C `find_text`, `scroll`, `dropdown_options`, `highlight_elements` |
 | `locator.dispatchEvent("drop", { dataTransfer: { files, data } })` | Build a real `DataTransfer` in the page and dispatch a drag event with it, so drop zones receive files. | Playwright's `evaluateHandle` recipe |
 
-Everything else uses standard Playwright: `page.mouse` replaces ChatGPT `cua`
+Everything else uses standard Playwright: `page.mouse` replaces reference B `cua`
 coordinates, `page.on("popup")`, `waitForEvent("download")`, `page.pdf()`,
 `page.setViewportSize()`, `frameLocator`, `getByRole`, and so on.
 
@@ -112,8 +112,8 @@ Rules, and how they improve on the references:
   `snapshot("e1")`). A ref is bound to its DOM node for the node's life and is
   never reused in that frame, even after the frame loads a new document. A
   removed node's ref fails at once (`ref e5 is stale`); a ref never issued
-  fails with `ref e9 does not exist`. Aside renumbers a ref when its name
-  changes; ChatGPT reuses indices after removals.
+  fails with `ref e9 does not exist`. Reference A renumbers a ref when its name
+  changes; reference B reuses indices after removals.
 - **Roles** are Playwright's (`getByRole` finds them), except controls HTML
   has no ARIA role for: `summary` prints as `button`, an editable element as
   `textbox`, `canvas` as `canvas`. Their refs work; `getByRole` does not find
@@ -165,14 +165,14 @@ Rules, and how they improve on the references:
   characters with `…`; refs still resolve.
 - **Typed values** print as they are, so an agent can check its own input
   (`textbox "Email": "me@x.com"`); only password fields are masked
-  (`"********"`). This is deliberate: ChatGPT for Chrome redacts any field
+  (`"********"`). This is deliberate: reference B redacts any field
   that looks like a credential, including what the agent typed, and so hides
   the result of the agent's own action. The cost is that text a page
   pre-fills in such a field is visible to the agent.
 - **States** print as `[checked]`, `[checked=mixed]`, `[disabled]`,
   `[expanded]`, `[expanded=false]`, `[pressed]`, `[selected]`, `[focused]`,
   `[required]`, `[invalid]`, `[readonly]`, `[level=N]`, `[scrollable]` (why a
-  plain region has a ref) and, with `showHidden`, `[hidden]`. Aside drops
+  plain region has a ref) and, with `showHidden`, `[hidden]`. Reference A drops
   expanded and pressed. `[focused]` inside an iframe prints only when that
   iframe holds the page's focus.
 - **Values** print after a colon. A closed drop-down shows its selected
@@ -189,7 +189,7 @@ Rules, and how they improve on the references:
   `{ urls: true }` every link shows its full URL, relative when same-origin.
   Other links omit them by default because URLs are about a quarter of a
   page's snapshot and an agent acts on the ref.
-- **Text** collapses whitespace to single spaces (Aside doubles spaces around
+- **Text** collapses whitespace to single spaces (reference A doubles spaces around
   inline elements). Paragraphs print as their text lines. Text of one to
   three punctuation characters (`|`, `(`, `·`) joins the texts on both sides
   (`"10 points by | ada"`) or, next to an element, is dropped, as are such
@@ -202,7 +202,7 @@ Rules, and how they improve on the references:
   that declares no header cell, caption, `thead`, `tfoot`, `colgroup`,
   `summary`, `border` or table role, and that holds or sits in another table,
   has one row or one column, or has rows of different lengths (Hacker News).
-  Aside drops all table structure.
+  Reference A drops all table structure.
 - **Structure with nothing in it** is not printed: an unnamed, ref-less
   container with no children (an empty `list`). An unnamed list item or cell
   around a single element prints as that element, and an unnamed landmark
@@ -224,8 +224,8 @@ Rules, and how they improve on the references:
 - **Size**: on the real-site corpus (tests/browser-parity) the snapshot holds
   every interactive element of Chrome's Playwright AI snapshot that no
   overflow ancestor clips out, and no text Chrome does not render. It keeps
-  visible text Aside drops (card descriptions, heading anchors, table cells),
-  so on pages with much of that it can be slightly larger than Aside's; the
+  visible text reference A drops (card descriptions, heading anchors, table cells),
+  so on pages with much of that it can be slightly larger than reference A's; the
   corpus README lists the per-page sizes.
 - **Printing** a snapshot prints its diff against the previous snapshot of the
   same tab when the diff is shorter than the tree; for a tree over 2,048
@@ -236,7 +236,7 @@ Rules, and how they improve on the references:
 - **Diff** lines are `+ ` added, `- ` removed and `~ ` changed, each change
   preceded by its unchanged ancestor lines (two-space prefix) as context so
   it is locatable. A changed line (matched by ref, else role and name)
-  prints once, as its new version. ChatGPT omits ancestors; Aside prints
+  prints once, as its new version. Reference B omits ancestors; reference A prints
   bare `@@` hunks. The diff anchors on lines that occur once in both trees
   (refs make most element lines unique) and runs a bounded Myers diff
   between anchors, so it is near-linear: a 100,000-line tree with one change
@@ -248,8 +248,8 @@ Rules, and how they improve on the references:
 What an agent reads costs context, and agent harnesses cut what a tool
 prints: Claude Code keeps about 30,000 characters inline (then a
 2,000-character preview and a file), Codex keeps 10,000 tokens (head and
-tail, the middle dropped), ChatGPT for Chrome stops its DOM view at 20,000
-characters and a node's children at 500 without saying where. Aside prints
+tail, the middle dropped), reference B stops its DOM view at 20,000
+characters and a node's children at 500 without saying where. Reference A prints
 everything (a 5,000-item page is a 400 KB answer). cmux decides what is
 kept, keeps what an agent needs to act, and says at each cut how to get the
 rest. Measurements: [performance.md](performance.md).
@@ -330,14 +330,14 @@ rest. Measurements: [performance.md](performance.md).
 
 - **Site integrations** are `sites` ([site-tools.md](site-tools.md)); its
   "Decisions for the user" lists what is left out (password managers,
-  CAPTCHA solving, `imessage`, image generation). `aside exec` is outside
-  browser operation.
-- **Raw CDP** (ChatGPT `browser.capabilities`' `cdp`) and request interception:
-  WebKit has no DevTools protocol. ChatGPT for Chrome withholds both by
+  CAPTCHA solving, `imessage`, image generation). Reference A's raw `exec`
+  command is outside browser operation.
+- **Raw CDP** (reference B `browser.capabilities`' `cdp`) and request interception:
+  WebKit has no DevTools protocol. Reference B withholds both by
   default too (`browser.capabilities` in the parity cases records that). A
   Chromium engine would add them as `page.cdp`.
 
-Everything else ChatGPT for Chrome documents has a cmux equivalent, including
+Everything else reference B documents has a cmux equivalent, including
 `browser.history` (`tabs.history`), `user.claimTab` (`tabs.list({ all: true })`
 and `tabs.use`), `tabs.content` and the content exports
 (`page.exportContent`). [parity-report.md](parity-report.md) lists every

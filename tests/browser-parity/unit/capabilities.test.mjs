@@ -12,29 +12,29 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const caps = JSON.parse(fs.readFileSync(path.join(root, "capabilities.json"), "utf8"));
 
-// Globals and snapshot options from `aside guide repl` (Aside CLI 1.26).
-const ASIDE_GLOBALS = ["page", "tabs", "listBrowserTabs", "attachBrowserTab", "attachActiveBrowserTab", "getTabByTargetId",
+// Globals and snapshot options from reference A's REPL guide (CLI 1.26).
+const REFERENCE_A_GLOBALS = ["page", "tabs", "listBrowserTabs", "attachBrowserTab", "attachActiveBrowserTab", "getTabByTargetId",
   "openTab", "closeTab", "snapshot", "snapshot.interactive", "snapshot.showHidden", "snapshot.ref", "snapshot.selector",
   "snapshot.diff", "annotatedScreenshot", "fetch", "fs", "path", "Buffer", "sleep", "display", "pwd", "console"];
 // docs/browser-repl/README.md, "Excluded from the references".
 // Only raw CDP: WebKit has no DevTools protocol.
 const ALLOWED_EXCLUSIONS = new Set(["Browser.capabilities"]);
 
-function asideMembers() {
+function referenceAMembers() {
   const sections = { PAGE: "Page", LOC: "Locator", KB: "Keyboard", MOUSE: "Mouse" };
   const out = [];
-  for (const line of fs.readFileSync(path.join(root, "reference/aside-api-surface.txt"), "utf8").split("\n")) {
+  for (const line of fs.readFileSync(path.join(root, "reference/reference-a-api-surface.txt"), "utf8").split("\n")) {
     const [tag, ...tokens] = line.trim().split(/\s+/);
     if (!sections[tag]) continue;
-    // "!name" marks a Playwright member Aside does not have.
+    // "!name" marks a Playwright member reference A does not have.
     for (const t of tokens) if (!t.startsWith("!")) out.push([sections[tag], t]);
   }
   return out;
 }
 
-function chatgptMembers() {
+function referenceBMembers() {
   const seen = new Map();
-  return fs.readFileSync(path.join(root, "reference/chatgpt-api-surface.txt"), "utf8").split("\n").filter(Boolean).map((line) => {
+  return fs.readFileSync(path.join(root, "reference/reference-b-api-surface.txt"), "utf8").split("\n").filter(Boolean).map((line) => {
     const member = line.split("\t")[0];
     const n = (seen.get(member) || 0) + 1;
     seen.set(member, n);
@@ -55,27 +55,27 @@ function checkEntry(name, entry) {
   assert.equal(entry.proof, undefined, `${name}: proof keys were replaced by cases`);
 }
 
-test("every Aside global maps to cmux", () => {
-  for (const g of ASIDE_GLOBALS) checkEntry(`aside ${g}`, caps.aside.globals[g]);
-  assert.deepEqual(Object.keys(caps.aside.globals).sort(), [...ASIDE_GLOBALS].sort());
+test("every reference A global maps to cmux", () => {
+  for (const g of REFERENCE_A_GLOBALS) checkEntry(`reference-a ${g}`, caps["reference-a"].globals[g]);
+  assert.deepEqual(Object.keys(caps["reference-a"].globals).sort(), [...REFERENCE_A_GLOBALS].sort());
 });
 
-test("every Page, Locator, Keyboard and Mouse member Aside has maps to cmux", () => {
-  const members = asideMembers();
-  assert.ok(members.length > 80, `only ${members.length} Aside members parsed`);
-  for (const [cls, name] of members) checkEntry(`aside ${cls}.${name}`, caps.aside[cls][name]);
+test("every Page, Locator, Keyboard and Mouse member reference A has maps to cmux", () => {
+  const members = referenceAMembers();
+  assert.ok(members.length > 80, `only ${members.length} reference A members parsed`);
+  for (const [cls, name] of members) checkEntry(`reference-a ${cls}.${name}`, caps["reference-a"][cls][name]);
   for (const cls of ["Page", "Locator", "Keyboard", "Mouse"]) {
-    for (const name of Object.keys(caps.aside[cls])) {
-      assert.ok(members.some(([c, n]) => c === cls && n === name), `aside ${cls}.${name} is not in the reference surface`);
+    for (const name of Object.keys(caps["reference-a"][cls])) {
+      assert.ok(members.some(([c, n]) => c === cls && n === name), `reference-a ${cls}.${name} is not in the reference surface`);
     }
   }
 });
 
-test("every line of the ChatGPT surface maps to cmux or an allowed exclusion", () => {
-  const members = chatgptMembers();
+test("every line of the reference B surface maps to cmux or an allowed exclusion", () => {
+  const members = referenceBMembers();
   assert.equal(members.length, 152);
-  for (const m of members) checkEntry(m, caps.chatgpt[m]);
-  assert.deepEqual(Object.keys(caps.chatgpt).sort(), [...members].sort());
+  for (const m of members) checkEntry(m, caps["reference-b"][m]);
+  assert.deepEqual(Object.keys(caps["reference-b"]).sort(), [...members].sort());
 });
 
 // Site integrations (docs/browser-repl/site-tools.md): every member in
@@ -98,7 +98,7 @@ test("every site member maps to a tested cmux tool or a pending decision", async
     }
     return titles.get(file);
   };
-  const seen = { aside: new Set(), chatgpt: new Set() };
+  const seen = { "reference-a": new Set(), "reference-b": new Set() };
   for (const line of lines) {
     const [ref, member] = line.split("\t");
     seen[ref].add(member);
@@ -122,7 +122,7 @@ test("every site member maps to a tested cmux tool or a pending decision", async
       assert.equal(matching.length, 1, `${ref} ${member}: "${t}" names ${matching.length} tests`);
     }
   }
-  for (const ref of ["aside", "chatgpt"]) {
+  for (const ref of ["reference-a", "reference-b"]) {
     for (const member of Object.keys(sites[ref])) assert.ok(seen[ref].has(member), `sites ${ref} ${member} is not in reference/site-surface.txt`);
   }
 });

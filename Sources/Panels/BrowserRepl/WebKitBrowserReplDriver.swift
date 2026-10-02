@@ -325,7 +325,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// A tab this session may drive: one of its workspace's browser surfaces,
     /// or a tab in another workspace it claimed with tabs.use(id) after
-    /// `tabs.list({ all: true })` listed it (ChatGPT's claimTab).
+    /// `tabs.list({ all: true })` listed it (reference B's claimTab).
     @MainActor
     private func reachablePanel(_ id: UUID) throws -> BrowserPanel? {
         if let own = try browserPanels().first(where: { $0.id == id }) { return own }

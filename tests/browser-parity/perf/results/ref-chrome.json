@@ -8,7 +8,7 @@
   "cards-50k": {
    "name": "cards-50k",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "cards-50k",
      "runs": [
       {
@@ -48,7 +48,7 @@
      "treeTokens": 900361,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "cards-50k",
      "runs": [
       {
@@ -91,12 +91,12 @@
   "cards-200k": {
    "name": "cards-200k",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "cards-200k",
      "runs": [],
      "error": "page._snapshotForAI: Timeout 30000ms exceeded."
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "cards-200k",
      "runs": [],
      "treeBytes": 0,
@@ -110,7 +110,7 @@
   "table-10k": {
    "name": "table-10k",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "table-10k",
      "runs": [
       {
@@ -150,7 +150,7 @@
      "treeTokens": 874763,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "table-10k",
      "runs": [
       {
@@ -193,7 +193,7 @@
   "list-5k": {
    "name": "list-5k",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "list-5k",
      "runs": [
       {
@@ -233,7 +233,7 @@
      "treeTokens": 233934,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "list-5k",
      "runs": [
       {
@@ -276,7 +276,7 @@
   "deep-500": {
    "name": "deep-500",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "deep-500",
      "runs": [
       {
@@ -316,7 +316,7 @@
      "treeTokens": 191,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "deep-500",
      "runs": [
       {
@@ -359,7 +359,7 @@
   "deep-1k": {
    "name": "deep-1k",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "deep-1k",
      "runs": [
       {
@@ -399,7 +399,7 @@
      "treeTokens": 323,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "deep-1k",
      "runs": [
       {
@@ -442,7 +442,7 @@
   "iframes-300": {
    "name": "iframes-300",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "iframes-300",
      "runs": [
       {
@@ -482,7 +482,7 @@
      "treeTokens": 10935,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "iframes-300",
      "runs": [
       {
@@ -525,7 +525,7 @@
   "shadow-2k": {
    "name": "shadow-2k",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "shadow-2k",
      "runs": [
       {
@@ -565,7 +565,7 @@
      "treeTokens": 63370,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "shadow-2k",
      "runs": [
       {
@@ -608,7 +608,7 @@
   "text-2m": {
    "name": "text-2m",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "text-2m",
      "runs": [
       {
@@ -648,7 +648,7 @@
      "treeTokens": 370427,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "text-2m",
      "runs": [
       {
@@ -691,7 +691,7 @@
   "select-5k": {
    "name": "select-5k",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "select-5k",
      "runs": [
       {
@@ -731,7 +731,7 @@
      "treeTokens": 117098,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "select-5k",
      "runs": [
       {
@@ -774,7 +774,7 @@
   "virtual-100k": {
    "name": "virtual-100k",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "virtual-100k",
      "runs": [
       {
@@ -814,7 +814,7 @@
      "treeTokens": 1009,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "virtual-100k",
      "runs": [
       {
@@ -857,7 +857,7 @@
   "wikipedia": {
    "name": "wikipedia",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "wikipedia",
      "runs": [
       {
@@ -897,7 +897,7 @@
      "treeTokens": 53381,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "wikipedia",
      "runs": [
       {
@@ -940,7 +940,7 @@
   "hackernews": {
    "name": "hackernews",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "hackernews",
      "runs": [
       {
@@ -980,7 +980,7 @@
      "treeTokens": 15381,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "hackernews",
      "runs": [
       {
@@ -1023,7 +1023,7 @@
   "github": {
    "name": "github",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "github",
      "runs": [
       {
@@ -1063,7 +1063,7 @@
      "treeTokens": 55931,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "github",
      "runs": [
       {
@@ -1106,7 +1106,7 @@
   "mdn": {
    "name": "mdn",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "mdn",
      "runs": [
       {
@@ -1146,7 +1146,7 @@
      "treeTokens": 16608,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "mdn",
      "runs": [
       {
@@ -1189,7 +1189,7 @@
   "mdn-iframe": {
    "name": "mdn-iframe",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "mdn-iframe",
      "runs": [
       {
@@ -1229,7 +1229,7 @@
      "treeTokens": 32652,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "mdn-iframe",
      "runs": [
       {
@@ -1272,7 +1272,7 @@
   "npr": {
    "name": "npr",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "npr",
      "runs": [
       {
@@ -1312,7 +1312,7 @@
      "treeTokens": 1470,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "npr",
      "runs": [
       {
@@ -1355,7 +1355,7 @@
   "bbc": {
    "name": "bbc",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "bbc",
      "runs": [
       {
@@ -1395,7 +1395,7 @@
      "treeTokens": 11839,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "bbc",
      "runs": [
       {
@@ -1438,7 +1438,7 @@
   "books": {
    "name": "books",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "books",
      "runs": [
       {
@@ -1478,7 +1478,7 @@
      "treeTokens": 8218,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "books",
      "runs": [
       {
@@ -1521,7 +1521,7 @@
   "vercel": {
    "name": "vercel",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "vercel",
      "runs": [
       {
@@ -1561,7 +1561,7 @@
      "treeTokens": 5780,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "vercel",
      "runs": [
       {
@@ -1604,7 +1604,7 @@
   "live-wikipedia-cities": {
    "name": "live-wikipedia-cities",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "live-wikipedia-cities",
      "runs": [
       {
@@ -1644,7 +1644,7 @@
      "treeTokens": 99767,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "live-wikipedia-cities",
      "runs": [
       {
@@ -1687,7 +1687,7 @@
   "live-github-pr-files": {
    "name": "live-github-pr-files",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "live-github-pr-files",
      "runs": [
       {
@@ -1727,7 +1727,7 @@
      "treeTokens": 321339,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "live-github-pr-files",
      "runs": [
       {
@@ -1770,7 +1770,7 @@
   "live-amazon-search": {
    "name": "live-amazon-search",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "live-amazon-search",
      "runs": [
       {
@@ -1810,7 +1810,7 @@
      "treeTokens": 167872,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "live-amazon-search",
      "runs": [
       {
@@ -1853,7 +1853,7 @@
   "live-hn-thread": {
    "name": "live-hn-thread",
    "tools": {
-    "pw-mcp": {
+    "pw-ai": {
      "name": "live-hn-thread",
      "runs": [
       {
@@ -1893,7 +1893,7 @@
      "treeTokens": 622139,
      "breakdown": null
     },
-    "chatgpt-ax": {
+    "reference-b-ax": {
      "name": "live-hn-thread",
      "runs": [
       {

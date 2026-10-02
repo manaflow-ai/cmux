@@ -1,6 +1,6 @@
 {
  "meta": {
-  "backend": "aside",
+  "backend": "reference-a",
   "recordedAt": "2026-09-30T14:00:25.952Z",
   "version": "1.26.916.1741"
  },
@@ -531,7 +531,7 @@
     "b64": "aGk=",
     "fromB64": "hi",
     "missing": {
-     "error": "ENOENT: no such file or directory, open '/Users/lawrence/.aside/u/0/sessions/2026-09-30_OG1H8s8IJIi1NUWx/nope-brepl.txt'",
+     "error": "ENOENT: no such file or directory, open '<reference A session directory>/nope-brepl.txt'",
      "name": "Error"
     }
    },

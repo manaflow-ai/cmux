@@ -1,6 +1,6 @@
 import { errorsBetter as errBetter } from "../lib.mjs";
-// Locator members: Aside Locator.* and ChatGPT PlaywrightLocator.*, with
-// the option and error variants the ChatGPT reference was verified on
+// Locator members: reference A Locator.* and reference B PlaywrightLocator.*, with
+// the option and error variants reference B was verified on
 // (cmux-browser-cli scripts/cua-reference-variant-cases.ts), ported to the
 // lab page.
 const LAB = "/diff/lab.html";
@@ -10,15 +10,15 @@ const TAKE = `let seen = 0;
 const take = async () => { const all = $LOG.filter((r) => r[1] === "action"); const d = all.slice(seen); seen = all.length; return d.map((r) => [r[0], ...r[3]]); };`;
 const clickOptions = (method) => ({
   id: `loc.${method}.options`,
-  members: [`aside:Locator.${method}`, `chatgpt:PlaywrightLocator.${method}`],
+  members: [`reference-a:Locator.${method}`, `reference-b:PlaywrightLocator.${method}`],
   path: LAB,
   // Control+click on macOS: Chrome drops the click after contextmenu; WebKit
   // (Safari, Playwright WebKit, cmux) delivers it. An engine difference, so
   // the Control variant is recorded but not compared.
-  compare: { chatgpt: ["left", "right", "middle", "force", "timeout", "alt", "controlOrMeta", "meta", "shift"] },
+  compare: { "reference-b": ["left", "right", "middle", "force", "timeout", "alt", "controlOrMeta", "meta", "shift"] },
   better: {
-    aside: {
-      reason: "button and modifier options reach the page (right, middle, Alt, Control, Meta, Shift); Aside sends a plain left click for every option",
+    "reference-a": {
+      reason: "button and modifier options reach the page (right, middle, Alt, Control, Meta, Shift); reference A sends a plain left click for every option",
       check: (c, r) => JSON.stringify(c.right).includes("contextmenu") && !JSON.stringify(r.right).includes("contextmenu") && JSON.stringify(c.left) === JSON.stringify(r.left),
     },
   },
@@ -38,7 +38,7 @@ export default [
   clickOptions("dblclick"),
   {
     id: "loc.click.more-options",
-    members: ["aside:Locator.click"],
+    members: ["reference-a:Locator.click"],
     path: LAB,
     code: `${TAKE}
 const l = $P.locator("#action");
@@ -49,11 +49,11 @@ const d = await ms(() => l.click({ delay: 300 })); out.delay = d.ms >= 280; awai
 await l.click({ trial: true }); out.trial = await take();
 await l.click({ noWaitAfter: true }); out.noWaitAfter = (await take()).length;
 return out;`,
-    chatgpt: null,
-    na: { chatgpt: "LocatorClickOptions has no clickCount, position, delay or trial" },
+    "reference-b": null,
+    na: { "reference-b": "LocatorClickOptions has no clickCount, position, delay or trial" },
     better: {
-      aside: {
-        reason: "clickCount, position, delay and trial behave as in Playwright; Aside ignores trial and clicks anyway",
+      "reference-a": {
+        reason: "clickCount, position, delay and trial behave as in Playwright; reference A ignores trial and clicks anyway",
         check: (c, r) => Array.isArray(c.trial) && c.trial.length === 0 && Array.isArray(r.trial) && r.trial.length > 0,
       },
     },
@@ -61,7 +61,7 @@ return out;`,
   },
   {
     id: "loc.check.options",
-    members: ["aside:Locator.check", "aside:Locator.uncheck", "aside:Locator.setChecked", "chatgpt:PlaywrightLocator.check", "chatgpt:PlaywrightLocator.uncheck", "chatgpt:PlaywrightLocator.setChecked"],
+    members: ["reference-a:Locator.check", "reference-a:Locator.uncheck", "reference-a:Locator.setChecked", "reference-b:PlaywrightLocator.check", "reference-b:PlaywrightLocator.uncheck", "reference-b:PlaywrightLocator.setChecked"],
     path: LAB,
     code: `const l = $P.locator("#check");
 const s = () => l.evaluate((e) => e.checked);
@@ -76,14 +76,14 @@ await l.check(); await l.check(); out.push(await s());
 await $P.locator("#radio-b").check(); out.push(await $P.locator("#radio-b").evaluate((e) => e.checked));
 return { states: out, radioUncheck: await E(() => $P.locator("#radio-b").uncheck($T(500))), notCheckbox: await E(() => $P.locator("#action").check($T(500))) };`,
     better: {
-      aside: errBetter,
-      chatgpt: errBetter,
+      "reference-a": errBetter,
+      "reference-b": errBetter,
     },
     expect: { states: [true, false, true, false, true, false, true, true], radioUncheck: { error: "invalid-arg" }, notCheckbox: { error: "invalid-arg" } },
   },
   {
     id: "loc.timeout-options",
-    members: ["chatgpt:PlaywrightLocator.allTextContents", "chatgpt:PlaywrightLocator.fill", "chatgpt:PlaywrightLocator.getAttribute", "chatgpt:PlaywrightLocator.innerText", "chatgpt:PlaywrightLocator.press", "chatgpt:PlaywrightLocator.pressSequentially", "chatgpt:PlaywrightLocator.textContent", "chatgpt:PlaywrightLocator.type", "chatgpt:PlaywrightLocator.evaluate", "chatgpt:PlaywrightLocator.evaluateAll", "aside:Locator.fill", "aside:Locator.getAttribute", "aside:Locator.innerText", "aside:Locator.press", "aside:Locator.pressSequentially", "aside:Locator.textContent", "aside:Locator.type"],
+    members: ["reference-b:PlaywrightLocator.allTextContents", "reference-b:PlaywrightLocator.fill", "reference-b:PlaywrightLocator.getAttribute", "reference-b:PlaywrightLocator.innerText", "reference-b:PlaywrightLocator.press", "reference-b:PlaywrightLocator.pressSequentially", "reference-b:PlaywrightLocator.textContent", "reference-b:PlaywrightLocator.type", "reference-b:PlaywrightLocator.evaluate", "reference-b:PlaywrightLocator.evaluateAll", "reference-a:Locator.fill", "reference-a:Locator.getAttribute", "reference-a:Locator.innerText", "reference-a:Locator.press", "reference-a:Locator.pressSequentially", "reference-a:Locator.textContent", "reference-a:Locator.type"],
     path: LAB,
     code: `const name = $P.locator("#name");
 const out = {};
@@ -100,7 +100,7 @@ out.valueWithArg = await name.evaluate((e, a) => e.value + a, "!");
 out.items = await $P.locator("[data-testid=item]").evaluateAll((es) => es.length);
 out.itemsWithArg = await $P.locator("[data-testid=item]").evaluateAll((es, a) => es.length + a, 1);
 return out;`,
-    aside: `const name = page.locator("#name");
+    "reference-a": `const name = page.locator("#name");
 const out = {};
 out.all = await page.locator("[data-testid=item]").evaluateAll((es) => es.map((e) => e.textContent));
 await name.fill("typed", { timeout: 2000 });
@@ -119,7 +119,7 @@ return out;`,
   },
   {
     id: "loc.errors.missing",
-    members: ["chatgpt:PlaywrightLocator.click", "chatgpt:PlaywrightLocator.dblclick", "chatgpt:PlaywrightLocator.check", "chatgpt:PlaywrightLocator.uncheck", "chatgpt:PlaywrightLocator.setChecked", "chatgpt:PlaywrightLocator.fill", "chatgpt:PlaywrightLocator.getAttribute", "chatgpt:PlaywrightLocator.innerText", "chatgpt:PlaywrightLocator.textContent", "chatgpt:PlaywrightLocator.press", "chatgpt:PlaywrightLocator.pressSequentially", "chatgpt:PlaywrightLocator.type", "chatgpt:PlaywrightLocator.selectOption", "chatgpt:PlaywrightLocator.waitFor", "aside:Locator.click", "aside:Locator.dblclick", "aside:Locator.check", "aside:Locator.fill", "aside:Locator.selectOption", "aside:Locator.waitFor"],
+    members: ["reference-b:PlaywrightLocator.click", "reference-b:PlaywrightLocator.dblclick", "reference-b:PlaywrightLocator.check", "reference-b:PlaywrightLocator.uncheck", "reference-b:PlaywrightLocator.setChecked", "reference-b:PlaywrightLocator.fill", "reference-b:PlaywrightLocator.getAttribute", "reference-b:PlaywrightLocator.innerText", "reference-b:PlaywrightLocator.textContent", "reference-b:PlaywrightLocator.press", "reference-b:PlaywrightLocator.pressSequentially", "reference-b:PlaywrightLocator.type", "reference-b:PlaywrightLocator.selectOption", "reference-b:PlaywrightLocator.waitFor", "reference-a:Locator.click", "reference-a:Locator.dblclick", "reference-a:Locator.check", "reference-a:Locator.fill", "reference-a:Locator.selectOption", "reference-a:Locator.waitFor"],
     path: LAB,
     code: `const m = $P.locator("#missing");
 const o = $T(300);
@@ -131,14 +131,14 @@ return {
   waitFor: await E(() => m.waitFor({ state: "visible", $TO: 300 })),
 };`,
     better: {
-      aside: errBetter,
-      chatgpt: errBetter,
+      "reference-a": errBetter,
+      "reference-b": errBetter,
     },
     expect: { click: { error: "no-element" }, fill: { error: "no-element" }, waitFor: { error: "no-element" } },
   },
   {
     id: "loc.errors.evaluate",
-    members: ["chatgpt:PlaywrightLocator.evaluate", "chatgpt:PlaywrightLocator.evaluateAll", "chatgpt:PlaywrightLocator.allTextContents", "aside:Locator.evaluate", "aside:Locator.evaluateAll"],
+    members: ["reference-b:PlaywrightLocator.evaluate", "reference-b:PlaywrightLocator.evaluateAll", "reference-b:PlaywrightLocator.allTextContents", "reference-a:Locator.evaluate", "reference-a:Locator.evaluateAll"],
     path: LAB,
     code: `return {
   evaluate: await E(() => $P.locator("#name").evaluate(() => { throw new Error("boom"); })),
@@ -148,15 +148,15 @@ return {
   emptyAll: await $P.locator("#missing").evaluateAll((es) => es.length),
 };`,
     better: {
-      aside: errBetter,
-      chatgpt: errBetter,
+      "reference-a": errBetter,
+      "reference-b": errBetter,
     },
     expect: { evaluate: { error: "other" }, strict: { error: "strict" }, allTextBad: { error: "invalid-arg" }, emptyAll: 0 },
   },
   {
     id: "loc.failure-kinds",
     edge: "hidden-disabled",
-    members: ["chatgpt:PlaywrightLocator.click", "chatgpt:PlaywrightLocator.fill", "aside:Locator.click", "aside:Locator.fill"],
+    members: ["reference-b:PlaywrightLocator.click", "reference-b:PlaywrightLocator.fill", "reference-a:Locator.click", "reference-a:Locator.fill"],
     path: LAB,
     code: `const o = $T(400);
 return {
@@ -172,14 +172,14 @@ return {
   many: await E(() => $P.locator("li").fill("x", o)),
 };`,
     better: {
-      aside: errBetter,
-      chatgpt: errBetter,
+      "reference-a": errBetter,
+      "reference-b": errBetter,
     },
     expect: { hidden: { error: "not-visible" }, disabled: { error: "disabled" }, disabledFill: { error: "disabled" }, readonlyFill: { error: "not-editable" }, many: { error: "strict" } },
   },
   {
     id: "loc.composition-errors",
-    members: ["chatgpt:PlaywrightLocator.and", "chatgpt:PlaywrightLocator.or", "chatgpt:PlaywrightLocator.nth", "chatgpt:PlaywrightLocator.filter", "chatgpt:PlaywrightLocator.locator", "chatgpt:PlaywrightLocator.getByLabel", "chatgpt:PlaywrightLocator.getByPlaceholder", "chatgpt:PlaywrightLocator.getByRole", "chatgpt:PlaywrightLocator.getByTestId", "chatgpt:PlaywrightLocator.getByText", "aside:Locator.nth", "aside:Locator.filter", "aside:Locator.locator"],
+    members: ["reference-b:PlaywrightLocator.and", "reference-b:PlaywrightLocator.or", "reference-b:PlaywrightLocator.nth", "reference-b:PlaywrightLocator.filter", "reference-b:PlaywrightLocator.locator", "reference-b:PlaywrightLocator.getByLabel", "reference-b:PlaywrightLocator.getByPlaceholder", "reference-b:PlaywrightLocator.getByRole", "reference-b:PlaywrightLocator.getByTestId", "reference-b:PlaywrightLocator.getByText", "reference-a:Locator.nth", "reference-a:Locator.filter", "reference-a:Locator.locator"],
     path: LAB,
     code: `const body = $P.locator("body");
 return {
@@ -189,14 +189,14 @@ return {
   getByRole: await E(() => body.getByRole("notarole!").count()), getByTestId: await E(() => body.getByTestId(null).count()), getByText: await E(() => body.getByText(42).count()),
 };`,
     better: {
-      aside: errBetter,
-      chatgpt: errBetter,
+      "reference-a": errBetter,
+      "reference-b": errBetter,
     },
     expect: { and: { error: "invalid-arg" }, filter: { error: "invalid-arg" }, locator: { error: "invalid-arg" } },
   },
   {
     id: "loc.filter-options",
-    members: ["chatgpt:PlaywrightLocator.filter", "chatgpt:PlaywrightLocator.locator", "aside:Locator.filter", "aside:Locator.locator"],
+    members: ["reference-b:PlaywrightLocator.filter", "reference-b:PlaywrightLocator.locator", "reference-a:Locator.filter", "reference-a:Locator.locator"],
     path: LAB,
     code: `const ul = $P.locator("ul");
 const li = $P.locator("li");
@@ -209,8 +209,8 @@ return {
   lHasNotText: await ul.locator("li", { hasNotText: "Sec" }).count(), lHasNotTextRe: await ul.locator("li", { hasNotText: /sec/i }).count(),
 };`,
     better: {
-      aside: {
-        reason: "hasNot, hasNotText and visible filters follow Playwright; Aside's hasNot keeps matches and visible:false counts visible buttons",
+      "reference-a": {
+        reason: "hasNot, hasNotText and visible filters follow Playwright; reference A's hasNot keeps matches and visible:false counts visible buttons",
         check: (c, r) => c.hasNot === 0 && c.lHasNot === 0 && c.hidden === 2 && (r.hasNot !== 0 || r.hidden !== 2),
       },
     },
@@ -218,7 +218,7 @@ return {
   },
   {
     id: "loc.regexp-getters",
-    members: ["chatgpt:PlaywrightAPI.getByLabel", "chatgpt:PlaywrightAPI.getByPlaceholder", "chatgpt:PlaywrightAPI.getByRole", "chatgpt:PlaywrightAPI.getByText", "chatgpt:PlaywrightLocator.getByLabel", "chatgpt:PlaywrightLocator.getByPlaceholder", "chatgpt:PlaywrightLocator.getByRole", "chatgpt:PlaywrightLocator.getByText", "chatgpt:PlaywrightFrameLocator.getByLabel", "chatgpt:PlaywrightFrameLocator.getByPlaceholder", "chatgpt:PlaywrightFrameLocator.getByRole", "chatgpt:PlaywrightFrameLocator.getByText"],
+    members: ["reference-b:PlaywrightAPI.getByLabel", "reference-b:PlaywrightAPI.getByPlaceholder", "reference-b:PlaywrightAPI.getByRole", "reference-b:PlaywrightAPI.getByText", "reference-b:PlaywrightLocator.getByLabel", "reference-b:PlaywrightLocator.getByPlaceholder", "reference-b:PlaywrightLocator.getByRole", "reference-b:PlaywrightLocator.getByText", "reference-b:PlaywrightFrameLocator.getByLabel", "reference-b:PlaywrightFrameLocator.getByPlaceholder", "reference-b:PlaywrightFrameLocator.getByRole", "reference-b:PlaywrightFrameLocator.getByText"],
     path: LAB,
     code: `const body = $P.locator("body");
 const f = $P.frameLocator("#frame");
@@ -229,14 +229,14 @@ return {
   frameExact: [await f.getByLabel("Frame label", { exact: true }).count(), await f.getByLabel("frame", { exact: false }).count(), await f.getByText("Frame action", { exact: true }).count(), await f.getByText("frame", { exact: false }).count()],
   locatorExact: [await body.getByText("First", { exact: true }).count(), await body.getByText("first", { exact: false }).count()],
 };`,
-    aside: null,
-    na: { aside: "Aside's Locator and FrameLocator have no getBy* methods (!getByRole etc. in its surface); page-level getters are covered by page.getters.page-level" },
+    "reference-a": null,
+    na: { "reference-a": "Reference A's Locator and FrameLocator have no getBy* methods (!getByRole etc. in its surface); page-level getters are covered by page.getters.page-level" },
     expect: { page: [1, 1, 1, 1], locator: [1, 1, 1, 1], frame: [1, 1, 1, 1], frameExact: [1, 1, 1, 2], locatorExact: [1, 1] },
   },
   {
     id: "loc.select-option.forms",
     edge: "select-multiple",
-    members: ["chatgpt:PlaywrightLocator.selectOption", "aside:Locator.selectOption"],
+    members: ["reference-b:PlaywrightLocator.selectOption", "reference-a:Locator.selectOption"],
     path: LAB,
     code: `const l = $P.locator("#choice");
 const v = () => l.evaluate((e) => e.value);
@@ -259,9 +259,9 @@ return {
   notSelect: await E(() => $P.locator("#name").selectOption("a", $T(400))),
 };`,
     better: {
-      aside: errBetter,
-      chatgpt: {
-        reason: "selectOption takes a label string and returns the selected values, as in Playwright; ChatGPT's times out on a label and returns nothing",
+      "reference-a": errBetter,
+      "reference-b": {
+        reason: "selectOption takes a label string and returns the selected values, as in Playwright; reference B's times out on a label and returns nothing",
         check: (c, r) => JSON.stringify(c.values) === JSON.stringify(['b','a','b','a','b','c']) && Array.isArray(c.returned) && !Array.isArray(r.returned),
       },
     },
@@ -269,7 +269,7 @@ return {
   },
   {
     id: "loc.wait-for.states",
-    members: ["chatgpt:PlaywrightLocator.waitFor", "aside:Locator.waitFor"],
+    members: ["reference-b:PlaywrightLocator.waitFor", "reference-a:Locator.waitFor"],
     path: LAB,
     code: `await $P.locator("#hidden").waitFor({ state: "attached" });
 await $P.locator("#hidden").waitFor({ state: "hidden", $TO: 2000 });
@@ -279,9 +279,9 @@ await $P.locator("#make-late").click();
 const late = await ms(() => $P.locator("#late").waitFor());
 return { done: true, late: late.error ? late : late.ms < 2000, hiddenVisible: await E(() => $P.locator("#hidden").waitFor({ state: "visible", $TO: 300 })), bogus: await E(() => $P.locator("#action").waitFor({ state: "bogus" })) };`,
     better: {
-      aside: errBetter,
-      chatgpt: {
-        reason: "waitFor finds an element that appears late and says a hidden element is hidden; ChatGPT's waitFor fails on the late element",
+      "reference-a": errBetter,
+      "reference-b": {
+        reason: "waitFor finds an element that appears late and says a hidden element is hidden; reference B's waitFor fails on the late element",
         check: (c, r, h) => c.late === true && r.late !== true && h.classifyError(c.bogus.error) === 'invalid-arg',
       },
     },
@@ -289,7 +289,7 @@ return { done: true, late: late.error ? late : late.ms < 2000, hiddenVisible: aw
   },
   {
     id: "loc.fill.forms",
-    members: ["aside:Locator.fill", "aside:Locator.clear", "aside:Locator.inputValue", "chatgpt:PlaywrightLocator.fill"],
+    members: ["reference-a:Locator.fill", "reference-a:Locator.clear", "reference-a:Locator.inputValue", "reference-b:PlaywrightLocator.fill"],
     path: LAB,
     code: `await $P.locator("#name").fill("new value");
 await $P.locator("#area").fill("multi\\nline");
@@ -303,7 +303,7 @@ return {
   events: $LOG.filter((r) => r[1] === "name").map((r) => r[0] + ":" + r[2]).slice(0, 3),
   inputValueOfDiv: await E(() => $P.locator("#status").inputValue($T(300))),
 };`,
-    chatgpt: `await $P.locator("#name").fill("new value");
+    "reference-b": `await $P.locator("#name").fill("new value");
 await $P.locator("#area").fill("multi\\nline");
 await $P.locator("#rich").fill("rich text");
 await $P.locator("#decoy").fill("");
@@ -315,11 +315,11 @@ return {
   cleared: await val("#decoy"),
   events: $LOG.filter((r) => r[1] === "name").map((r) => r[0] + ":" + r[2]).slice(0, 3),
 };`,
-    compare: { aside: ["name", "area", "rich", "cleared", "events", "inputValueOfDiv"], chatgpt: ["name", "area", "rich", "cleared", "events"] },
+    compare: { "reference-a": ["name", "area", "rich", "cleared", "events", "inputValueOfDiv"], "reference-b": ["name", "area", "rich", "cleared", "events"] },
     better: {
-      aside: errBetter,
-      chatgpt: {
-        reason: "fill delivers trusted input and change events; ChatGPT's fill sends an untrusted input event and no change",
+      "reference-a": errBetter,
+      "reference-b": {
+        reason: "fill delivers trusted input and change events; reference B's fill sends an untrusted input event and no change",
         check: (c, r) => c.name === r.name && c.events.join() === 'focus:true,input:true,change:true' && r.events.some((e) => e.endsWith(':false')),
       },
     },
@@ -327,7 +327,7 @@ return {
   },
   {
     id: "loc.typing",
-    members: ["aside:Locator.type", "aside:Locator.press", "aside:Locator.pressSequentially", "chatgpt:PlaywrightLocator.type", "chatgpt:PlaywrightLocator.press", "chatgpt:PlaywrightLocator.pressSequentially"],
+    members: ["reference-a:Locator.type", "reference-a:Locator.press", "reference-a:Locator.pressSequentially", "reference-b:PlaywrightLocator.type", "reference-b:PlaywrightLocator.press", "reference-b:PlaywrightLocator.pressSequentially"],
     path: LAB,
     code: `const k = $P.locator("#keys");
 await k.pressSequentially("ab");
@@ -340,9 +340,9 @@ await k.press("Delete");
 const keys = $LOG.filter((r) => r[1] === "keys" && r[0] === "keydown").map((r) => r[3][0]);
 return { value: await k.evaluate((e) => e.value), keys, trusted: $LOG.filter((r) => r[1] === "keys").every((r) => r[2]), slow: slow.ms >= 250, badKey: await E(() => k.press("NoSuchKey")) };`,
     better: {
-      aside: errBetter,
-      chatgpt: {
-        reason: "key presses are trusted native events and delay is honored; ChatGPT's arrive untrusted and ignore delay",
+      "reference-a": errBetter,
+      "reference-b": {
+        reason: "key presses are trusted native events and delay is honored; reference B's arrive untrusted and ignore delay",
         check: (c, r) => c.trusted === true && r.trusted === false && c.value === r.value,
       },
     },
@@ -351,38 +351,38 @@ return { value: await k.evaluate((e) => e.value), keys, trusted: $LOG.filter((r)
   {
     id: "loc.hover",
     edge: "hover-menu-delay",
-    members: ["aside:Locator.hover", "chatgpt:CUAAPI.move"],
+    members: ["reference-a:Locator.hover", "reference-b:CUAAPI.move"],
     path: LAB,
     code: `await $P.locator("#hover-btn").hover();
 const item = $P.locator("#menu-item");
 await item.waitFor({ state: "visible", $TO: 3000 });
 await item.click();
 return { status: await $P.locator("#status").innerText(), enter: $LOG.some((r) => r[1] === "hover-btn" && r[0] === "mouseenter" && r[2]) };`,
-    chatgpt: `const box = await $P.locator("#hover-btn").evaluate((e) => { const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+    "reference-b": `const box = await $P.locator("#hover-btn").evaluate((e) => { const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
 await t.cua.move({ x: box[0], y: box[1] });
 await $P.locator("#menu-item").waitFor({ state: "visible", timeoutMs: 3000 });
 await $P.locator("#menu-item").click();
 return { status: await $P.locator("#status").innerText(), enter: $LOG.some((r) => r[1] === "hover-btn" && r[0] === "mouseenter" && r[2]) };`,
-    chatgptMode: "legacy",
+    referenceBMode: "legacy",
     expect: { status: "menu picked", enter: true },
   },
   {
     id: "loc.focus-blur",
-    members: ["aside:Locator.focus", "aside:Locator.blur"],
+    members: ["reference-a:Locator.focus", "reference-a:Locator.blur"],
     path: LAB,
     code: `await $P.locator("#name").focus();
 const focused = await $P.evaluate(() => document.activeElement.id);
 await $P.locator("#name").blur();
 return { focused, after: await $P.evaluate(() => document.activeElement.tagName), events: $LOG.filter((r) => r[1] === "name").map((r) => r[0]) };`,
-    chatgpt: `await $P.locator("#name").click();
+    "reference-b": `await $P.locator("#name").click();
 const focused = await $P.evaluate(() => document.activeElement.id);
 return { focused };`,
-    compare: { chatgpt: ["focused"] },
+    compare: { "reference-b": ["focused"] },
     expect: { focused: "name", after: "BODY", events: ["focus", "blur"] },
   },
   {
     id: "loc.set-input-files",
-    members: ["aside:Locator.setInputFiles", "chatgpt:PlaywrightFileChooser.setFiles", "chatgpt:PlaywrightFileChooser.isMultiple"],
+    members: ["reference-a:Locator.setInputFiles", "reference-b:PlaywrightFileChooser.setFiles", "reference-b:PlaywrightFileChooser.isMultiple"],
     path: FILES,
     code: `const f = path.join(os.tmpdir(), "parity-upload.txt");
 fs.writeFileSync(f, "Disposable browser parity upload\\n");
@@ -394,7 +394,7 @@ await $P.locator("#result").getByText("second.txt").waitFor();
 const many = await $P.locator("#result").innerText();
 await $P.locator("#file").setInputFiles([]);
 return { one, many, cleared: await $P.locator("#file").evaluate((e) => e.files.length), missing: await E(() => $P.locator("#file").setInputFiles("/nonexistent/parity.txt")), notFile: await E(() => $P.locator("#pick").setInputFiles(f, $T(400))) };`,
-    aside: `const f = path.join(pwd, "parity-upload.txt");
+    "reference-a": `const f = path.join(pwd, "parity-upload.txt");
 await fs.writeFile(f, "Disposable browser parity upload\\n");
 const out = {};
 try {
@@ -410,7 +410,7 @@ try {
   out.notFile = await E(() => page.locator("#pick").setInputFiles(f, { timeout: 400 }));
 } finally { await fs.rm(f, { force: true }); }
 return out;`,
-    chatgpt: `const pending = $P.waitForEvent("filechooser", {});
+    "reference-b": `const pending = $P.waitForEvent("filechooser", {});
 await $P.locator("#file").click();
 const ch = await pending;
 const single = ch.isMultiple();
@@ -424,14 +424,14 @@ const multiple = ch2.isMultiple();
 await ch2.setFiles([PARITY_UPLOAD], { timeoutMs: 5000 });
 await $P.waitForTimeout(300);
 return { one, many: await $P.locator("#result").innerText(), single, multiple };`,
-    compare: { aside: ["one", "many", "cleared", "missing", "notFile"], chatgpt: ["one"] },
+    compare: { "reference-a": ["one", "many", "cleared", "missing", "notFile"], "reference-b": ["one"] },
     better: {
-      chatgpt: {
-        reason: "setInputFiles sets files on an input directly, takes in-memory files and clears a selection; ChatGPT only answers a chooser with paths from disk",
+      "reference-b": {
+        reason: "setInputFiles sets files on an input directly, takes in-memory files and clears a selection; reference B only answers a chooser with paths from disk",
         check: (c) => /second\.txt/.test(c.many) && c.cleared === 0,
       },
-      aside: {
-        reason: "setInputFiles takes in-memory files ({ name, mimeType, buffer }) as well as paths, as in Playwright; Aside takes only paths",
+      "reference-a": {
+        reason: "setInputFiles takes in-memory files ({ name, mimeType, buffer }) as well as paths, as in Playwright; reference A takes only paths",
         check: (c, r) => c.one === r.one && /second\.txt/.test(c.many) && typeof r.many === 'object' && c.cleared === 0,
       },
     },
@@ -439,19 +439,19 @@ return { one, many: await $P.locator("#result").innerText(), single, multiple };
   },
   {
     id: "loc.drag-to",
-    members: ["aside:Locator.dragTo", "chatgpt:AXAPI.drag", "chatgpt:CUAAPI.drag"],
+    members: ["reference-a:Locator.dragTo", "reference-b:AXAPI.drag", "reference-b:CUAAPI.drag"],
     path: LAB,
     code: `await $P.locator("#drag").dragTo($P.locator("#drop"));
 return { drop: await $P.locator("#drop").innerText(), events: $LOG.filter((r) => ["drag", "drop"].includes(r[1])).map((r) => r[0] + ":" + r[2]).filter((x, i, a) => a.indexOf(x) === i) };`,
-    chatgpt: `const c = (s) => $P.locator(s).evaluate((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; });
+    "reference-b": `const c = (s) => $P.locator(s).evaluate((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; });
 const from = await c("#drag"), to = await c("#drop");
 await t.cua.drag({ path: [{ x: from[0], y: from[1] }, { x: to[0], y: to[1] }] });
 await $P.waitForTimeout(300);
 return { drop: await $P.locator("#drop").innerText(), events: $LOG.filter((r) => ["drag", "drop"].includes(r[1])).map((r) => r[0] + ":" + r[2]).filter((x, i, a) => a.indexOf(x) === i) };`,
-    chatgptMode: "legacy",
+    referenceBMode: "legacy",
     better: {
-      aside: {
-        reason: "a drag delivers one trusted HTML5 drag sequence; Aside also replays it as untrusted synthetic events",
+      "reference-a": {
+        reason: "a drag delivers one trusted HTML5 drag sequence; reference A also replays it as untrusted synthetic events",
         check: (c, r) => c.drop === r.drop && c.events.every((e) => e.endsWith(':true')) && r.events.some((e) => e.endsWith(':false')),
       },
     },
@@ -459,77 +459,77 @@ return { drop: await $P.locator("#drop").innerText(), events: $LOG.filter((r) =>
   },
   {
     id: "loc.drag-to.ax",
-    members: ["chatgpt:AXAPI.drag"],
+    members: ["reference-b:AXAPI.drag"],
     path: LAB,
     code: `const c = async (s) => { const b = await $P.locator(s).boundingBox(); return [b.x + b.width / 2, b.y + b.height / 2]; };
 const from = await c("#drag"), to = await c("#drop");
 await $P.mouse.move(from[0], from[1]); await $P.mouse.down(); await $P.mouse.move(to[0], to[1], { steps: 8 }); await $P.mouse.up();
 return { drop: await $P.locator("#drop").innerText() };`,
-    chatgpt: `const c = (s) => $P.locator(s).evaluate((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; });
+    "reference-b": `const c = (s) => $P.locator(s).evaluate((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; });
 const from = await c("#drag"), to = await c("#drop");
 await t.ax.drag(from, to);
 await $P.waitForTimeout(300);
 return { drop: await $P.locator("#drop").innerText() };`,
-    aside: null,
-    na: { aside: "covered by loc.drag-to (Aside has dragTo)" },
+    "reference-a": null,
+    na: { "reference-a": "covered by loc.drag-to (reference A has dragTo)" },
     expect: { drop: "dropped payload" },
   },
   {
     id: "loc.tap",
-    members: ["aside:Locator.tap"],
+    members: ["reference-a:Locator.tap"],
     path: LAB,
     code: `return { tap: await E(() => $P.locator("#action").tap($T(1000))), status: await $P.locator("#status").innerText() };`,
-    chatgpt: null,
-    na: { chatgpt: "ChatGPT has no touch input" },
+    "reference-b": null,
+    na: { "reference-b": "Reference B has no touch input" },
     compare: ["tap"],
   },
   {
     id: "loc.scroll-into-view",
-    members: ["aside:Locator.scrollIntoViewIfNeeded", "aside:Locator.boundingBox", "chatgpt:AXAPI.scroll"],
+    members: ["reference-a:Locator.scrollIntoViewIfNeeded", "reference-a:Locator.boundingBox", "reference-b:AXAPI.scroll"],
     path: LAB,
     code: `const before = await $P.evaluate(() => scrollY);
 await $P.locator("#far").scrollIntoViewIfNeeded();
 const box = await $P.locator("#far").boundingBox();
 const vh = await $P.evaluate(() => innerHeight);
 return { moved: (await $P.evaluate(() => scrollY)) > before, inView: box.y >= 0 && box.y + box.height <= vh, hiddenBox: await $P.locator("#hidden").boundingBox() };`,
-    chatgpt: `const before = await $P.evaluate(() => scrollY);
+    "reference-b": `const before = await $P.evaluate(() => scrollY);
 await t.ax.scroll([200, 200], "down", 3);
 await $P.waitForTimeout(400);
 return { moved: (await $P.evaluate(() => scrollY)) > before };`,
-    compare: { aside: ["moved", "inView", "hiddenBox"], chatgpt: ["moved"] },
+    compare: { "reference-a": ["moved", "inView", "hiddenBox"], "reference-b": ["moved"] },
     expect: { moved: true, inView: true, hiddenBox: null },
   },
   {
     id: "loc.screenshot",
-    members: ["aside:Locator.screenshot", "chatgpt:PlaywrightAPI.elementScreenshot"],
+    members: ["reference-a:Locator.screenshot", "reference-b:PlaywrightAPI.elementScreenshot"],
     path: LAB,
     code: `const box = await $P.locator("#canvas").boundingBox();
 const img = imgInfo(await $P.locator("#canvas").screenshot());
 const ratio = img.width / box.width;
 return { format: img.format, matches: Math.abs(img.height / ratio - box.height) < 2, hidden: await E(() => $P.locator("#hidden").screenshot($T(400))) };`,
-    aside: `const box = await page.locator("#canvas").boundingBox();
+    "reference-a": `const box = await page.locator("#canvas").boundingBox();
 const raw = await page.locator("#canvas").screenshot();
 const img = imgInfo(typeof raw === "string" ? Buffer.from(raw, "base64") : raw);
 const ratio = img.width / box.width;
 return { format: img.format, matches: Math.abs(img.height / ratio - box.height) < 2, hidden: await E(() => page.locator("#hidden").screenshot({ timeout: 400 })) };`,
-    chatgpt: `const r = await E(() => $P.elementScreenshot({ x: 20, y: 20 }));
+    "reference-b": `const r = await E(() => $P.elementScreenshot({ x: 20, y: 20 }));
 return { format: r.error ? r : "image" };`,
     better: {
-      chatgpt: {
-        reason: "an element screenshot is cropped to the element; ChatGPT's elementScreenshot is not supported by its Chrome backend",
+      "reference-b": {
+        reason: "an element screenshot is cropped to the element; reference B's elementScreenshot is not supported by its Chrome backend",
         check: (c, r) => c.format === "png" && c.matches && r.format?.error,
       },
-      aside: {
-        reason: "locator.screenshot returns a PNG cropped to the element, Playwright's default; Aside's returns WebP",
+      "reference-a": {
+        reason: "locator.screenshot returns a PNG cropped to the element, Playwright's default; reference A's returns WebP",
         check: (c, r) => c.format === 'png' && c.matches && r.format === 'webp',
       },
     },
-    compare: { aside: ["format", "matches", "hidden"], chatgpt: ["format"] },
+    compare: { "reference-a": ["format", "matches", "hidden"], "reference-b": ["format"] },
     expect: { format: "png", matches: true, hidden: { error: "not-visible" } },
   },
   {
     id: "loc.reads",
-    members: ["aside:Locator.textContent", "aside:Locator.innerText", "aside:Locator.innerHTML", "aside:Locator.inputValue", "aside:Locator.getAttribute", "chatgpt:PlaywrightLocator.textContent", "chatgpt:PlaywrightLocator.innerText", "chatgpt:PlaywrightLocator.getAttribute", "chatgpt:PlaywrightLocator.allTextContents"],
+    members: ["reference-a:Locator.textContent", "reference-a:Locator.innerText", "reference-a:Locator.innerHTML", "reference-a:Locator.inputValue", "reference-a:Locator.getAttribute", "reference-b:PlaywrightLocator.textContent", "reference-b:PlaywrightLocator.innerText", "reference-b:PlaywrightLocator.getAttribute", "reference-b:PlaywrightLocator.allTextContents"],
     path: LAB,
     code: `return {
   text: await $P.locator("#rich").textContent(),
@@ -543,7 +543,7 @@ return { format: r.error ? r : "image" };`,
   all: await $P.locator("li").allTextContents(),
   allInner: await $P.locator("li").allInnerTexts(),
 };`,
-    chatgpt: `return {
+    "reference-b": `return {
   text: await $P.locator("#rich").textContent(),
   inner: await $P.locator("#rich").innerText(),
   html: await $P.locator("#rich").evaluate((e) => e.innerHTML),
@@ -555,7 +555,7 @@ return { format: r.error ? r : "image" };`,
   all: await $P.locator("li").allTextContents(),
   allInner: await $P.locator("li").evaluateAll((es) => es.map((e) => e.innerText)),
 };`,
-    aside: `return {
+    "reference-a": `return {
   text: await page.locator("#rich").textContent(),
   inner: await page.locator("#rich").innerText(),
   html: await page.locator("#rich").innerHTML(),
@@ -571,7 +571,7 @@ return { format: r.error ? r : "image" };`,
   },
   {
     id: "loc.states",
-    members: ["aside:Locator.isVisible", "aside:Locator.isHidden", "aside:Locator.isEnabled", "aside:Locator.isDisabled", "aside:Locator.isChecked", "aside:Locator.isEditable", "chatgpt:PlaywrightLocator.isVisible", "chatgpt:PlaywrightLocator.isEnabled"],
+    members: ["reference-a:Locator.isVisible", "reference-a:Locator.isHidden", "reference-a:Locator.isEnabled", "reference-a:Locator.isDisabled", "reference-a:Locator.isChecked", "reference-a:Locator.isEditable", "reference-b:PlaywrightLocator.isVisible", "reference-b:PlaywrightLocator.isEnabled"],
     path: LAB,
     code: `await $P.locator("#check").check();
 return {
@@ -584,7 +584,7 @@ return {
   checkedOfButton: await E(() => $P.locator("#action").isChecked()),
   enabledMissing: await E(() => $P.locator("#missing").isEnabled($T(300))),
 };`,
-    chatgpt: `await $P.locator("#check").check();
+    "reference-b": `await $P.locator("#check").check();
 const ev = (s, f) => $P.locator(s).evaluate(f);
 return {
   visible: [await $P.locator("#action").isVisible(), await $P.locator("#hidden").isVisible(), await $P.locator("#missing").isVisible()],
@@ -595,7 +595,7 @@ return {
   editable: [await ev("#name", (e) => !e.readOnly && !e.disabled), await ev("#readonly", (e) => !e.readOnly), await ev("#rich", (e) => e.isContentEditable)],
   enabledMissing: await E(() => $P.locator("#missing").isEnabled()),
 };`,
-    aside: `await page.locator("#check").check();
+    "reference-a": `await page.locator("#check").check();
 const S = async (f) => { const r = await E(f); return r.error ? r : r.value; };
 return {
   visible: [await S(() => page.locator("#action").isVisible()), await S(() => page.locator("#hidden").isVisible()), await S(() => page.locator("#missing").isVisible())],
@@ -608,21 +608,21 @@ return {
   enabledMissing: await E(() => page.locator("#missing").isEnabled({ timeout: 300 })),
 };`,
     better: {
-      aside: {
-        reason: "state queries follow Playwright: isVisible and isHidden of a missing element answer false and true, and isChecked of a non-checkbox fails; Aside throws or answers otherwise",
+      "reference-a": {
+        reason: "state queries follow Playwright: isVisible and isHidden of a missing element answer false and true, and isChecked of a non-checkbox fails; reference A throws or answers otherwise",
         check: (c, r, h) => JSON.stringify(c.visible) === "[true,false,false]" && JSON.stringify(c.hidden) === "[false,true,true]" && JSON.stringify(h.comparable(c.enabled)) === JSON.stringify(h.comparable(r.enabled)) && JSON.stringify(c.editable) === JSON.stringify(r.editable),
       },
-      chatgpt: {
-        reason: "state reads work on any element; ChatGPT's read-only evaluate cannot read isContentEditable and isEnabled of a missing element answers false instead of failing",
+      "reference-b": {
+        reason: "state reads work on any element; reference B's read-only evaluate cannot read isContentEditable and isEnabled of a missing element answers false instead of failing",
         check: (c, r, h) => JSON.stringify(c.editable) === '[true,false,true]' && (r.editable?.[2] !== true || !r.enabledMissing?.error),
       },
     },
-    compare: { aside: ["visible", "hidden", "enabled", "disabled", "checked", "editable", "checkedOfButton", "enabledMissing"], chatgpt: ["visible", "hidden", "enabled", "disabled", "checked", "editable", "enabledMissing"] },
+    compare: { "reference-a": ["visible", "hidden", "enabled", "disabled", "checked", "editable", "checkedOfButton", "enabledMissing"], "reference-b": ["visible", "hidden", "enabled", "disabled", "checked", "editable", "enabledMissing"] },
     expect: { visible: [true, false, false], hidden: [false, true, true], enabled: [true, false], disabled: [false, true], checked: [true, false], editable: [true, false, true], checkedOfButton: { error: "invalid-arg" }, enabledMissing: { error: "no-element" } },
   },
   {
     id: "loc.collections",
-    members: ["aside:Locator.count", "aside:Locator.all", "aside:Locator.first", "aside:Locator.last", "aside:Locator.nth", "chatgpt:PlaywrightLocator.count", "chatgpt:PlaywrightLocator.all", "chatgpt:PlaywrightLocator.first", "chatgpt:PlaywrightLocator.last", "chatgpt:PlaywrightLocator.nth"],
+    members: ["reference-a:Locator.count", "reference-a:Locator.all", "reference-a:Locator.first", "reference-a:Locator.last", "reference-a:Locator.nth", "reference-b:PlaywrightLocator.count", "reference-b:PlaywrightLocator.all", "reference-b:PlaywrightLocator.first", "reference-b:PlaywrightLocator.last", "reference-b:PlaywrightLocator.nth"],
     path: LAB,
     code: `const li = $P.locator("li");
 const all = await li.all();
@@ -632,8 +632,8 @@ return {
   nthOut: await li.nth(9).count(), none: (await $P.locator("#missing").all()).length,
 };`,
     better: {
-      aside: {
-        reason: "nth(-1) is the last element, as in Playwright; Aside's is null",
+      "reference-a": {
+        reason: "nth(-1) is the last element, as in Playwright; reference A's is null",
         check: (c, r) => c.nthNeg === 'Third' && r.nthNeg !== 'Third' && c.count === r.count,
       },
     },
@@ -641,7 +641,7 @@ return {
   },
   {
     id: "loc.and-or",
-    members: ["chatgpt:PlaywrightLocator.and", "chatgpt:PlaywrightLocator.or"],
+    members: ["reference-b:PlaywrightLocator.and", "reference-b:PlaywrightLocator.or"],
     path: LAB,
     code: `return {
   and: await $P.getByRole("button").and($P.locator("#action")).count(),
@@ -649,13 +649,13 @@ return {
   or: await $P.locator("#action").or($P.locator("#counter")).count(),
   orText: await $P.locator("#missing").or($P.getByText("Second")).textContent(),
 };`,
-    aside: null,
-    na: { aside: "Aside's Locator has no and/or (!and, !or in its surface)" },
+    "reference-a": null,
+    na: { "reference-a": "Reference A's Locator has no and/or (!and, !or in its surface)" },
     expect: { and: 1, andNone: 0, or: 2, orText: "Second" },
   },
   {
     id: "loc.scoped-getters",
-    members: ["chatgpt:PlaywrightLocator.getByLabel", "chatgpt:PlaywrightLocator.getByPlaceholder", "chatgpt:PlaywrightLocator.getByRole", "chatgpt:PlaywrightLocator.getByTestId", "chatgpt:PlaywrightLocator.getByText", "chatgpt:PlaywrightLocator.locator", "aside:Locator.locator"],
+    members: ["reference-b:PlaywrightLocator.getByLabel", "reference-b:PlaywrightLocator.getByPlaceholder", "reference-b:PlaywrightLocator.getByRole", "reference-b:PlaywrightLocator.getByTestId", "reference-b:PlaywrightLocator.getByText", "reference-b:PlaywrightLocator.locator", "reference-a:Locator.locator"],
     path: LAB,
     code: `const body = $P.locator("body");
 const ul = $P.locator("#items");
@@ -664,14 +664,14 @@ return {
   testId: await ul.getByTestId("item").count(), text: await ul.getByText("Third").count(), chained: await ul.locator("li").nth(2).textContent(),
   outside: await ul.getByText("Action").count(),
 };`,
-    aside: `const ul = page.locator("#items");
+    "reference-a": `const ul = page.locator("#items");
 return { chained: await ul.locator("li").nth(2).textContent(), outside: await ul.locator("li").filter({ hasText: "Action" }).count() };`,
-    compare: { aside: ["chained", "outside"] },
+    compare: { "reference-a": ["chained", "outside"] },
     expect: { label: 1, placeholder: 1, role: 3, testId: 3, text: 1, chained: "Third", outside: 0 },
   },
   {
     id: "loc.evaluate",
-    members: ["aside:Locator.evaluate", "aside:Locator.evaluateAll", "chatgpt:PlaywrightLocator.evaluate", "chatgpt:PlaywrightLocator.evaluateAll"],
+    members: ["reference-a:Locator.evaluate", "reference-a:Locator.evaluateAll", "reference-b:PlaywrightLocator.evaluate", "reference-b:PlaywrightLocator.evaluateAll"],
     path: LAB,
     code: `return {
   tag: await $P.locator("#action").evaluate((e) => e.tagName),
@@ -682,8 +682,8 @@ return { chained: await ul.locator("li").nth(2).textContent(), outside: await ul
   shadow: await $P.locator("#shadow-host").evaluate((e) => !!e.shadowRoot),
 };`,
     better: {
-      aside: {
-        reason: "locator.evaluate awaits a returned promise, as in Playwright; Aside returns the unresolved promise",
+      "reference-a": {
+        reason: "locator.evaluate awaits a returned promise, as in Playwright; reference A returns the unresolved promise",
         check: (c, r) => c.promise === 'action' && r.promise !== 'action' && c.tag === r.tag,
       },
     },
@@ -691,39 +691,39 @@ return { chained: await ul.locator("li").nth(2).textContent(), outside: await ul
   },
   {
     id: "loc.dispatch-event",
-    members: ["aside:Locator.dispatchEvent"],
+    members: ["reference-a:Locator.dispatchEvent"],
     path: LAB,
     code: `await $P.locator("#action").dispatchEvent("click");
 return { status: await $P.locator("#status").innerText(), trusted: $LOG.filter((r) => r[1] === "action" && r[0] === "click").map((r) => r[2]) };`,
-    chatgpt: null,
-    na: { chatgpt: "ChatGPT's read-only evaluate cannot dispatch events and it has no dispatchEvent" },
+    "reference-b": null,
+    na: { "reference-b": "Reference B's read-only evaluate cannot dispatch events and it has no dispatchEvent" },
     expect: { status: "clicked", trusted: [false] },
   },
   {
     id: "loc.download-media",
-    members: ["chatgpt:PlaywrightLocator.downloadMedia", "chatgpt:PlaywrightDownload.path", "chatgpt:PlaywrightAPI.waitForEvent"],
+    members: ["reference-b:PlaywrightLocator.downloadMedia", "reference-b:PlaywrightDownload.path", "reference-b:PlaywrightAPI.waitForEvent"],
     path: FILES,
     code: `const dl = $P.waitForEvent("download");
 await $P.locator("#dl-cd").click();
 const d = await dl;
 const p = await d.path();
 return { name: d.suggestedFilename(), body: fs.readFileSync(p, "utf8"), missing: await E(() => $P.locator("#missing").click($T(300))) };`,
-    aside: `const dl = page.waitForEvent("download");
+    "reference-a": `const dl = page.waitForEvent("download");
 await page.locator("#dl-cd").click();
 const d = await dl;
 const p = await d.path();
 return { name: d.suggestedFilename(), body: await fs.readFile(p, "utf8") };`,
-    chatgpt: `const pending = $P.waitForEvent("download", { timeoutMs: 8000 });
+    "reference-b": `const pending = $P.waitForEvent("download", { timeoutMs: 8000 });
 pending.catch(() => {});
 await $P.locator("#dl-cd").click();
 const got = await E(async () => { const d = await pending; return await Promise.race([d.path({ timeoutMs: 8000 }), pause(9000).then(() => null)]); });
 const p = got.value ?? null;
 const viaMedia = await E(() => Promise.race([$P.locator("#dl-cd").downloadMedia({ timeoutMs: 5000 }), pause(6000).then(() => { throw new Error("downloadMedia did not settle in 6 s"); })]));
 return { name: p ? p.split("/").pop() : null, body: null, viaMedia, missing: await E(() => $P.locator("#missing").downloadMedia({ timeoutMs: 300 })) };`,
-    compare: { aside: ["name", "body"], chatgpt: ["name", "missing"] },
+    compare: { "reference-a": ["name", "body"], "reference-b": ["name", "missing"] },
     better: {
-      chatgpt: {
-        reason: "the download arrives with its name and the file is readable in the REPL; ChatGPT's download event never arrives on Chrome",
+      "reference-b": {
+        reason: "the download arrives with its name and the file is readable in the REPL; reference B's download event never arrives on Chrome",
         check: (c, r) => c.name === 'cd-a.txt' && c.body === 'cd body a\n' && r.name == null,
       },
     },

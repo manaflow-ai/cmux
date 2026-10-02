@@ -1,6 +1,6 @@
 {
  "meta": {
-  "backend": "chatgpt",
+  "backend": "reference-b",
   "recordedAt": "2026-09-30T14:01:09.330Z"
  },
  "cases": {
@@ -2487,7 +2487,7 @@
   "edge.file-drop": {
    "value": {
     "result": {
-     "error": "ChatGPT for Chrome cannot drop files: evaluate is read-only and drag carries no files"
+     "error": "Reference B cannot drop files: evaluate is read-only and drag carries no files"
     }
    },
    "ms": 558,

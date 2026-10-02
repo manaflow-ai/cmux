@@ -1,4 +1,4 @@
-// Event log readable through a read-only evaluate (ChatGPT's page scope):
+// Event log readable through a read-only evaluate (reference B's page scope):
 // document.body.dataset.log holds [type, targetId, isTrusted, detail] rows.
 window.__log = function (type, target, trusted, detail) {
   const rows = JSON.parse(document.body.dataset.log || "[]");

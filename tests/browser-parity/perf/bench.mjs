@@ -1,6 +1,6 @@
 // Snapshot performance and output size on large pages, per tool.
 //
-//   node tests/browser-parity/perf/bench.mjs [--backend cmux-dev|cmux|aside|chrome]
+//   node tests/browser-parity/perf/bench.mjs [--backend cmux-dev|cmux|reference-a|chrome]
 //        [--pages stress|corpus|live|all|name,name] [--runs 5] [--label before]
 //
 // Backends:
@@ -8,9 +8,10 @@
 //             WebKit (lib/dev-driver.mjs).
 //   cmux      a tagged app through its CLI: PARITY_CMUX_CLI and
 //             CMUX_SOCKET_PATH, as run.mjs --backend cmux.
-//   aside     `aside repl`, one one-shot call per page (never `aside exec`).
+//   reference-a  reference A's REPL (PARITY_REFERENCE_A_CLI, lib/references.mjs),
+//             one one-shot call per page (never its exec command).
 //   chrome    headless Google Chrome with a throwaway profile: Playwright's
-//             `_snapshotForAI()` (Playwright MCP's snapshot).
+//             `_snapshotForAI()`, its AI snapshot.
 //
 // Every page gets one program: navigate, take `runs` full snapshots, change
 // one element and take one more (the diff), resolve a ref, and for cmux read
@@ -24,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 import { createDevBrowser, createNodeHost, createDevRepl, loadRuntime } from "../lib/dev-driver.mjs";
 import { tokens, TOKENIZER } from "./tokens.mjs";
+import { referenceACli } from "../lib/references.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MARK = "@@PERF@@";
@@ -284,8 +286,8 @@ function cmuxAppBackend() {
   };
 }
 
-// Aside: one one-shot `aside repl` call per page, in its own tab.
-function asideBackend() {
+// Reference A: one one-shot REPL call per page, in its own tab.
+function referenceABackend() {
   const program = (p) => `
 const __out = { name: ${JSON.stringify(p.name)}, runs: [] };
 const __tab = await openTab(${JSON.stringify(p.url)});
@@ -316,13 +318,13 @@ finally { await closeTab(__tab).catch(() => {}); }
 console.log(${JSON.stringify(MARK)} + JSON.stringify(__out));`;
   return {
     async page(p) {
-      const r = await runProcess("aside", ["repl", program(p)], { timeoutMs: 900_000 });
-      if (!r.out.includes(MARK)) throw new Error(`aside exit ${r.code} after ${r.ms}ms: ${(r.err || r.out).slice(-400)}`);
+      const r = await runProcess(referenceACli(), ["repl", program(p)], { timeoutMs: 900_000 });
+      if (!r.out.includes(MARK)) throw new Error(`reference-a exit ${r.code} after ${r.ms}ms: ${(r.err || r.out).slice(-400)}`);
       return parseMarked(r.out);
     },
     async overhead() {
       const times = [];
-      for (let i = 0; i < 10; i++) times.push((await runProcess("aside", ["repl", "1"])).ms);
+      for (let i = 0; i < 10; i++) times.push((await runProcess(referenceACli(), ["repl", "1"])).ms);
       return times;
     },
     async leak() {
@@ -332,8 +334,7 @@ console.log(${JSON.stringify(MARK)} + JSON.stringify(__out));`;
   };
 }
 
-// Headless Chrome: Playwright's AI snapshot (Playwright MCP), timed in this
-// process.
+// Headless Chrome: Playwright's AI snapshot, timed in this process.
 async function chromeBackend() {
   const { createChromeReferences } = await import("./chrome-refs.mjs");
   return createChromeReferences({ runs, mutate: MUTATE });
@@ -364,7 +365,7 @@ function summarize(result) {
 
 async function main() {
   const servers = await startFixtureServers();
-  const make = { "cmux-dev": cmuxDevBackend, cmux: cmuxAppBackend, aside: asideBackend, chrome: chromeBackend }[backend];
+  const make = { "cmux-dev": cmuxDevBackend, cmux: cmuxAppBackend, "reference-a": referenceABackend, chrome: chromeBackend }[backend];
   if (!make) throw new Error(`unknown backend ${backend}`);
   const b = await make();
   const pages = selectPages(servers.origins);

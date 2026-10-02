@@ -1,8 +1,8 @@
 // The Chrome reference for bench.mjs, timed in this process on headless
 // Google Chrome with a throwaway profile:
-//   pw-mcp  Playwright's `_snapshotForAI()`, the snapshot Playwright MCP
-//           returns (full, then incremental after the change).
-// Recorded ChatGPT AX columns in perf/results came from an offline renderer
+//   pw-ai  Playwright's `_snapshotForAI()`, its AI snapshot (full, then
+//          incremental after the change).
+// Recorded reference B AX columns in perf/results came from an offline renderer
 // that is no longer in this repository; report.mjs shows them when present.
 import { loadPlaywright } from "../lib/dev-driver.mjs";
 
@@ -50,7 +50,7 @@ export async function createChromeReferences({ runs, mutate }) {
       } finally {
         await context.close().catch(() => {});
       }
-      return { name: p.name, tools: { "pw-mcp": pw } };
+      return { name: p.name, tools: { "pw-ai": pw } };
     },
     async overhead() {
       return null;

@@ -1,4 +1,4 @@
-// The rest of the Playwright surface that Aside and ChatGPT expose: page and
+// The rest of the Playwright surface that reference A and reference B expose: page and
 // frame reads, selector shortcuts, locator actions and states, nested frame
 // locators, keyboard and mouse primitives, viewport.
 // ---- cell session=surface

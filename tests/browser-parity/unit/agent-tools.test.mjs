@@ -1,5 +1,5 @@
-// browser-use parity tools (Resources/browser-repl/agent-tools.js,
-// docs/browser-repl/browser-use-parity.md): TOTP, domain patterns, the
+// Reference C parity tools (Resources/browser-repl/agent-tools.js,
+// docs/browser-repl/reference-c-parity.md): TOTP, domain patterns, the
 // animated PNG writer, and on Playwright WebKit through the dev driver: a
 // registered secret never appears in output, errors, page reads or files; a
 // TOTP secret types the current code; storage state round-trips; Markdown
@@ -26,7 +26,7 @@ test("totp: RFC 6238 SHA-1 vectors", () => {
   assert.throws(() => T.base32Decode("not base32!"), /base32/);
 });
 
-test("domain patterns: browser-use's syntax, with ports and refusals", () => {
+test("domain patterns: reference C's syntax, with ports and refusals", () => {
   const m = (url, pattern, secure = false) => T.urlMatches(url, T.parsePattern(pattern, "t"), secure);
   // Domain-only: the host and, for a root domain, www.
   assert.equal(m("https://example.com/a", "example.com"), true);
@@ -48,7 +48,7 @@ test("domain patterns: browser-use's syntax, with ports and refusals", () => {
   assert.equal(m("http://localhost:8765/x", "localhost:8765"), true);
   assert.equal(m("http://localhost:9999/x", "localhost:8765"), false);
   assert.equal(m("https://anything.test/", "*"), true);
-  // Unsafe patterns are refused when set (browser-use logs and ignores them).
+  // Unsafe patterns are refused when set (reference C logs and ignores them).
   for (const bad of ["*.*.example.com", "example.*", "ex*ample.com", "", "  "]) assert.throws(() => T.parsePattern(bad, "t"), /t:/, bad);
 });
 
@@ -452,13 +452,13 @@ test("markdown: chunks cut at block boundaries, repeat a table's header and cove
   }
 });
 
-// docs/browser-repl/browser-use-parity.md: every row has a verdict, a
+// docs/browser-repl/reference-c-parity.md: every row has a verdict, a
 // skipped row says why, and every proof names a scenario key or a unit test
 // that exists.
-test("browser-use-parity.md: verdicts and proofs resolve", () => {
+test("reference-c-parity.md: verdicts and proofs resolve", () => {
   const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
-  const doc = fs.readFileSync(path.join(root, "../../docs/browser-repl/browser-use-parity.md"), "utf8");
-  const rows = doc.split("\n").filter((l) => l.startsWith("| ") && !l.startsWith("| browser-use |") && !/^\| ---/.test(l));
+  const doc = fs.readFileSync(path.join(root, "../../docs/browser-repl/reference-c-parity.md"), "utf8");
+  const rows = doc.split("\n").filter((l) => l.startsWith("| ") && !l.startsWith("| Reference C |") && !/^\| ---/.test(l));
   assert.ok(rows.length > 60, `${rows.length} rows`);
   const goldenKeys = (name) => {
     const g = JSON.parse(fs.readFileSync(path.join(root, "goldens", `${name}.json`), "utf8"));

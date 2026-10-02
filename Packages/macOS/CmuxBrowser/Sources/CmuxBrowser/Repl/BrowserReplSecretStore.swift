@@ -1,7 +1,7 @@
 import CryptoKit
 public import Foundation
 
-/// The session's named secrets (docs/browser-repl/browser-use-parity.md#secrets).
+/// The session's named secrets (docs/browser-repl/reference-c-parity.md#secrets).
 ///
 /// Values live here, in the native session, and never cross into the REPL's
 /// JavaScript: the runtime holds names only, the session substitutes a value
@@ -48,7 +48,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         }
     }
 
-    /// Loads browser-use's `sensitive_data` shape:
+    /// Loads reference C's `sensitive_data` shape:
     /// `{ "<domain pattern>": { name: value | { value, totp } } }`.
     /// A name repeated with the same value under several patterns gets every pattern.
     /// - Returns: The names loaded, in order.

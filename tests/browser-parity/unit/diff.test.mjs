@@ -20,10 +20,10 @@ const byId = new Map(rows.map((r) => [r.id, r]));
 
 function capabilityEntries() {
   const out = [];
-  for (const [group, members] of Object.entries(caps.aside)) {
-    for (const [name, entry] of Object.entries(members)) out.push({ ref: "aside", member: group === "globals" ? name : `${group}.${name}`, entry });
+  for (const [group, members] of Object.entries(caps["reference-a"])) {
+    for (const [name, entry] of Object.entries(members)) out.push({ ref: "reference-a", member: group === "globals" ? name : `${group}.${name}`, entry });
   }
-  for (const [name, entry] of Object.entries(caps.chatgpt)) out.push({ ref: "chatgpt", member: name, entry });
+  for (const [name, entry] of Object.entries(caps["reference-b"])) out.push({ ref: "reference-b", member: name, entry });
   return out;
 }
 
@@ -84,5 +84,5 @@ test("every cataloged edge case has a case, and every case edge is cataloged", (
 
 test("exclusions are only what WebKit cannot do", () => {
   const excluded = capabilityEntries().filter(({ entry }) => entry.excluded !== undefined).map(({ ref, member }) => `${ref}:${member}`);
-  assert.deepEqual(excluded.sort(), ["chatgpt:Browser.capabilities"]);
+  assert.deepEqual(excluded.sort(), ["reference-b:Browser.capabilities"]);
 });

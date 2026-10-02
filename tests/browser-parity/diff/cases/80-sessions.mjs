@@ -9,7 +9,7 @@ return { id: page.id, name: await page.locator("#name").inputValue(), count: awa
 export default [
   {
     id: "tabs.claim-other-workspace",
-    members: ["chatgpt:BrowserUser.claimTab", "chatgpt:BrowserUser.openTabs"],
+    members: ["reference-b:BrowserUser.claimTab", "reference-b:BrowserUser.openTabs"],
     appOnly: true,
     // A browser tab the user has open in another workspace: listed with
     // tabs.list({ all: true }), claimed with tabs.use(id), then driven.
@@ -32,13 +32,13 @@ return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, coun
           await ctx.cli(["workspace-action", "--action", "close", "--workspace", wsRef]);
         }
       },
-      async chatgpt({ c, origins }) {
+      async "reference-b"({ c, origins }) {
         await c.js(`var __u=await rb.tabs.new(); await __u.goto(${JSON.stringify(origins.primary + "/diff/lab.html")});`);
         const v = await c.value(`(async()=>{ const row=(await rb.user.openTabs()).find((x)=>x.id===__u.id); const t2=await rb.user.claimTab(row); await t2.playwright.locator("#counter").click(); return { listedAll: !!row, inOwnList: false, otherWorkspace: true, count: await t2.playwright.locator("#counter").innerText() }; })()`);
         return v;
       },
     },
-    na: { aside: "Aside has no user-tab claim; attachBrowserTab is covered by tabs.attach" },
+    na: { "reference-a": "Reference A has no user-tab claim; attachBrowserTab is covered by tabs.attach" },
     compare: ["listedAll", "count"],
     expect: { listedAll: true, inOwnList: false, otherWorkspace: true, count: "Count 1" },
   },
@@ -53,14 +53,14 @@ return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, coun
         ]);
         return { a: [a.value?.name, a.value?.count], b: [b.value?.name, b.value?.count], distinct: !!a.value && !!b.value && a.value.id !== b.value.id, _raw: [a.uncaught, b.uncaught] };
       },
-      async aside(ctx) {
+      async "reference-a"(ctx) {
         const code = (label) => `const __p = await openTab(U("/diff/lab.html")); await page.locator("#name").fill(${JSON.stringify(label)}); for (let i = 0; i < 3; i++) { await page.locator("#counter").click(); await sleep(50); } return { id: String(__p.url()) + ${JSON.stringify(label)}, name: await page.locator("#name").inputValue(), count: await page.locator("#counter").innerText() };`;
         const { wrap } = await import("../run.mjs");
-        const [a, b] = await Promise.all([ctx.aside(wrap({ path: null, aside: code("session A") }, "aside", ctx.origins)), ctx.aside(wrap({ path: null, aside: code("session B") }, "aside", ctx.origins))]);
+        const [a, b] = await Promise.all([ctx["reference-a"](wrap({ path: null, "reference-a": code("session A") }, "reference-a", ctx.origins)), ctx["reference-a"](wrap({ path: null, "reference-a": code("session B") }, "reference-a", ctx.origins))]);
         return { a: [a.value?.name, a.value?.count], b: [b.value?.name, b.value?.count], distinct: !!a.value && !!b.value && a.value.id !== b.value.id };
       },
     },
-    scope: { chatgpt: "the reference client drives one REPL session; a second concurrent session is outside the approved harness" },
+    scope: { "reference-b": "the reference client drives one REPL session; a second concurrent session is outside the approved harness" },
     expect: { a: ["session A", "Count 3"], b: ["session B", "Count 3"], distinct: true },
   },
   {
@@ -83,7 +83,7 @@ return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, coun
         return { bSaw: b1.value, aSaw: a1.value, concurrent: both.every((r) => r.value === true), after: a2.value, closedForB: b2.value?.error ? { error: b2.value.error } : "open" };
       },
     },
-    na: { aside: "Aside has no named sessions; a one-shot run cannot share a tab with another session", chatgpt: "ChatGPT's REPL is one session per conversation" },
+    na: { "reference-a": "Reference A has no named sessions; a one-shot run cannot share a tab with another session", "reference-b": "Reference B's REPL is one session per conversation" },
     expect: { bSaw: "Count 1", aSaw: "Count 1", concurrent: true, after: "Count 3", closedForB: { error: "closed" } },
   },
   {
@@ -102,7 +102,7 @@ return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, coun
         return { killed: true, crashed: during.value?.crashed ?? during, evaluate: during.value?.evaluate?.error ? { error: during.value.evaluate.error } : "ok", recovered: after.value ?? after };
       },
     },
-    scope: { aside: "killing a browser renderer process is outside the approved Aside scope", chatgpt: "killing a Chrome renderer process is outside the approved ChatGPT scope" },
+    scope: { "reference-a": "killing a browser renderer process is outside the approved reference A scope", "reference-b": "killing a Chrome renderer process is outside the approved reference B scope" },
     expect: { killed: true, crashed: true, evaluate: { error: "crashed" }, recovered: "Count 1" },
   },
   {
@@ -133,7 +133,7 @@ return { userClick, status: await page.locator("#status").innerText(), typedInta
         return r.value ?? r;
       },
     },
-    scope: { aside: "a person acting in the user's own Aside or Chrome window is outside the approved scope", chatgpt: "a person acting in the user's own Aside or Chrome window is outside the approved scope" },
+    scope: { "reference-a": "a person acting in the user's own reference A or Chrome window is outside the approved scope", "reference-b": "a person acting in the user's own reference A or Chrome window is outside the approved scope" },
     expect: { userClick: true, status: "clicked", typedIntact: true },
   },
   {
@@ -190,7 +190,7 @@ return { configured, nav, asset, ua, notify, camera, after: { userAgent: after.u
         }
       },
     },
-    scope: { aside: "browser-context options of a running Aside session are fixed at launch", chatgpt: "ChatGPT for Chrome drives the user's Chrome profile and exposes no context options" },
+    scope: { "reference-a": "browser-context options of a running reference A session are fixed at launch", "reference-b": "Reference B drives the user's Chrome profile and exposes no context options" },
     expect: {
       configured: { userAgent: "cmux-parity-agent/1.0", extraHTTPHeaders: { "X-Parity": "on" }, permissions: ["notifications"] },
       nav: { userAgent: "cmux-parity-agent/1.0", parity: "on" },

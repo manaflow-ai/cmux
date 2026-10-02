@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Differential harness: one task, three dialects (cmux, Aside, ChatGPT for
-// Chrome), observable outcomes compared into a verdict per reference.
+// Differential harness: one task, three dialects (cmux, reference A, reference
+// B), observable outcomes compared into a verdict per reference.
 // See tests/browser-parity/README.md, "Differential cases".
 //
-//   node tests/browser-parity/diff/run.mjs run --backend cmux-dev|cmux|aside|chatgpt [--only TEXT]
+//   node tests/browser-parity/diff/run.mjs run --backend cmux-dev|cmux|reference-a|reference-b [--only TEXT]
 //   node tests/browser-parity/diff/run.mjs check --backend cmux-dev|cmux [--only TEXT]
 //   node tests/browser-parity/diff/run.mjs verdicts [--only TEXT] [-v]
 //   node tests/browser-parity/diff/run.mjs report
@@ -16,6 +16,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { startDiffServer } from "./server.mjs";
+import { referenceACli, referenceBRuntime } from "../lib/references.mjs";
 import { MARK, REFERENCES, loadCases, dialectSource, expand, prelude, readResults, writeResults, allVerdicts, normalizeStrings } from "./lib.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -65,8 +66,8 @@ export function parseMarked(text) {
 // the outcome after the marker.
 export function wrap(c, dialect, origins) {
   const body = expand(dialectSource(c, dialect), dialect);
-  const nav = c.path == null ? "" : dialect === "aside" ? `await openTab(U(${JSON.stringify(c.path)}));` : `await page.goto(U(${JSON.stringify(c.path)}));`;
-  const cleanup = dialect === "aside" ? "for (const __t of [...(tabs || [])]) { try { await closeTab(__t); } catch {} }" : "";
+  const nav = c.path == null ? "" : dialect === "reference-a" ? `await openTab(U(${JSON.stringify(c.path)}));` : `await page.goto(U(${JSON.stringify(c.path)}));`;
+  const cleanup = dialect === "reference-a" ? "for (const __t of [...(tabs || [])]) { try { await closeTab(__t); } catch {} }" : "";
   return `${prelude(origins)}
 const __r = await (async () => { ${nav}
 ${body}
@@ -202,32 +203,33 @@ async function runReplBackend(backend, cases, origins, server, onResult) {
   return out;
 }
 
-async function runAside(cases, origins, server) {
+async function runReferenceA(cases, origins, server) {
   const out = {};
-  const ctx = { origins, server, backend: "aside", aside: (code) => exec("aside", ["repl", code]).then((r) => parseMarked(r.out) ?? { uncaught: `no result (exit ${r.code}): ${(r.err || r.out).trim().slice(-400)}` }) };
+  const ctx = { origins, server, backend: "reference-a", "reference-a": (code) => exec(referenceACli(), ["repl", code]).then((r) => parseMarked(r.out) ?? { uncaught: `no result (exit ${r.code}): ${(r.err || r.out).trim().slice(-400)}` }) };
   for (const c of cases) {
     const t0 = Date.now();
     let r;
-    if (c.custom) r = c.custom.aside ? await c.custom.aside(ctx).then((v) => ({ value: v }), (e) => ({ uncaught: String(e.message || e) })) : null;
-    else if (dialectSource(c, "aside") == null) r = null;
-    else r = await ctx.aside(wrap(c, "aside", origins));
+    if (c.custom) r = c.custom["reference-a"] ? await c.custom["reference-a"](ctx).then((v) => ({ value: v }), (e) => ({ uncaught: String(e.message || e) })) : null;
+    else if (dialectSource(c, "reference-a") == null) r = null;
+    else r = await ctx["reference-a"](wrap(c, "reference-a", origins));
     if (!r) continue;
     out[c.id] = { ...r, ms: Date.now() - t0 };
-    log("aside", c, out[c.id]);
+    log("reference-a", c, out[c.id]);
   }
   return out;
 }
 
-async function runChatgpt(cases, origins) {
-  // The reference runtime is TypeScript loaded by ChatGPT's bundled node.
-  const runtime = process.env.CUA_REFERENCE_RUNTIME ?? "/Applications/ChatGPT.app/Contents/Resources/cua_node";
-  const ids = cases.filter((c) => (c.custom ? c.custom.chatgpt : dialectSource(c, "chatgpt") != null)).map((c) => c.id);
-  const input = path.join(os.tmpdir(), `brepl-diff-cg-${process.pid}.json`);
+async function runReferenceB(cases, origins) {
+  // The reference runtime is TypeScript loaded by reference B's bundled node.
+  const runtime = referenceBRuntime();
+  const ids = cases.filter((c) => (c.custom ? c.custom["reference-b"] : dialectSource(c, "reference-b") != null)).map((c) => c.id);
+  const input = path.join(os.tmpdir(), `brepl-diff-rb-${process.pid}.json`);
   const output = input.replace(/\.json$/, ".out.json");
   fs.writeFileSync(input, JSON.stringify({ ids, origins }));
-  const env = { ...process.env, CUA_REFERENCE_CODEX: process.env.CUA_REFERENCE_CODEX ?? path.join(os.homedir(), ".codex/plugins/.plugin-appserver/codex") };
+  // The reference client reads its own settings (CUA_REFERENCE_*) from the environment.
+  const env = { ...process.env };
   await new Promise((resolve) => {
-    const child = spawn(path.join(runtime, "bin/node"), ["--experimental-strip-types", "--no-warnings", path.join(here, "chatgpt-runner.ts"), input, output], { stdio: "inherit", env });
+    const child = spawn(path.join(runtime, "bin/node"), ["--experimental-strip-types", "--no-warnings", path.join(here, "reference-b-runner.ts"), input, output], { stdio: "inherit", env });
     child.on("close", resolve);
   });
   const out = fs.existsSync(output) ? JSON.parse(fs.readFileSync(output, "utf8")) : {};
@@ -243,7 +245,7 @@ function log(backend, c, r) {
 
 function meta(backend) {
   const m = { backend, recordedAt: new Date().toISOString() };
-  if (backend === "aside") m.version = "Aside CLI (aside --version at record time)";
+  if (backend === "reference-a") m.version = "reference A CLI (its --version at record time)";
   if (backend === "cmux") {
     m.tag = (cmuxCli().match(/cmux DEV ([\w.-]+)\.app/) || [])[1] ?? null;
     m.sha = process.env.PARITY_CMUX_SHA ?? null;
@@ -267,7 +269,7 @@ async function main() {
       await server.close();
     }
     const fresh = { meta: {}, cases: Object.fromEntries(Object.entries(out).map(([id, r]) => [id, normalizeStrings(r, server.origins)])) };
-    const results = { cmux: args.backend === "cmux" ? fresh : { cases: {} }, "cmux-dev": args.backend === "cmux-dev" ? fresh : { cases: {} }, aside: readResults("aside"), chatgpt: readResults("chatgpt") };
+    const results = { cmux: args.backend === "cmux" ? fresh : { cases: {} }, "cmux-dev": args.backend === "cmux-dev" ? fresh : { cases: {} }, "reference-a": readResults("reference-a"), "reference-b": readResults("reference-b") };
     let bad = 0;
     for (const row of allVerdicts(selected, results)) {
       if (row.cmuxProblems.length) {
@@ -292,8 +294,8 @@ async function main() {
     const selected = cases.filter((c) => !(c.appOnly && args.backend === "cmux-dev") && !(c.requiresPerson && !process.env.PARITY_USER_CLICK_MARKER));
     let out;
     try {
-      if (args.backend === "aside") out = await runAside(selected, server.origins, server);
-      else if (args.backend === "chatgpt") out = await runChatgpt(selected, server.origins);
+      if (args.backend === "reference-a") out = await runReferenceA(selected, server.origins, server);
+      else if (args.backend === "reference-b") out = await runReferenceB(selected, server.origins);
       else {
         const partial = readResults(args.backend);
         out = await runReplBackend(args.backend, selected, server.origins, server, (id, r) => {
@@ -306,7 +308,7 @@ async function main() {
     }
     const prev = readResults(args.backend);
     const merged = { meta: { ...prev.meta, ...meta(args.backend) }, cases: { ...prev.cases } };
-    if (args.backend === "aside") merged.meta.version = (await exec("aside", ["--version"])).out.trim();
+    if (args.backend === "reference-a") merged.meta.version = (await exec(referenceACli(), ["--version"])).out.trim();
     for (const [id, r] of Object.entries(out)) merged.cases[id] = normalizeStrings(r, server.origins);
     // Drop results of cases that no longer exist.
     const all = new Set((await loadCases()).map((c) => c.id));
@@ -346,15 +348,15 @@ async function main() {
       const { proof, ...rest } = entry;
       return { ...rest, cases: index.get(`${ref}:${name}`) ?? [] };
     };
-    for (const [group, members] of Object.entries(caps.aside)) {
+    for (const [group, members] of Object.entries(caps["reference-a"])) {
       if (group === "$comment") continue;
-      for (const [name, entry] of Object.entries(members)) members[name] = apply("aside", group === "globals" ? name : `${group}.${name}`, entry);
+      for (const [name, entry] of Object.entries(members)) members[name] = apply("reference-a", group === "globals" ? name : `${group}.${name}`, entry);
     }
-    for (const [name, entry] of Object.entries(caps.chatgpt)) caps.chatgpt[name] = apply("chatgpt", name, entry);
+    for (const [name, entry] of Object.entries(caps["reference-b"])) caps["reference-b"][name] = apply("reference-b", name, entry);
     fs.writeFileSync(file, JSON.stringify(caps, null, 2) + "\n");
     const empty = [];
-    for (const [ref, group] of [["aside", caps.aside], ["chatgpt", { chatgpt: caps.chatgpt }]]) {
-      for (const [g, members] of Object.entries(group)) for (const [name, e] of Object.entries(members)) if (e.cases && !e.cases.length) empty.push(`${ref} ${g === "globals" || g === "chatgpt" ? name : `${g}.${name}`}`);
+    for (const [ref, group] of [["reference-a", caps["reference-a"]], ["reference-b", { "reference-b": caps["reference-b"] }]]) {
+      for (const [g, members] of Object.entries(group)) for (const [name, e] of Object.entries(members)) if (e.cases && !e.cases.length) empty.push(`${ref} ${g === "globals" || g === "reference-b" ? name : `${g}.${name}`}`);
     }
     console.log(empty.length ? `members without cases:\n  ${empty.join("\n  ")}` : "every member has cases");
     return;
@@ -364,7 +366,7 @@ async function main() {
     writeReport(cases);
     return;
   }
-  throw new Error("usage: run.mjs run --backend cmux-dev|cmux|aside|chatgpt | verdicts | report");
+  throw new Error("usage: run.mjs run --backend cmux-dev|cmux|reference-a|reference-b | verdicts | report");
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

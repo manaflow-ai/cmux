@@ -15,8 +15,8 @@
 //     path, and text Chrome does not render. Scenario 27 judges each path's
 //     visibility in the engine that renders cmux (fixtures/corpus/gt.js).
 //
-// Sizes of Aside's snapshots of the same frozen pages live in
-// fixtures/corpus/aside-sizes.json (recorded once with `aside repl`).
+// Sizes of reference A's snapshots of the same frozen pages live in
+// fixtures/corpus/reference-a-sizes.json (recorded once with reference A's REPL).
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

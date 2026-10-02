@@ -1,5 +1,5 @@
 // Differential harness core: case loading, dialect expansion, outcome
-// normalization and verdicts. Shared by run.mjs, the ChatGPT runner and
+// normalization and verdicts. Shared by run.mjs, the reference B runner and
 // unit/diff.test.mjs, so a verdict is always recomputed from recorded
 // evidence, never read back from a file.
 import fs from "node:fs";
@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const here = path.dirname(fileURLToPath(import.meta.url));
 export const MARK = "@@DIFF@@";
-export const REFERENCES = ["aside", "chatgpt"];
+export const REFERENCES = ["reference-a", "reference-b"];
 export const CMUX_BACKENDS = ["cmux", "cmux-dev"];
 export const VERDICTS = ["same", "cmux-better", "cmux-worse", "not-applicable", "out-of-scope", "not-run"];
 
@@ -35,7 +35,7 @@ function validateCase(c) {
   const where = `${c.file}:${c.id}`;
   if (!/^[a-z0-9][\w.:-]*$/i.test(c.id)) throw new Error(`${where}: bad id`);
   if (!Array.isArray(c.members) && !c.edge) throw new Error(`${where}: needs members or edge`);
-  for (const m of c.members ?? []) if (!/^(aside|chatgpt):\S+$/.test(m)) throw new Error(`${where}: member "${m}" must be aside:X or chatgpt:X`);
+  for (const m of c.members ?? []) if (!/^(reference-a|reference-b):\S+$/.test(m)) throw new Error(`${where}: member "${m}" must be reference-a:X or reference-b:X`);
   if (!c.custom && dialectSource(c, "cmux") == null) throw new Error(`${where}: no cmux code`);
   for (const ref of REFERENCES) {
     const has = c.custom ? !!c.custom[ref] : dialectSource(c, ref) != null;
@@ -47,7 +47,7 @@ function validateCase(c) {
   }
 }
 
-// `code` is shared by the three dialects; `cmux`, `aside` and `chatgpt`
+// `code` is shared by the three dialects; `cmux`, `reference-a` and `reference-b`
 // override it. null means the reference cannot express the task.
 export function dialectSource(c, dialect) {
   const d = dialect === "cmux-dev" ? "cmux" : dialect;
@@ -57,14 +57,14 @@ export function dialectSource(c, dialect) {
   return c.code ?? null;
 }
 
-const PAGE = { cmux: "page", aside: "page", chatgpt: "t.playwright" };
+const PAGE = { cmux: "page", "reference-a": "page", "reference-b": "t.playwright" };
 
 export function expand(src, dialect) {
   const d = dialect === "cmux-dev" ? "cmux" : dialect;
   return src
     .replaceAll("$LOG", `(await ${PAGE[d]}.evaluate(() => JSON.parse(document.body.dataset.log || "[]")))`)
-    .replace(/\$T\(([^)]*)\)/g, (_, n) => (d === "chatgpt" ? `{ timeoutMs: ${n} }` : `{ timeout: ${n} }`))
-    .replace(/\$TO\b/g, d === "chatgpt" ? "timeoutMs" : "timeout")
+    .replace(/\$T\(([^)]*)\)/g, (_, n) => (d === "reference-b" ? `{ timeoutMs: ${n} }` : `{ timeout: ${n} }`))
+    .replace(/\$TO\b/g, d === "reference-b" ? "timeoutMs" : "timeout")
     .replaceAll("$P", PAGE[d]);
 }
 

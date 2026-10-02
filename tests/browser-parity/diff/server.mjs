@@ -1,7 +1,7 @@
 // Fixture server for the differential harness (tests/browser-parity/diff).
 //
 // One HTTP server on 127.0.0.1:PORT is the primary origin every backend uses
-// (ChatGPT's approved scope is exactly that origin). The same server under
+// (reference B's approved scope is exactly that origin). The same server under
 // `localhost:PORT` is a second site for cross-origin frames and cookie
 // isolation. An HTTPS server with a throwaway self-signed certificate and a
 // port that refuses connections serve the TLS and connection edge cases.

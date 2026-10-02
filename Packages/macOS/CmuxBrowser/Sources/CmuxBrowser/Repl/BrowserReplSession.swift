@@ -36,7 +36,7 @@ public struct BrowserReplEvalResult: Sendable, Equatable {
 /// evaluates cells one at a time through the runtime's `__cmuxReplEval`.
 /// Everything touching JavaScriptCore runs on `thread`.
 public final class BrowserReplSession: @unchecked Sendable {
-    /// Default per-evaluation timeout, as in `aside repl`.
+    /// Default per-evaluation timeout, as in reference A's REPL.
     public static let defaultTimeout: Duration = .seconds(120)
 
     public let id: String

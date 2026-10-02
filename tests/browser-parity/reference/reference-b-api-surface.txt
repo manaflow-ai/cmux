@@ -1,5 +1,5 @@
 Agent.browsers	browsers: Browsers; // API for finding and selecting browsers.
-Agent.documentation	documentation: Documentation; // API for reading packaged browser-use documentation by name.
+Agent.documentation	documentation: Documentation; // API for reading packaged browser documentation by name.
 Browsers.get	get(id: string): Promise<Browser>; // Get a browser by id or client type.
 Browsers.getDefault	getDefault(): Promise<Browser>; // Get the default browser from those currently available.
 Browsers.getForUrl	getForUrl(url: string): Promise<Browser>; // Get the browser best suited to interact with the provided URL.

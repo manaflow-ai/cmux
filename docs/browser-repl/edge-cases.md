@@ -2,15 +2,15 @@
 
 Every row is one differential case in
 [tests/browser-parity/diff/cases](../../tests/browser-parity/diff/cases)
-(the `edge` field names the id). The case runs the same task in cmux, Aside
-and ChatGPT for Chrome where the reference can run it inside the approved
+(the `edge` field names the id). The case runs the same task in cmux, reference A
+and reference B where the reference can run it inside the approved
 test scope, and [parity-report.md](parity-report.md) lists its verdicts.
 `tests/browser-parity/unit/diff.test.mjs` fails when a row has no case or a
 case names an id that is not here.
 
-Scope for the references: ChatGPT for Chrome runs on one approved origin
+Scope for the references: reference B runs on one approved origin
 (`http://127.0.0.1:PORT`), so rows that need another origin, TLS or DNS are
-out of scope for it; Aside runs on loopback fixture pages, so rows that need a
+out of scope for it; reference A runs on loopback fixture pages, so rows that need a
 public name (`lvh.me`, `.invalid`) are out of scope for it. Rows that act on
 processes or on a person's window run in the cmux app only.
 

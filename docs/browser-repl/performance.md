@@ -1,17 +1,17 @@
 # Browser REPL performance and large output
 
 How fast `snapshot()` is on large pages, what an agent reads when a page is
-too big to print, and how both compare with Aside, ChatGPT for Chrome and
-Playwright MCP. Measured 2026-09-30 on an M-series Mac (the dev machine),
+too big to print, and how both compare with reference A, reference B and
+Playwright AI snapshot. Measured 2026-09-30 on an M-series Mac (the dev machine),
 the frozen corpus, synthetic stress pages and four live pages.
 
 ```sh
 node tests/browser-parity/perf/bench.mjs --backend cmux-dev --pages all --label after
-node tests/browser-parity/perf/bench.mjs --backend chrome   --pages all --label ref   # Playwright MCP
-node tests/browser-parity/perf/bench.mjs --backend aside    --pages all --label ref   # aside repl, one call per page
+node tests/browser-parity/perf/bench.mjs --backend chrome   --pages all --label ref   # Playwright AI snapshot
+node tests/browser-parity/perf/bench.mjs --backend reference-a --pages all --label ref   # PARITY_REFERENCE_A_CLI, one call per page
 PARITY_CMUX_CLI=<tagged cmux CLI> CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock \
   node tests/browser-parity/perf/bench.mjs --backend cmux --pages all --label after
-node tests/browser-parity/perf/report.mjs before-cmux after-cmux ref-chrome ref-aside
+node tests/browser-parity/perf/report.mjs before-cmux after-cmux ref-chrome ref-reference-a
 ```
 
 `perf/results/*.json` holds every number below. "cmux app" is the fleet
@@ -58,28 +58,28 @@ Where the time goes after (app, p50 of snapshots 2 to 5): `cards-50k` 279 ms
 in the page, 13 ms transport, 134 ms host (shaping, render, diff);
 `cards-200k` 1,470 / 104 / 512 ms; `table-10k` 224 / 24 / 121 ms. A
 `cmux browser repl '1'` call costs about 50 to 60 ms end to end (process start
-and socket round trip; the evaluation itself 0 ms); `aside repl '1'` about
+and socket round trip; the evaluation itself 0 ms); a reference A REPL call of `1` about
 450 ms. A ref resolves through a locator in 3 to 10 ms in the app on every
 page, including in-frame refs on `iframes-300` (34 ms). Ref tables over 100
 snapshots of a page that replaces 200 buttons each time: at most 3,600 refs
 in the app and 4,600 on the dev driver (bounded), where the dev driver grew
 by 2,000 every ten snapshots before (14,800 after 100).
 
-Aside timings include its CLI and extension round trips; its `cards-200k`
-run failed after 52 s with `fetch failed: other side closed`. Playwright MCP
-(`_snapshotForAI()`) timed out after 30 s on `cards-200k`. ChatGPT AX times
-were recorded once from an offline reference renderer (ChatGPT for Chrome's
-own WASM renderer fed by CDP from Node), not ChatGPT's production path; its
+Reference A timings include its CLI and extension round trips; its `cards-200k`
+run failed after 52 s with `fetch failed: other side closed`. Playwright AI snapshot
+(`_snapshotForAI()`) timed out after 30 s on `cards-200k`. Reference B AX times
+were recorded once from an offline reference renderer (reference B's
+own WASM renderer fed by CDP from Node), not reference B's production path; its
 sizes are exact. That renderer is no longer in this repository, so new
-`--backend chrome` runs record Playwright MCP only. Amazon served Playwright WebKit a bot page in the final dev run
+`--backend chrome` runs record Playwright AI snapshot only. Amazon served Playwright WebKit a bot page in the final dev run
 (401 characters); the app and the other tools got the results page. The
-live GitHub page was logged out everywhere except, possibly, Aside's own
-browser profile, which was not inspected; Aside's 80 KB there reflects a
+live GitHub page was logged out everywhere except, possibly, reference A's own
+browser profile, which was not inspected; reference A's 80 KB there reflects a
 smaller page.
 
 ### Snapshot time, p50 of 5 (ms; first snapshot in parentheses)
 
-| Page | cmux app before | cmux app after | cmux dev before | cmux dev after | Aside | Playwright MCP | ChatGPT AX |
+| Page | cmux app before | cmux app after | cmux dev before | cmux dev after | Reference A | Playwright AI snapshot | Reference B AX |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | cards-50k | 3,297 (3,443) | 427 (527) | 4,193 (4,301) | 529 (780) | 7,374 (12,042) | 631 (3,125) | 21,897 (18,561) |
 | table-10k | 471 (524) | 372 (508) | 534 (712) | 454 (619) | 1,202 (1,156) | 875 (927) | 10,889 (10,889) |
@@ -108,7 +108,7 @@ smaller page.
 
 ### Printed characters (what the agent reads by default)
 
-| Page | cmux app before | cmux app after | cmux dev before | cmux dev after | Aside | Playwright MCP | ChatGPT AX |
+| Page | cmux app before | cmux app after | cmux dev before | cmux dev after | Reference A | Playwright AI snapshot | Reference B AX |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | cards-50k | 1,480,540 | 19,967 | 1,480,540 | 19,967 | 1,655,559 | 2,679,497 | 28,989 |
 | table-10k | 533,767 | 19,864 | 533,767 | 19,864 | 299,755 | 2,543,522 | 92,749 |
@@ -137,7 +137,7 @@ smaller page.
 
 ### Snapshot after one change (ms)
 
-| Page | cmux app before | cmux app after | cmux dev before | cmux dev after | Aside | Playwright MCP | ChatGPT AX |
+| Page | cmux app before | cmux app after | cmux dev before | cmux dev after | Reference A | Playwright AI snapshot | Reference B AX |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | cards-50k | 3,313 | 477 | 4,379 | 506 | 2,636 | 577 | 8,285 |
 | table-10k | 424 | 390 | 496 | 397 | 1,445 | 896 | 15,150 |
@@ -164,18 +164,18 @@ smaller page.
 | live-hn-thread | 207 | 196 | 206 | 265 | 1,833 | 610 | 9,136 |
 | cards-200k | | 2,102 | | 2,220 | failed | timeout | not run |
 
-## Frame calls and Playwright MCP (round 2)
+## Frame calls and Playwright AI snapshot (round 2)
 
 The app with the frame registry and batched iframe resolution (fleet build
 job `e2caae86412457153a5b4865`, runtime of `80e062e5051`) against the build
-before it (job `201035b028490968f42acc7f`) and Playwright MCP
+before it (job `201035b028490968f42acc7f`) and Playwright AI snapshot
 (`_snapshotForAI()` on headless Chrome), run back to back while the
 machine's load average was about 290 (other agents), so absolute numbers
 are higher than in the idle runs above; compare within a row. p50 / p95 of
 five snapshots in milliseconds; p95 is the first, cold snapshot on most
 pages.
 
-| Page | cmux app before | cmux app after | Playwright MCP | cmux printed | Playwright MCP printed |
+| Page | cmux app before | cmux app after | Playwright AI snapshot | cmux printed | Playwright AI snapshot printed |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | iframes-300 | 6,216 / 6,980 | 179 / 686 | 155 / 4,522 | 19,876 | 30,964 |
 | nested-frames | 14 / 34 | 6 / 38 | 9 / 35 | 490 | 511 |
@@ -199,10 +199,10 @@ pages.
 | live GitHub PR files | | 225 / 282 | 1,820 / 3,073 | 19,607 | 1,433,802 |
 | live Hacker News thread | | 187 / 265 | 788 / 859 | 19,932 | 2,884,237 |
 
-By p50, cmux is as fast as Playwright MCP or faster on every page but two: on
+By p50, cmux is as fast as Playwright AI snapshot or faster on every page but two: on
 `iframes-300` its warm p50 is 24 ms slower (its cold first snapshot is 6.6x
 faster), and on `text-2m` 5 ms. On Amazon Playwright's Chrome got a
-703-character bot page, so that row is left out. Playwright MCP prints the
+703-character bot page, so that row is left out. Playwright AI snapshot prints the
 whole tree (up to 2.9 MB); cmux prints at most 20,000 characters and keeps
 the rest in `.tree`. `perf/results/round2*.json` has every number.
 
@@ -281,7 +281,7 @@ collected).
 What each tool does when a page or an output is too big to read. Sources:
 the tools' own code and guides, and runs of each (2026-09-30).
 
-| | Aside (CLI 1.26.916) | ChatGPT for Chrome | Playwright MCP | cmux |
+| | Reference A (CLI 1.26.916) | Reference B | Playwright AI snapshot | cmux |
 | --- | --- | --- | --- | --- |
 | Default snapshot size | everything (`list-5k`: 404 KB) | AX text: first 500 children of a node, depth 200, URLs to about 4,000 characters in all; visible DOM: 20,000 characters or 200 elements | everything (`list-5k`: 713 KB); after actions it writes the snapshot to a file and returns the link | at most 20,000 characters printed, condensed; `.tree` complete |
 | When cut | `maxChars` throws `Output exceeds N character limit`; per frame, so the stitched tree can exceed it | children: ` (showing 0-500 of N items)` on the parent; depth and the DOM view: nothing | not cut | a line at each cut with count, refs and scope ref, and a closing `# condensed` line |
@@ -326,28 +326,28 @@ url: http://localhost:60483/stress/stress.html?kind=list&n=5000
 
 ### Why this beats both references
 
-- **Nothing is cut silently.** ChatGPT drops children past 500 and depth past
+- **Nothing is cut silently.** Reference B drops children past 500 and depth past
   200 with at most a count, and its visible-DOM view stops at 20,000
-  characters without a note. Aside prints everything, and its own guide tells
+  characters without a note. Reference A prints everything, and its own guide tells
   the agent never to slice the tree, so a 5,000-item page is a 400 KB tool
   result that the harness then truncates in the middle. cmux marks every cut
   where it happens, with a count, the refs it holds and the ref to scope to.
 - **The cut keeps what an agent acts on.** On-screen controls, the focused
   element and the outline survive any budget; the page reads top down; long
-  runs of similar items shrink before unique content does. ChatGPT keeps the
-  first 500 children in document order whatever they are; Aside's `maxChars`
+  runs of similar items shrink before unique content does. Reference B keeps the
+  first 500 children in document order whatever they are; reference A's `maxChars`
   is an error, not a smaller answer.
 - **The complete tree costs nothing to keep.** `.tree` and `.diff` are whole,
   so `s.tree.includes("Checkout")` or a regex over it reads everything without
-  spending context; printing is what is budgeted. Aside's `maxChars` removes
-  the tree; ChatGPT's caps apply before the agent sees anything.
+  spending context; printing is what is budgeted. Reference A's `maxChars` removes
+  the tree; reference B's caps apply before the agent sees anything.
 - **The REPL, not the harness, decides what is dropped.** 25,000 characters a
   call sits under Claude Code's 30,000 (inline, then a 2,000-character
   preview) and Codex's 10,000 tokens (head and tail around a gap), so neither
   cuts cmux output. What does not fit is in a file named in the output,
   written as it arrives.
 - **Refs keep working.** A ref in a condensed-away region resolves like any
-  other (`page.locator("e4000")`); ChatGPT's cut children have no index.
+  other (`page.locator("e4000")`); reference B's cut children have no index.
 
 ## Remaining limits
 

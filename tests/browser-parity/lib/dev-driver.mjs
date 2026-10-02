@@ -30,13 +30,21 @@ const JSON_KEY = "__cmuxJson__";
 
 export function loadPlaywright() {
   process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(process.env.HOME, ".cache/cmux-parity-browsers");
-  const dirs = [process.env.PARITY_PLAYWRIGHT_DIR, "/Applications/ChatGPT.app/Contents/Resources/cua_node/lib/node_modules"].filter(Boolean);
+  // A node_modules directory with playwright: PARITY_PLAYWRIGHT_DIR, else the
+  // copy bundled with reference B's runtime (lib/references.mjs), else the
+  // usual resolution from here.
+  const runtime = process.env.PARITY_REFERENCE_B_RUNTIME || process.env.CUA_REFERENCE_RUNTIME;
+  const dirs = [process.env.PARITY_PLAYWRIGHT_DIR, runtime && path.join(runtime, "lib/node_modules")].filter(Boolean);
   for (const d of dirs) {
     try {
       return require(path.join(d, "playwright"));
     } catch {}
   }
-  return require("playwright");
+  try {
+    return require("playwright");
+  } catch (e) {
+    throw new Error(`playwright not found: set PARITY_PLAYWRIGHT_DIR to a node_modules directory that holds it (${e.message.split("\n")[0]})`);
+  }
 }
 
 // Builds the install script from the recipe in page-agent.js.

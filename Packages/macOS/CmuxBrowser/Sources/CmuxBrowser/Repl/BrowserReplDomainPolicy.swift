@@ -100,7 +100,7 @@ enum Punycode {
     }
 }
 
-/// A domain pattern in browser-use's syntax: `example.com` (and
+/// A domain pattern in reference C's syntax: `example.com` (and
 /// `www.example.com`), `*.example.com` (subdomains and the bare domain),
 /// `http*://example.com`, `https://example.com:8443`, `*`.
 public struct BrowserReplDomainPattern: Sendable, Equatable {
@@ -215,7 +215,7 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
     }
 }
 
-/// The session's domain policy (docs/browser-repl/browser-use-parity.md):
+/// The session's domain policy (docs/browser-repl/reference-c-parity.md):
 /// navigations, new tabs, fetch (every redirect hop) and subresources may
 /// reach only allowed domains and never prohibited ones. It lives in the
 /// native session, not in the REPL's JavaScript, and a locked policy cannot
