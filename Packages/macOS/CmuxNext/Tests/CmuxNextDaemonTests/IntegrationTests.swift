@@ -169,8 +169,15 @@ struct IntegrationTests {
         let session = "cnd-it-\(UUID().uuidString.prefix(8).lowercased())"
         defer { try? FileManager.default.removeItem(at: root) }
         let process = ProcessInfo.processInfo.environment
-        var finder: [String: String] = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
-        for key in ["HOME", "USER", "LOGNAME", "SHELL", "TMPDIR"] { finder[key] = process[key] }
+        var finder: [String: String] = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/zsh"]
+        for key in ["USER", "LOGNAME", "TMPDIR"] { finder[key] = process[key] }
+        // Reproduces the cmuxs-mac-mini-3 runner, whose ~/.zshenv sets PATH
+        // outright: every zsh, login or not, starts from that PATH.
+        let home = root.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try Data("export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\n".utf8)
+            .write(to: home.appendingPathComponent(".zshenv"))
+        finder["HOME"] = home.path
         let login = try #require(await LoginEnvironment.shared.capture(base: finder, timeout: .seconds(15)))
         let loginPath = try #require(login["PATH"])
         try #require(loginPath != finder["PATH"], "login PATH equals launchd PATH; nothing to verify on this machine")
@@ -209,7 +216,7 @@ struct IntegrationTests {
             let entries = Set((seen ?? "").split(separator: ":").map(String.init))
             let missing = loginPath.split(separator: ":").map(String.init).filter { !entries.contains($0) }
             #expect(seen != nil)
-            #expect(missing.isEmpty, "missing from terminal PATH: \(missing)")
+            #expect(missing.isEmpty, "missing from terminal PATH: \(missing); login PATH: \(loginPath); seen: \(seen ?? "<none>")")
         } catch {
             await BranchDaemonHarness.shutDown(connection)
             throw error
