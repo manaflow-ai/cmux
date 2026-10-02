@@ -1,8 +1,9 @@
 //! The checkpoint owner's durable state, under the session's state
 //! directory in `git-checkpoints/` (directories 0700, files 0600, every
 //! write atomic): daemon-minted repository and worktree ids, one record per
-//! checkpoint, and the mutation ledger that binds each idempotency key to
-//! its operation, arguments, identity and first result.
+//! checkpoint, and the publication journal of creates whose ref may be
+//! published but whose mutation is not yet in the session's
+//! `resource_mutations` ledger.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -11,10 +12,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::record::Stored;
+use super::scan::refused;
 use crate::Mux;
 use crate::resource::ResourceError;
 
@@ -38,46 +40,29 @@ struct Worktree {
     repository_id: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum LedgerState {
-    /// The intent is journaled; the ref may or may not be published.
-    Pending,
-    Done,
-}
-
-/// One idempotency key's entry.
+/// A create journaled before its ref is published: a retry under the same
+/// key and arguments finishes it when the ref points at the draft.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct LedgerEntry {
+pub(super) struct Pending {
     pub idempotency_key: String,
-    pub operation: String,
-    pub fingerprint: String,
-    pub repository_id: String,
-    pub worktree_id: String,
-    pub checkpoint_id: String,
-    pub state: LedgerState,
-    /// A create's record before its ref is published.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub draft: Option<Stored>,
-    /// The first result, once done.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub result: Option<Value>,
-    #[serde(default)]
-    pub revision: u64,
+    /// The request fingerprint the resource mutation will be bound to.
+    pub fingerprint: Value,
+    pub draft: Stored,
 }
 
 impl Store {
     /// The session's store, or `no_state_directory` for an in-memory session.
     pub(super) fn open(mux: &Mux, operation: &'static str) -> Result<Self, ResourceError> {
         let Some(session) = mux.session_state_directory() else {
-            return Err(ResourceError::operation_failed(
+            return Err(refused(
                 operation,
+                "no_state_directory",
                 "this session keeps no durable state, so it cannot hold checkpoints",
-                json!({"code":"no_state_directory"}),
+                Value::Null,
             ));
         };
         let store = Self { root: session.join(DIRECTORY) };
-        for directory in [store.root.clone(), store.hooks(), store.root.join("ledger")] {
+        for directory in [store.root.clone(), store.hooks(), store.root.join("journal")] {
             private_directory(&directory).map_err(|error| io_failed(operation, &error))?;
         }
         Ok(store)
@@ -113,13 +98,39 @@ impl Store {
     }
 
     /// The repository and worktree ids for a common and a per-worktree git
-    /// directory, minting new ones the first time. Call under
-    /// [`Self::exclusive`].
+    /// directory, or `None` when they were never minted.
+    pub(super) fn known(
+        &self,
+        common_dir: &Path,
+        git_dir: &Path,
+    ) -> io::Result<Option<(String, String)>> {
+        let identities: Identities =
+            read_json(&self.root.join("identities.json"))?.unwrap_or_default();
+        let common = common_dir.to_string_lossy();
+        let Some(repository_id) = identities.repositories.get(&*common) else {
+            return Ok(None);
+        };
+        Ok(identities
+            .worktrees
+            .get(&*git_dir.to_string_lossy())
+            .filter(|worktree| &worktree.repository_id == repository_id)
+            .map(|worktree| (repository_id.clone(), worktree.worktree_id.clone())))
+    }
+
+    /// The repository and worktree ids for a common and a per-worktree git
+    /// directory, minting new ones the first time. Minting holds only the
+    /// identity lock, never the mutation lock, so a read never waits behind
+    /// a capture.
     pub(super) fn identify(
         &self,
         common_dir: &Path,
         git_dir: &Path,
     ) -> io::Result<(String, String)> {
+        if let Some(known) = self.known(common_dir, git_dir)? {
+            return Ok(known);
+        }
+        static IDENTITIES: Mutex<()> = Mutex::new(());
+        let _guard = IDENTITIES.lock().unwrap_or_else(PoisonError::into_inner);
         let path = self.root.join("identities.json");
         let mut identities: Identities = read_json(&path)?.unwrap_or_default();
         let common = common_dir.to_string_lossy().into_owned();
@@ -204,18 +215,40 @@ impl Store {
         Ok(records)
     }
 
-    fn ledger_path(&self, idempotency_key: &str) -> PathBuf {
+    fn journal_path(&self, idempotency_key: &str) -> PathBuf {
         let digest = Sha256::digest(idempotency_key.as_bytes());
-        self.root.join("ledger").join(format!("{}.json", hex(&digest)))
+        self.root.join("journal").join(format!("{}.json", hex(&digest)))
     }
 
-    pub(super) fn ledger(&self, idempotency_key: &str) -> io::Result<Option<LedgerEntry>> {
-        let entry: Option<LedgerEntry> = read_json(&self.ledger_path(idempotency_key))?;
+    /// The create journaled under `idempotency_key`, if one is unfinished.
+    pub(super) fn pending(&self, idempotency_key: &str) -> io::Result<Option<Pending>> {
+        let entry: Option<Pending> = read_json(&self.journal_path(idempotency_key))?;
         Ok(entry.filter(|entry| entry.idempotency_key == idempotency_key))
     }
 
-    pub(super) fn record_ledger(&self, entry: &LedgerEntry) -> io::Result<()> {
-        write_json(&self.ledger_path(&entry.idempotency_key), entry)
+    /// Every unfinished create.
+    pub(super) fn all_pending(&self) -> io::Result<Vec<Pending>> {
+        let mut pending = Vec::new();
+        for entry in fs::read_dir(self.root.join("journal"))? {
+            let path = entry?.path();
+            if path.extension().is_some_and(|extension| extension == "json")
+                && let Some(entry) = read_json::<Pending>(&path)?
+            {
+                pending.push(entry);
+            }
+        }
+        Ok(pending)
+    }
+
+    pub(super) fn journal(&self, entry: &Pending) -> io::Result<()> {
+        write_json(&self.journal_path(&entry.idempotency_key), entry)
+    }
+
+    pub(super) fn finish_pending(&self, idempotency_key: &str) -> io::Result<()> {
+        match fs::remove_file(self.journal_path(idempotency_key)) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -253,11 +286,8 @@ pub(super) fn hex(bytes: &[u8]) -> String {
 }
 
 pub(super) fn io_failed(operation: &'static str, error: &io::Error) -> ResourceError {
-    ResourceError::operation_failed(
-        operation,
-        format!("the checkpoint store could not be read or written: {error}"),
-        json!({"code":"store_failed"}),
-    )
+    let message = format!("the checkpoint store could not be read or written: {error}");
+    refused(operation, "store_failed", message, Value::Null)
 }
 
 fn private_directory(path: &Path) -> io::Result<()> {

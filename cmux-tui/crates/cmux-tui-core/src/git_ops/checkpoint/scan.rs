@@ -8,7 +8,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde_json::json;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::record::SkipCode;
@@ -271,15 +271,30 @@ pub(super) fn behind_a_link(root: &Path, relative: &[u8], folders: &mut HashSet<
     false
 }
 
-/// Default credential names an untracked file is never stored under.
-fn credential(path: &[u8]) -> bool {
+/// Credential file names an untracked file is never stored under.
+const CREDENTIAL_NAMES: [&str; 8] = [
+    ".env",
+    ".netrc",
+    ".pgpass",
+    ".git-credentials",
+    ".npmrc",
+    ".pypirc",
+    "credentials",
+    ".htpasswd",
+];
+/// SSH private keys, and any variant of their names but the public half.
+const KEY_PREFIXES: [&str; 4] = ["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"];
+const CREDENTIAL_SUFFIXES: [&str; 6] = [".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"];
+
+/// Whether an untracked path is a credential file that is never stored.
+pub(super) fn credential(path: &[u8]) -> bool {
     let name = path.rsplit(|byte| *byte == b'/').next().unwrap_or(path);
     let name = String::from_utf8_lossy(name).to_ascii_lowercase();
-    name == ".env"
-        || (name.starts_with(".env.") && !name.ends_with(".example") && !name.ends_with(".sample"))
-        || [".netrc", ".pgpass", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"]
-            .contains(&name.as_str())
-        || [".pem", ".key", ".p12", ".pfx"].iter().any(|suffix| name.ends_with(suffix))
+    let template = [".example", ".sample", ".template"].iter().any(|end| name.ends_with(end));
+    CREDENTIAL_NAMES.contains(&name.as_str())
+        || (name.starts_with(".env.") && !template)
+        || (KEY_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) && !name.ends_with(".pub"))
+        || CREDENTIAL_SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
 }
 
 pub(super) fn join(root: &Path, relative: &[u8]) -> PathBuf {
@@ -341,24 +356,57 @@ fn listing(
     }
 }
 
+/// `operation.failed` with the machine `reason` and the explanation in
+/// `extra.message`, beside the object `extra` fields (or none: `Null`).
+pub(super) fn refused(
+    operation: &str,
+    reason: &str,
+    message: impl Into<String>,
+    extra: Value,
+) -> ResourceError {
+    let mut extra = match extra {
+        Value::Object(fields) => fields,
+        _ => serde_json::Map::new(),
+    };
+    extra.insert("message".into(), Value::String(message.into()));
+    ResourceError::operation_failed(operation, reason, Value::Object(extra))
+}
+
 pub(super) fn failed(
     operation: &'static str,
-    code: &str,
+    reason: &str,
     message: impl Into<String>,
 ) -> ResourceError {
-    ResourceError::operation_failed(operation, message, json!({"code":code}))
+    refused(operation, reason, message, Value::Null)
+}
+
+/// Rewrites a shared git refusal that carries its reason in `extra.code`
+/// (target, repository and git failures) into the checkpoint shape.
+pub(super) fn normalized(error: ResourceError) -> ResourceError {
+    if error.code != "operation.failed" {
+        return error;
+    }
+    let details = &error.details;
+    let (Some(code), Some(operation)) =
+        (details["extra"]["code"].as_str(), details["operation"].as_str())
+    else {
+        return error;
+    };
+    let mut extra = details["extra"].clone();
+    if let Some(fields) = extra.as_object_mut() {
+        fields.remove("code");
+    }
+    let message = details["reason"].as_str().unwrap_or(code).to_string();
+    refused(operation, code, message, extra)
 }
 
 fn unsupported(operation: &'static str, mode: &str, path: Option<&[u8]>) -> ResourceError {
-    let mut extra = json!({"code":"unsupported_index","mode":mode});
+    let mut extra = json!({"mode":mode});
     if let Some(path) = path {
         extra["path"] = json!(String::from_utf8_lossy(path));
     }
-    ResourceError::operation_failed(
-        operation,
-        format!("the index uses {mode}, which a checkpoint cannot round-trip yet"),
-        extra,
-    )
+    let message = format!("the index uses {mode}, which a checkpoint cannot round-trip yet");
+    refused(operation, "unsupported_index", message, extra)
 }
 
 /// A git failure as a capture refusal.

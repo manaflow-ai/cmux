@@ -63,6 +63,8 @@ impl WriteGit<'_> {
         command.arg(hooks);
         command.args(["-c", "commit.gpgSign=false", "-c", "gc.auto=0"]);
         command.args(["-c", "maintenance.auto=false"]);
+        // Temporary index files stay whole, plain index files.
+        command.args(["-c", "core.splitIndex=false", "-c", "index.skipHash=false"]);
         for setting in self.overrides {
             command.args(["-c", setting]);
         }

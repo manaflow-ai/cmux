@@ -8,12 +8,13 @@
 
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
+use std::path::Path;
 use std::time::Duration;
 
 use serde_json::json;
 
 use super::record::{Base, Bytes, Coverage, Included, Limits, Skip, SkipCode, saturate};
-use super::scan::{self, Kind, Layout, failed};
+use super::scan::{self, Kind, Layout, failed, refused};
 use super::store::Scratch;
 use crate::git_ops::Repository;
 use crate::git_ops::run::GitFailure;
@@ -66,6 +67,8 @@ struct Item {
     /// The staged object, for a tracked path.
     staged: Option<String>,
     oid: Option<String>,
+    /// The device and inode an untracked file was read from.
+    identity: Option<(u64, u64)>,
 }
 
 impl Item {
@@ -136,6 +139,12 @@ pub(super) fn capture(
         plan.skip(&path, SkipCode::Ignored, None);
     }
     store_content(git, request, &mut plan, operation)?;
+    #[cfg(test)]
+    super::seams::AFTER_HASHING.with(|hook| {
+        if let Some(hook) = hook.borrow().as_ref() {
+            hook();
+        }
+    });
     let base = Base {
         head: before.head.clone(),
         detached: before.branch.is_none(),
@@ -217,6 +226,7 @@ fn plan_tracked(
                 kind,
                 staged: Some(entry.oid.clone()),
                 oid: None,
+                identity: None,
             }),
             Err(_) => plan.skip(&entry.path, SkipCode::Unreadable, None),
         }
@@ -255,20 +265,19 @@ fn plan_untracked(
         } else if selected.as_ref().is_some_and(|selected| !selected.contains(&candidate.path)) {
             plan.skip(&candidate.path, SkipCode::NotSelected, Some(size));
         } else {
-            let item = Item { path: candidate.path, kind: candidate.kind, staged: None, oid: None };
+            let (path, kind) = (candidate.path, candidate.kind);
+            let item = Item { path, kind, staged: None, oid: None, identity: None };
             plan.untracked.push(item);
         }
     }
-    if plan.untracked.len() > limits.max_files as usize {
-        return Err(ResourceError::operation_failed(
-            operation,
-            format!(
-                "{} untracked files are selected; at most {} fit one checkpoint",
-                plan.untracked.len(),
-                limits.max_files
-            ),
-            json!({"code":"budget_exceeded","selected":plan.untracked.len(),"max_files":limits.max_files}),
-        ));
+    let selected = plan.untracked.len();
+    if selected > limits.max_files as usize {
+        let max_files = limits.max_files;
+        let message = format!(
+            "{selected} untracked files are selected; at most {max_files} fit one checkpoint"
+        );
+        let extra = json!({"selected":selected,"max_files":max_files});
+        return Err(refused(operation, "budget_exceeded", message, extra));
     }
     Ok(())
 }
@@ -304,20 +313,21 @@ fn store_content(
         .sum();
     let max_bytes = request.limits.max_bytes;
     if newly > u64::from(max_bytes) {
-        return Err(ResourceError::operation_failed(
-            operation,
-            format!(
-                "the capture would store {newly} bytes; at most {max_bytes} fit one checkpoint"
-            ),
-            json!({"code":"budget_exceeded","bytes":newly.to_string(),"max_bytes":max_bytes}),
-        ));
+        let message = format!(
+            "the capture would store {newly} bytes; at most {max_bytes} fit one checkpoint"
+        );
+        let extra = json!({"bytes":newly.to_string(),"max_bytes":max_bytes});
+        return Err(refused(operation, "budget_exceeded", message, extra));
     }
-    let writes = plan
-        .tracked
-        .iter_mut()
-        .filter(|item| item.is_file() && item.changed())
-        .chain(plan.untracked.iter_mut().filter(|item| item.is_file()))
-        .collect::<Vec<_>>();
+    // Untracked files are read from a descriptor opened without following
+    // a link, so a path swapped for a link cannot smuggle another file in.
+    for item in plan.untracked.iter_mut().filter(|item| item.is_file()) {
+        let (bytes, identity) = read_untracked(git.root, item, operation)?;
+        item.oid = Some(hash_blob(git, &bytes, operation)?);
+        item.identity = Some(identity);
+    }
+    let writes =
+        plan.tracked.iter_mut().filter(|item| item.is_file() && item.changed()).collect::<Vec<_>>();
     let paths = writes.iter().map(|item| item.path.as_slice()).collect::<Vec<_>>();
     let written = hash_files(git, &paths, true, operation)?;
     for (item, oid) in writes.into_iter().zip(written) {
@@ -373,15 +383,23 @@ impl Summary {
     }
 }
 
-/// Every stored file and link is still what was hashed, and HEAD and the
-/// index are what the capture started from.
+/// Every stored file and link is still what was hashed, behind no link, and
+/// HEAD and the index are what the capture started from.
 fn verify_unchanged(
     repository: &Repository,
     plan: &Plan,
     fingerprint: &str,
     operation: &'static str,
 ) -> Result<(), ResourceError> {
+    let mut folders = HashSet::new();
     for item in plan.tracked.iter().chain(plan.untracked.iter()) {
+        if scan::behind_a_link(&repository.root, &item.path, &mut folders)
+            || item.identity.is_some_and(|identity| {
+                file_identity(&repository.root, &item.path) != Some(identity)
+            })
+        {
+            return Err(changed(operation, &item.path));
+        }
         let now = scan::inspect(&repository.root, &item.path).ok().flatten();
         let same = match (&item.kind, &now) {
             (
@@ -414,11 +432,60 @@ fn verify_unchanged(
 
 fn changed(operation: &'static str, path: &[u8]) -> ResourceError {
     let path = String::from_utf8_lossy(path);
-    ResourceError::operation_failed(
-        operation,
-        format!("{path} changed during the capture; nothing was published"),
-        json!({"code":"repository_changed","path":path}),
-    )
+    let message = format!("{path} changed during the capture; nothing was published");
+    refused(operation, "repository_changed", message, json!({"path":path}))
+}
+
+/// An untracked file's bytes, read from a descriptor opened without
+/// following a final link, under no linked folder, with the device and
+/// inode it was read from. Anything else than the regular file of the
+/// planned size changed under the capture.
+fn read_untracked(
+    root: &Path,
+    item: &Item,
+    operation: &'static str,
+) -> Result<(Vec<u8>, (u64, u64)), ResourceError> {
+    use std::io::Read;
+
+    let gone = || changed(operation, &item.path);
+    if scan::behind_a_link(root, &item.path, &mut HashSet::new()) {
+        return Err(gone());
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options.open(scan::join(root, &item.path)).map_err(|_| gone())?;
+    let metadata = file.metadata().map_err(|_| gone())?;
+    let size = item.size();
+    if !metadata.is_file() || metadata.len() != size {
+        return Err(gone());
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+    file.take(size.saturating_add(1)).read_to_end(&mut bytes).map_err(|_| gone())?;
+    if bytes.len() as u64 != size {
+        return Err(gone());
+    }
+    Ok((bytes, identity_of(&metadata)))
+}
+
+fn file_identity(root: &Path, path: &[u8]) -> Option<(u64, u64)> {
+    std::fs::symlink_metadata(scan::join(root, path)).ok().map(|metadata| identity_of(&metadata))
+}
+
+fn identity_of(metadata: &std::fs::Metadata) -> (u64, u64) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        (metadata.dev(), metadata.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        (metadata.len(), 0)
+    }
 }
 
 /// Whether `path` is an excluded path or inside an excluded folder.
@@ -475,7 +542,7 @@ fn hash_blob(
     bytes: &[u8],
     operation: &'static str,
 ) -> Result<String, ResourceError> {
-    let arguments = ["hash-object", "-w", "--stdin"];
+    let arguments = ["hash-object", "-w", "--stdin", "--no-filters"];
     single(git, None, &arguments, bytes, Bound::Deadline(HASH_DEADLINE), operation)
 }
 

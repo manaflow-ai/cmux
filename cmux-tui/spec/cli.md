@@ -466,18 +466,29 @@ index entries, the tracked worktree files, and the untracked files the caller
 names (or `--untracked eligible` for every eligible one), each tree with its
 modes and raw bytes, plus `metadata.json`, in one parentless commit published
 as `refs/cmux/checkpoints/<worktree_id>/<checkpoint_id>`. Capture never changes
-HEAD, the index, the worktree or any branch, runs no hooks, filters or
-fsmonitor, and refuses with `operation.failed` (`extra.code`
-`unsupported_index`) for skip-worktree, assume-unchanged, intent-to-add,
-unmerged, split or sparse indexes, `repository_changed` when the repository
-moves under it or an `--expected-*` id no longer matches, and
-`budget_exceeded` past `--max-bytes` (128 MiB) or `--max-files` (1000).
-Ignored, credential-like, over-10 MB, nested-repository and unselected
-untracked files are skipped and reported; `complete` is false when anything
-other than an ignored or credential-like file was skipped. Checkpoints live in the session's state directory, so an
-in-memory session refuses with `no_state_directory`. A create retried with the
-same idempotency key replays its first result; `get --key` recovers it after
-an uncertain reply. Unpinned checkpoints expire after 7 days and at most 50 are
+HEAD, the index, the worktree or any branch, and runs no hooks, filters or
+fsmonitor. Untracked files are read without following links. Refusals are
+`operation.failed` whose `details.reason` is the machine reason and whose
+`extra.message` explains it: `unsupported_index` for skip-worktree,
+assume-unchanged, intent-to-add, unmerged, split or sparse indexes;
+`repository_changed` when the repository changes under the capture, an
+`--expected-*` id no longer matches, or a key is reused for a target that now
+resolves elsewhere; `budget_exceeded` past `--max-bytes` (128 MiB) or
+`--max-files` (1000); and `no_state_directory`, `store_failed`,
+`not_a_repository`, `no_working_directory` or `git_failed`. Ignored,
+credential (`.env*`, `.netrc`, `.npmrc`, `.pypirc`, `.git-credentials`,
+`credentials`, SSH private keys, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`,
+`*.keystore`), over-10 MB, nested-repository and unselected untracked files
+are skipped and reported. `complete` is false when anything other than an
+ignored or credential file was skipped. Checkpoints live in the session's
+state directory, so an in-memory session refuses with `no_state_directory`.
+Mutations are recorded in the session's resource mutation ledger: a create,
+pin or unpin retried with the same key and arguments replays its first
+result, and `get --key` finds a create of the same worktree after an
+uncertain reply. A create that stopped after publishing its ref is finished
+by its retry, and a create sweeps refs of its worktree that have no record.
+`list --candidates` counts every ignored path in `ignored_total` and lists at
+most 200 of them. Unpinned checkpoints expire after 7 days and at most 50 are
 kept per repository; pins never expire, and pins beginning `handoff:` or
 `restore:` are owned by cmux and cannot be removed with `unpin`.
 

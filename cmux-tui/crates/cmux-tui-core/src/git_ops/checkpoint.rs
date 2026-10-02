@@ -1,11 +1,15 @@
 //! `git.checkpoint.create|get|list|pin|unpin`: immutable repository
 //! checkpoints the session host captures without changing HEAD, the index or
 //! the worktree, published as `refs/cmux/checkpoints/<worktree>/<id>`.
-//! Mutations go through one per-session lock and a durable ledger that binds
-//! each idempotency key to its operation, arguments and first result.
+//! Mutations are serialized by one per-session lock and recorded in the
+//! session's `resource_mutations` ledger, bound to their arguments and the
+//! repository and worktree their target resolved to. Reads take no lock.
 
 mod capture;
+mod ledger;
+mod reads;
 mod record;
+mod refs;
 mod scan;
 mod store;
 #[cfg(test)]
@@ -27,21 +31,20 @@ pub(super) mod seams {
 use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 
 use super::Repository;
-use super::write_run::{Bound, WriteGit};
+use super::write_run::WriteGit;
 use crate::Mux;
 use crate::resource::{ResourceError, ResourceOperation};
-use crate::resource_router::{ParsedResourceRequest, mutation_result};
+use crate::resource_router::ParsedResourceRequest;
 use capture::{Include, Request, Stamp};
+use ledger::Identity;
 use record::{Checkpoint, Limits, Pin, Stored, now_ms, rfc3339};
-use scan::{Layout, failed};
-use store::{LedgerEntry, LedgerState, Store, io_failed, mint};
+use scan::{Layout, refused};
+use store::{Pending, Store, io_failed, mint};
 
 /// Pin ids with these prefixes belong to the handoff and restore owners.
 const MANAGED_PINS: [&str; 2] = ["handoff:", "restore:"];
-const MAX_CANDIDATES_SCANNED: usize = 100_000;
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -60,15 +63,16 @@ pub(super) fn dispatch(
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation.wire_name();
     let store = Store::open(mux, operation)?;
-    match request.envelope.operation {
+    let result = match request.envelope.operation {
         ResourceOperation::GitCheckpointCreate => create(mux, &store, &request),
-        ResourceOperation::GitCheckpointGet => get(mux, &store, &request),
-        ResourceOperation::GitCheckpointList => list(mux, &store, &request),
+        ResourceOperation::GitCheckpointGet => reads::get(mux, &store, &request),
+        ResourceOperation::GitCheckpointList => reads::list(mux, &store, &request),
         ResourceOperation::GitCheckpointPin | ResourceOperation::GitCheckpointUnpin => {
             pin(mux, &store, &request)
         }
         other => unreachable!("checkpoint does not handle {other:?}"),
-    }
+    };
+    result.map_err(scan::normalized)
 }
 
 /// The repository a request names, with its git directories and ids.
@@ -79,62 +83,63 @@ struct Target {
     worktree_id: String,
 }
 
-/// Resolves the request's target. Call under the store's lock: the first
-/// sight of a repository or worktree mints its id.
+impl Target {
+    fn identity(&self) -> Identity<'_> {
+        Identity { repository_id: &self.repository_id, worktree_id: &self.worktree_id }
+    }
+}
+
+/// Resolves the request's target and its ids. With `mint`, the first sight
+/// of a repository or worktree mints its ids; without, an unseen one is
+/// `None`.
 fn target(
     mux: &Arc<Mux>,
     store: &Store,
     request: &ParsedResourceRequest,
     operation: &'static str,
-) -> Result<Target, ResourceError> {
+    mint: bool,
+) -> Result<Option<Target>, ResourceError> {
     let directory = super::target::directory(mux, request, operation)?;
     let repository = Repository::open(&directory, operation)?;
     let layout = Layout::locate(&repository, operation)?;
-    let (repository_id, worktree_id) = store
-        .identify(&layout.common_dir, &layout.git_dir)
-        .map_err(|error| io_failed(operation, &error))?;
-    Ok(Target { repository, layout, repository_id, worktree_id })
+    let ids = if mint {
+        store.identify(&layout.common_dir, &layout.git_dir).map(Some)
+    } else {
+        store.known(&layout.common_dir, &layout.git_dir)
+    };
+    let ids = ids.map_err(|error| io_failed(operation, &error))?;
+    Ok(ids.map(|(repository_id, worktree_id)| Target {
+        repository,
+        layout,
+        repository_id,
+        worktree_id,
+    }))
+}
+
+/// [`target`], minting ids: what every mutation resolves.
+fn resolved(
+    mux: &Arc<Mux>,
+    store: &Store,
+    request: &ParsedResourceRequest,
+    operation: &'static str,
+) -> Result<Target, ResourceError> {
+    Ok(target(mux, store, request, operation, true)?.expect("minting resolves ids"))
 }
 
 fn writer<'a>(target: &'a Target, hooks: &'a std::path::Path) -> WriteGit<'a> {
     WriteGit { root: &target.repository.root, overrides: &target.repository.overrides, hooks }
 }
 
-/// The operation and its normalized arguments, which a reused key must
-/// match.
-fn fingerprint(request: &ParsedResourceRequest) -> String {
-    let value = json!({
-        "operation": request.envelope.operation.wire_name(),
-        "selectors": request.selectors,
-        "fields": request.fields,
-    });
-    store::hex(&Sha256::digest(value.to_string().as_bytes()))
+/// The request's operation, normalized arguments and resolved identity.
+fn fingerprint(request: &ParsedResourceRequest, target: &Target) -> Value {
+    let selectors = serde_json::to_value(&request.selectors).unwrap_or(Value::Null);
+    let fields = Value::Object(request.fields.clone());
+    let operation = request.envelope.operation.wire_name();
+    ledger::fingerprint(operation, &selectors, &fields, &target.identity())
 }
 
-/// The ledger's answer for a key already used: its first result, a
-/// conflict, or `None` to (re)apply the mutation.
-fn replay(
-    mux: &Mux,
-    store: &Store,
-    key: &str,
-    operation: &'static str,
-    fingerprint: &str,
-) -> Result<(Option<LedgerEntry>, Option<Value>), ResourceError> {
-    let Some(entry) = store.ledger(key).map_err(|error| io_failed(operation, &error))? else {
-        return Ok((None, None));
-    };
-    if entry.operation != operation || entry.fingerprint != fingerprint {
-        return Err(ResourceError::idempotency_conflict(key, &entry.operation));
-    }
-    if entry.state == LedgerState::Done
-        && let Some(result) = entry.result.clone()
-    {
-        return Ok((
-            Some(entry.clone()),
-            Some(mutation_result(mux, result, entry.revision, true)?),
-        ));
-    }
-    Ok((Some(entry), None))
+fn mutation_key(request: &ParsedResourceRequest) -> String {
+    request.envelope.idempotency_key.clone().expect("catalog-validated mutations have a key")
 }
 
 fn create(
@@ -143,186 +148,132 @@ fn create(
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     const OPERATION: &str = "git.checkpoint.create";
-    let key =
-        request.envelope.idempotency_key.clone().expect("catalog-validated mutations have a key");
+    let key = mutation_key(request);
     let arguments = parse_create(&request.fields)?;
-    let fingerprint = fingerprint(request);
     store.exclusive(|| {
-        let (pending, replayed) = replay(mux, store, &key, OPERATION, &fingerprint)?;
-        if let Some(replayed) = replayed {
+        let target = resolved(mux, store, request, OPERATION)?;
+        let fingerprint = fingerprint(request, &target);
+        if let Some(replayed) = ledger::prior(mux, &key, OPERATION, &fingerprint)? {
             return Ok(replayed);
         }
-        let target = target(mux, store, request, OPERATION)?;
         expect_identity(&request.fields, &target)?;
         let hooks = store.hooks();
         let git = writer(&target, &hooks);
-        if let Some(pending) = pending {
-            if pending.repository_id != target.repository_id
-                || pending.worktree_id != target.worktree_id
-            {
-                return Err(failed(
-                    OPERATION,
-                    "repository_changed",
-                    "the key was first used for another repository or worktree",
-                ));
-            }
-            if let Some(value) = reconcile(mux, store, &git, &pending)? {
-                return Ok(value);
-            }
+        if let Some(reply) = resume(mux, store, &git, &key, &fingerprint)? {
+            return Ok(reply);
         }
-        let checkpoint_id = mint("ckpt");
-        let created_at_ms = now_ms();
-        let created_at = rfc3339(created_at_ms);
-        let scratch = store.scratch().map_err(|error| io_failed(OPERATION, &error))?;
-        let stamp = Stamp {
-            checkpoint_id: &checkpoint_id,
-            repository_id: &target.repository_id,
-            worktree_id: &target.worktree_id,
-            created_at: &created_at,
-            reason: &arguments.reason,
-        };
-        let captured = capture::capture(
-            &git,
-            &target.repository,
-            &target.layout,
-            &scratch,
-            &arguments.request,
-            &stamp,
-            OPERATION,
-        )?;
-        drop(scratch);
-        let mut stored = Stored {
-            record: Checkpoint {
-                reference: format!("refs/cmux/checkpoints/{}/{checkpoint_id}", target.worktree_id),
-                checkpoint_id: checkpoint_id.clone(),
-                repository_id: target.repository_id.clone(),
-                worktree_id: target.worktree_id.clone(),
-                object_id: captured.object_id,
-                revision: String::new(),
-                complete: captured.complete,
-                skipped: captured.skipped,
-                skipped_total: captured.skipped_total,
-                created_at,
-                expires_at: None,
-                base: captured.base,
-                coverage: captured.coverage,
-                included: captured.included,
-                bytes: captured.bytes,
-                limits: arguments.request.limits,
-                pins: Vec::new(),
-            },
-            created_at_ms,
-            revision: 1,
-        };
-        stored.settle();
-        // Journal the intent first: a retry after a crash finds the ref.
-        let mut entry = LedgerEntry {
+        refs::sweep(store, &git, &target.repository_id, &target.worktree_id);
+        let stored = capture(store, &git, &target, &arguments)?;
+        let pending = Pending {
             idempotency_key: key.clone(),
-            operation: OPERATION.to_string(),
             fingerprint: fingerprint.clone(),
-            repository_id: target.repository_id.clone(),
-            worktree_id: target.worktree_id.clone(),
-            checkpoint_id,
-            state: LedgerState::Pending,
-            draft: Some(stored.clone()),
-            result: None,
-            revision: stored.revision,
+            draft: stored.clone(),
         };
-        store.record_ledger(&entry).map_err(|error| io_failed(OPERATION, &error))?;
-        publish(&git, &stored)?;
-        let value = finish(store, &mut entry, &stored)?;
-        prune(store, &git, &target.repository_id);
-        mutation_result(mux, value, stored.revision, false)
+        // Journal the intent first: a retry after a crash finds the ref.
+        store.journal(&pending).map_err(|error| io_failed(OPERATION, &error))?;
+        refs::publish(&git, &stored, OPERATION)?;
+        #[cfg(test)]
+        if seams::CRASH_AFTER_PUBLISH.with(|crash| crash.replace(false)) {
+            return Err(refused(OPERATION, "store_failed", "simulated crash", Value::Null));
+        }
+        let reply = finish(mux, store, &pending, false)?;
+        refs::prune(store, &git, &target.repository_id);
+        Ok(reply)
     })
 }
 
-/// A pending create whose ref is published is finished now and replayed;
-/// one whose ref never appeared is captured again under the same key.
-fn reconcile(
-    mux: &Mux,
+/// A create journaled under this key: finished now when its ref was
+/// published for these arguments, else dropped so the key captures again.
+fn resume(
+    mux: &Arc<Mux>,
     store: &Store,
     git: &WriteGit<'_>,
-    pending: &LedgerEntry,
+    key: &str,
+    fingerprint: &Value,
 ) -> Result<Option<Value>, ResourceError> {
-    let Some(draft) = &pending.draft else { return Ok(None) };
-    let published = git
-        .run(
-            None,
-            &[
-                std::ffi::OsStr::new("rev-parse"),
-                std::ffi::OsStr::new("--verify"),
-                std::ffi::OsStr::new("--quiet"),
-                std::ffi::OsStr::new(&draft.record.reference),
-            ],
-            &[],
-            Bound::Deadline(std::time::Duration::from_secs(20)),
-            4096,
-        )
-        .ok()
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string());
-    if published.as_deref() != Some(draft.record.object_id.as_str()) {
+    const OPERATION: &str = "git.checkpoint.create";
+    let Some(pending) = store.pending(key).map_err(|error| io_failed(OPERATION, &error))? else {
         return Ok(None);
+    };
+    if &pending.fingerprint == fingerprint && refs::published(git, &pending.draft) {
+        return finish(mux, store, &pending, true).map(Some);
     }
-    let mut entry = pending.clone();
-    let value = finish(store, &mut entry, draft)?;
-    Ok(Some(mutation_result(mux, value, draft.revision, true)?))
+    store.finish_pending(key).map_err(|error| io_failed(OPERATION, &error))?;
+    Ok(None)
 }
 
-/// Publishes a checkpoint's ref, which must not exist yet.
-fn publish(git: &WriteGit<'_>, stored: &Stored) -> Result<(), ResourceError> {
-    let zero = "0".repeat(stored.record.object_id.len());
-    let arguments = [
-        "update-ref",
-        "-m",
-        "cmux checkpoint",
-        stored.record.reference.as_str(),
-        stored.record.object_id.as_str(),
-        zero.as_str(),
-    ];
-    let arguments = arguments.iter().map(std::ffi::OsStr::new).collect::<Vec<_>>();
-    git.run(None, &arguments, &[], Bound::Unbounded, 4096)
-        .map(|_| ())
-        .map_err(|failure| scan::git("git.checkpoint.create", &failure))
+/// Saves a published create's record, commits it to the mutation ledger and
+/// clears its journal entry.
+fn finish(
+    mux: &Arc<Mux>,
+    store: &Store,
+    pending: &Pending,
+    replayed: bool,
+) -> Result<Value, ResourceError> {
+    const OPERATION: &str = "git.checkpoint.create";
+    store.save(&pending.draft).map_err(|error| io_failed(OPERATION, &error))?;
+    let value = serde_json::to_value(&pending.draft.record).expect("records serialize");
+    let key = &pending.idempotency_key;
+    let reply = ledger::commit(mux, key, OPERATION, &pending.fingerprint, &value, replayed)?;
+    // A leftover entry only costs a lookup: the ledger now answers the key.
+    let _ = store.finish_pending(key);
+    Ok(reply)
 }
 
-/// Saves the record and marks its key done with the record as the result.
-fn finish(store: &Store, entry: &mut LedgerEntry, stored: &Stored) -> Result<Value, ResourceError> {
-    let operation = "git.checkpoint.create";
-    store.save(stored).map_err(|error| io_failed(operation, &error))?;
-    let value = serde_json::to_value(&stored.record).expect("records serialize");
-    entry.state = LedgerState::Done;
-    entry.draft = None;
-    entry.result = Some(value.clone());
-    entry.revision = stored.revision;
-    store.record_ledger(entry).map_err(|error| io_failed(operation, &error))?;
-    Ok(value)
-}
-
-/// Removes the repository's expired and excess unpinned checkpoints: their
-/// refs (compare-and-delete) and records. Best effort; git objects stay
-/// until the repository's own maintenance collects them.
-fn prune(store: &Store, git: &WriteGit<'_>, repository_id: &str) {
-    let Ok(records) = store.all(repository_id) else { return };
-    for checkpoint_id in record::prunable(&records, now_ms()) {
-        let Some(stored) =
-            records.iter().find(|stored| stored.record.checkpoint_id == checkpoint_id)
-        else {
-            continue;
-        };
-        if !stored.record.reference.starts_with("refs/cmux/checkpoints/") {
-            continue;
-        }
-        let arguments = [
-            "update-ref",
-            "-d",
-            stored.record.reference.as_str(),
-            stored.record.object_id.as_str(),
-        ];
-        let arguments = arguments.iter().map(std::ffi::OsStr::new).collect::<Vec<_>>();
-        if git.run(None, &arguments, &[], Bound::Unbounded, 4096).is_ok() {
-            let _ = store.remove(repository_id, &checkpoint_id);
-        }
-    }
+/// Captures the target and returns its record, unpublished.
+fn capture(
+    store: &Store,
+    git: &WriteGit<'_>,
+    target: &Target,
+    arguments: &CreateArguments,
+) -> Result<Stored, ResourceError> {
+    const OPERATION: &str = "git.checkpoint.create";
+    let checkpoint_id = mint("ckpt");
+    let created_at_ms = now_ms();
+    let created_at = rfc3339(created_at_ms);
+    let scratch = store.scratch().map_err(|error| io_failed(OPERATION, &error))?;
+    let stamp = Stamp {
+        checkpoint_id: &checkpoint_id,
+        repository_id: &target.repository_id,
+        worktree_id: &target.worktree_id,
+        created_at: &created_at,
+        reason: &arguments.reason,
+    };
+    let captured = capture::capture(
+        git,
+        &target.repository,
+        &target.layout,
+        &scratch,
+        &arguments.request,
+        &stamp,
+        OPERATION,
+    )?;
+    drop(scratch);
+    let mut stored = Stored {
+        record: Checkpoint {
+            reference: format!("refs/cmux/checkpoints/{}/{checkpoint_id}", target.worktree_id),
+            checkpoint_id,
+            repository_id: target.repository_id.clone(),
+            worktree_id: target.worktree_id.clone(),
+            object_id: captured.object_id,
+            revision: String::new(),
+            complete: captured.complete,
+            skipped: captured.skipped,
+            skipped_total: captured.skipped_total,
+            created_at,
+            expires_at: None,
+            base: captured.base,
+            coverage: captured.coverage,
+            included: captured.included,
+            bytes: captured.bytes,
+            limits: arguments.request.limits,
+            pins: Vec::new(),
+        },
+        created_at_ms,
+        revision: 1,
+    };
+    stored.settle();
+    Ok(stored)
 }
 
 fn expect_identity(fields: &Map<String, Value>, target: &Target) -> Result<(), ResourceError> {
@@ -333,11 +284,9 @@ fn expect_identity(fields: &Map<String, Value>, target: &Target) -> Result<(), R
         if let Some(expected) = fields.get(field).and_then(Value::as_str)
             && expected != actual
         {
-            return Err(ResourceError::operation_failed(
-                "git.checkpoint.create",
-                format!("the target is now {actual}, not {expected}"),
-                json!({"code":"repository_changed","field":field,"actual":actual}),
-            ));
+            let message = format!("the target is now {actual}, not {expected}");
+            let extra = json!({"field":field,"actual":actual});
+            return Err(refused("git.checkpoint.create", "repository_changed", message, extra));
         }
     }
     Ok(())
@@ -401,131 +350,6 @@ fn not_found(id: &str) -> ResourceError {
     )
 }
 
-fn get(
-    mux: &Arc<Mux>,
-    store: &Store,
-    request: &ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    const OPERATION: &str = "git.checkpoint.get";
-    let target = store.exclusive(|| target(mux, store, request, OPERATION))?;
-    let (checkpoint_id, asked) = if let Some(id) =
-        request.fields.get("checkpoint_id").and_then(Value::as_str)
-    {
-        (id.to_string(), id.to_string())
-    } else {
-        let key = request.fields.get("idempotency_key").and_then(Value::as_str).unwrap_or_default();
-        let entry = store.ledger(key).map_err(|error| io_failed(OPERATION, &error))?;
-        match entry {
-            Some(entry)
-                if entry.state == LedgerState::Done
-                    && entry.repository_id == target.repository_id =>
-            {
-                (entry.checkpoint_id, key.to_string())
-            }
-            _ => return Err(not_found(key)),
-        }
-    };
-    let stored = store
-        .load(&target.repository_id, &checkpoint_id)
-        .map_err(|error| io_failed(OPERATION, &error))?
-        .ok_or_else(|| not_found(&asked))?;
-    Ok(serde_json::to_value(&stored.record).expect("records serialize"))
-}
-
-fn list(
-    mux: &Arc<Mux>,
-    store: &Store,
-    request: &ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    const OPERATION: &str = "git.checkpoint.list";
-    let target = store.exclusive(|| target(mux, store, request, OPERATION))?;
-    let limit = request.fields.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
-    let after = match request.fields.get("cursor").and_then(Value::as_str) {
-        Some(cursor) => Some(parse_cursor(cursor)?),
-        None => None,
-    };
-    let mut records = store
-        .all(&target.repository_id)
-        .map_err(|error| io_failed(OPERATION, &error))?
-        .into_iter()
-        .filter(|stored| stored.record.worktree_id == target.worktree_id)
-        .collect::<Vec<_>>();
-    records.sort_by_key(|stored| std::cmp::Reverse(stored.order_key()));
-    let mut page = records
-        .into_iter()
-        .filter(|stored| after.as_ref().is_none_or(|after| stored.order_key() < *after))
-        .take(limit + 1)
-        .collect::<Vec<_>>();
-    let next_cursor = (page.len() > limit).then(|| {
-        page.truncate(limit);
-        let (created_at_ms, checkpoint_id) = page.last().expect("a full page").order_key();
-        format!("{created_at_ms}.{checkpoint_id}")
-    });
-    let limits = Limits::default();
-    let mut value = json!({
-        "repository_id": target.repository_id,
-        "worktree_id": target.worktree_id,
-        "checkpoints": page.iter().map(|stored| &stored.record).collect::<Vec<_>>(),
-        "next_cursor": next_cursor,
-        "limits": limits,
-    });
-    if request.fields.get("include_candidates").and_then(Value::as_bool) == Some(true) {
-        value["candidates"] = candidates(&target, limits)?;
-    }
-    Ok(value)
-}
-
-fn parse_cursor(cursor: &str) -> Result<(u64, String), ResourceError> {
-    cursor
-        .split_once('.')
-        .and_then(|(created, id)| Some((created.parse().ok()?, id.to_string())))
-        .ok_or_else(|| {
-            ResourceError::validation_invalid(Some("cursor"), "the cursor is not one list returned")
-        })
-}
-
-/// The untracked paths a create could select, with their eligibility, and
-/// ignored ones as ineligible.
-fn candidates(target: &Target, limits: Limits) -> Result<Value, ResourceError> {
-    const OPERATION: &str = "git.checkpoint.list";
-    let untracked = scan::untracked(&target.repository, OPERATION)?;
-    let ignored = scan::ignored(&target.repository, OPERATION)?;
-    let total = untracked.len() + ignored.len();
-    if total > limits.max_files as usize || total > MAX_CANDIDATES_SCANNED {
-        return Err(ResourceError::operation_failed(
-            OPERATION,
-            format!("{total} untracked paths are more than one list shows ({})", limits.max_files),
-            json!({"code":"budget_exceeded","candidate_total":total}),
-        ));
-    }
-    let mut candidates = untracked
-        .iter()
-        .map(|candidate| {
-            let mut value = json!({
-                "path": String::from_utf8_lossy(&candidate.path),
-                "bytes": record::saturate(candidate.size()),
-                "eligible": true,
-            });
-            if let Some(code) = candidate.ineligible(limits.max_untracked_file_bytes) {
-                value["eligible"] = json!(false);
-                value["reason"] = json!(code);
-            }
-            (candidate.path.clone(), value)
-        })
-        .collect::<Vec<_>>();
-    candidates.extend(ignored.into_iter().map(|path| {
-        let value = json!({
-            "path": String::from_utf8_lossy(&path),
-            "bytes": 0,
-            "eligible": false,
-            "reason": "ignored",
-        });
-        (path, value)
-    }));
-    candidates.sort_by(|left, right| left.0.cmp(&right.0));
-    Ok(Value::Array(candidates.into_iter().map(|(_, value)| value).collect()))
-}
-
 /// `git.checkpoint.pin` and `git.checkpoint.unpin`. Distinct pin ids
 /// commute; pinning an id again replaces its reason.
 fn pin(
@@ -535,35 +359,31 @@ fn pin(
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation.wire_name();
     let pinning = request.envelope.operation == ResourceOperation::GitCheckpointPin;
-    let key =
-        request.envelope.idempotency_key.clone().expect("catalog-validated mutations have a key");
-    let fingerprint = fingerprint(request);
+    let key = mutation_key(request);
     let field = |name: &str| {
         request.fields.get(name).and_then(Value::as_str).unwrap_or_default().to_string()
     };
     let (checkpoint_id, pin_id) = (field("checkpoint_id"), field("pin_id"));
-    if !pinning && MANAGED_PINS.iter().any(|prefix| pin_id.starts_with(prefix)) {
-        return Err(ResourceError::operation_failed(
-            operation,
-            format!("{pin_id} is held by the handoff or restore owner and is released there"),
-            json!({"code":"managed_pin","pin_id":pin_id}),
-        ));
-    }
     store.exclusive(|| {
-        if let (_, Some(replayed)) = replay(mux, store, &key, operation, &fingerprint)? {
+        let target = resolved(mux, store, request, operation)?;
+        let fingerprint = fingerprint(request, &target);
+        if let Some(replayed) = ledger::prior(mux, &key, operation, &fingerprint)? {
             return Ok(replayed);
         }
-        let target = target(mux, store, request, operation)?;
+        if !pinning && MANAGED_PINS.iter().any(|prefix| pin_id.starts_with(prefix)) {
+            let message =
+                format!("{pin_id} is held by the handoff or restore owner and is released there");
+            return Err(refused(operation, "managed_pin", message, json!({"pin_id":pin_id})));
+        }
         let mut stored = store
             .load(&target.repository_id, &checkpoint_id)
             .map_err(|error| io_failed(operation, &error))?
             .ok_or_else(|| not_found(&checkpoint_id))?;
-        let pins = &mut stored.record.pins;
-        let before = pins.clone();
-        pins.retain(|pin| pin.pin_id != pin_id);
+        let before = stored.record.pins.clone();
+        stored.record.pins.retain(|pin| pin.pin_id != pin_id);
         if pinning {
-            pins.push(Pin { pin_id: pin_id.clone(), reason: field("reason") });
-            pins.sort_by(|left, right| left.pin_id.cmp(&right.pin_id));
+            stored.record.pins.push(Pin { pin_id: pin_id.clone(), reason: field("reason") });
+            stored.record.pins.sort_by(|left, right| left.pin_id.cmp(&right.pin_id));
         }
         if stored.record.pins != before {
             stored.revision += 1;
@@ -571,19 +391,6 @@ fn pin(
             store.save(&stored).map_err(|error| io_failed(operation, &error))?;
         }
         let value = serde_json::to_value(&stored.record).expect("records serialize");
-        let entry = LedgerEntry {
-            idempotency_key: key.clone(),
-            operation: operation.to_string(),
-            fingerprint: fingerprint.clone(),
-            repository_id: target.repository_id.clone(),
-            worktree_id: target.worktree_id.clone(),
-            checkpoint_id: checkpoint_id.clone(),
-            state: LedgerState::Done,
-            draft: None,
-            result: Some(value.clone()),
-            revision: stored.revision,
-        };
-        store.record_ledger(&entry).map_err(|error| io_failed(operation, &error))?;
-        mutation_result(mux, value, stored.revision, false)
+        ledger::commit(mux, &key, operation, &fingerprint, &value, false)
     })
 }
