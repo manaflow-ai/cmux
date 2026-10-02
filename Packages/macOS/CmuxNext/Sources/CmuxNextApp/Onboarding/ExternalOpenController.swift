@@ -1,19 +1,22 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextOnboarding
 
 /// Opens what macOS hands cmux as the default browser, the `ssh:` and
 /// `x-man-page:` handler, a script's opener or the Finder service: a tab in
-/// the current window's focused pane, per `ExternalOpenRouter`. Requests that
-/// arrive before a window has content (a cold launch by a link) wait and run
-/// when the first window shows its workspace.
+/// the current window's focused pane, per `ExternalOpenRouter`. A link in
+/// this build's scheme (`cmux://tab/…`) runs `link.open`, the one path every
+/// link takes. Requests that arrive before a window has content (a cold
+/// launch by a link) wait and run when the first window shows its workspace.
 @MainActor
 final class ExternalOpenController {
     unowned let services: AppServices
-    let router = ExternalOpenRouter()
+    let router: ExternalOpenRouter
     private(set) var pending: [ExternalOpenRoute] = []
 
     init(services: AppServices) {
         self.services = services
+        router = ExternalOpenRouter(linkScheme: services.linkScheme)
     }
 
     /// Returns false for a URL cmux does not open (the caller refuses it).
@@ -53,8 +56,14 @@ final class ExternalOpenController {
             if windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
             return
         }
-        deliver(route, to: pane)
-        windows.bringToFront(controller)
+        if case .deepLink(let url) = route {
+            // The user clicked it in another app: their run, which brings
+            // cmux forward. link.open refuses what it cannot open with a reason.
+            services.registry.perform("link.open", invocation: ActionInvocation(arguments: ["url": .string(url.absoluteString)]))
+        } else {
+            deliver(route, to: pane)
+            windows.bringToFront(controller)
+        }
         if !services.environment.noActivate { NSApp.activate() }
     }
 

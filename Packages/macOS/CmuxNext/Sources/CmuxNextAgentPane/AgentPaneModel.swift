@@ -53,6 +53,7 @@ public final class AgentPaneModel {
                     handshake.draft = seed.draft
                     handshake.prompt = seed.prompt
                 }
+                handshake.linkScheme = linkScheme
                 lastError = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {

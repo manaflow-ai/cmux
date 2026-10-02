@@ -136,12 +136,15 @@ final class AgentTabStore {
 
     /// The tab showing acpmux session `session` (`cmux://session/<id>`), if any.
     func tab(showing session: String) -> String? {
-        nil
+        for keys in tabsByPane.values {
+            if let key = keys.first(where: { sessions[$0] == session }) { return key }
+        }
+        return nil
     }
 
     /// The pane (`PaneModel.id`) whose strip lists agent tab `key`.
     func paneKey(listing key: String) -> String? {
-        nil
+        tabsByPane.first { $0.value.contains(key) }?.key
     }
 
     func stripItem(_ key: String) -> StripTabItem {
@@ -154,6 +157,7 @@ final class AgentTabStore {
         if let view = views[key] { return view }
         guard tabsByPane.values.contains(where: { $0.contains(key) }) else { return nil }
         let model = AgentPaneModel(host: host, sessionId: sessions[key], seed: seeds.removeValue(forKey: key))
+        model.linkScheme = linkScheme
         model.onSessionChange = { [weak self] session in self?.sessions[key] = session }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
@@ -170,6 +174,7 @@ final class AgentTabStore {
     /// daemon and page as the tabs. The caller owns it and closes it.
     func standaloneView(seed: AgentPaneSeed) -> AgentPaneView? {
         let model = AgentPaneModel(host: host, seed: AgentPaneSeedSource(seed))
+        model.linkScheme = linkScheme
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts
@@ -262,6 +267,16 @@ extension PaneController {
     /// the selected tab's context (`agentSeedFromSelectedTab`, #16620).
     func newAgentTab() {
         showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, seed: agentSeedFromSelectedTab()))
+    }
+
+    /// A `cmux://session/<id>` link no tab shows: a new agent tab in this
+    /// pane on that session, selected, as Duplicate Tab opens one. Returns
+    /// its id.
+    @discardableResult
+    func openAgentSession(_ session: String) -> String {
+        let key = services.agentTabs.open(in: paneKey, of: daemon.store, session: session)
+        showAgentTab(key)
+        return key
     }
 
     /// Duplicate Tab on an agent tab: the same session, right after it.

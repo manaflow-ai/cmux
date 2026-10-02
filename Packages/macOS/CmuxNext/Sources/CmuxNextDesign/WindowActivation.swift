@@ -39,11 +39,14 @@ public struct WindowActivation {
         public var activatesApp: Bool
     }
 
-    /// The pure rule. No-activate never makes a window key and never
+    /// The pure rule. Bring-forward orders a window front without the keys
+    /// in every launch. No-activate never makes a window key and never
     /// activates: a presented window goes behind the others (or in front
     /// on an agent's test screen), a focused one is ordered front without
     /// the keys.
     public nonisolated static func plan(_ intent: Intent, noActivate: Bool, testScreen: Bool) -> Plan {
+        // In front of the app's windows, never key, in any launch.
+        if intent == .bringForward { return Plan(order: .orderFront, activatesApp: false) }
         if intent == .presentBehind {
             return Plan(order: noActivate && testScreen ? .orderFrontRegardless : .orderBack, activatesApp: false)
         }

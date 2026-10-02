@@ -19,17 +19,24 @@ extension AppServices {
 
 extension AppServices {
     /// Copy Workspace Link's text: the workspace's `ws_` resource id.
+    /// - Throws: `ActionFailure` when its daemon gives it none; a link is
+    ///   never built from a numeric handle.
     func link(workspace: WorkspaceModel) throws -> String {
-        ""
+        try link(workspace.resourceID.map { DeepLink(.workspace($0.rawValue)) })
     }
 
     /// Copy Pane Link's text: the pane's `pane_` resource id.
     func link(pane: PaneModel) throws -> String {
-        ""
+        try link(pane.resourceID.map { DeepLink(.pane($0.rawValue)) })
     }
 
     /// Copy Tab Link's text: the tab's `tab_` resource id.
     func link(tab: TabModel) throws -> String {
-        ""
+        try link(tab.snapshot.tabResourceID.map { DeepLink(.tab($0.rawValue)) })
+    }
+
+    private func link(_ link: DeepLink?) throws -> String {
+        guard let text = link.flatMap(linkText) else { throw ActionFailure(message: RefusalStrings.noLinkID) }
+        return text
     }
 }

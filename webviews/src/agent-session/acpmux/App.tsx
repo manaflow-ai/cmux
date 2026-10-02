@@ -45,6 +45,7 @@ import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conve
 import { DateLine } from "./conversation/DateLine";
 import { SearchChats } from "./SearchChats";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
+import { FALLBACK_LINK_SCHEME, scrollToTurn, setLinkScheme } from "./links";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { ContinueMenu } from "./handoff/ContinueMenu";
@@ -80,6 +81,9 @@ declare global {
       command?(name: string): void;
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
+      /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts); a no-op
+      /// when no row carries it.
+      revealTurn?(turnId: string): void;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -923,6 +927,9 @@ function AcpmuxPane() {
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
       },
+      revealTurn(turnId) {
+        scrollToTurn(turnId);
+      },
       applyCustomization(customization) {
         if ("themeCSS" in customization) {
           let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null;
@@ -976,6 +983,7 @@ function AcpmuxPane() {
           account?: unknown;
           handoffStrings?: unknown;
           checkpointStrings?: unknown;
+          linkScheme?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
@@ -987,6 +995,8 @@ function AcpmuxPane() {
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
+        // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
+        setLinkScheme(host.linkScheme, mock ? FALLBACK_LINK_SCHEME : undefined);
         if (mock)
           setCheckpointVariant(
             new URLSearchParams(window.location.search).get("checkpointVariant") === "expanded"

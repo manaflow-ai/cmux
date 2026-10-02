@@ -69,7 +69,31 @@ public nonisolated struct DeepLink: Sendable, Hashable {
     /// - Returns: The URL, or nil when an id does not fit its kind's grammar,
     ///   so a formatted link always parses back to the same value.
     public func url(scheme: String) -> URL? {
-        nil
+        guard isWellFormed, Self.isScheme(scheme) else { return nil }
+        var text = "\(scheme)://"
+        var query: [String] = []
+        var fragment: String?
+        switch target {
+        case .workspace(let id): text += "workspace/\(id)"
+        case .pane(let id): text += "pane/\(id)"
+        case .tab(let id): text += "tab/\(id)"
+        case .session(let id, let turn):
+            text += "session/\(id)"
+            fragment = turn.map { Self.turnFragmentPrefix + $0 }
+        case .legacyWorkspace(let workspace, let fallback):
+            text += "workspace/\(workspace.uuidString)"
+            if let fallback { query.append("stable_workspace_id=\(fallback.uuidString)") }
+        case .legacyPane(let workspace, let pane):
+            text += "workspace/\(workspace.uuidString)/pane/\(pane.uuidString)"
+        case .legacySurface(let workspace, let surface, let fallbackWorkspace, let fallbackSurface):
+            text += "workspace/\(workspace.uuidString)/surface/\(surface.uuidString)"
+            if let fallbackWorkspace { query.append("stable_workspace_id=\(fallbackWorkspace.uuidString)") }
+            if let fallbackSurface { query.append("stable_surface_id=\(fallbackSurface.uuidString)") }
+        }
+        if let machine { query.append("machine=\(machine)") }
+        if !query.isEmpty { text += "?" + query.joined(separator: "&") }
+        if let fragment { text += "#" + fragment }
+        return URL(string: text)
     }
 
     /// The fragment that names a turn: `#turn-<turnId>`.

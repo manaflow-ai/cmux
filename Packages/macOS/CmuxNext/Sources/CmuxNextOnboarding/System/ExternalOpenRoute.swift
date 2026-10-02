@@ -47,6 +47,11 @@ public nonisolated struct ExternalOpenRouter: Sendable {
     static let pageExtensions: Set<String> = ["html", "htm", "xhtml", "shtml", "webarchive", "svg"]
 
     public func route(_ url: URL) -> ExternalOpenRoute {
+        if let linkScheme, let scheme = url.scheme, scheme.caseInsensitiveCompare(linkScheme) == .orderedSame {
+            // The sign-in callback shares the scheme; it stays auth's.
+            if url.host(percentEncoded: false)?.lowercased() == Self.authCallbackHost { return .unsupported }
+            return .deepLink(url)
+        }
         switch url.scheme?.lowercased() {
         case "http", "https": return .browserTab(url)
         case "file": return routeFile(url.path)
