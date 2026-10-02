@@ -167,7 +167,9 @@ snapshot prints `dialog dismissed: ...` once.
 - `page.consoleMessages({ level, filter, limit })`, `page.errors()`: console
   and uncaught-error history of the tab.
 - `page.clipboard`: `readText()`, `writeText(text)`, `read()`, `write(items)`
-  on the tab's own clipboard, which Meta+C, Meta+X and Meta+V use.
+  on the tab's own clipboard, which Meta+C, Meta+X and Meta+V use. Those
+  shortcuts work only in tabs you opened; a page that keeps one running
+  past 5 s crashes its tab (`page.reload()` brings it back).
 - `page.elementAt(x, y)`: `{ ref, role, name, box }` at a viewport point.
 - `page.keep()`: keep this tab after a one-shot run.
 - `page.markdown({ main, links, images, start, maxChars })`: the page as

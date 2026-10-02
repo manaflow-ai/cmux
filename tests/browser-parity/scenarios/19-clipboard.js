@@ -106,7 +106,7 @@ const lateCopy = await page.keyboard.press("Meta+c").then(
   (e) => ({ code: e.code ?? null, endedWebContent: /ended the tab's web content process/.test(e.message) }),
 );
 for (let i = 0; i < 40 && !lateCopyCrashed; i++) await sleep(50);
-await page.goto(`${PRIMARY}/input.html?after-late-copy`);
+await page.reload();
 emitCmux("late-copy", { late: lateCopy, crashed: lateCopyCrashed, clipboard: await page.clipboard.readText(), reloaded: await page.locator("#keys").inputValue() });
 // ---- cell cmux-only
 // A tab a one-shot run keeps is the user's once the run ends.

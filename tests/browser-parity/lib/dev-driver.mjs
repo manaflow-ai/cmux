@@ -356,14 +356,52 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   // events with clipboardData. Playwright WebKit's own commands use the
   // system clipboard, so this dispatches the events (not trusted) in the
   // focused frame and does what WebKit does unless the page cancels them.
+  //
+  // As in the app, they run only in tabs a session created, and one the page
+  // keeps running past 5 s ends the tab's web content process (the app
+  // contains a late write to the system clipboard that way). Playwright
+  // cannot end one page's process, so this reports the crash, ignores what
+  // the page does afterwards, and lets its script run out.
+  const CLIPBOARD_COMMAND_TIMEOUT_MS = 5000;
   async function clipboardShortcut(tab, key) {
+    const type = { c: "copy", x: "cut", v: "paste" }[key];
+    const name = { copy: "Copy", cut: "Cut", paste: "Paste" }[type];
+    if (!(tab.creator && drivers.has(tab.creator))) {
+      throw new DriverError(
+        "unsupported",
+        `${name} is refused in a user's tab (one no attached session opened): cmux ends the web content process of a tab whose page keeps a Copy, Cut or Paste running past its timeout, and it never does that to a user's tab. Use page.clipboard here, or open the page with tabs.open()`,
+      );
+    }
+    let timer;
+    const expired = new Promise((resolve) => { timer = setTimeout(() => resolve(true), CLIPBOARD_COMMAND_TIMEOUT_MS); });
+    try {
+      const finished = await Promise.race([runClipboardShortcut(tab, type).then(() => false), expired]);
+      if (finished) {
+        tab.clipboardRun = null;
+        tab.clipboardCommand = null;
+        emit("tab.crashed", { targetId: tab.targetId });
+        throw new DriverError(
+          "timeout",
+          `${name} did not finish within 5 s, so cmux ended the tab's web content process: nothing the page does later reaches the system clipboard. The tab's clipboard is unchanged; call page.reload() or page.goto() to load the page again`,
+        );
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function runClipboardShortcut(tab, type) {
     const page = tab.page;
     let frame = page.mainFrame();
     for (const f of page.frames()) {
       if (await f.evaluate(() => document.hasFocus() && !(document.activeElement instanceof HTMLIFrameElement)).catch(() => false)) frame = f;
     }
-    const type = { c: "copy", x: "cut", v: "paste" }[key];
+    const started = Symbol(type);
     tab.clipboardCommand = type;
+    tab.clipboardRun = started;
+    // After a timeout the command is abandoned: what it finds later is
+    // dropped, as the app's ended process drops it.
+    const current = () => tab.clipboardRun === started;
     try {
       if (type === "paste") {
         const item = tab.clipboard.find((i) => i.type === "text/plain");
@@ -376,7 +414,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
           while (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
           return !el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
         }, entries);
-        if (!cancelled && text) await page.keyboard.insertText(text);
+        if (!cancelled && text && current()) await page.keyboard.insertText(text);
         return;
       }
       // WebKit fires copy and cut only when something is selected.
@@ -390,13 +428,17 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         const cancelled = !el.dispatchEvent(new ClipboardEvent(type, { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
         return { selection, items: cancelled ? [...data.types].map((t) => [t, data.getData(t)]) : null };
       }, type);
+      if (!current()) return;
       tab.clipboard = result.items
         ? result.items.map(([t, value]) => ({ type: t, base64: Buffer.from(value).toString("base64") }))
         : [{ type: "text/plain", base64: Buffer.from(result.selection).toString("base64") }];
       // The app sends Cocoa's delete: action; execCommand is its page-side twin.
       if (type === "cut" && !result.items && result.selection) await frame.evaluate(() => document.execCommand("delete"));
     } finally {
-      tab.clipboardCommand = null;
+      if (current()) {
+        tab.clipboardCommand = null;
+        tab.clipboardRun = null;
+      }
     }
   }
 

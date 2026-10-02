@@ -24,51 +24,73 @@ public import WebKit
 ///   `+[NSPasteboard generalPasteboard]` does not go through the hooked
 ///   lookup at all; WebKit's Copy, Cut and Paste do not use it.
 /// - The redirect lasts from the start of the command until WebKit reports it
-///   done or until the timeout, whichever comes first. It never outlives the
-///   timeout. A page that keeps the command running longer (a handler that
-///   loops; dialogs from the tab are answered at once by the caller) reaches
-///   the system pasteboard afterwards, and:
-///   - its reads find nothing: WebKit grants a Paste's web process access to
-///     the general pasteboard at the command's start, by the change count it
-///     sees then, which is the tab pasteboard's, and refuses later reads
-///     while the general pasteboard's change count differs. `perform` runs a
-///     Paste only while the tab pasteboard's count is below the system's, so
-///     the system's, which only grows, can never match it;
-///   - its writes (a Copy or Cut the page finishes late) land on the system
-///     clipboard.
-/// - One command runs at a time, also after a timeout, until WebKit reports
-///   it done, so an abandoned command's late writes never land in a later
-///   command's pasteboard. A command that cannot start before its timeout
-///   does not run, and nothing is redirected while it waits.
+///   done or until the timeout, whichever comes first. A page that keeps the
+///   command running longer (a handler that loops; dialogs from the tab are
+///   answered at once by the caller) has its web content process ended at
+///   the timeout, in the same main-thread turn that ends the redirect, so
+///   nothing it does later reaches any pasteboard: ending the process
+///   invalidates WebKit's connection to it, and WebKit drops the messages
+///   that process sent but WebKit had not yet handled. Without that, a Copy
+///   or Cut the page finishes late would write the system clipboard, where a
+///   hostile page could plant a command for the person's next terminal paste.
+///   The caller decides whether the process may be ended (it must belong only
+///   to tabs a session created); when it may not, the command does not start
+///   (`unavailable`), and when that changes during the command, the redirect
+///   stays until WebKit reports the command done (`timedOutStillRunning`).
+/// - A Paste's late reads would find nothing anyway: WebKit grants a Paste's
+///   web process access to the general pasteboard at the command's start, by
+///   the change count it sees then, which is the tab pasteboard's, and
+///   refuses later reads while the general pasteboard's change count
+///   differs. `perform` runs a Paste only while the tab pasteboard's count is
+///   below the system's, so the system's, which only grows, never matches it.
+/// - One command runs at a time in the whole app, not one per tab: WebKit's
+///   lookups do not say which web view they serve, so two tabs' commands in
+///   flight together would read and write each other's pasteboards. A command
+///   waits up to its timeout for the one before it, then gets its own
+///   timeout; it waits only while the earlier command is in flight (at most
+///   its timeout, since an abandoned command's process is ended), or after a
+///   `timedOutStillRunning` until WebKit finishes that one. One that cannot
+///   start in time does not run (`busy`, naming the tab it waited for), and
+///   nothing is redirected for it while it waits.
 ///
 /// Residual risk: while a command is in flight (milliseconds, at most its
 /// timeout), a person pasting or copying in another web view of this process
 /// gets or fills the tab's pasteboard, and so does app code that WebKit
 /// calls back into (a delegate) if it looks up the general pasteboard by
-/// name. A copy made that way lands on the tab's clipboard. After a timeout,
-/// a person's own paste in a web view that shares the abandoned page's web
-/// process renews that process's access, so the page's late reads could
-/// then see the person's clipboard. The caller test errs toward WebKit:
-/// should WebKit's pasteboard code move, its lookups still come from a
-/// WebKit image and stay redirected, unless it moves to
+/// name. A copy made that way lands on the tab's clipboard. The same holds
+/// after a `timedOutStillRunning` until WebKit finishes. The caller test errs
+/// toward WebKit: should WebKit's pasteboard code move, its lookups still
+/// come from a WebKit image and stay redirected, unless it moves to
 /// `+generalPasteboard`, which the WebKit tests catch as a change of the
-/// system pasteboard's change count.
+/// system pasteboard's change count. Writes a page starts in a command but
+/// that WebKit performs after reporting the command done (the asynchronous
+/// Clipboard API) are not commands and are not redirected.
 public enum BrowserReplPasteboardRedirect {
     /// How one command ended.
     public enum Outcome: Equatable, Sendable {
         /// WebKit reported the command done within the timeout; the tab's
         /// pasteboard holds what WebKit wrote during the command.
         case completed
-        /// WebKit had not reported the command done within the timeout. The
+        /// WebKit had not reported the command done within the timeout, so
+        /// the web content process that ran it was ended at the timeout. The
         /// redirect has ended; the tab's pasteboard is no longer reachable
         /// and may be released at once.
         case timedOut
-        /// An earlier command was still unfinished when the timeout passed;
-        /// this one did not start.
-        case busy
-        /// The pasteboard lookup or WebKit's editing-command SPI is missing,
-        /// or a Paste could not be kept from reading the system pasteboard
-        /// late (see the type's documentation); the command did not start.
+        /// WebKit had not reported the command done within the timeout and
+        /// its web content process could no longer be ended. WebKit's
+        /// lookups of the general pasteboard keep getting the tab's
+        /// pasteboard until WebKit reports the command done, so nothing it
+        /// writes late reaches the system pasteboard; the redirect then
+        /// empties and releases that pasteboard, and the caller must not.
+        case timedOutStillRunning
+        /// An earlier command, from the tab the caller named `tab`, was still
+        /// unfinished when this one's wait ended; this one did not start.
+        case busy(tab: String)
+        /// The pasteboard lookup or WebKit's editing-command or
+        /// process-ending SPI is missing, the caller may not end the web
+        /// content process, or a Paste could not be kept from reading the
+        /// system pasteboard late (see the type's documentation); the
+        /// command did not start.
         case unavailable
     }
 
@@ -95,51 +117,92 @@ public enum BrowserReplPasteboardRedirect {
         return true
     }
 
+    private static let editCommandSelector = NSSelectorFromString("_executeEditCommand:argument:completion:")
+    private static let endWebContentSelector = NSSelectorFromString("_killWebContentProcessAndResetState")
+
     /// Runs WebKit's `command` (`Copy`, `Cut` or `Paste`) in `webView` with
-    /// `pasteboard` standing in for the general pasteboard.
+    /// `pasteboard` standing in for the general pasteboard. If WebKit has
+    /// not finished it within `timeout`, `webView`'s web content process is
+    /// ended (see the type's documentation).
     ///
     /// - Parameters:
+    ///   - tab: names the tab in a later command's `busy`.
     ///   - systemChangeCount: the system pasteboard's change count, read when
     ///     `nil`. A Paste runs only while `pasteboard`'s count is below it.
+    ///   - mayEndWebContent: whether `webView`'s web content process may be
+    ///     ended; asked before the command starts (`false` there makes it
+    ///     `unavailable`) and again at the timeout. Ending it ends every page
+    ///     in that process.
     ///   - whenWebKitFinishes: called once, when WebKit reports the command
-    ///     done (also after a timeout), or at once when it did not start.
+    ///     done or its process is ended, or at once when it did not start.
     @MainActor
     public static func perform(
         _ command: String,
         in webView: WKWebView,
         pasteboard: NSPasteboard,
+        tab: String = "",
         timeout: Duration = .seconds(5),
         systemChangeCount: Int? = nil,
+        mayEndWebContent: @escaping @MainActor () -> Bool = { true },
         whenWebKitFinishes: @escaping @MainActor () -> Void = {}
     ) async -> Outcome {
-        let selector = NSSelectorFromString("_executeEditCommand:argument:completion:")
-        guard webView.responds(to: selector),
-              command != "Paste" || pasteboard.changeCount < (systemChangeCount ?? NSPasteboard.general.changeCount)
+        guard webView.responds(to: editCommandSelector),
+              webView.responds(to: endWebContentSelector),
+              command != "Paste" || pasteboard.changeCount < (systemChangeCount ?? NSPasteboard.general.changeCount),
+              mayEndWebContent()
         else {
             whenWebKitFinishes()
             return .unavailable
         }
-        return await run(on: pasteboard, timeout: timeout, whenFinished: whenWebKitFinishes) { done in
+        return await run(
+            on: pasteboard,
+            tab: tab,
+            timeout: timeout,
+            endWebContent: { [weak webView] in
+                guard let webView, mayEndWebContent() else { return false }
+                return endWebContent(of: webView)
+            },
+            whenFinished: whenWebKitFinishes
+        ) { done in
             typealias Completion = @convention(block) (Bool) -> Void
             typealias Function = @convention(c) (AnyObject, Selector, NSString, NSString?, Completion) -> Void
-            let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
+            let function = unsafeBitCast(webView.method(for: editCommandSelector), to: Function.self)
             let completion: Completion = { _ in MainActor.assumeIsolated { done() } }
-            function(webView, selector, command as NSString, "" as NSString, completion)
+            function(webView, editCommandSelector, command as NSString, "" as NSString, completion)
         }
+    }
+
+    /// Ends `webView`'s web content process at once (WebKit's
+    /// `_killWebContentProcessAndResetState`): WebKit stops handling that
+    /// process's messages before this returns and reports the termination to
+    /// the navigation delegate. Returns `false` when the SPI is missing.
+    @MainActor
+    public static func endWebContent(of webView: WKWebView) -> Bool {
+        guard webView.responds(to: endWebContentSelector) else { return false }
+        typealias Function = @convention(c) (AnyObject, Selector) -> Void
+        let function = unsafeBitCast(webView.method(for: endWebContentSelector), to: Function.self)
+        function(webView, endWebContentSelector)
+        return true
     }
 
     /// Runs one command with `pasteboard` standing in for the general
     /// pasteboard for WebKit's lookups. `invoke` starts the command and calls
-    /// its argument when WebKit reports the command done. The redirect lasts
-    /// until then or until `timeout` on `clock`, whichever comes first;
-    /// waiting for an earlier unfinished command counts toward the timeout.
-    /// `whenFinished` is called once, when `invoke`'s argument is called or
-    /// at once when the command does not start.
+    /// its argument when WebKit reports the command done. The command waits
+    /// up to `timeout` on `clock` for an earlier unfinished one, then gets
+    /// its own `timeout`. If WebKit has not reported it done by then (or the
+    /// caller stopped waiting), `endWebContent` is called in the same
+    /// main-actor turn; when it returns `true` the redirect ends there
+    /// (`timedOut`), otherwise it lasts until WebKit reports the command done
+    /// (`timedOutStillRunning`). `whenFinished` is called once, when
+    /// `invoke`'s argument is called or the web content is ended, or at once
+    /// when the command does not start.
     @MainActor
     public static func run<C: Clock>(
         on pasteboard: NSPasteboard,
+        tab: String = "",
         timeout: Duration,
         clock: C = ContinuousClock(),
+        endWebContent: @MainActor () -> Bool,
         whenFinished: @escaping @MainActor () -> Void = {},
         invoke: (_ done: @escaping @MainActor () -> Void) -> Void
     ) async -> Outcome where C.Duration == Duration {
@@ -147,22 +210,31 @@ public enum BrowserReplPasteboardRedirect {
             whenFinished()
             return .unavailable
         }
-        let deadline = clock.now.advanced(by: timeout)
+        let waitDeadline = clock.now.advanced(by: timeout)
         while let earlier = unfinished {
-            guard await earlier.finished.wait(until: deadline, clock: clock) else {
+            guard await earlier.finished.wait(until: waitDeadline, clock: clock) else {
                 whenFinished()
-                return .busy
+                return .busy(tab: earlier.tab)
             }
         }
-        let command = Command(pasteboard: pasteboard, whenFinished: whenFinished)
+        let command = Command(pasteboard: pasteboard, tab: tab, whenFinished: whenFinished)
         unfinished = command
         setTarget(pasteboard)
+        let deadline = clock.now.advanced(by: timeout)
         invoke { finish(command) }
         if await command.finished.wait(until: deadline, clock: clock) { return .completed }
-        // Past the timeout, or the caller stopped waiting: the redirect ends
-        // now, whatever WebKit still does.
-        endRedirect(to: pasteboard)
-        return .timedOut
+        // Past the timeout, or the caller stopped waiting. Until this turn
+        // ends nothing else runs on the main thread, so WebKit handles no
+        // more of the page's pasteboard messages before its process is gone.
+        if command.finished.isSignaled { return .completed }
+        if endWebContent() {
+            // WebKit may already have reported the command done while it
+            // ended the process; `finish` runs once either way.
+            finish(command)
+            return .timedOut
+        }
+        command.releasesPasteboardWhenFinished = true
+        return .timedOutStillRunning
     }
 
     /// The pasteboard a lookup of the pasteboard named `name` gets instead
@@ -211,6 +283,10 @@ public enum BrowserReplPasteboardRedirect {
         guard !command.finished.isSignaled else { return }
         endRedirect(to: command.pasteboard)
         if unfinished === command { unfinished = nil }
+        if command.releasesPasteboardWhenFinished {
+            command.pasteboard.clearContents()
+            command.pasteboard.releaseGlobally()
+        }
         command.finished.signal()
         command.whenFinished()
     }
@@ -230,11 +306,16 @@ public enum BrowserReplPasteboardRedirect {
     @MainActor
     private final class Command {
         let pasteboard: NSPasteboard
+        let tab: String
         let whenFinished: @MainActor () -> Void
         let finished = BrowserReplLatch()
+        /// Set when the caller handed the pasteboard over at a
+        /// `timedOutStillRunning`.
+        var releasesPasteboardWhenFinished = false
 
-        init(pasteboard: NSPasteboard, whenFinished: @escaping @MainActor () -> Void) {
+        init(pasteboard: NSPasteboard, tab: String, whenFinished: @escaping @MainActor () -> Void) {
             self.pasteboard = pasteboard
+            self.tab = tab
             self.whenFinished = whenFinished
         }
     }
