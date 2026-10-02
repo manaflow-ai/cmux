@@ -84,13 +84,15 @@ struct SSHTuiMigrationTests {
         catalog.record(SurfaceProjection(resource: resourceID, workspaceID: workspace.id, panelID: panelID))
 
         var workspaceAvailable = false
-        _ = SSHTuiAgentStatusProjector(catalog: catalog, workspaceLookup: { id in
+        let projector = SSHTuiAgentStatusProjector(catalog: catalog, workspaceLookup: { id in
             workspaceAvailable && id == workspace.id ? workspace : nil
         })
-        #expect(workspace.statusEntries["cmux.remote.agent:codex"] == nil)
+        withExtendedLifetime(projector) {
+            #expect(workspace.statusEntries["cmux.remote.agent:codex"] == nil)
 
-        workspaceAvailable = true
-        NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: nil)
+            workspaceAvailable = true
+            NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: nil)
+        }
 
         #expect(workspace.statusEntries["cmux.remote.agent:codex"]?.value == "Running")
         #expect(workspace.agentLifecycleStatesByPanelId[panelID]?["cmux.remote.agent:codex"] == .running)
