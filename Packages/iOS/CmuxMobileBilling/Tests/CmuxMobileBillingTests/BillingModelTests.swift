@@ -388,11 +388,14 @@ struct BillingRig {
     }
 }
 
-/// Yields to the main actor until `condition` holds, bounded so a broken
-/// model fails instead of hanging.
+/// Polls on the main actor until `condition` holds or a generous deadline
+/// passes. The deadline, not an iteration count, bounds the wait, so a loaded
+/// runner only slows a passing test while a broken model still fails.
 @MainActor
-func settle(_ condition: @MainActor () -> Bool) async {
-    for _ in 0..<1000 where !condition() {
+func settle(timeout: Duration = .seconds(10), _ condition: @MainActor () -> Bool) async {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while !condition(), clock.now < deadline {
         await Task.yield()
     }
 }

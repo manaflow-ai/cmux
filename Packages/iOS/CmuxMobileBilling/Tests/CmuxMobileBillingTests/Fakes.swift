@@ -127,12 +127,14 @@ actor FakeStoreKitClient: StoreKitClient {
     }
 
     func finish(transactionID: UInt64) async {
+        // Record every effect before publishing completion, so a waiter that
+        // returns on `finished` or the stream sees the log entry too.
+        await log.append("finish:\(transactionID)")
         finished.append(transactionID)
         unfinished.removeAll { verification in
             if case .verified(let transaction) = verification { return transaction.id == transactionID }
             return false
         }
-        await log.append("finish:\(transactionID)")
         finishedContinuation.yield(transactionID)
     }
 }
