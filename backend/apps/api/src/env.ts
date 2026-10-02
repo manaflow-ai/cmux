@@ -34,6 +34,11 @@ export interface Env {
   readonly DASHBOARD_ORIGIN?: string
   /** Secret: 32-byte base64 key that wraps credential data keys. Integrations refuse to connect without it. */
   readonly INTEGRATIONS_KEK?: string
+  /**
+   * Secret: the Stack server key for STACK_PROJECT_ID (set on cmux-api-staging and cmux-api by the backend
+   * lead). Enterprise SSO creates Stack users and sessions with it; use it only with that project.
+   */
+  readonly STACK_SECRET_SERVER_KEY?: string
   /** Secrets per provider; a provider without its secrets reports `configured: false`. */
   readonly GITHUB_APP_SLUG?: string
   readonly GITHUB_APP_CLIENT_ID?: string

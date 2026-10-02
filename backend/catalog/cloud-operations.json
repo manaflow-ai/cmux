@@ -2079,6 +2079,172 @@
         "dead"
       ]
     },
+    "SsoConnection": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "SsoConnectionId"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "oidc"
+            ]
+          }
+        },
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "draft",
+              "active",
+              "disabled"
+            ]
+          }
+        },
+        "domains": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "EmailDomain"
+            }
+          }
+        },
+        "oidc": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "issuer": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string",
+                  "max_length": 500,
+                  "pattern": "^https:\\/\\/[^\\s]+$"
+                }
+              },
+              "client_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string",
+                  "min_length": 1,
+                  "max_length": 200
+                }
+              },
+              "scopes": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 64
+                  }
+                }
+              },
+              "authorization_endpoint": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 500,
+                    "pattern": "^https:\\/\\/[^\\s]+$"
+                  }
+                }
+              },
+              "token_endpoint": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 500,
+                    "pattern": "^https:\\/\\/[^\\s]+$"
+                  }
+                }
+              },
+              "jwks_uri": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 500,
+                    "pattern": "^https:\\/\\/[^\\s]+$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "secret_set": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "jit": {
+          "required": true,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "enabled": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              },
+              "default_role": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "member",
+                    "admin"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
+    "SsoConnectionId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^ssoc_[a-z0-9]{20}$"
+    },
     "Step": {
       "kind": "union",
       "variants": [
@@ -19253,6 +19419,1340 @@
       },
       "output_json_schema": {
         "$defs": {}
+      }
+    },
+    "sso.connection.activate": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "SsoConnectionId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SsoConnection"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "policy.invalid",
+        "revision.conflict",
+        "selector.not_found",
+        "sso.discovery_failed",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team sso activate",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Fetch the issuer's OpenID discovery document and activate the connection (owners and admins). Needs the secret and every domain verified by this team.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/SsoConnectionId"
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "SsoConnectionId": {
+            "type": "string",
+            "pattern": "^ssoc_[a-z0-9]{20}$"
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/SsoConnection",
+        "$defs": {
+          "SsoConnectionId": {
+            "type": "string",
+            "pattern": "^ssoc_[a-z0-9]{20}$"
+          },
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          },
+          "SsoConnection": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/SsoConnectionId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "oidc"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "disabled"
+                ]
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/EmailDomain"
+                }
+              },
+              "oidc": {
+                "type": "object",
+                "properties": {
+                  "issuer": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "pattern": "^https:\\/\\/[^\\s]+$"
+                  },
+                  "client_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 64
+                    }
+                  },
+                  "authorization_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "token_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "jwks_uri": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "issuer",
+                  "client_id",
+                  "scopes",
+                  "authorization_endpoint",
+                  "token_endpoint",
+                  "jwks_uri"
+                ],
+                "additionalProperties": true
+              },
+              "secret_set": {
+                "type": "boolean"
+              },
+              "jit": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "default_role": {
+                    "type": "string",
+                    "enum": [
+                      "member",
+                      "admin"
+                    ]
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "default_role"
+                ],
+                "additionalProperties": true
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "state",
+              "domains",
+              "oidc",
+              "secret_set",
+              "jit",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "sso.connection.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "issuer": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 500,
+              "pattern": "^https:\\/\\/[^\\s]+$"
+            }
+          },
+          "client_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 200
+            }
+          },
+          "domains": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "EmailDomain"
+              }
+            }
+          },
+          "scopes": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 64
+              }
+            }
+          },
+          "jit": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "enabled": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "default_role": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "member",
+                      "admin"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SsoConnection"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "policy.invalid",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team sso create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Create an OIDC connection in draft (owners and admins). Then set its client secret and activate it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "issuer": {
+            "type": "string",
+            "maxLength": 500,
+            "pattern": "^https:\\/\\/[^\\s]+$"
+          },
+          "client_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EmailDomain"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "maxItems": 20
+          },
+          "jit": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "default_role": {
+                "type": "string",
+                "enum": [
+                  "member",
+                  "admin"
+                ]
+              }
+            },
+            "required": [
+              "enabled",
+              "default_role"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "issuer",
+          "client_id",
+          "domains"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/SsoConnection",
+        "$defs": {
+          "SsoConnectionId": {
+            "type": "string",
+            "pattern": "^ssoc_[a-z0-9]{20}$"
+          },
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          },
+          "SsoConnection": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/SsoConnectionId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "oidc"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "disabled"
+                ]
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/EmailDomain"
+                }
+              },
+              "oidc": {
+                "type": "object",
+                "properties": {
+                  "issuer": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "pattern": "^https:\\/\\/[^\\s]+$"
+                  },
+                  "client_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 64
+                    }
+                  },
+                  "authorization_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "token_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "jwks_uri": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "issuer",
+                  "client_id",
+                  "scopes",
+                  "authorization_endpoint",
+                  "token_endpoint",
+                  "jwks_uri"
+                ],
+                "additionalProperties": true
+              },
+              "secret_set": {
+                "type": "boolean"
+              },
+              "jit": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "default_role": {
+                    "type": "string",
+                    "enum": [
+                      "member",
+                      "admin"
+                    ]
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "default_role"
+                ],
+                "additionalProperties": true
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "state",
+              "domains",
+              "oidc",
+              "secret_set",
+              "jit",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "sso.connection.disable": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "SsoConnectionId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SsoConnection"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team sso disable",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Disable a connection (owners and admins): sign-in discovery stops routing to it.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/SsoConnectionId"
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "SsoConnectionId": {
+            "type": "string",
+            "pattern": "^ssoc_[a-z0-9]{20}$"
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/SsoConnection",
+        "$defs": {
+          "SsoConnectionId": {
+            "type": "string",
+            "pattern": "^ssoc_[a-z0-9]{20}$"
+          },
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          },
+          "SsoConnection": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/SsoConnectionId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "oidc"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "disabled"
+                ]
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/EmailDomain"
+                }
+              },
+              "oidc": {
+                "type": "object",
+                "properties": {
+                  "issuer": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "pattern": "^https:\\/\\/[^\\s]+$"
+                  },
+                  "client_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 64
+                    }
+                  },
+                  "authorization_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "token_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "jwks_uri": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "issuer",
+                  "client_id",
+                  "scopes",
+                  "authorization_endpoint",
+                  "token_endpoint",
+                  "jwks_uri"
+                ],
+                "additionalProperties": true
+              },
+              "secret_set": {
+                "type": "boolean"
+              },
+              "jit": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "default_role": {
+                    "type": "string",
+                    "enum": [
+                      "member",
+                      "admin"
+                    ]
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "default_role"
+                ],
+                "additionalProperties": true
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "state",
+              "domains",
+              "oidc",
+              "secret_set",
+              "jit",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "sso.connection.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "connections": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "SsoConnection"
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team sso list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "The team's SSO connections, without secrets (owners and admins).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/SsoConnection"
+            }
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "connections",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "SsoConnectionId": {
+            "type": "string",
+            "pattern": "^ssoc_[a-z0-9]{20}$"
+          },
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          },
+          "SsoConnection": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/SsoConnectionId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "oidc"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "disabled"
+                ]
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/EmailDomain"
+                }
+              },
+              "oidc": {
+                "type": "object",
+                "properties": {
+                  "issuer": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "pattern": "^https:\\/\\/[^\\s]+$"
+                  },
+                  "client_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 64
+                    }
+                  },
+                  "authorization_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "token_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "jwks_uri": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "issuer",
+                  "client_id",
+                  "scopes",
+                  "authorization_endpoint",
+                  "token_endpoint",
+                  "jwks_uri"
+                ],
+                "additionalProperties": true
+              },
+              "secret_set": {
+                "type": "boolean"
+              },
+              "jit": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "default_role": {
+                    "type": "string",
+                    "enum": [
+                      "member",
+                      "admin"
+                    ]
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "default_role"
+                ],
+                "additionalProperties": true
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "state",
+              "domains",
+              "oidc",
+              "secret_set",
+              "jit",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "sso.connection.set_secret": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "SsoConnectionId"
+            }
+          },
+          "client_secret": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SsoConnection"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "sso.not_configured",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team sso set-secret",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Seal the OIDC client secret (owners and admins). The secret is never returned, logged or recorded in events.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/SsoConnectionId"
+          },
+          "client_secret": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "connection",
+          "client_secret"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "SsoConnectionId": {
+            "type": "string",
+            "pattern": "^ssoc_[a-z0-9]{20}$"
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/SsoConnection",
+        "$defs": {
+          "SsoConnectionId": {
+            "type": "string",
+            "pattern": "^ssoc_[a-z0-9]{20}$"
+          },
+          "EmailDomain": {
+            "type": "string",
+            "maxLength": 253,
+            "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$",
+            "description": "A lowercase DNS name such as acme.com."
+          },
+          "SsoConnection": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/SsoConnectionId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "oidc"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "disabled"
+                ]
+              },
+              "domains": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/EmailDomain"
+                }
+              },
+              "oidc": {
+                "type": "object",
+                "properties": {
+                  "issuer": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "pattern": "^https:\\/\\/[^\\s]+$"
+                  },
+                  "client_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 64
+                    }
+                  },
+                  "authorization_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "token_endpoint": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "jwks_uri": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500,
+                        "pattern": "^https:\\/\\/[^\\s]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "issuer",
+                  "client_id",
+                  "scopes",
+                  "authorization_endpoint",
+                  "token_endpoint",
+                  "jwks_uri"
+                ],
+                "additionalProperties": true
+              },
+              "secret_set": {
+                "type": "boolean"
+              },
+              "jit": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "default_role": {
+                    "type": "string",
+                    "enum": [
+                      "member",
+                      "admin"
+                    ]
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "default_role"
+                ],
+                "additionalProperties": true
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "state",
+              "domains",
+              "oidc",
+              "secret_set",
+              "jit",
+              "created_at",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
       }
     },
     "team.device.compliance": {

@@ -186,6 +186,11 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).domainOp(p.team!, p, frame)), catch: unreachable })
         }
+        // The client secret travels only in this request, never in an op's params, event or ledger.
+        if (payload.op === "sso.connection.set_secret" || payload.op === "sso.connection.activate") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
+        }
         if (payload.op === "integration.connect") {
           const provider = (payload.params as { provider?: string } | null)?.provider
           const impl = provider === "github" || provider === "linear" || provider === "slack" ? providers[provider] : undefined

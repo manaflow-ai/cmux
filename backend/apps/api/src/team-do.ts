@@ -7,6 +7,8 @@ import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enro
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
 import { domainExternal, type DomainReply, type Http } from "./team-domain-external.ts"
+import { ssoExternal } from "./team-sso-external.ts"
+import { connectionForDomain } from "./domains/team-sso.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
@@ -49,6 +51,10 @@ export class TeamDO extends OwnerDO<TeamState> {
           value: { team: state.team?.id, tokens: Object.values(state.enrollment_tokens ?? {}).map(publicToken), devices: Object.values(state.managed_devices ?? {}) },
           revision: ""
         }
+      }
+      case "sso.connection.list": {
+        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list SSO connections" }
+        return { ok: true, value: { team: state.team?.id, connections: Object.values(state.sso_connections ?? {}) }, revision: "" }
       }
       case "domain.list": {
         if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list domains" }
@@ -175,6 +181,34 @@ export class TeamDO extends OwnerDO<TeamState> {
       principal,
       frame
     )
+  }
+
+  /** RPC from the Worker: sso.connection.set_secret and sso.connection.activate (sealing, OIDC discovery). */
+  async ssoOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    const engine = this.bind(entity)
+    return ssoExternal(
+      {
+        state: engine.currentState,
+        team: entity,
+        stream: engine.stream,
+        http: this.http,
+        kek: this.env.INTEGRATIONS_KEK,
+        sql: this.ctx.storage.sql,
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+      },
+      principal,
+      frame
+    )
+  }
+
+  /**
+   * RPC from sign-in discovery (unauthenticated): whether this team serves
+   * `domain` through an active connection. Answers only yes or no, never the
+   * team or the connection, so discovery does not enumerate customers.
+   */
+  async ssoDiscover(entity: string, domain: string): Promise<{ sso: boolean }> {
+    const engine = this.boundEngine ?? this.bind(entity)
+    return { sso: Boolean(connectionForDomain(engine.currentState, domain)) }
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
