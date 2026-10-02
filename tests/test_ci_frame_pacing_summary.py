@@ -94,3 +94,18 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def test_a_fling_whose_rpc_replied_with_an_error_is_left_out() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out, "ready 17 8.33 main=17", {
+            "0": [(181, 17, 18, 0), (181, 17, 18, 0)],
+            "1": [(361, 8, 9, 1), (361, 8, 9, 1)],
+        })
+        # bench.sh splices the CLI's reply in as-is, so a failed rpc leaves text, not JSON.
+        (out / "0-3.json").write_text('{"fling":Error: socket closed,"perf":{}}\n')
+        result = run(out)
+        assert result.returncode == 0, result.stderr
+        assert "| capped (60 Hz) | 2 | 181 | 17 ms | 18 ms | 0/362 | ok |" in result.stdout, result.stdout
+        assert "::warning" not in result.stderr, result.stderr
