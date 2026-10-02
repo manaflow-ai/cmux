@@ -1269,7 +1269,11 @@ enum TextBoxSubmit {
         terminalAgentContext: String,
         onComplete: ((CompletionContext) -> Void)? = nil
     ) {
-        let events = dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext)
+        let events = dispatchEvents(
+            for: parts,
+            terminalAgentContext: terminalAgentContext,
+            imageTransferTarget: surface.resolvedImageTransferTarget()
+        )
         TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
     }
 
