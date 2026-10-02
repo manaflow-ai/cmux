@@ -609689,49 +609689,49 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أجهزة كمبيوتر Linux دائمة في السحابة تُفتح كمساحات عمل cmux عادية."
+            "value": "أجهزة كمبيوتر دائمة في السحابة تُفتح كمساحات عمل cmux عادية."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dauerhafte Linux-Computer in der Cloud, die sich als normale cmux-Workspaces öffnen."
+            "value": "Dauerhafte-Computer in der Cloud, die sich als normale cmux-Workspaces öffnen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ordenadores Linux persistentes en la nube que se abren como espacios de trabajo normales de cmux."
+            "value": "Ordenadores persistentes en la nube que se abren como espacios de trabajo normales de cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Des ordinateurs Linux persistants dans le cloud qui s’ouvrent comme des espaces de travail cmux ordinaires."
+            "value": "Des ordinateurs persistants dans le cloud qui s’ouvrent comme des espaces de travail cmux ordinaires."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通常の cmux ワークスペースとして開く、クラウド上の永続的な Linux コンピュータです。"
+            "value": "通常の cmux ワークスペースとして開く、クラウド上の永続的な コンピュータです。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일반 cmux 워크스페이스로 열리는 클라우드의 영구 Linux 컴퓨터입니다."
+            "value": "일반 cmux 워크스페이스로 열리는 클라우드의 영구 컴퓨터입니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端的持久 Linux 电脑，会以普通的 cmux 工作区打开。"
+            "value": "云端的持久 电脑，会以普通的 cmux 工作区打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "雲端上的持久 Linux 電腦，會以一般的 cmux 工作區開啟。"
+            "value": "雲端上的持久 電腦，會以一般的 cmux 工作區開啟。"
           }
         },
         "bs": {
@@ -612939,49 +612939,49 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أجهزة كمبيوتر Linux دائمة في السحابة تُفتح كمساحات عمل cmux عادية."
+            "value": "أجهزة كمبيوتر دائمة في السحابة تُفتح كمساحات عمل cmux عادية."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dauerhafte Linux-Computer in der Cloud, die sich als normale cmux-Workspaces öffnen."
+            "value": "Dauerhafte-Computer in der Cloud, die sich als normale cmux-Workspaces öffnen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ordenadores Linux persistentes en la nube que se abren como espacios de trabajo normales de cmux."
+            "value": "Ordenadores persistentes en la nube que se abren como espacios de trabajo normales de cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Des ordinateurs Linux persistants dans le cloud qui s’ouvrent comme des espaces de travail cmux ordinaires."
+            "value": "Des ordinateurs persistants dans le cloud qui s’ouvrent comme des espaces de travail cmux ordinaires."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通常の cmux ワークスペースとして開く、クラウド上の永続的な Linux コンピュータです。"
+            "value": "通常の cmux ワークスペースとして開く、クラウド上の永続的な コンピュータです。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일반 cmux 워크스페이스로 열리는 클라우드의 영구 Linux 컴퓨터입니다."
+            "value": "일반 cmux 워크스페이스로 열리는 클라우드의 영구 컴퓨터입니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云端的持久 Linux 电脑，会以普通的 cmux 工作区打开。"
+            "value": "云端的持久 电脑，会以普通的 cmux 工作区打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "雲端上的持久 Linux 電腦，會以一般的 cmux 工作區開啟。"
+            "value": "雲端上的持久 電腦，會以一般的 cmux 工作區開啟。"
           }
         },
         "bs": {
