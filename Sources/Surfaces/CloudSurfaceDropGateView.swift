@@ -66,6 +66,7 @@ final class CloudSurfaceDropGateView: NSView {
     /// overlay passing through.
     private weak var forwardedDestination: NSView?
     private var forwardedSequenceNumber: Int?
+    var destinationBeneathOverride: ((any NSDraggingInfo) -> NSView?)?
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         update(sender)
@@ -104,7 +105,7 @@ final class CloudSurfaceDropGateView: NSView {
            destinationContainsDragLocation(forwardedDestination, sender: sender) {
             return forwardedDestination
         }
-        return destinationBeneath(sender)
+        return destinationBeneathOverride?(sender) ?? destinationBeneath(sender)
     }
 
     @MainActor
@@ -112,7 +113,8 @@ final class CloudSurfaceDropGateView: NSView {
         _ destination: NSView,
         sender: any NSDraggingInfo
     ) -> Bool {
-        guard destination.window === window,
+        guard let window,
+              destination.window === window,
               !destination.isHidden,
               destination.alphaValue > 0,
               destination.registeredDraggedTypes.contains(where: { registered in

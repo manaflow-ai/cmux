@@ -11,10 +11,34 @@ import Testing
 #endif
 
 @MainActor
+private final class CountingCloudDragDestination: NSView {
+    var enteredCount = 0
+    var updatedCount = 0
+    var exitedCount = 0
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        enteredCount += 1
+        return .move
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        updatedCount += 1
+        return .move
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        exitedCount += 1
+    }
+}
+
+@MainActor
 @Suite("Cloud drag validation and feedback", .serialized)
 struct CloudSurfaceDragFeedbackTests {
     @Test("Cloud pane forwarding stays stable while the pointer remains in one pane")
     func destinationStaysValidDuringPortalHitTestChurn() throws {
+        let fixture = try CloudSurfaceDragFixture(kind: .display)
+        defer { fixture.finish() }
+        fixture.workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "a", isBase: false)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 240, height: 240),
             styleMask: .borderless,
@@ -23,21 +47,30 @@ struct CloudSurfaceDragFeedbackTests {
         )
         defer { window.close() }
         let root = NSView(frame: window.contentLayoutRect)
-        let destination = NSView(frame: NSRect(x: 20, y: 20, width: 120, height: 120))
+        let destination = CountingCloudDragDestination(frame: NSRect(x: 20, y: 20, width: 120, height: 120))
         destination.registerForDraggedTypes([DragOverlayRoutingPolicy.bonsplitTabTransferType])
         root.addSubview(destination)
         let gate = CloudSurfaceDropGateView(frame: root.bounds)
+        gate.workspace = fixture.workspace
+        gate.isActive = true
+        var resolveCount = 0
+        gate.destinationBeneathOverride = { _ in
+            resolveCount += 1
+            return resolveCount == 1 ? destination : nil
+        }
         root.addSubview(gate)
         window.contentView = root
         window.orderFront(nil)
 
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("cloud-drag-stability-\(UUID())"))
-        pasteboard.setData(Data([1]), forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        #expect(fixture.registration.write(to: pasteboard))
         let sender = CloudSidebarDraggingInfo(source: NSOutlineView(), pasteboard: pasteboard, location: NSPoint(x: 80, y: 80))
 
-        #expect(gate.destinationContainsDragLocation(destination, sender: sender))
-        sender.location = NSPoint(x: 200, y: 200)
-        #expect(!gate.destinationContainsDragLocation(destination, sender: sender))
+        #expect(gate.draggingEntered(sender) == .move)
+        #expect(gate.draggingUpdated(sender) == .move)
+        #expect(destination.enteredCount == 1)
+        #expect(destination.updatedCount == 1)
+        #expect(destination.exitedCount == 0)
     }
 
     @Test("The pure rule rejects unknown/local/foreign owners and preserves local destinations")
