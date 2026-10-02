@@ -84,6 +84,10 @@ extension TerminalController: ControlDebugContext {
         ProWelcomeChecklistPresenter.present()
     }
 
+    func controlDebugShowNativePricing() {
+        ProUpgradePresenter.presentNativePricingPreview()
+    }
+
     func controlDebugIsTerminalFocused(surfaceArgument: String) -> String {
         isTerminalFocused(surfaceArgument)
     }

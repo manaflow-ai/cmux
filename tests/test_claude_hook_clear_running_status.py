@@ -13,6 +13,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from fake_socket_env import cli_environment, unwrap_capability
 
 
 def resolve_cmux_cli() -> str:
@@ -95,7 +96,7 @@ class HookSocketServer:
                     raw_line, buffer = buffer.split(b"\n", 1)
                     if not raw_line:
                         continue
-                    line = raw_line.decode("utf-8", errors="replace")
+                    line = unwrap_capability(raw_line.decode("utf-8", errors="replace"))
                     self.commands.append(line)
                     try:
                         conn.sendall((self._response_for(line) + "\n").encode("utf-8"))
@@ -216,8 +217,7 @@ def main() -> int:
 
     with HookSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
         state_path = Path(server.root.name) / "claude-hook-state.json"
-        env = os.environ.copy()
-        env["CMUX_SOCKET_PATH"] = server.socket_path
+        env = cli_environment(server.socket_path)
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = surface_id
         env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(state_path)

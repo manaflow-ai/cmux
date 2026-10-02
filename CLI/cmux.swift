@@ -31757,6 +31757,12 @@ struct CMUXCLI {
             "--session",
             sessionId,
         ]
+        // A cmux-created Codex fork carries its parent and launch claim in the
+        // environment. Forward them to the detached monitor so it can watch
+        // the owner process for the child rollout and publish the child hook
+        // binding. Without this, the first fork may render, but a fork of that
+        // child has no durable parent association to discover.
+        monitorArgs += Self.codexForkMonitorArguments(environment: env)
         if let surfaceId, !surfaceId.isEmpty {
             monitorArgs += ["--surface", surfaceId]
         }
@@ -31783,6 +31789,19 @@ struct CMUXCLI {
         } catch {
             telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
         }
+    }
+
+    static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
+        guard let forkParent = environment[CodexForkSessionWatcher.parentSessionEnvironmentKey],
+              !forkParent.isEmpty else { return [] }
+        var arguments = ["--fork-parent", forkParent]
+        if let launchID = environment[CodexForkSessionWatcher.launchIDEnvironmentKey], !launchID.isEmpty {
+            arguments += ["--fork-launch-id", launchID]
+        }
+        if let ownerPID = environment["CMUX_CODEX_PID"], !ownerPID.isEmpty {
+            arguments += ["--fork-owner-pid", ownerPID]
+        }
+        return arguments
     }
 
     /// Watches the Codex rollout until the turn settles.
@@ -40711,6 +40730,13 @@ export default {
         appendIfExisting(Bundle.main.url(forResource: "opencode-plugin", withExtension: "js"))
         appendIfExisting(Bundle.main.resourceURL?.appendingPathComponent("opencode-plugin.js", isDirectory: false))
 
+        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+           !runtimeRoot.isEmpty {
+            appendIfExisting(
+                URL(fileURLWithPath: runtimeRoot, isDirectory: true)
+                    .appendingPathComponent("src/Resources/opencode-plugin.js")
+            )
+        }
         if let executableURL = resolvedExecutableURL() {
             let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
             for relativePath in ["opencode-plugin.js", "../opencode-plugin.js", "../../Resources/opencode-plugin.js", "../../../Contents/Resources/opencode-plugin.js"] {

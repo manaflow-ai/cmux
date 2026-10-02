@@ -68,7 +68,7 @@ enum CloudTreeRowToolTip {
                 accessibilityLabel: title
             )
         case .port(let resource, let url, _):
-            let presentation = CloudTreePortPresentation(resource: resource, url: url)
+            let presentation = CloudTreePortPresentation(resource: resource)
             return .init(
                 toolTip: presentation.toolTip,
                 accessibilityLabel: presentation.accessibilityLabel
