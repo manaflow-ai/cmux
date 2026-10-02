@@ -331,9 +331,7 @@ struct RemoteRelaySlotTeardownTests {
 
         let transportSucceeded = await coordinator.stopAndWait(cleanupScope: .transport)
         #expect(transportSucceeded)
-        #expect(runner.requests.count == 1)
-        let transportPasteCleanup = try #require(runner.requests.first?.arguments.last)
-        #expect(transportPasteCleanup.contains(".cache/cmux/paste/"))
+        #expect(runner.requests.isEmpty)
 
         let succeeded = await coordinator.stopAndWait(cleanupScope: .persistentSlot)
 
@@ -356,7 +354,7 @@ struct RemoteRelaySlotTeardownTests {
         let succeeded = await coordinator.stopAndWait(cleanupScope: .persistentSlot)
 
         #expect(succeeded)
-        #expect(runner.requests.count == 3)
+        #expect(runner.requests.count == 2)
         let metadataCleanup = try command(in: runner) { $0.contains("64010.slot") }
         #expect(metadataCleanup.contains("64010.slot"))
         let directCleanup = try command(in: runner) { $0.contains("$HOME/.cmux/bin/cmuxd-remote") }
