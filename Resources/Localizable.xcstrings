@@ -608331,6 +608331,131 @@
           }
         }
       }
+    },
+    "cloudPane.attachment.reason.staleDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this Cloud machine is running an older terminal runtime; upgrade it, then retry"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "auf dieser Cloud-Maschine läuft eine ältere Terminal-Laufzeit; aktualisiere sie und versuche es erneut"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cette machine Cloud utilise une ancienne version du moteur de terminal ; mettez-la à jour, puis réessayez"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل على جهاز Cloud هذا إصدار أقدم من تشغيل الطرفية؛ حدّث الجهاز ثم أعد المحاولة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta máquina de Cloud usa un runtime de terminal antiguo; actualízala y vuelve a intentarlo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Cloud 機器執行較舊的終端機執行環境；請先升級，再重試"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Cloud 机器运行较旧的终端运行时；请先升级，再重试"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신은 이전 터미널 런타임을 실행 중입니다. 업그레이드한 후 다시 시도하세요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンでは古いターミナルランタイムが実行されています。アップグレードしてから再試行してください"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ova Cloud mašina koristi starije izvršno okruženje terminala; nadogradite je pa pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne Cloud-maskine kører en ældre terminalruntime; opgrader den, og prøv igen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "questa macchina Cloud esegue un runtime del terminale meno recente; aggiornala e riprova"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud នេះកំពុងដំណើរការ runtime ស្ថានីយចាស់ជាងនេះ; ធ្វើបច្ចុប្បន្នភាព រួចព្យាយាមម្ដងទៀត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne Cloud-maskinen kjører en eldre terminalruntime; oppgrader den og prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ta maszyna Cloud korzysta ze starszego środowiska uruchomieniowego terminala; zaktualizuj ją i spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta máquina Cloud está executando um runtime de terminal antigo; atualize-a e tente novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "на этой Cloud-машине используется старая среда выполнения терминала; обновите её и повторите попытку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud นี้กำลังใช้รันไทม์เทอร์มินัลรุ่นเก่า โปรดอัปเกรดแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bu Cloud makinesi daha eski bir terminal çalışma zamanı kullanıyor; yükseltip tekrar deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "на цій Cloud-машині працює старіше середовище термінала; оновіть її та повторіть спробу"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
