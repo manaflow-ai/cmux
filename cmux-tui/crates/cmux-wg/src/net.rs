@@ -263,6 +263,12 @@ impl WgNet {
         self.send_rebind(Rebind::Socket(socket)).await
     }
 
+    /// The device woke from sleep or the network may have changed without a
+    /// new socket: make the session usable again at once.
+    pub async fn refresh(&self) -> Result<(), WgError> {
+        self.send_rebind(Rebind::Keep).await
+    }
+
     async fn send_rebind(&self, rebind: Rebind) -> Result<(), WgError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.commands
@@ -354,6 +360,7 @@ enum Command {
 enum Rebind {
     Underlay(Box<dyn Underlay>),
     Socket(UdpSocket),
+    Keep,
 }
 
 /// How a newly established socket reaches its owner.
@@ -683,12 +690,14 @@ impl Driver {
                 let _ = reply.send(self.tunn.time_since_last_handshake());
             }
             Command::Rebind { rebind, reply } => {
-                self.underlay = match rebind {
-                    Rebind::Underlay(underlay) => underlay,
+                match rebind {
+                    Rebind::Underlay(underlay) => self.underlay = underlay,
                     Rebind::Socket(socket) => {
-                        Box::new(SocketPath::new(socket, self.underlay.peer_hint()))
+                        let peer = self.underlay.peer_hint();
+                        self.underlay = Box::new(SocketPath::new(socket, peer));
                     }
-                };
+                    Rebind::Keep => {}
+                }
                 // An empty packet is a keepalive on a live session, and
                 // queues behind a fresh handshake otherwise.
                 if let TunnResult::WriteToNetwork(packet) =
