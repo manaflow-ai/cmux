@@ -19,8 +19,13 @@ enum DebugLaunchTasks {
 
     static func homeShown(store: HomeStore, window: UIWindow?) {
         #if DEBUG
-        guard ProcessInfo.processInfo.environment["CMUX_IOS_GALLERY"] == "1", let window else { return }
-        GalleryRunner.run(store: store, window: window)
+        guard ProcessInfo.processInfo.environment["CMUX_IOS_GALLERY"] == "1" else { return }
+        Task { @MainActor in
+            await Task.yield()
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            guard let target = window ?? scenes.flatMap(\.windows).first else { return }
+            GalleryRunner.run(store: store, window: target)
+        }
         #endif
     }
 }
