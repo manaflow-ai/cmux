@@ -48,12 +48,9 @@ fn revision(mux: &Arc<Mux>) -> u64 {
     mux.with_state(|state| state.resource_revision)
 }
 
-/// One `column.update` request on the test screen.
-fn update(
-    mux: &Arc<Mux>,
-    fields: serde_json::Value,
-    key: &str,
-) -> Result<serde_json::Value, crate::resource::ResourceError> {
+/// One `column.update` request on the test screen: the response on
+/// success, the error object on a rejected request.
+fn update(mux: &Arc<Mux>, fields: Value, key: &str) -> Result<Value, Value> {
     let mut params = serde_json::json!({
         "machine": "current",
         "session": "current",
@@ -62,15 +59,21 @@ fn update(
     for (name, value) in fields.as_object().unwrap() {
         params[name] = value.clone();
     }
+    send(mux, "column.update", params, key)
+}
+
+fn send(mux: &Arc<Mux>, operation: &str, params: Value, key: &str) -> Result<Value, Value> {
     let request = serde_json::json!({
         "protocol": "cmux.protocol/2",
         "type": "request",
         "id": key,
-        "operation": "column.update",
+        "operation": operation,
         "params": params,
         "idempotency_key": key,
     });
-    crate::resource_router::handle_resource_message(mux, &request.to_string())
+    let response =
+        crate::resource_router::handle_resource_message(mux, &request.to_string()).unwrap();
+    if response["ok"] == false { Err(response["error"].clone()) } else { Ok(response) }
 }
 
 fn flag(edge: StickyEdge, mode: StickyMode) -> Option<ColumnSticky> {
@@ -174,7 +177,7 @@ fn column_update_refuses_to_leave_no_scrolling_column() {
         serde_json::json!({"column": columns[0], "sticky": true, "edge": "left"}),
         "column-last",
     );
-    assert_eq!(rejected.unwrap_err().code, "validation.invalid");
+    assert_eq!(rejected.unwrap_err()["code"], "validation.invalid");
     assert_eq!((flags(&mux), revision(&mux)), before, "a reject changes nothing");
 }
 
@@ -194,7 +197,7 @@ fn column_update_rejects_malformed_requests_without_changes() {
         ),
     ] {
         let error = update(&mux, fields, key).expect_err(key);
-        assert_eq!(error.code, "validation.invalid", "{key}: {error:?}");
+        assert_eq!(error["code"], "validation.invalid", "{key}: {error}");
     }
     assert_eq!((flags(&mux), widths(&mux), revision(&mux)), before);
 }
@@ -284,14 +287,14 @@ fn column_update_enforces_revision_and_idempotency_conflicts() {
         "column-stale",
     )
     .unwrap_err();
-    assert_eq!(stale.code, "revision.conflict", "{stale:?}");
+    assert_eq!(stale["code"], "revision.conflict", "{stale}");
     assert_eq!(flags(&mux), vec![None, None]);
 
     update(&mux, serde_json::json!({"column": columns[1], "sticky": true}), "column-key").unwrap();
     let reused =
         update(&mux, serde_json::json!({"column": columns[1], "width": 0.4}), "column-key")
             .unwrap_err();
-    assert_eq!(reused.code, "idempotency.conflict", "{reused:?}");
+    assert_eq!(reused["code"], "idempotency.conflict", "{reused}");
     assert!((widths(&mux)[1] - 0.4).abs() > 1e-3, "a conflicting reuse changes nothing");
 }
 
@@ -322,23 +325,15 @@ fn column_update_refuses_a_column_of_another_screen() {
     mux.new_pane_right(second_pane, 0.5, Some((38, 22))).unwrap();
     // The request names the first screen's column on the second screen.
     let other_screen = mux.with_state(|state| state.workspaces[0].screens[1].public_id.to_string());
-    let request = serde_json::json!({
-        "protocol": "cmux.protocol/2",
-        "type": "request",
-        "id": "column-other",
-        "operation": "column.update",
-        "params": {
-            "machine": "current",
-            "session": "current",
-            "screen": other_screen,
-            "column": first_columns[1],
-            "sticky": true,
-        },
-        "idempotency_key": "column-other",
+    let params = serde_json::json!({
+        "machine": "current",
+        "session": "current",
+        "screen": other_screen,
+        "column": first_columns[1],
+        "sticky": true,
     });
-    let error =
-        crate::resource_router::handle_resource_message(&mux, &request.to_string()).unwrap_err();
-    assert_eq!(error.code, "validation.invalid", "{error:?}");
+    let error = send(&mux, "column.update", params, "column-other").unwrap_err();
+    assert_eq!(error["code"], "validation.invalid", "{error}");
     assert_eq!(flags(&mux), vec![None, None]);
 }
 
