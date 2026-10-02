@@ -796,6 +796,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-server-core"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "hmac",
+ "proptest",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-sidebar"
 version = "1.0.0"
 dependencies = [
