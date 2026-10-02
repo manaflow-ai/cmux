@@ -18,12 +18,11 @@ public struct InboxRow: Hashable, Sendable, Identifiable {
     public var id: ConversationID { summary.id }
 }
 
-/// Pure derivation and ordering of the conversation list.
-public enum InboxOrdering {
+extension Array where Element == InboxRow {
     /// Pinned first (by rank), then newest activity first. Ties break on id so
     /// the order is total and stable across derivations.
-    public static func ordered(_ rows: [InboxRow]) -> [InboxRow] {
-        rows.sorted { left, right in
+    public func orderedForInbox() -> [InboxRow] {
+        sorted { left, right in
             switch (left.summary.pinRank, right.summary.pinRank) {
             case let (l?, r?) where l != r: return l < r
             case (.some, nil): return true
@@ -35,13 +34,13 @@ public enum InboxOrdering {
         }
     }
 
-    /// Builds rows from the mirror, overlaid with the intent log (pending sends,
-    /// pin/mute and read-cursor intents).
-    public static func rows(
-        mirror: HomeMirror,
-        log: IntentLog,
-        typing: Set<ConversationID> = []
-    ) -> [InboxRow] {
+}
+
+extension HomeMirror {
+    /// The conversation list: the mirror overlaid with the intent log
+    /// (pending sends, pin/mute and read-cursor intents), in inbox order.
+    public func inboxRows(log: IntentLog, typing: Set<ConversationID> = []) -> [InboxRow] {
+        let mirror = self
         guard let me = mirror.me?.id else { return [] }
         var summaries = mirror.conversations
         var pendingSend: [ConversationID: PendingIntent] = [:]
@@ -88,6 +87,6 @@ public enum InboxOrdering {
                 isTyping: typing.contains(summary.id)
             )
         }
-        return ordered(rows)
+        return rows.orderedForInbox()
     }
 }

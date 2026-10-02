@@ -24,13 +24,13 @@ import Testing
         var log = IntentLog()
         let intent = HomeIntent(key: IdempotencyKey("k1"), op: .sendMessage(conversation: conv, parts: [.text("hi")]))
         log.append(intent)
-        let before = TranscriptDerivation.items(window: mirror.windows[conv], pending: log.sends(in: conv), me: me.id)
+        let before = (mirror.windows[conv] ?? TranscriptWindow()).items(pending: log.sends(in: conv), me: me.id)
         #expect(before.map(\.id) == [IdempotencyKey("k1")])
         #expect(before.first?.delivery == .sending)
 
         #expect(mirror.apply(.message(message(1, key: "k1"), rev: 1)) == .applied)
         #expect(log.settle(against: mirror) == [IdempotencyKey("k1")])
-        let after = TranscriptDerivation.items(window: mirror.windows[conv], pending: log.sends(in: conv), me: me.id)
+        let after = (mirror.windows[conv] ?? TranscriptWindow()).items(pending: log.sends(in: conv), me: me.id)
         #expect(after.map(\.id) == [IdempotencyKey("k1")])
         #expect(after.first?.delivery == .committed)
     }
@@ -49,12 +49,12 @@ import Testing
         mirror.apply(inbox: InboxSnapshot(me: me, conversations: [summary()], rev: 4))
         var log = IntentLog()
         log.append(HomeIntent(key: IdempotencyKey("p"), op: .setPinned(conversation: conv, rank: 1)))
-        #expect(InboxOrdering.rows(mirror: mirror, log: log).first?.isPinned == true)
+        #expect(mirror.inboxRows(log: log).first?.isPinned == true)
         log.acknowledge(IdempotencyKey("p"), rev: 5)
         #expect(log.settle(against: mirror).isEmpty)
         mirror.apply(.conversationChanged(summary(pin: 1), stream: .inbox, rev: 5))
         #expect(log.settle(against: mirror) == [IdempotencyKey("p")])
-        #expect(InboxOrdering.rows(mirror: mirror, log: log).first?.isPinned == true)
+        #expect(mirror.inboxRows(log: log).first?.isPinned == true)
     }
 
     @Test func disconnectMarksInFlightUnconfirmedAndReconnectResendsInOrder() {
@@ -79,8 +79,8 @@ import Testing
                             timestamp: s.updatedAt, unread: 0, isPinned: pin != nil, isSending: false,
                             hasFailedSend: false, isTyping: false)
         }
-        let ordered = InboxOrdering.ordered([row("old", pin: nil, at: 1), row("chief", pin: 0, at: 0),
-                                             row("new", pin: nil, at: 9), row("p2", pin: 2, at: 99)])
+        let ordered = [row("old", pin: nil, at: 1), row("chief", pin: 0, at: 0),
+                       row("new", pin: nil, at: 9), row("p2", pin: 2, at: 99)].orderedForInbox()
         #expect(ordered.map(\.title) == ["chief", "p2", "new", "old"])
     }
 

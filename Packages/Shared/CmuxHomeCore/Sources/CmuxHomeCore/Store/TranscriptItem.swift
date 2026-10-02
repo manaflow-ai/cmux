@@ -25,10 +25,10 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
     public var plainText: String { parts.map(\.plainText).joined(separator: "\n") }
 }
 
-public enum TranscriptDerivation {
-    /// Mirror window + pending sends for one conversation, in display order.
-    public static func items(window: TranscriptWindow?, pending: [PendingIntent], me: ParticipantID) -> [TranscriptItem] {
-        var items: [TranscriptItem] = (window?.messages ?? []).map { message in
+extension TranscriptWindow {
+    /// This window + pending sends for its conversation, in display order.
+    public func items(pending: [PendingIntent], me: ParticipantID) -> [TranscriptItem] {
+        var items: [TranscriptItem] = messages.map { message in
             TranscriptItem(
                 key: message.clientMessageID,
                 seq: message.seq,

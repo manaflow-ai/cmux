@@ -56,7 +56,7 @@ public final class HomeStore {
 
     public func transcript(for id: ConversationID) -> [TranscriptItem] {
         guard let me = me?.id else { return [] }
-        return TranscriptDerivation.items(window: mirror.windows[id], pending: log.sends(in: id), me: me)
+        return (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
     }
 
     public func hasOlderMessages(in id: ConversationID) -> Bool {
@@ -221,6 +221,6 @@ public final class HomeStore {
     }
 
     private func rebuildRows() {
-        rows = InboxOrdering.rows(mirror: mirror, log: log, typing: Set(typing.keys))
+        rows = mirror.inboxRows(log: log, typing: Set(typing.keys))
     }
 }
