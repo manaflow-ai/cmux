@@ -32,12 +32,16 @@ struct RefusalHUDTests {
         defer { window.close() }
         let clock = ManualClock()
         let hud = RefusalHUD(clock: clock)
+        let (hidden, signal) = AsyncStream.makeStream(of: Void.self)
+        hud.onHide = { signal.yield() }
         hud.show("refused", in: window)
         await clock.sleepers()
         #expect(hud.message == "refused")
-        // Read before the main-actor hide has run, as the old wall-clock poll
-        // did when a loaded runner held the main actor past its deadline.
+        // The hide hops to the main actor after the deadline; wait for it
+        // rather than reading the message straight after the advance.
         clock.advance(by: hud.lifetime)
+        var iterator = hidden.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
         #expect(hud.message == nil)
     }
 }
