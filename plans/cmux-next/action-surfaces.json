@@ -5602,6 +5602,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-continue-in",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.continueIn",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
       "cli" : "liveInput",
       "cli_name" : "action agent-pane-search-chats",
       "context_menu" : "noTargetSurface",
@@ -5943,6 +5954,28 @@
       "palette" : "offered"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "cloud pause-machine",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudPauseMachine",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud resume-machine",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudResumeMachine",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
       "cli" : "clipboard",
       "cli_name" : "cloud copy-machine-link",
       "context_menu" : "offered",
@@ -5983,6 +6016,17 @@
         "cloudMachine"
       ],
       "id" : "cloudResizeMachine",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud delete-snapshot",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "palette.cloud.deleteSnapshot",
       "mcp" : "offered",
       "palette" : "offered"
     },
@@ -6644,6 +6688,17 @@
       ],
       "id" : "appearance.titlebar.standard",
       "mcp" : "systemChange",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "settings customize-appearance",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "appearance.customize",
+      "mcp" : "guiOnly",
       "palette" : "offered"
     },
     {

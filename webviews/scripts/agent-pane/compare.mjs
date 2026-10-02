@@ -76,7 +76,9 @@ const option = (name) => {
   return value;
 };
 const referenceRoot = path.resolve(
-  option("reference") ?? process.env.CMUX_AGENT_PANE_REFERENCE ?? path.join(os.homedir(), "Projects/agent-pane-reference"),
+  option("reference") ??
+    process.env.CMUX_AGENT_PANE_REFERENCE ??
+    path.join(os.homedir(), "Projects/agent-pane-reference"),
 );
 const outRoot = path.resolve(option("out") ?? path.join(os.tmpdir(), "cmux-agent-pane-compare"));
 const themeName = option("theme");
