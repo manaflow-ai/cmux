@@ -13,7 +13,7 @@ import Testing
 /// (the File-menu item's visibility, shown exactly when plain New Workspace
 /// would go remote), `performNewLocalWorkspaceAction` (forced-local creation
 /// that must produce a plain local workspace even on an active mirror), and
-/// the ⌃⌘N default's alignment across both shortcut catalogs.
+/// the ⌃⌥⌘N default's alignment across both shortcut catalogs.
 ///
 /// SSH never leaves the process: env-pinned stub for the whole test body
 /// (including deferred `detach`, whose last-mirror teardown spawns
@@ -157,21 +157,62 @@ struct RemoteTmuxNewWorkspaceRoutingTests {
         }
     }
 
-    /// The ⌃⌘N default must agree between the app catalog (dispatch) and the
-    /// CmuxSettings catalog (settings UI, conflict detection, config bindings).
+    /// The ⌃⌥⌘N default must agree between the app catalog (dispatch) and the
+    /// settings catalog (what the Keyboard Shortcuts pane shows and edits).
     @Test func defaultShortcutAlignsAcrossCatalogs() {
         let appDefault = KeyboardShortcutSettings.Action.newLocalWorkspace.defaultShortcut
         #expect(appDefault.key == "n")
         #expect(appDefault.command)
         #expect(appDefault.control)
-        #expect(!appDefault.option)
+        #expect(appDefault.option)
         #expect(!appDefault.shift)
 
         let settingsDefault = ShortcutAction.newLocalWorkspace.defaultStroke
         #expect(settingsDefault?.key == "n")
         #expect(settingsDefault?.command == true)
         #expect(settingsDefault?.control == true)
-        #expect(settingsDefault?.option != true)
+        #expect(settingsDefault?.option == true)
         #expect(settingsDefault?.shift != true)
+    }
+
+    /// New Local Workspace is dispatched before New Pane (Auto Layout), so a shared
+    /// default would make the pane action unreachable. No other action may default
+    /// to New Local Workspace's keystroke, in either catalog.
+    @Test func noOtherActionSharesTheDefault() {
+        let appDefault = KeyboardShortcutSettings.Action.newLocalWorkspace.defaultShortcut
+        let appClashes = KeyboardShortcutSettings.Action.allCases.filter {
+            $0 != .newLocalWorkspace && $0.defaultShortcut == appDefault
+        }
+        #expect(appClashes.isEmpty, "app catalog: \(appClashes)")
+        #expect(KeyboardShortcutSettings.Action.newPaneAutoLayout.defaultShortcut != appDefault)
+
+        let settingsDefault = ShortcutAction.newLocalWorkspace.defaultStroke
+        let settingsClashes = ShortcutAction.allCases.filter {
+            $0 != .newLocalWorkspace && $0.defaultStroke == settingsDefault
+        }
+        #expect(settingsClashes.isEmpty, "settings catalog: \(settingsClashes)")
+    }
+
+    /// At factory defaults each keystroke reaches its own action: ⌃⌘N is New Pane
+    /// (Auto Layout) and not New Local Workspace, and ⌃⌥⌘N is the reverse.
+    @Test func eachDefaultKeystrokeMatchesOnlyItsOwnAction() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+            let appDelegate = try #require(AppDelegate.shared)
+            func keyDown(_ flags: NSEvent.ModifierFlags) throws -> NSEvent {
+                try #require(NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                    windowNumber: 0, context: nil, characters: "n",
+                    charactersIgnoringModifiers: "n", isARepeat: false, keyCode: 45
+                ))
+            }
+            let controlCommandN = try keyDown([.control, .command])
+            #expect(appDelegate.matchConfiguredShortcut(event: controlCommandN, action: .newPaneAutoLayout))
+            #expect(!appDelegate.matchConfiguredShortcut(event: controlCommandN, action: .newLocalWorkspace))
+
+            let controlOptionCommandN = try keyDown([.control, .option, .command])
+            #expect(appDelegate.matchConfiguredShortcut(event: controlOptionCommandN, action: .newLocalWorkspace))
+            #expect(!appDelegate.matchConfiguredShortcut(event: controlOptionCommandN, action: .newPaneAutoLayout))
+        }
     }
 }
