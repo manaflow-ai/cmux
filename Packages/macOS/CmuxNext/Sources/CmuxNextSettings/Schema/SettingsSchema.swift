@@ -309,6 +309,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(StatusIndicatorStyle.arc.rawValue, SettingsText.text("settings.choice.thinArc", "Thin Arc")),
                     SettingChoice(StatusIndicatorStyle.native.rawValue, SettingsText.text("settings.choice.macSpinner", "macOS Spinner")),
                     SettingChoice(StatusIndicatorStyle.dot.rawValue, SettingsText.text("settings.choice.pulsingDot", "Pulsing Dot")),
+                    SettingChoice(StatusIndicatorStyle.braille.rawValue, SettingsText.text("settings.choice.brailleSpinner", "Braille Spinner")),
                     SettingChoice(StatusIndicatorStyle.none.rawValue, SettingsText.text("settings.choice.none", "None")),
                 ]),
                 default: .string(defaults.style.rawValue), keywords: ["spinner", "progress", "loading", "busy"]
