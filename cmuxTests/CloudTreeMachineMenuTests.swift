@@ -151,7 +151,7 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.commands.map { $0.id } == [Self.machineID])
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
         try Self.choose(Self.title("machines.menu.delete", "Delete\u{2026}"), in: menu)
-        #expect(recorder.deletions == [Self.machineID])
+        #expect(recorder.deletions.map { [$0.id, $0.name] } == [[Self.machineID, "Big Machine"]])
         #expect(recorder.pinChanges.count == 1)
         #expect(recorder.pinChanges.first?.0 == Self.machineID)
         #expect(recorder.pinChanges.first?.1 == true)
@@ -829,7 +829,7 @@ struct CloudTreeMachineMenuTests {
             openShell: { _ in },
             openDesktop: { _ in },
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
-            confirmDelete: { recorder.deletions.append($0) },
+            confirmDelete: { recorder.deletions.append((id: $0.id, name: $0.displayName)) },
             promptRename: { id, label in recorder.renamedMachines.append((id, label ?? "")) },
             resizeDisk: { id, gib in recorder.resizes.append((id, gib)) },
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
@@ -879,7 +879,7 @@ struct CloudTreeMachineMenuTests {
 private final class CloudTreeMenuVerbRecorder {
     var newTerminals: [SurfaceMachineID] = []
     var commands: [(id: String, verb: [String])] = []
-    var deletions: [String] = []
+    var deletions: [(id: String, name: String)] = []
     var projectRemoteViewCount = 0
     var ownerNavigations: [(machine: SurfaceMachineID, group: SurfaceResourceGroup, resource: SurfaceResourceID, view: SurfaceRemoteView?, openIn: UUID?)] = []
     var openWorkspaces: [(machine: SurfaceMachineID, workspace: SurfaceRemoteWorkspace, group: SurfaceResourceGroup)] = []

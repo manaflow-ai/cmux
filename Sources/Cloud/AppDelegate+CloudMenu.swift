@@ -56,7 +56,7 @@ extension AppDelegate {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
             },
-            confirmDelete: { id in _ = window(); rowActions.confirmDelete(id) },
+            confirmDelete: { machine in _ = window(); rowActions.confirmDelete(machine) },
             promptUpgrade: { _ = window(); rowActions.promptUpgrade() }
         )
         return CloudMenuActions(
