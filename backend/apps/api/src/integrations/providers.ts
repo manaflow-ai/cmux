@@ -19,11 +19,21 @@ export interface Approved {
   readonly account: { readonly key: string; readonly name: string; readonly url?: string }
   readonly scopes_granted: ReadonlyArray<string>
   readonly credential: Credential
+  readonly resources?: { readonly repos: ReadonlyArray<string> | null }
 }
+
+/** The parts of the team integration policy a provider needs while linking. */
+export interface LinkPolicy {
+  readonly githubScope: "linking_user_repos" | "installation"
+  readonly requireOrgAdmin: boolean
+}
+
+/** Repositories recorded per GitHub connection; a larger installation links with installation scope only. */
+export const MAX_LINKED_REPOS = 1000
 
 export class ProviderError extends Error {
   constructor(
-    readonly code: "provider.error" | "integration.unavailable" | "integration.state_invalid" | "needs_reauth" | "mutation.indeterminate",
+    readonly code: "provider.error" | "integration.unavailable" | "integration.state_invalid" | "needs_reauth" | "mutation.indeterminate" | "policy.denied",
     message: string,
     readonly retryable = false
   ) {
@@ -39,7 +49,7 @@ export interface ProviderImpl {
   readonly configured: (env: Env) => boolean
   readonly defaultScopes: ReadonlyArray<string>
   readonly authorizeUrl: (env: Env, state: string, scopes: ReadonlyArray<string>, redirectUri: string) => string
-  readonly complete: (env: Env, http: Http, p: { code?: string; installation_id?: string; redirectUri: string }) => Promise<Approved>
+  readonly complete: (env: Env, http: Http, p: { code?: string; installation_id?: string; redirectUri: string; policy: LinkPolicy }) => Promise<Approved>
   readonly call: (env: Env, http: Http, credential: Credential, op: string, params: Record<string, unknown>) => Promise<CallResult>
   /**
    * A fresh credential when this one is (about to be) expired, else undefined.
@@ -129,15 +139,44 @@ export const github: ProviderImpl = {
     )
     const t = await json(tok)
     if (!tok.ok || typeof t.access_token !== "string") throw new ProviderError("integration.state_invalid", "GitHub code exchange failed")
-    const res = await http(new Request(`${GH_API}/user/installations?per_page=100`, { headers: ghHeaders(t.access_token) }))
+    const userToken = t.access_token
+    const res = await http(new Request(`${GH_API}/user/installations?per_page=100`, { headers: ghHeaders(userToken) }))
     if (!res.ok) throw failed("github", res, "installation check")
-    const list = ((await json(res)).installations ?? []) as Array<{ id: number; account?: { login?: string; html_url?: string }; permissions?: Record<string, string> }>
+    const list = ((await json(res)).installations ?? []) as Array<{ id: number; account?: { login?: string; type?: string; html_url?: string }; permissions?: Record<string, string> }>
     const inst = list.find((i) => i.id === installation)
     if (!inst) throw new ProviderError("integration.state_invalid", "this GitHub user cannot access that installation")
+    const login = inst.account?.login ?? ""
+
+    if (p.policy.requireOrgAdmin) {
+      if (inst.account?.type === "Organization") {
+        // Needs the App's organization permission "Members: read".
+        const m = await http(new Request(`${GH_API}/user/memberships/orgs/${encodeURIComponent(login)}`, { headers: ghHeaders(userToken) }))
+        const mb = await json(m)
+        if (!m.ok || mb.state !== "active" || mb.role !== "admin") throw new ProviderError("integration.state_invalid", `the team policy requires a ${login} organization admin to link GitHub`)
+      } else {
+        const me = await json(await http(new Request(`${GH_API}/user`, { headers: ghHeaders(userToken) })))
+        if (String(me.login ?? "").toLowerCase() !== login.toLowerCase()) throw new ProviderError("integration.state_invalid", "the team policy requires the account owner to link GitHub")
+      }
+    }
+
+    // The repositories this user can reach through the installation bound what the connection may do.
+    let repos: Array<string> | null = null
+    if (p.policy.githubScope === "linking_user_repos") {
+      repos = []
+      for (let page = 1; page <= MAX_LINKED_REPOS / 100; page++) {
+        const r = await http(new Request(`${GH_API}/user/installations/${installation}/repositories?per_page=100&page=${page}`, { headers: ghHeaders(userToken) }))
+        if (!r.ok) throw failed("github", r, "repository list")
+        const batch = ((await json(r)).repositories ?? []) as Array<{ full_name?: string }>
+        for (const x of batch) if (typeof x.full_name === "string") repos.push(x.full_name)
+        if (batch.length < 100) break
+      }
+      repos.sort()
+    }
     return {
-      account: { key: `github:installation:${installation}`, name: inst.account?.login ?? String(installation), ...(inst.account?.html_url ? { url: inst.account.html_url } : {}) },
+      account: { key: `github:installation:${installation}`, name: login || String(installation), ...(inst.account?.html_url ? { url: inst.account.html_url } : {}) },
       scopes_granted: Object.entries(inst.permissions ?? {}).map(([k, v]) => `${k}:${v}`).sort(),
-      credential: { kind: "github_installation", installation_id: installation }
+      credential: { kind: "github_installation", installation_id: installation },
+      resources: { repos }
     }
   },
   call: async (env, http, credential, op, params) => {

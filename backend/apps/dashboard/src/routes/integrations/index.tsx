@@ -16,6 +16,12 @@ interface Connection {
   sharing: "private" | "team"
   created_at: number
 }
+interface Policy {
+  allowed_providers: Array<string> | null
+  github: { scope: "linking_user_repos" | "installation"; require_org_admin: boolean; repo_allowlist: Array<string> | null }
+  source: string
+  locked: boolean
+}
 interface Listing {
   connections: Array<Connection>
   providers: Array<{ provider: Connection["provider"]; configured: boolean }>
@@ -26,12 +32,12 @@ const LABEL: Record<Connection["provider"], string> = { github: "GitHub App", li
 function Integrations() {
   const signedIn = useSignedIn()
   const [error, setError] = useState<string | null>(null)
-  const list = useLoad<Listing>(signedIn ? "integrations" : null, async () => {
+  const list = useLoad<Listing & { policy: Policy | null }>(signedIn ? "integrations" : null, async () => {
     const e = await mutate({ data: { op: "user.ensure", params: {}, idempotency_key: newKey() } })
     if (e.status === 401) setSignedIn(false)
-    const r = await read({ data: { op: "integration.list", params: {} } })
+    const [r, p] = await Promise.all([read({ data: { op: "integration.list", params: {} } }), read({ data: { op: "integration.policy.get", params: {} } })])
     if (r.status !== 200) throw new Error(`integration.list failed: ${r.status}`)
-    return r.body.value as unknown as Listing
+    return { ...(r.body.value as unknown as Listing), policy: p.status === 200 ? (p.body.value as unknown as Policy) : null }
   })
   if (signedIn === false)
     return (
@@ -56,6 +62,13 @@ function Integrations() {
     list.reload()
   }
 
+  const setPolicy = async (github: Partial<Policy["github"]>) => {
+    const r = await mutate({ data: { op: "integration.policy.set", params: { github }, idempotency_key: newKey() } })
+    if (!r.body.ok) setError(`${r.body.error?.code}: ${r.body.error?.message}`)
+    list.reload()
+  }
+  const policy = list.data?.policy
+
   return (
     <>
       <h2>Integrations</h2>
@@ -70,6 +83,31 @@ function Integrations() {
           </button>
         ))}
       </div>
+      {policy ? (
+        <div className="card">
+          <strong>GitHub policy</strong> <span className="muted">({policy.locked ? `managed by ${policy.source}` : policy.source})</span>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+            <select disabled={policy.locked} value={policy.github.scope} onChange={(e) => void setPolicy({ scope: e.target.value as Policy["github"]["scope"] })}>
+              <option value="linking_user_repos">Repositories the linking person can access</option>
+              <option value="installation">Every repository in the installation</option>
+            </select>
+            <label>
+              <input type="checkbox" disabled={policy.locked} checked={policy.github.require_org_admin} onChange={(e) => void setPolicy({ require_org_admin: e.target.checked })} /> Only organization admins may link
+            </label>
+            <input
+              disabled={policy.locked}
+              className="mono"
+              style={{ minWidth: 260 }}
+              placeholder="Allowed repositories: owner/repo, owner/*"
+              defaultValue={policy.github.repo_allowlist?.join(", ") ?? ""}
+              onBlur={(e) => {
+                const v = e.target.value.split(",").map((x) => x.trim()).filter(Boolean)
+                void setPolicy({ repo_allowlist: v.length > 0 ? v : null })
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
       <div className="card">
         <table>
           <thead>

@@ -66,19 +66,34 @@ describe("credential envelope", () => {
 
 describe("provider clients (fake HTTP)", () => {
   const e = testEnv as any
-  it("GitHub: proves the user can access the installation before linking it", async () => {
-    const good = fakeHttp({
+  const userScope = { githubScope: "linking_user_repos" as const, requireOrgAdmin: false }
+  const ghLink = (opts: { installations?: unknown; role?: string; repos?: Array<string> } = {}) =>
+    fakeHttp({
       "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
-      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 42, account: { login: "manaflow-ai", html_url: "https://github.com/manaflow-ai" }, permissions: { issues: "write" } }] })
+      "https://api.github.com/user/installations/42/repositories": () => ok({ repositories: (opts.repos ?? ["manaflow-ai/cmux"]).map((full_name) => ({ full_name })) }),
+      "https://api.github.com/user/installations": () =>
+        ok(opts.installations ?? { installations: [{ id: 42, account: { login: "manaflow-ai", type: "Organization", html_url: "https://github.com/manaflow-ai" }, permissions: { issues: "write" } }] }),
+      "https://api.github.com/user/memberships/orgs/manaflow-ai": () => ok({ state: "active", role: opts.role ?? "member" })
     })
-    const r = await github.complete(e, good.http, { code: "c", installation_id: "42", redirectUri: "x" })
-    expect(r).toMatchObject({ account: { key: "github:installation:42", name: "manaflow-ai" }, scopes_granted: ["issues:write"], credential: { kind: "github_installation", installation_id: 42 } })
-    const foreign = fakeHttp({
-      "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
-      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 7 }] })
+
+  it("GitHub: proves the user can access the installation and records only the user's repositories", async () => {
+    const r = await github.complete(e, ghLink({ repos: ["manaflow-ai/cmux", "manaflow-ai/hq"] }).http, { code: "c", installation_id: "42", redirectUri: "x", policy: userScope })
+    expect(r).toMatchObject({
+      account: { key: "github:installation:42", name: "manaflow-ai" },
+      scopes_granted: ["issues:write"],
+      credential: { kind: "github_installation", installation_id: 42 },
+      resources: { repos: ["manaflow-ai/cmux", "manaflow-ai/hq"] }
     })
-    await expect(github.complete(e, foreign.http, { code: "c", installation_id: "42", redirectUri: "x" })).rejects.toThrow(/cannot access/)
-    await expect(github.complete(e, good.http, { installation_id: "42", redirectUri: "x" })).rejects.toThrow(/no installation_id or code/)
+    const whole = await github.complete(e, ghLink().http, { code: "c", installation_id: "42", redirectUri: "x", policy: { githubScope: "installation", requireOrgAdmin: false } })
+    expect(whole.resources).toEqual({ repos: null })
+    await expect(github.complete(e, ghLink({ installations: { installations: [{ id: 7 }] } }).http, { code: "c", installation_id: "42", redirectUri: "x", policy: userScope })).rejects.toThrow(/cannot access/)
+    await expect(github.complete(e, ghLink().http, { installation_id: "42", redirectUri: "x", policy: userScope })).rejects.toThrow(/no installation_id or code/)
+  })
+
+  it("GitHub: require_org_admin refuses a member and accepts an admin", async () => {
+    const policy = { githubScope: "linking_user_repos" as const, requireOrgAdmin: true }
+    await expect(github.complete(e, ghLink({ role: "member" }).http, { code: "c", installation_id: "42", redirectUri: "x", policy })).rejects.toThrow(/organization admin/)
+    expect((await github.complete(e, ghLink({ role: "admin" }).http, { code: "c", installation_id: "42", redirectUri: "x", policy })).account.key).toBe("github:installation:42")
   })
 
   it("GitHub: comments with a minted installation token signed by the App key", async () => {
@@ -255,6 +270,69 @@ describe("connections end to end (workerd)", () => {
     // The key stays decided: a retry replays the indeterminate answer instead of creating a second issue.
     const retry = await op(token, "linear.issue.create", params, "lin-5xx")
     expect(retry.json).toMatchObject({ ok: false, replayed: true, error: { code: "mutation.indeterminate" } })
+  })
+
+  it("GitHub team policy: ops and webhooks stay inside the linking user's repositories and the allowlist; managed policies lock", async () => {
+    const { token, team } = await signedIn("conn-gh-1")
+    const connect = await op(token, "integration.connect", { provider: "github", sharing: "team" })
+    const conn = connect.json.value.connection.id as string
+    const url = new URL(connect.json.value.authorize_url)
+    expect(url.origin + url.pathname).toBe("https://github.com/apps/cmux-test/installations/new")
+    const state = url.searchParams.get("state")!
+    const posts: Array<string> = []
+    const fake = fakeHttp({
+      "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
+      "https://api.github.com/user/installations/99/repositories": () => ok({ repositories: [{ full_name: "acme/web" }, { full_name: "acme/api" }] }),
+      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 99, account: { login: "acme", type: "Organization" }, permissions: { issues: "write" } }] }),
+      "https://api.github.com/app/installations/99/access_tokens": () => ok({ token: "ghs_x", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
+      "https://api.github.com/repos/": (req) => {
+        posts.push(new URL(req.url).pathname)
+        return ok({ id: 1, html_url: "https://github.com/c" }, 201)
+      }
+    })
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+    await inDO(connections, async (instance) => {
+      instance.http = fake.http
+    })
+    const done = await op(token, "integration.complete", { state, code: "c", installation_id: "99", setup_action: "install" })
+    expect(done.json).toMatchObject({ ok: true, value: { status: "active", resources: { repos: ["acme/api", "acme/web"] } } })
+
+    expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/web", issue: 1, body: "hi" })).json.ok).toBe(true)
+    const outside = await op(token, "github.issue.comment", { connection: conn, repo: "acme/secret", issue: 1, body: "hi" })
+    expect(outside.json).toMatchObject({ ok: false, error: { code: "policy.denied" } })
+
+    // The allowlist narrows further at call time.
+    const set = await op(token, "integration.policy.set", { github: { repo_allowlist: ["acme/api"] } })
+    expect(set.json.value).toMatchObject({ source: "admin", locked: false, github: { scope: "linking_user_repos", repo_allowlist: ["acme/api"] } })
+    expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/web", issue: 2, body: "hi" })).json.error.code).toBe("policy.denied")
+    expect(posts).toEqual(["/repos/acme/web/issues/1/comments"])
+
+    // Webhooks from repositories outside the scope start nothing.
+    const auto = await op(token, "automation.create", { name: "on push", triggers: [{ type: "event", source: "integration", connection: conn, event: "push" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } })
+    const ghHook = async (repo: string) => {
+      const body = JSON.stringify({ installation: { id: 99 }, repository: { full_name: repo }, after: crypto.randomUUID() })
+      const res = await worker.fetch("https://api.test/v1/hooks/github", {
+        method: "POST",
+        headers: { "x-hub-signature-256": `sha256=${await hmac(testEnv.GITHUB_WEBHOOK_SECRET, body)}`, "x-github-delivery": crypto.randomUUID(), "x-github-event": "push" },
+        body
+      })
+      return (await res.json()) as any
+    }
+    expect((await ghHook("acme/api")).runs).toBe(1)
+    expect((await ghHook("acme/web")).runs).toBe(0)
+    expect((await ghHook("other/repo")).runs).toBe(0)
+    expect((await read(token, "automation.runs.list", { automation: auto.json.value.id })).json.value.runs).toHaveLength(1)
+
+    // An MDM-managed policy replaces and locks the admin policy.
+    await inDO(connections, async (instance) => {
+      instance.submitSystem("integration.policy.apply_managed", { source: "mdm", policy: { allowed_providers: ["github"], github: { require_org_admin: true } }, applied_by: "mdm-profile-1" }, "mdm-1")
+    })
+    const got = await read(token, "integration.policy.get")
+    expect(got.json.value).toMatchObject({ source: "mdm", locked: true, allowed_providers: ["github"], github: { require_org_admin: true, repo_allowlist: null } })
+    expect((await op(token, "integration.policy.set", { github: { repo_allowlist: null } })).json.error.code).toBe("policy.locked")
+    expect((await op(token, "integration.connect", { provider: "slack" })).json.error.code).toBe("policy.denied")
+    // Managed sources cannot be claimed over the API.
+    expect((await op(token, "integration.policy.apply_managed", { source: "sso", policy: {}, applied_by: "me" })).status).toBe(400)
   })
 
   it("refuses forged provider webhooks and answers Slack URL verification", async () => {
