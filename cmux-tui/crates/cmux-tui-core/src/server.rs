@@ -17027,7 +17027,7 @@ mod tests {
         assert!(!unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY))));
     }
 
-    fn test_mux() -> Arc<Mux> {
+    pub(super) fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
@@ -17080,7 +17080,7 @@ mod tests {
         )
     }
 
-    fn test_writer() -> MessageWriter {
+    pub(super) fn test_writer() -> MessageWriter {
         MessageWriter::new(QueuedSink {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
@@ -28180,51 +28180,8 @@ mod tests {
             })
         );
     }
-
-    #[test]
-    fn scroll_surface_emits_one_scroll_changed_event() {
-        let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
-        surface
-            .try_with_terminal(|term| {
-                for i in 0..20 {
-                    term.vt_write(format!("line{i}\r\n").as_bytes());
-                }
-            })
-            .unwrap();
-        let shared_scrollbar = surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap();
-        let view_scrollbar = surface.view_scrollbar().unwrap();
-        let events = mux.subscribe();
-
-        handle_command(
-            &mux,
-            0,
-            Command::ScrollSurface { surface: surface.id, delta: -5 },
-            &test_writer(),
-        )
-        .unwrap();
-
-        let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(matches!(
-            event,
-            MuxEvent::ScrollChanged { surface: id, offset, at_bottom: false }
-                if id == surface.id && offset > 0
-        ));
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-        assert_eq!(
-            surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap(),
-            shared_scrollbar,
-            "a backend view scroll must not mutate the shared terminal runtime"
-        );
-        assert_ne!(surface.view_scrollbar().unwrap(), view_scrollbar);
-
-        handle_command(
-            &mux,
-            0,
-            Command::ScrollSurface { surface: surface.id, delta: 0 },
-            &test_writer(),
-        )
-        .unwrap();
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-    }
 }
+
+#[cfg(test)]
+#[path = "server/scroll_surface_tests.rs"]
+mod scroll_surface_tests;
