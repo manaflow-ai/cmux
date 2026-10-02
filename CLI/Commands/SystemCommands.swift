@@ -630,6 +630,13 @@ struct SidebarCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "sidebar", helpNames: [])
 }
 
+struct PullRequestCommand: SharedLegacyFacadeCommand {
+    @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
+    @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "pr", helpNames: [])
+}
+
 struct RightSidebarCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?

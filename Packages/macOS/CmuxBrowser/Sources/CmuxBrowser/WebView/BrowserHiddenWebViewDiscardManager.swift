@@ -21,77 +21,8 @@ public protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
 
 @MainActor
 public final class BrowserHiddenWebViewDiscardManager {
-    public static let systemMemoryPressureReason = "system_memory_pressure"
-
-    public struct BlockerSnapshot {
-        public let isClosing: Bool
-        public let isVisibleInUI: Bool
-        public let shouldRenderWebView: Bool
-        public let hasPendingRemoteNavigation: Bool
-        public let hasCurrentURL: Bool
-        public let isLoading: Bool
-        public let webViewIsLoading: Bool
-        public let hasActiveMainFrameProvisionalNavigation: Bool
-        public let hasRecoverableWebContentTermination: Bool
-        public let isDownloading: Bool
-        public let activeDownloadCount: Int
-        public let preferredDeveloperToolsVisible: Bool
-        public let isDeveloperToolsVisible: Bool
-        public let isElementFullscreenActive: Bool
-        public let isReactGrabActive: Bool
-        public var isDesignModeActive = false
-        public let isVisualAutomationCaptureActive: Bool
-        public let isMobileBrowserStreamActive: Bool
-        public let hasPopups: Bool
-        public let isCapturingMedia: Bool
-        public let isPlayingMedia: Bool
-
-        public init(
-            isClosing: Bool,
-            isVisibleInUI: Bool,
-            shouldRenderWebView: Bool,
-            hasPendingRemoteNavigation: Bool,
-            hasCurrentURL: Bool,
-            isLoading: Bool,
-            webViewIsLoading: Bool,
-            hasActiveMainFrameProvisionalNavigation: Bool,
-            hasRecoverableWebContentTermination: Bool = false,
-            isDownloading: Bool,
-            activeDownloadCount: Int,
-            preferredDeveloperToolsVisible: Bool,
-            isDeveloperToolsVisible: Bool,
-            isElementFullscreenActive: Bool,
-            isReactGrabActive: Bool,
-            isDesignModeActive: Bool = false,
-            isVisualAutomationCaptureActive: Bool,
-            isMobileBrowserStreamActive: Bool = false,
-            hasPopups: Bool,
-            isCapturingMedia: Bool,
-            isPlayingMedia: Bool
-        ) {
-            self.isClosing = isClosing
-            self.isVisibleInUI = isVisibleInUI
-            self.shouldRenderWebView = shouldRenderWebView
-            self.hasPendingRemoteNavigation = hasPendingRemoteNavigation
-            self.hasCurrentURL = hasCurrentURL
-            self.isLoading = isLoading
-            self.webViewIsLoading = webViewIsLoading
-            self.hasActiveMainFrameProvisionalNavigation = hasActiveMainFrameProvisionalNavigation
-            self.hasRecoverableWebContentTermination = hasRecoverableWebContentTermination
-            self.isDownloading = isDownloading
-            self.activeDownloadCount = activeDownloadCount
-            self.preferredDeveloperToolsVisible = preferredDeveloperToolsVisible
-            self.isDeveloperToolsVisible = isDeveloperToolsVisible
-            self.isElementFullscreenActive = isElementFullscreenActive
-            self.isReactGrabActive = isReactGrabActive
-            self.isDesignModeActive = isDesignModeActive
-            self.isVisualAutomationCaptureActive = isVisualAutomationCaptureActive
-            self.isMobileBrowserStreamActive = isMobileBrowserStreamActive
-            self.hasPopups = hasPopups
-            self.isCapturingMedia = isCapturingMedia
-            self.isPlayingMedia = isPlayingMedia
-        }
-    }
+    public nonisolated static let systemMemoryPressureReason = "system_memory_pressure"
+    public nonisolated static let memoryBudgetReason = "hidden_memory_budget"
 
     public weak var delegate: (any BrowserHiddenWebViewDiscardManagerDelegate)?
 
@@ -120,22 +51,50 @@ public final class BrowserHiddenWebViewDiscardManager {
     public private(set) var lastRestoreReason: String?
     public private(set) var restoredSessionShouldRenderWebView: Bool?
     public private(set) var isRestoreNavigationPending: Bool = false
+    /// Whether the discarded page is a relaunched pane's first load, which
+    /// was deferred until the pane is shown rather than unloaded to save
+    /// memory.
+    public private(set) var isDeferredFirstLoad = false
+
+    /// A per-pane pin that keeps the page live while hidden, even under
+    /// system memory pressure.
+    public var keepsPageActive = false {
+        didSet {
+            guard keepsPageActive != oldValue else { return }
+            delegate?.hiddenWebViewDiscardManagerPolicyDidChange(self, reason: "keep_active_changed")
+        }
+    }
+
+    /// Whether a page unloaded to save memory waits for the user to restore
+    /// it instead of restoring when its pane is shown.
+    public var waitsForManualRestore: Bool {
+        isDiscardedForMemory && !isRestoreNavigationPending && !isDeferredFirstLoad
+            && !BrowserHiddenWebViewDiscardPolicy.autoRestoresUnloadedPages(defaults: policyDefaults)
+    }
 
     public var hasScheduledDiscard: Bool {
         discardTimer != nil
     }
 
+    /// Whether hidden web views may be discarded at all under the current
+    /// settings. Panes skip discard-only preparation when it is off.
+    public var isPolicyEnabled: Bool {
+        BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: policyDefaults)
+    }
+
     public func blockers(
         for snapshot: BlockerSnapshot,
         now: Date = Date(),
-        allowingRecoverableWebContentTermination: Bool = false
+        urgency: BrowserHiddenWebViewDiscardUrgency = .routine
     ) -> [String] {
         var blockers: [String] = []
         if !BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: policyDefaults) {
             blockers.append("policy_disabled")
         }
+        if keepsPageActive { blockers.append("keep_active") }
         if isSystemSleeping { blockers.append("system_sleeping") }
-        if snapshot.hasRecoverableWebContentTermination && !allowingRecoverableWebContentTermination {
+        let isUnderPressure = urgency == .systemMemoryPressure
+        if snapshot.hasRecoverableWebContentTermination && !isUnderPressure {
             blockers.append("webcontent_recovery")
         }
         if snapshot.isClosing { blockers.append("closing") }
@@ -144,8 +103,7 @@ public final class BrowserHiddenWebViewDiscardManager {
         if !snapshot.shouldRenderWebView { blockers.append("not_rendered") }
         if snapshot.hasPendingRemoteNavigation { blockers.append("pending_remote_navigation") }
         if !snapshot.hasCurrentURL { blockers.append("no_url") }
-        let allowsRecoverableDiscard = snapshot.hasRecoverableWebContentTermination &&
-            allowingRecoverableWebContentTermination
+        let allowsRecoverableDiscard = snapshot.hasRecoverableWebContentTermination && isUnderPressure
         if (snapshot.isLoading || snapshot.webViewIsLoading) && !allowsRecoverableDiscard {
             blockers.append("loading")
         }
@@ -153,6 +111,8 @@ public final class BrowserHiddenWebViewDiscardManager {
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
         if snapshot.isCapturingMedia { blockers.append("media_capture") }
         if snapshot.isPlayingMedia { blockers.append("media_playback") }
+        if snapshot.isPictureInPictureActive { blockers.append("picture_in_picture") }
+        if snapshot.hasUnrestorableFormInput && !isUnderPressure { blockers.append("form_input") }
         if snapshot.preferredDeveloperToolsVisible || snapshot.isDeveloperToolsVisible {
             blockers.append("developer_tools")
         }
@@ -168,18 +128,32 @@ public final class BrowserHiddenWebViewDiscardManager {
     public func scheduleIfNeeded(
         reason: String,
         now: Date = Date(),
-        allowingRecoverableWebContentTermination: Bool = false
+        urgency: BrowserHiddenWebViewDiscardUrgency = .routine
+    ) {
+        // Under the memory budget, hidden time alone never discards a pane;
+        // the budget coordinator picks the pane hidden longest.
+        guard BrowserHiddenWebViewDiscardPolicy.mode(defaults: policyDefaults) == .timer else {
+            cancel()
+            return
+        }
+        armDiscardCountdown(reason: reason, now: now, urgency: urgency)
+    }
+
+    /// Discards the pane once it has been hidden for the delay, counted from
+    /// when it was hidden or the system last woke, whichever is later.
+    private func armDiscardCountdown(
+        reason: String,
+        now: Date,
+        urgency: BrowserHiddenWebViewDiscardUrgency
     ) {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
 
         guard let delegate else { return }
-        guard blockers(
-            for: delegate.hiddenWebViewDiscardSnapshot,
-            now: now,
-            allowingRecoverableWebContentTermination: allowingRecoverableWebContentTermination
-        ).isEmpty else { return }
+        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now, urgency: urgency).isEmpty else {
+            return
+        }
 
         let observedWebViewInstanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
         let generation = scheduleGeneration
@@ -218,27 +192,24 @@ public final class BrowserHiddenWebViewDiscardManager {
     @discardableResult
     public func requestImmediateDiscardIfSafe(reason: String, now: Date = Date()) -> Bool {
         guard let delegate else { return false }
-        let allowsRecoverableWebContentTermination = reason == Self.systemMemoryPressureReason
-        guard blockers(
-            for: delegate.hiddenWebViewDiscardSnapshot,
-            now: now,
-            allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
-        ).isEmpty else { return false }
+        let urgency = BrowserHiddenWebViewDiscardUrgency(reason: reason)
+        if urgency != .systemMemoryPressure,
+           BrowserHiddenWebViewDiscardPolicy.mode(defaults: policyDefaults) != .timer {
+            return false
+        }
+        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now, urgency: urgency).isEmpty else {
+            return false
+        }
+        // A deferred pressure discard arms a countdown in either mode. Routine
+        // rescheduling may replace it; the monitor asks again on every sample
+        // while pressure lasts.
         guard delegate.hiddenWebViewDiscardHiddenAt != nil else {
-            scheduleIfNeeded(
-                reason: reason,
-                now: now,
-                allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
-            )
+            armDiscardCountdown(reason: reason, now: now, urgency: urgency)
             return false
         }
         // Memory pressure bypasses the hidden-duration delay, not the WebKit post-wake crash guard.
         guard !isInPostWakeDiscardDelay(now: now) else {
-            scheduleIfNeeded(
-                reason: reason,
-                now: now,
-                allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
-            )
+            armDiscardCountdown(reason: reason, now: now, urgency: urgency)
             return false
         }
 
@@ -246,6 +217,29 @@ public final class BrowserHiddenWebViewDiscardManager {
         discardTimer?.cancel()
         discardTimer = nil
         delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
+        return true
+    }
+
+    /// Whether the memory budget may discard the pane now: nothing blocks a
+    /// discard, and the pane has been hidden for the delay since it was
+    /// hidden or the system last woke, whichever is later.
+    public func isEligibleForMemoryBudgetDiscard(now: Date = Date()) -> Bool {
+        guard let delegate, let hiddenAt = delegate.hiddenWebViewDiscardHiddenAt else { return false }
+        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot, now: now).isEmpty else { return false }
+        let effectiveHiddenAt = lastSystemWakeAt.map { max(hiddenAt, $0) } ?? hiddenAt
+        let hiddenDelay = BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: policyDefaults)
+        return now.timeIntervalSince(effectiveHiddenAt) >= hiddenDelay
+    }
+
+    /// Discards the pane to bring hidden web content back under the memory
+    /// budget, if it is still eligible.
+    ///
+    /// - Returns: Whether the discard was requested.
+    @discardableResult
+    public func requestMemoryBudgetDiscard(now: Date = Date()) -> Bool {
+        guard let delegate, isEligibleForMemoryBudgetDiscard(now: now) else { return false }
+        cancel()
+        delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: Self.memoryBudgetReason)
         return true
     }
 
@@ -321,9 +315,10 @@ public final class BrowserHiddenWebViewDiscardManager {
         }
     }
 
-    public func markDiscarded(reason: String, now: Date) {
+    public func markDiscarded(reason: String, now: Date, isDeferredFirstLoad: Bool = false) {
         isDiscardedForMemory = true
         isRestoreNavigationPending = false
+        self.isDeferredFirstLoad = isDeferredFirstLoad
         discardedAt = now
         lastDiscardReason = reason
         updateRestoredSessionRenderIntent(true)
@@ -384,6 +379,7 @@ public final class BrowserHiddenWebViewDiscardManager {
         guard isDiscardedForMemory else { return false }
         isDiscardedForMemory = false
         isRestoreNavigationPending = false
+        isDeferredFirstLoad = false
         discardedAt = nil
         lastRestoreReason = reason
         updateRestoredSessionRenderIntent(nil)
@@ -394,6 +390,7 @@ public final class BrowserHiddenWebViewDiscardManager {
         cancel()
         isDiscardedForMemory = false
         isRestoreNavigationPending = false
+        isDeferredFirstLoad = false
         discardedAt = nil
         lastDiscardReason = nil
         lastRestoreReason = nil

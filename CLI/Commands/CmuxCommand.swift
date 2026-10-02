@@ -214,6 +214,7 @@ struct CmuxCommand: AsyncParsableCommand {
             TodoCommand.self,
             CommentsCommand.self,
             SidebarCommand.self,
+            PullRequestCommand.self,
             RightSidebarCommand.self,
             SetAppFocusCommand.self,
             SimulateAppActiveCommand.self,

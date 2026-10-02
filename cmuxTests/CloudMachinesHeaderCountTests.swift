@@ -39,6 +39,94 @@ struct CloudMachinesHeaderCountTests {
         #expect(CloudTreeRowContentView.groupCount(for: .cloudMachinesSection(canCreateMachine: true)) == nil)
     }
 
+    @Test("Narrow Cloud headers move machine actions into one overflow menu",
+          .disabled("Added by #16202 without an app-host run; SwiftUI publishes no accessibility elements for this standalone NSHostingView. Re-enable once the header is hosted the way CloudTreeHeaderActionsTests hosts it."))
+    func narrowHeaderCollapsesMachineActions() async throws {
+        _ = NSApplication.shared
+        let client = TeamChangeAuthClient(
+            firstTeamName: "Team with a long name for the narrow Cloud sidebar"
+        )
+        let flow = try await HostAccountFlow.makeForTeamChangeTests(client: client)
+        let host = NSHostingView(rootView: CloudTeamPickerHeader(
+            accountFlow: flow, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
+            isRefreshing: false, onRefresh: {}, onNewMachine: {},
+            agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
+            status: { EmptyView() }
+        ).environment(\.accessibilityEnabled, true))
+        host.frame = NSRect(x: 0, y: 0, width: 220, height: 40)
+        host.autoresizingMask = [.width, .height]
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 40),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = host
+        defer { window.orderOut(nil); window.contentView = nil }
+        host.setFrameSize(NSSize(width: 220, height: 40))
+        window.makeKeyAndOrderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        host.layoutSubtreeIfNeeded()
+
+        // SwiftUI buttons are not NSButtons, so read what an assistive client
+        // sees; SwiftUI publishes its accessibility tree asynchronously.
+        let published = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            return Self.element("CloudMachinesActionsMenu", in: host) != nil
+        }
+        #expect(published, "Narrow headers must expose the overflow menu")
+        #expect(Self.element("CloudHeaderRefreshButton", in: host) == nil)
+        #expect(Self.element("CloudHeaderNewMachineButton", in: host) == nil)
+    }
+
+    @Test("A wide Cloud header keeps refresh and new machine buttons inline",
+          .disabled("Added by #16202 without an app-host run; SwiftUI publishes no accessibility elements for this standalone NSHostingView. Re-enable once the header is hosted the way CloudTreeHeaderActionsTests hosts it."))
+    func wideHeaderKeepsMachineActionsInline() async throws {
+        _ = NSApplication.shared
+        let client = TeamChangeAuthClient(
+            firstTeamName: "Team with a long name for the narrow Cloud sidebar"
+        )
+        let flow = try await HostAccountFlow.makeForTeamChangeTests(client: client)
+        let host = NSHostingView(rootView: CloudTeamPickerHeader(
+            accountFlow: flow, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
+            isRefreshing: false, onRefresh: {}, onNewMachine: {},
+            agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
+            status: { EmptyView() }
+        ).environment(\.accessibilityEnabled, true))
+        host.frame = NSRect(x: 0, y: 0, width: 420, height: 40)
+        host.autoresizingMask = [.width, .height]
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 40),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = host
+        defer { window.orderOut(nil); window.contentView = nil }
+        host.setFrameSize(NSSize(width: 420, height: 40))
+        window.makeKeyAndOrderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        host.layoutSubtreeIfNeeded()
+
+        // SwiftUI buttons are not NSButtons, so read what an assistive client
+        // sees; SwiftUI publishes its accessibility tree asynchronously.
+        var refreshElement: NSObject?
+        var newMachineElement: NSObject?
+        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            refreshElement = Self.element("CloudHeaderRefreshButton", in: host)
+            newMachineElement = Self.element("CloudHeaderNewMachineButton", in: host)
+            return refreshElement != nil && newMachineElement != nil
+        }
+        let refresh = try #require(refreshElement)
+        let newMachine = try #require(newMachineElement)
+        #expect(Self.label(of: refresh) == "Refresh Machines")
+        #expect(Self.label(of: newMachine) == "New Machine")
+        #expect(Self.element("CloudMachinesActionsMenu", in: host) == nil)
+    }
+
     @Test("A free plan at its limit turns orange and names the upgrade", arguments: [
         (1, "Your plan includes 1 machine. Upgrade to create more."),
         (50, "Your plan includes 50 machines. Upgrade to create more."),
@@ -178,11 +266,10 @@ struct CloudMachinesHeaderCountTests {
                 "Header is \(height)pt; the toolbar alone is \(RightSidebarChromeMetrics.secondaryBarHeight)pt")
     }
 
-    @Test("Operations, list status and tree errors keep their row", arguments: ["operation", "listStatus", "treeError"])
+    @Test("Persistent list status and tree errors keep their row", arguments: ["listStatus", "treeError"])
     func fleetStatusStillShows(message: String) {
         let height = headerHeight {
             fleetStatus(
-                activeOperation: message == "operation" ? "Creating machine" : nil,
                 listStatus: message == "listStatus" ? .reconnecting : nil,
                 treeError: message == "treeError" ? "Cloud tree unavailable" : nil
             )
@@ -192,16 +279,18 @@ struct CloudMachinesHeaderCountTests {
     }
 
     private func fleetStatus(
-        activeOperation: String? = nil, listStatus: MachineListStatus? = nil, treeError: String? = nil
+        listStatus: MachineListStatus? = nil, treeError: String? = nil
     ) -> MachinesCloudStatus {
-        MachinesCloudStatus(activeOperation: activeOperation, listStatus: listStatus, listError: nil,
+        MachinesCloudStatus(listStatus: listStatus, listError: nil,
                             treeError: treeError, onDismissStale: { _ in }, onDismissTreeError: { _ in },
                             performListStatusAction: { _ in })
     }
 
     private func headerHeight<Status: View>(@ViewBuilder status: @escaping () -> Status) -> CGFloat {
         NSHostingView(rootView: CloudTeamPickerHeader(
-            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor, status: status
+            accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
+            isRefreshing: false, onRefresh: {}, onNewMachine: {},
+            agentMenu: { EmptyView() }, status: status
         )).fittingSize.height
     }
 
@@ -255,6 +344,16 @@ struct CloudMachinesHeaderCountTests {
         guard let first = columns.first, let last = columns.last else { return nil }
         let scale = CGFloat(width) / view.bounds.width
         return CGFloat(first) / scale...CGFloat(last + 1) / scale
+    }
+
+    private static func element(_ identifier: String, in host: NSView) -> NSObject? {
+        CloudTreeHeaderActionsTests.accessibilityElement(identifier, in: host)
+    }
+
+    private static func label(of element: NSObject) -> String? {
+        CloudTreeHeaderActionsTests.accessibilityAttribute(
+            .description, getter: "accessibilityLabel", of: element
+        ) as? String
     }
 
     private func headerCell(usage: CloudMachinesUsage) -> CloudTreeCellView {

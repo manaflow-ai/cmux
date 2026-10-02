@@ -899,6 +899,10 @@ command  pipe-pane  aliases=-
   arg  arguments  kind=argument  completion=-
 command  popup  aliases=-
   arg  arguments  kind=argument  completion=-
+command  pr  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
 command  previous-window  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-

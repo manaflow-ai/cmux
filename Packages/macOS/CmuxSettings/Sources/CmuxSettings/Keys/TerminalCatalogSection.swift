@@ -137,6 +137,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.showPasswordInputDots"
     )
 
+    /// Whether cmux shows a "Jump to Bottom" button in a terminal pane while
+    /// its viewport is scrolled up into scrollback. On by default.
+    public let showJumpToBottomButton = DefaultsKey<Bool>(
+        id: "terminal.showJumpToBottomButton",
+        defaultValue: true,
+        userDefaultsKey: "terminal.showJumpToBottomButton"
+    )
+
     public let autoResumeAgentSessions = DefaultsKey<Bool>(
         id: "terminal.autoResumeAgentSessions",
         defaultValue: true,
