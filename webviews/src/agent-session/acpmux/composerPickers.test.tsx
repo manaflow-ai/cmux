@@ -93,6 +93,11 @@ describe("acpmux composer pickers", () => {
     expect(model.getAttribute("aria-expanded")).toBe("false");
   });
 
+  test("a model the catalog doesn't list still shows by the id the agent reported", async () => {
+    await render(snapshot({ model: "claude-opus-5-5" }));
+    expect(button("Model")!.textContent).toBe("claude-opus-5-5");
+  });
+
   test("the menu closes when the window loses focus", async () => {
     await render(snapshot());
     await act(async () => button("Model")!.click());

@@ -36,7 +36,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
       sections={[{ choices: modes, current: mode?.id, onPick: onMode }]} align="start" />}
     <span className="acpmux-chips-spacer" />
     {(models.length > 0 || efforts.length > 0) && <Picker label={PICKER_LABELS.model} className="acpmux-model"
-      button={<><span className="acpmux-model-name">{model?.name ?? (models.length > 0 ? PICKER_LABELS.model : "")}</span>{effortName && <span className="acpmux-model-effort">{effortName}</span>}<ChevronIcon /></>}
+      button={<><span className="acpmux-model-name">{model?.name ?? summary?.model ?? (models.length > 0 ? PICKER_LABELS.model : "")}</span>{effortName && <span className="acpmux-model-effort">{effortName}</span>}<ChevronIcon /></>}
       sections={[
         ...(models.length > 0 ? [{ title: PICKER_LABELS.model, choices: models, current: model?.id, onPick: onModel }] : []),
         ...(effort && efforts.length > 0 ? [{ title: PICKER_LABELS.effort, choices: efforts, current: effort.currentValue, onPick: (value: string) => onEffort(effort.id, value) }] : []),

@@ -66,6 +66,7 @@ export function themeTokens(input) {
     separator: withAlpha(fg, isDark ? 0.08 : 0.07),
     paneBorder: withAlpha(fg, isDark ? 0.07 : 0.09),
     shadow: mixed(bg, black, 0.85),
+    attention: readable(palette[3], bg, 3),
     danger: readable(palette[1], bg, 3),
   };
 }
@@ -91,6 +92,7 @@ export function agentPaneTheme(input) {
     accentSoft: css(t.selectionFill),
     // Labels on the accent: the page background, opaque so a translucent backdrop doesn't thin them.
     accentText: css(withAlpha(page, 1)),
+    warning: css(t.attention),
     danger: css(t.danger),
     shadow: css(t.shadow),
   };
