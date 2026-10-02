@@ -1046,7 +1046,8 @@ describe("acpmux host handshake", () => {
       for (let tries = 0; tries < 10; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
       expect(await host.cmuxAcpmuxActions!["git.diff"]!({ scope: "staged" })).toEqual({ scope: "staged", files: [] });
       await host.cmuxAcpmuxActions!["git.status"]!({});
-      expect(asked.filter((entry) => entry.method.startsWith("git."))).toEqual([
+      // The checkpoint control also asks for `git.capabilities`; this test is about the reads.
+      expect(asked.filter((entry) => entry.method === "git.diff" || entry.method === "git.status")).toEqual([
         { method: "git.diff", params: { cwd: "/work/app", scope: "staged", include_patch: true } },
         { method: "git.status", params: { cwd: "/work/app" } },
       ]);
