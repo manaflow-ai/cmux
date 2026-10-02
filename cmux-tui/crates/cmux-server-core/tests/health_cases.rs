@@ -2,7 +2,8 @@
 
 use cmux_server_core::health::{
     AlertKey, AlertSet, BackupFacts, CheckId, DiskFacts, FIXES, Facts, FixError, FixValues,
-    InhibitFacts, LockFacts, Post, PowerFacts, PowerSource, QuotaUsage, Severity, fixes_for, reduce, render_argv,
+    InhibitFacts, LockFacts, Post, PowerFacts, PowerSource, QuotaUsage, Severity, fixes_for,
+    reduce, render_argv,
 };
 use cmux_server_core::{InstallMode, Platform};
 

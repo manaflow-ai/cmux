@@ -7,8 +7,8 @@
 use std::collections::BTreeMap;
 
 use cmux_server_core::health::{
-    AlertKey, AlertSet, BackupFacts, DiskFacts, Facts, InhibitFacts, LockFacts, Post, PowerFacts, PowerSource,
-    QuotaUsage, Severity, reduce,
+    AlertKey, AlertSet, BackupFacts, DiskFacts, Facts, InhibitFacts, LockFacts, Post, PowerFacts,
+    PowerSource, QuotaUsage, Severity, reduce,
 };
 use cmux_server_core::{InstallMode, Platform};
 use proptest::prelude::*;

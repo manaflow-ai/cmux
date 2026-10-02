@@ -1,8 +1,8 @@
 //! Postgres plan goldens, injection refusal, schema vs database mode.
 
 use cmux_server_core::pg::{
-    AppDb, AppId, AppIdError, AppLimits, ClusterSpec, DbMode, PgError, PgPlan,
-    admin_pgpass_line, password_from_random, pgpass_line, quote_ident, quote_literal, scram_verifier,
+    AppDb, AppId, AppIdError, AppLimits, ClusterSpec, DbMode, PgError, PgPlan, admin_pgpass_line,
+    password_from_random, pgpass_line, quote_ident, quote_literal, scram_verifier,
 };
 use cmux_server_core::{HostPath, InstallMode, Platform};
 use proptest::prelude::*;
