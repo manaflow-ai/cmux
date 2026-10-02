@@ -11,6 +11,14 @@ function endpoint(raw: unknown, field: string): Endpoint | Response {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field} must be an endpoint object.`, action: "Pass vmId, vpcId, tunnelId, cidr, or public on each endpoint." });
   const value = raw as Record<string, unknown>;
   if (Object.keys(value).some((key) => !endpointKeys.has(key))) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field} contains an unsupported field.`, action: "Use only the documented firewall endpoint fields." });
+  const identity = endpointIdentity(value, field);
+  if (identity instanceof Response) return identity;
+  const traffic = endpointTraffic(value, field);
+  if (traffic instanceof Response) return traffic;
+  return { ...identity, ...traffic };
+}
+
+function endpointIdentity(value: Record<string, unknown>, field: string): Omit<Endpoint, "port" | "protocol"> | Response {
   const result: Endpoint = {};
   for (const key of ["vmId", "vpcId", "tunnelId", "cidr"] as const) if (value[key] !== undefined) {
     if (typeof value[key] !== "string" || !value[key].trim()) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.${key} must be a non-empty string.`, action: "Pass a valid resource id or CIDR." });
@@ -18,12 +26,17 @@ function endpoint(raw: unknown, field: string): Endpoint | Response {
   }
   if (value.public !== undefined && value.public !== true) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.public must be true when present.`, action: "Set public:true for public traffic." });
   if (value.public === true) result.public = true;
+  const identity = [result.vmId, result.vpcId, result.tunnelId, result.cidr, result.public].filter(Boolean);
+  if (identity.length === 0) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field} must identify a resource or address.`, action: "Pass an identity, CIDR, or public:true." });
+  return result;
+}
+
+function endpointTraffic(value: Record<string, unknown>, field: string): Pick<Endpoint, "port" | "protocol"> | Response {
+  const result: Pick<Endpoint, "port" | "protocol"> = {};
   if (value.port !== undefined && (typeof value.port !== "number" || !Number.isInteger(value.port) || value.port < 1 || value.port > 65535)) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.port must be between 1 and 65535.`, action: "Pass an integer port." });
   if (value.port !== undefined) result.port = value.port as number;
   if (value.protocol !== undefined && !["tcp", "udp", "icmp"].includes(String(value.protocol))) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.protocol is invalid.`, action: "Use tcp, udp, or icmp." });
   if (value.protocol !== undefined) result.protocol = value.protocol as Endpoint["protocol"];
-  const identity = [result.vmId, result.vpcId, result.tunnelId, result.cidr, result.public].filter(Boolean);
-  if (identity.length === 0) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field} must identify a resource or address.`, action: "Pass an identity, CIDR, or public:true." });
   if (result.port !== undefined && !result.protocol) return vmErrorResponse({ error: "vm_invalid_firewall_endpoint", status: 400, message: `${field}.protocol is required with port.`, action: "Pass tcp, udp, or icmp with the port." });
   return result;
 }
