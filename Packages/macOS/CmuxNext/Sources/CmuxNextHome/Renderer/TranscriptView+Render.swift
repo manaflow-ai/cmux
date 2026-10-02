@@ -3,21 +3,38 @@ import CmuxNextDesign
 import QuartzCore
 
 extension TranscriptView {
+    /// Asks for one render before this run-loop pass ends (coalesced).
+    func render() {
+        guard window != nil else { return }
+        coalescer.setNeeded()
+    }
+
     /// Places every row near the viewport at its target frame, commits the
     /// motion components of the latest event, recycles layers and prefetches
-    /// bitmaps. Runs on events only.
-    func render() {
+    /// bitmaps. Runs on events only, at most once per run-loop pass.
+    func renderNow() {
         guard window != nil, bounds.height > 0 else { return }
         let started = CACurrentMediaTime()
         let t = started
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer {
+            let commitStart = CACurrentMediaTime()
             CATransaction.commit()
-            onRender?((CACurrentMediaTime() - started) * 1000)
+            perf.commit += (CACurrentMediaTime() - commitStart) * 1000
+            let ms = (CACurrentMediaTime() - started) * 1000
+            perf.render += ms
+            onRender?(ms)
         }
         let h = bounds.height
+        var mark = CACurrentMediaTime()
+        func lap(_ field: WritableKeyPath<TranscriptPerf, Double>) {
+            let now = CACurrentMediaTime()
+            perf[keyPath: field] += (now - mark) * 1000
+            mark = now
+        }
         measureNearViewport(base: contentBase(), height: h)
+        lap(\.measure)
         let base = contentBase()
         lastBase = base
         let rows = rowLayout.rows, tops = rowLayout.tops
@@ -34,10 +51,13 @@ extension TranscriptView {
         commitEventMotion(list: list)
         committedTop = Dictionary(list.map { ($0.row.key, $0.rect.minY) }, uniquingKeysWith: { a, _ in a })
         dropFinishedMotion(at: t)
+        lap(\.measure)
         prefetchRasters(base: base, height: h)
+        lap(\.prefetch)
 
-        // a fast scroll (a quarter screen per event) shows plain shapes for rows not drawn yet
-        let fast = abs(scrollVelocity) >= h / 4
+        // a fast scroll (a quarter screen per event, still moving) shows plain shapes or the
+        // previous bitmap for rows not drawn yet; the settle deadline draws what is left
+        let fast = abs(scrollVelocity) >= h / 4 && t - lastScrollTime < 0.05
         let pad = RowPainter.pad(geometry)
         var used = Set<String>()
         var placeholders = 0
@@ -48,11 +68,11 @@ extension TranscriptView {
             let reach = motion.reach
             guard entry.rect.maxY + reach > -pad, entry.rect.minY - reach < h + pad else { continue }
             let layer = live[key] ?? dequeue(key)
-            let rasterKey = RasterKey(row: entry.row, geometry: geometry, colors: colors, scale: scale)
-            if layer.rasterKey != rasterKey || layer.isPlaceholder {
+            let rasterKey = RasterKey(row: entry.row, geometry: geometry, theme: themeGeneration, scale: scale)
+            if layer.rasterKey != rasterKey || layer.isPlaceholder || layer.isStale {
                 configure(layer, row: entry.row, key: rasterKey, placeholderOK: fast && motion.isEmpty, pad: pad)
             }
-            if layer.isPlaceholder { placeholders += 1 }
+            if layer.isPlaceholder || layer.isStale { placeholders += 1 }
             used.insert(key)
             targets[key] = entry.rect
             layer.frame = layerFrame(entry.rect.insetBy(dx: -pad, dy: -pad))
@@ -60,6 +80,7 @@ extension TranscriptView {
             committer.attach(motion, to: layer, keyPath: "position.y", scale: -1, now: t, tag: layer.motionTag)
             committer.attach(rowFade[key] ?? [], to: layer, keyPath: "opacity", scale: 1, now: t, tag: layer.motionTag)
         }
+        lap(\.place)
         placeholdersShown += placeholders
         rasterizer.placeholdersOnScreen(placeholders > 0)
         for (key, layer) in live where !used.contains(key) {
@@ -84,12 +105,16 @@ extension TranscriptView {
 
     private func configure(_ layer: RowLayer, row: TranscriptRow, key: RasterKey, placeholderOK: Bool, pad: CGFloat) {
         if let image = rasterizer.image(key) {
-            layer.show(image, row: row, key: key, geometry: geometry)
+            layer.show(image, row: row, key: key, geometry: geometry, colors: colors)
+        } else if layer.canShowStale(for: row) {
+            // a resize changed the width: the previous bitmap stays for a frame while the new one is drawn
+            layer.markStale(row: row, key: key)
+            rasterizer.prefetch([job(row, key: key)])
         } else if placeholderOK {
-            layer.showPlaceholder(row: row, key: key, pad: pad, geometry: geometry)
+            layer.showPlaceholder(row: row, key: key, pad: pad, geometry: geometry, colors: colors)
             rasterizer.prefetch([job(row, key: key)])
         } else if let image = rasterizer.drawNow(job(row, key: key)) {
-            layer.show(image, row: row, key: key, geometry: geometry)
+            layer.show(image, row: row, key: key, geometry: geometry, colors: colors)
         }
     }
 
@@ -106,7 +131,7 @@ extension TranscriptView {
         let from = rowLayout.lowerBound { base + tops[$0] + rows[$0].height >= top }
         let to = rowLayout.lowerBound { base + tops[$0] > bottom }
         guard from < to else { return }
-        rasterizer.prefetch(rows[from..<to].map { job($0, key: RasterKey(row: $0, geometry: geometry, colors: colors,
+        rasterizer.prefetch(rows[from..<to].map { job($0, key: RasterKey(row: $0, geometry: geometry, theme: themeGeneration,
                                                                             scale: scale)) })
     }
 

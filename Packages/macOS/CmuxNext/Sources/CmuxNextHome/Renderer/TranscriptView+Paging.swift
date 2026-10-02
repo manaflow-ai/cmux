@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 extension TranscriptView {
     /// A new source: drop the window, load its newest rows, follow its changes.
@@ -87,7 +88,9 @@ extension TranscriptView {
 
     /// One delivered chunk per frame, so a frame never pays for a whole page.
     func pagingFrame() -> Bool {
+        let started = CACurrentMediaTime()
         applyPageChunk()
+        perf.chunk += (CACurrentMediaTime() - started) * 1000
         render()
         return !pendingOlder.isEmpty || !pendingNewer.isEmpty
     }
@@ -110,7 +113,7 @@ extension TranscriptView {
         } else {
             return
         }
-        rowLayout.apply(change, window: history, context: context())
+        applyToRows(change)
         evictFar()
     }
 
@@ -127,6 +130,6 @@ extension TranscriptView {
         } else {
             return
         }
-        rowLayout.apply(change, window: history, context: context())
+        applyToRows(change)
     }
 }

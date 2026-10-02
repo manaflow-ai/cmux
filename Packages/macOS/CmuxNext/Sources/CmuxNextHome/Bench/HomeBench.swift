@@ -35,6 +35,8 @@ final class HomeBenchDriver {
     private var cpuStart = 0.0, cpuAccum = 0.0
     private var observers: [CFRunLoopObserver] = []
     private let started = HomeBenchProbe.now()
+    /// HOME_BENCH_FRAMELOG=1 prints every frame with more than 5 ms of main-thread work.
+    private let frameLog = ProcessInfo.processInfo.environment["HOME_BENCH_FRAMELOG"] != nil
 
     init(view: HomeView, window: NSWindow, finish: @escaping @MainActor (String) -> Void) {
         self.view = view
@@ -89,7 +91,15 @@ final class HomeBenchDriver {
                 stats.intervals.append(tick.timestamp - self.lastTimestamp)
                 stats.busy.append(self.busyAccum)
                 stats.cpu.append(self.cpuAccum)
+                if self.frameLog, self.busyAccum > 0.005 {
+                    let p = self.transcript.perf
+                    FileHandle.standardError.write(Data(String(format: "%@ busy %.2f cpu %.2f chunk %.2f render %.2f (measure %.2f prefetch %.2f place %.2f commit %.2f) interval %.2f\n",
+                        name, self.busyAccum * 1000, self.cpuAccum * 1000, p.chunk, p.render, p.measure, p.prefetch,
+                        p.place, p.commit,
+                        (tick.timestamp - self.lastTimestamp) * 1000).utf8))
+                }
             }
+            self.transcript.perf.reset()
             self.busyAccum = 0
             self.cpuAccum = 0
             self.lastTimestamp = tick.timestamp

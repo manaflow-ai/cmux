@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 extension TranscriptView {
     /// Screen y (y-down points) of the content top: pinned puts the newest row
@@ -7,7 +8,9 @@ extension TranscriptView {
     func contentBase() -> CGFloat {
         let bottomBase = viewportBottom - geometry.bottomPadding - rowLayout.totalHeight
         guard !anchor.pinned, let key = anchor.key else { return bottomBase }
-        var base = rowLayout.rowIndex(of: key).map { anchor.top - rowLayout.tops[$0] } ?? lastBase
+        let found = rowLayout.rowIndex(of: key, hint: anchor.index)
+        if let found { anchor.index = found }
+        var base = found.map { anchor.top - rowLayout.tops[$0] } ?? lastBase
         if !history.hasOlder { base = min(base, 0) }
         if history.atNewest { base = max(base, bottomBase) }
         return base
@@ -15,8 +18,12 @@ extension TranscriptView {
 
     /// Scrolls by `dy` points (positive = toward older), then pages if needed.
     func scroll(by dy: CGFloat) {
-        if !pendingOlder.isEmpty || !pendingNewer.isEmpty { applyPageChunk() }
         scrollVelocity = dy
+        lastScrollTime = CACurrentMediaTime()
+        scrollSettle.schedule(after: .milliseconds(80)) { @MainActor [weak self] in
+            self?.scrollVelocity = 0
+            self?.render()
+        }
         anchor = scrolled(by: dy)
         render()
     }
@@ -30,7 +37,7 @@ extension TranscriptView {
         if !history.hasOlder { base = min(base, 0) }
         if history.atNewest, base <= bottomBase + 0.5 { return TranscriptAnchor() }
         let index = min(rowLayout.rows.count - 1, rowLayout.firstRow(endingAtOrBelow: -base))
-        return TranscriptAnchor(pinned: false, key: rowLayout.rows[index].key, top: base + rowLayout.tops[index])
+        return TranscriptAnchor(pinned: false, key: rowLayout.rows[index].key, top: base + rowLayout.tops[index], index: index)
     }
 
     /// Window message indexes on screen (paging decisions).
@@ -98,7 +105,7 @@ extension TranscriptView {
 
     private func anchorAtTop() {
         guard let first = rowLayout.rows.first else { return }
-        anchor = TranscriptAnchor(pinned: false, key: first.key, top: geometry.topPadding + first.gapBefore)
+        anchor = TranscriptAnchor(pinned: false, key: first.key, top: geometry.topPadding + first.gapBefore, index: 0)
         render()
     }
 
@@ -110,7 +117,7 @@ extension TranscriptView {
         let newest = source?.newestSeq ?? (messages.last?.seq ?? 0)
         let oldest = source?.oldestSeq ?? 1
         let change = history.replace(messages, pending: pending, newest: newest, oldest: oldest)
-        rowLayout.apply(change, window: history, context: context())
+        applyToRows(change)
         rowMotion.removeAll()
         rowFade.removeAll()
         committedTop.removeAll()
