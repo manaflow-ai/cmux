@@ -20,6 +20,12 @@ final class AppOnboardingServices: OnboardingServices {
         self.owner = owner
     }
 
+    var savedProfile: OnboardingProfile? { owner.profile }
+
+    func saveProfile(_ profile: OnboardingProfile) {
+        owner.saveProfile(profile)
+    }
+
     var ghosttyTheme: ThemeInput { ThemeStore.shared.input }
     var ghosttyHasOwnTheme: Bool { GhosttyOwnTheme.isSet() }
     var selectedThemeName: String? { services.settings?.snapshot.root.value(at: TerminalThemeSetting.path)?.stringValue }

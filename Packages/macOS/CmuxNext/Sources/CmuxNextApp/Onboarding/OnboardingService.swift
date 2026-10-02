@@ -16,6 +16,9 @@ final class OnboardingService {
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     private(set) var controller: OnboardingWindowController?
+    /// The role step's saved answer, read off the main thread at launch;
+    /// "Onboarding…" opens the step with it.
+    private(set) var profile: OnboardingProfile?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
 
     /// Shows onboarding on the first launch even in a no-activate test launch.
@@ -30,6 +33,24 @@ final class OnboardingService {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         importStore = ImportedDataStore(directory: support.appending(path: services.environment.launch.bundleID ?? "com.cmuxterm.app.next")
             .appending(path: "BrowserImport", directoryHint: .isDirectory))
+        let state = state
+        // task-owner: one-shot launch read of the onboarding state file
+        Task { [weak self] in
+            let saved = await Task.detached { state.profile() }.value
+            guard let self, profile == nil else { return }
+            profile = saved
+        }
+    }
+
+    /// Keeps the role step's answer (a small file write, off the main thread).
+    func saveProfile(_ answer: OnboardingProfile) {
+        profile = answer
+        let state = state
+        let logger = logger
+        // task-owner: one small file write, off the main thread
+        Task.detached {
+            do { try state.saveProfile(answer) } catch { logger.error("onboarding profile: \(String(describing: error), privacy: .public)") }
+        }
     }
 
     var isShowing: Bool { controller != nil }
@@ -99,9 +120,11 @@ final class OnboardingService {
     func markDone(completed: Bool) {
         let state = state
         let logger = logger
+        // The answer goes along, so this write can't drop a profile write still in flight.
+        let profile = profile
         // task-owner: one small file write, off the main thread
         Task.detached {
-            do { try state.markDone(completed: completed) } catch { logger.error("onboarding state: \(String(describing: error), privacy: .public)") }
+            do { try state.markDone(completed: completed, profile: profile) } catch { logger.error("onboarding state: \(String(describing: error), privacy: .public)") }
         }
     }
 
