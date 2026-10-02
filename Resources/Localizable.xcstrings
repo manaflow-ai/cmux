@@ -13501,121 +13501,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux notify [flags]\n\nSend or clear notifications.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Usage: cmux notify [flags]\n\nSend a notification to a workspace/surface, or clear that resolved target with --clear.\n\nFlags:\n  --title <text>         Notification title (default: \"Notification\")\n  --subtitle <text>      Notification subtitle\n  --body <text>          Notification body\n  --reply                Allow a free-text inline reply\n  --desktop <true|false> Post a native macOS banner (default: true). false keeps the entry in the Notifications panel, sidebar badge and pane ring without a banner\n  --clear                Clear notifications for the resolved caller/target instead of posting\n  --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally\n  --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --json                 Print the response payload as JSON\n  --id-format <mode>     refs, uuids, or both for human-readable ids\n\nThe response includes the created notification id. Use cmux dismiss-notification --id <uuid|notification:<uuid>>, cmux list-notifications, or cmux clear-notifications to manage notifications.\n--desktop sets the notification's desktop effect before notification hooks run; hooks can still override it. It has no effect with --clear.\n\nExample:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  cmux notify --title \"Deploy finished\" --desktop false\n  cmux notify --clear"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux notify [flags]\n\nワークスペース／サーフェスに通知を送り、--clear で対象を消去します。\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "使い方: cmux notify [flags]\n\nワークスペース／サーフェスに通知を送信するか、--clear で解決済みの対象を消去します。\n\nFlags:\n  --title <text>         通知タイトル（既定値: \"Notification\"）\n  --subtitle <text>      通知サブタイトル\n  --body <text>          通知本文\n  --reply                自由入力のインライン返信を許可\n  --desktop <true|false> macOS のネイティブバナーを表示（既定値: true）。false の場合、バナーなしで通知パネル、サイドバーのバッジ、ペインのリングにエントリを残します\n  --clear                投稿せず、解決済みの呼び出し元／対象の通知を消去\n  --workspace <id|ref|index>   対象ワークスペース（明示的なサーフェス UUID はグローバルに解決）\n  --surface <id|ref|index>     対象サーフェス（ref／index はワークスペース／ウィンドウのコンテキストを使用）\n  --window <id|ref|index>      ワークスペース／サーフェスの ref と index に使うウィンドウコンテキスト\n  --json                 応答ペイロードを JSON として出力\n  --id-format <mode>     人間が読みやすい ID の形式: refs、uuids、または both\n\n応答には作成された通知 ID が含まれます。管理には cmux dismiss-notification --id <uuid|notification:<uuid>>、cmux list-notifications、または cmux clear-notifications を使用します。\n--desktop は通知フックの実行前に通知の desktop エフェクトを設定します。フックはこれを上書きできます。--clear と併用しても効果はありません。\n\n例:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  cmux notify --title \"Deploy finished\" --desktop false\n  cmux notify --clear"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux notify [flags]\n\nأرسل إشعارًا أو امسح الهدف باستخدام --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "الاستخدام: cmux notify [flags]\n\nأرسل إشعارًا إلى مساحة عمل/سطح، أو امسح الهدف المحدد باستخدام --clear.\n\nFlags:\n  --title <text>         عنوان الإشعار (الافتراضي: \"Notification\")\n  --subtitle <text>      العنوان الفرعي للإشعار\n  --body <text>          نص الإشعار\n  --reply                السماح برد مضمّن بنص حر\n  --desktop <true|false> عرض لافتة macOS الأصلية (الافتراضي: true). عند false يبقى الإدخال في لوحة الإشعارات وشارة الشريط الجانبي وحلقة اللوحة من دون لافتة\n  --clear                مسح إشعارات المتصل/الهدف المحدد بدلًا من نشرها\n  --workspace <id|ref|index>   مساحة العمل المستهدفة، باستثناء أن UUID الصريح للسطح يُحل عالميًا\n  --surface <id|ref|index>     السطح المستهدف (تستخدم المراجع/الفهارس سياق مساحة العمل/النافذة)\n  --window <id|ref|index>      سياق النافذة لمراجع وفهارس مساحة العمل/السطح\n  --json                 طباعة حمولة الاستجابة بصيغة JSON\n  --id-format <mode>     refs أو uuids أو both للمعرّفات سهلة القراءة\n\nتتضمن الاستجابة معرّف الإشعار الذي تم إنشاؤه. استخدم cmux dismiss-notification --id <uuid|notification:<uuid>> أو cmux list-notifications أو cmux clear-notifications لإدارة الإشعارات.\n--desktop يضبط تأثير desktop للإشعار قبل تشغيل خطافات الإشعارات؛ ويمكن للخطافات تجاوزه. لا تأثير له مع --clear.\n\nمثال:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  cmux notify --title \"Deploy finished\" --desktop false\n  cmux notify --clear"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Upotreba: cmux notify [flags]\n\nPošaljite obavijest ili obrišite cilj pomoću --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Upotreba: cmux notify [flags]\n\nPošaljite obavijest ili obrišite cilj pomoću --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brug: cmux notify [flags]\n\nSend en meddelelse eller ryd målet med --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Brug: cmux notify [flags]\n\nSend en meddelelse eller ryd målet med --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux notify [flags]\n\nBenachrichtigung senden oder das Ziel mit --clear leeren.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Verwendung: cmux notify [flags]\n\nEine Benachrichtigung an einen Workspace/eine Oberfläche senden oder das aufgelöste Ziel mit --clear löschen.\n\nFlags:\n  --title <text>         Benachrichtigungstitel (Standard: \"Notification\")\n  --subtitle <text>      Untertitel der Benachrichtigung\n  --body <text>          Benachrichtigungstext\n  --reply                Eine freie Inline-Antwort erlauben\n  --desktop <true|false> Ein natives macOS-Banner anzeigen (Standard: true). Bei false bleibt der Eintrag ohne Banner im Benachrichtigungsbereich, im Seitenleistenabzeichen und im Pane-Ring erhalten\n  --clear                Benachrichtigungen für den aufgelösten Aufrufer/das Ziel löschen statt zu posten\n  --workspace <id|ref|index>   Ziel-Workspace; explizite Surface-UUIDs werden global aufgelöst\n  --surface <id|ref|index>     Zieloberfläche (Refs/Indizes verwenden den Workspace-/Fensterkontext)\n  --window <id|ref|index>      Fensterkontext für Workspace-/Oberflächen-Refs und -Indizes\n  --json                 Antwort-Payload als JSON ausgeben\n  --id-format <mode>     refs, uuids oder both für menschenlesbare IDs\n\nDie Antwort enthält die ID der erstellten Benachrichtigung. Verwende cmux dismiss-notification --id <uuid|notification:<uuid>>, cmux list-notifications oder cmux clear-notifications zur Verwaltung.\n--desktop setzt den Desktop-Effekt der Benachrichtigung, bevor Benachrichtigungs-Hooks ausgeführt werden; Hooks können ihn überschreiben. Mit --clear hat die Option keine Wirkung.\n\nBeispiel:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  cmux notify --title \"Deploy finished\" --desktop false\n  cmux notify --clear"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux notify [flags]\n\nEnvía una notificación o limpia el destino con --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Uso: cmux notify [flags]\n\nEnvía una notificación a un espacio de trabajo o superficie, o limpia el destino resuelto con --clear.\n\nFlags:\n  --title <text>         Título de la notificación (predeterminado: \"Notification\")\n  --subtitle <text>      Subtítulo de la notificación\n  --body <text>          Cuerpo de la notificación\n  --reply                Permitir una respuesta insertada de texto libre\n  --desktop <true|false> Mostrar un banner nativo de macOS (predeterminado: true). Con false, la entrada permanece en el panel de notificaciones, la insignia de la barra lateral y el anillo del panel sin banner\n  --clear                Limpiar las notificaciones del autor/destino resuelto en lugar de publicarlas\n  --workspace <id|ref|index>   Espacio de trabajo de destino, excepto que los UUID explícitos de superficie se resuelven globalmente\n  --surface <id|ref|index>     Superficie de destino (las referencias/índices usan el contexto del espacio de trabajo/ventana)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacio de trabajo/superficie\n  --json                 Imprimir la respuesta como JSON\n  --id-format <mode>     refs, uuids o both para identificadores legibles\n\nLa respuesta incluye el ID de la notificación creada. Usa cmux dismiss-notification --id <uuid|notification:<uuid>>, cmux list-notifications o cmux clear-notifications para administrarla.\n--desktop establece el efecto desktop antes de ejecutar los hooks de notificación; los hooks aún pueden sobrescribirlo. No tiene efecto con --clear.\n\nEjemplo:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  cmux notify --title \"Deploy finished\" --desktop false\n  cmux notify --clear"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux notify [flags]\n\nEnvoyer une notification ou effacer la cible avec --clear.\n\nFlags : --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Utilisation : cmux notify [flags]\n\nEnvoyer une notification à un espace de travail/une surface, ou effacer la cible résolue avec --clear.\n\nFlags :\n  --title <text>         Titre de la notification (par défaut : \"Notification\")\n  --subtitle <text>      Sous-titre de la notification\n  --body <text>          Corps de la notification\n  --reply                Autoriser une réponse en ligne en texte libre\n  --desktop <true|false> Afficher une bannière macOS native (par défaut : true). Avec false, l’entrée reste dans le panneau des notifications, le badge de la barre latérale et l’anneau du volet sans bannière\n  --clear                Effacer les notifications de l’appelant/de la cible résolue au lieu de publier\n  --workspace <id|ref|index>   Espace de travail cible, sauf si les UUID explicites de surface sont résolus globalement\n  --surface <id|ref|index>     Surface cible (les références/index utilisent le contexte espace de travail/fenêtre)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/surface\n  --json                 Afficher la réponse au format JSON\n  --id-format <mode>     refs, uuids ou both pour des identifiants lisibles\n\nLa réponse contient l’identifiant de la notification créée. Utilisez cmux dismiss-notification --id <uuid|notification:<uuid>>, cmux list-notifications ou cmux clear-notifications pour la gérer.\n--desktop définit l’effet desktop avant l’exécution des hooks de notification ; les hooks peuvent encore le remplacer. Cette option est sans effet avec --clear.\n\nExemple :\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  cmux notify --title \"Deploy finished\" --desktop false\n  cmux notify --clear"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux notify [flags]\n\nInvia una notifica o cancella la destinazione con --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Uso: cmux notify [flags]\n\nInvia una notifica o cancella la destinazione con --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការប្រើប្រាស់: cmux notify [flags]\n\nផ្ញើការជូនដំណឹង ឬសម្អាតគោលដៅដោយ --clear។\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "ការប្រើប្រាស់: cmux notify [flags]\n\nផ្ញើការជូនដំណឹង ឬសម្អាតគោលដៅដោយ --clear។\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux notify [flags]\n\n알림을 보내거나 --clear로 대상을 지웁니다.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "사용법: cmux notify [flags]\n\n워크스페이스/서피스에 알림을 보내거나 --clear로 확인된 대상을 지웁니다.\n\nFlags:\n  --title <text>         알림 제목 (기본값: \"Notification\")\n  --subtitle <text>      알림 부제목\n  --body <text>          알림 본문\n  --reply                자유 형식 인라인 답장 허용\n  --desktop <true|false> macOS 기본 배너 표시 (기본값: true). false이면 배너 없이 알림 패널, 사이드바 배지 및 창 테두리에 항목을 유지합니다\n  --clear                게시하는 대신 확인된 호출자/대상의 알림 지우기\n  --workspace <id|ref|index>   대상 워크스페이스 (명시적 서피스 UUID는 전역으로 확인)\n  --surface <id|ref|index>     대상 서피스 (참조/인덱스는 워크스페이스/윈도우 컨텍스트 사용)\n  --window <id|ref|index>      워크스페이스/서피스 참조 및 인덱스의 윈도우 컨텍스트\n  --json                 응답 페이로드를 JSON으로 출력\n  --id-format <mode>     사람이 읽기 쉬운 ID 형식: refs, uuids 또는 both\n\n응답에는 생성된 알림 ID가 포함됩니다. 관리하려면 cmux dismiss-notification --id <uuid|notification:<uuid>>, cmux list-notifications 또는 cmux clear-notifications를 사용하세요.\n--desktop은 알림 훅이 실행되기 전에 알림의 desktop 효과를 설정하며 훅이 이를 재정의할 수 있습니다. --clear와 함께 사용하면 효과가 없습니다.\n\n예:\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  cmux notify --title \"Deploy finished\" --desktop false\n  cmux notify --clear"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bruk: cmux notify [flags]\n\nSend et varsel eller tøm målet med --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Bruk: cmux notify [flags]\n\nSend et varsel eller tøm målet med --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Użycie: cmux notify [flags]\n\nWyślij powiadomienie albo wyczyść cel za pomocą --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Użycie: cmux notify [flags]\n\nWyślij powiadomienie albo wyczyść cel za pomocą --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux notify [flags]\n\nEnvie uma notificação ou limpe o destino com --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Uso: cmux notify [flags]\n\nEnvie uma notificação ou limpe o destino com --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Использование: cmux notify [flags]\n\nОтправьте уведомление или очистите цель с помощью --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Использование: cmux notify [flags]\n\nОтправьте уведомление или очистите цель с помощью --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "วิธีใช้: cmux notify [flags]\n\nส่งการแจ้งเตือนหรือล้างเป้าหมายด้วย --clear\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "วิธีใช้: cmux notify [flags]\n\nส่งการแจ้งเตือนหรือล้างเป้าหมายด้วย --clear\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kullanım: cmux notify [flags]\n\nBildirim gönderin veya --clear ile hedefi temizleyin.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Kullanım: cmux notify [flags]\n\nBildirim gönderin veya --clear ile hedefi temizleyin.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Використання: cmux notify [flags]\n\nНадішліть сповіщення або очистьте ціль за допомогою --clear.\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "Використання: cmux notify [flags]\n\nНадішліть сповіщення або очистьте ціль за допомогою --clear.\n\nFlags: --title --subtitle --body --reply --desktop --clear --workspace --surface --window --json --id-format"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux notify [flags]\n\n发送通知，或使用 --clear 清除目标。\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "用法：cmux notify [flags]\n\n向工作区/表面发送通知，或使用 --clear 清除已解析的目标。\n\nFlags：\n  --title <text>         通知标题（默认值：\"Notification\"）\n  --subtitle <text>      通知副标题\n  --body <text>          通知正文\n  --reply                允许自由文本内联回复\n  --desktop <true|false> 显示 macOS 原生横幅（默认值：true）。为 false 时，不显示横幅，但会在通知面板、侧边栏徽章和窗格环中保留条目\n  --clear                清除已解析调用方/目标的通知，而不是发布通知\n  --workspace <id|ref|index>   目标工作区，但显式的表面 UUID 会全局解析\n  --surface <id|ref|index>     目标表面（引用/索引使用工作区/窗口上下文）\n  --window <id|ref|index>      工作区/表面引用和索引的窗口上下文\n  --json                 将响应负载打印为 JSON\n  --id-format <mode>     便于阅读的 ID 格式：refs、uuids 或 both\n\n响应包含创建的通知 ID。使用 cmux dismiss-notification --id <uuid|notification:<uuid>>、cmux list-notifications 或 cmux clear-notifications 管理通知。\n--desktop 会在运行通知钩子前设置通知的 desktop 效果；钩子仍可覆盖该设置。与 --clear 一起使用时无效。\n\n示例：\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  cmux notify --title \"Deploy finished\" --desktop false\n  cmux notify --clear"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux notify [flags]\n\n傳送通知，或使用 --clear 清除目標。\n\nFlags: --title --subtitle --body --reply --clear --workspace --surface --window --json --id-format"
+            "value": "用法：cmux notify [flags]\n\n向工作區／表面傳送通知，或使用 --clear 清除已解析的目標。\n\nFlags：\n  --title <text>         通知標題（預設值：「Notification」）\n  --subtitle <text>      通知副標題\n  --body <text>          通知本文\n  --reply                允許自由文字內嵌回覆\n  --desktop <true|false> 顯示 macOS 原生橫幅（預設值：true）。為 false 時，不顯示橫幅，但會在通知面板、側邊欄徽章和窗格環中保留項目\n  --clear                清除已解析呼叫端／目標的通知，而不是發佈通知\n  --workspace <id|ref|index>   目標工作區，但明確的表面 UUID 會全域解析\n  --surface <id|ref|index>     目標表面（參照／索引使用工作區／視窗內容）\n  --window <id|ref|index>      工作區／表面參照和索引的視窗內容\n  --json                 將回應負載列印為 JSON\n  --id-format <mode>     便於閱讀的 ID 格式：refs、uuids 或 both\n\n回應包含建立的通知 ID。使用 cmux dismiss-notification --id <uuid|notification:<uuid>>、cmux list-notifications 或 cmux clear-notifications 管理通知。\n--desktop 會在執行通知 Hook 前設定通知的 desktop 效果；Hook 仍可覆寫此設定。與 --clear 一起使用時無效。\n\n範例：\n  cmux notify --title \"Build done\" --body \"All tests passed\"\n  cmux notify --title \"Error\" --subtitle \"test.swift\" --body \"Line 42: syntax error\"\n  cmux notify --surface <uuid> --title \"Build done\"\n  cmux notify --title \"Deploy finished\" --desktop false\n  cmux notify --clear"
           }
         }
       }
@@ -126358,55 +126358,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يمكن أن تحتوي مساحات عمل Cloud إلا على الطرفيات والمتصفحات والشاشات التابعة لجهاز Cloud الخاص بها. افتح مساحة عمل محلية وانقل التقسيمات إليها."
+            "value": "لا يمكن أن تحتوي مساحات عمل Cloud إلا على الطرفيات والشاشات التابعة لجهاز Cloud الخاص بها. يمكن نقل علامات تبويب المتصفح بحرية. افتح مساحة عمل محلية لنقل التقسيمات الأخرى إليها."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-Arbeitsbereiche können nur Terminals, Browser und Displays ihres eigenen Cloud-Rechners enthalten. Öffnen Sie einen lokalen Arbeitsbereich und verschieben Sie die Splits dorthin."
+            "value": "Cloud-Arbeitsbereiche können nur Terminals und Displays ihres eigenen Cloud-Rechners enthalten. Browser-Tabs können frei verschoben werden. Öffnen Sie einen lokalen Arbeitsbereich, um andere Splits dorthin zu verschieben."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud workspaces can only hold terminals, browsers, and displays from their own Cloud machine. Open a local workspace and move the splits there."
+            "value": "Cloud workspaces can only hold terminals and displays from their own Cloud machine. Browser tabs can move freely. Open a local workspace to move other splits there."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los espacios de trabajo Cloud solo pueden contener terminales, navegadores y pantallas de su propia máquina Cloud. Abre un espacio de trabajo local y mueve allí las divisiones."
+            "value": "Los espacios de trabajo Cloud solo pueden contener terminales y pantallas de su propia máquina Cloud. Las pestañas del navegador se pueden mover libremente. Abre un espacio de trabajo local para mover allí las otras divisiones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les espaces de travail Cloud ne peuvent contenir que les terminaux, navigateurs et écrans de leur propre machine Cloud. Ouvrez un espace de travail local et déplacez-y les splits."
+            "value": "Les espaces de travail Cloud ne peuvent contenir que les terminaux et écrans de leur propre machine Cloud. Les onglets du navigateur peuvent être déplacés librement. Ouvrez un espace de travail local pour y déplacer les autres splits."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud ワークスペースには、同じ Cloud マシンのターミナル、ブラウザ、ディスプレイのみを追加できます。ローカルワークスペースを開いて、スプリットをそこへ移動してください。"
+            "value": "Cloud ワークスペースには、同じ Cloud マシンのターミナルとディスプレイのみを追加できます。ブラウザのタブは自由に移動できます。他のスプリットを移動するには、ローカルワークスペースを開いてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 작업 공간에는 동일한 Cloud 머신의 터미널, 브라우저 및 디스플레이만 포함할 수 있습니다. 로컬 작업 공간을 열고 스플릿을 그곳으로 이동하세요."
+            "value": "Cloud 작업 공간에는 동일한 Cloud 머신의 터미널과 디스플레이만 포함할 수 있습니다. 브라우저 탭은 자유롭게 이동할 수 있습니다. 다른 스플릿을 이동하려면 로컬 작업 공간을 여세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud radni prostori mogu sadržavati samo terminale i ekrane s vlastite Cloud mašine. Kartice preglednika mogu se slobodno premještati. Otvorite lokalni radni prostor da premjestite ostale podjele."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbejdsområder kan kun indeholde terminaler og skærme fra deres egen Cloud-maskine. Browserfaner kan flyttes frit. Åbn et lokalt arbejdsområde for at flytte andre opdelinger dertil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli spazi di lavoro Cloud possono contenere solo terminali e schermi della propria macchina Cloud. Le schede del browser possono essere spostate liberamente. Apri uno spazio di lavoro locale per spostare le altre divisioni."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការ Cloud អាចមានតែស្ថានីយ និងអេក្រង់ពីម៉ាស៊ីន Cloud របស់វាប៉ុណ្ណោះ។ ផ្ទាំងកម្មវិធីរុករកអាចផ្លាស់ទីដោយសេរី។ បើកកន្លែងធ្វើការមូលដ្ឋាន ដើម្បីផ្លាស់ទីការបែងចែកផ្សេងទៀតទៅទីនោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-arbeidsområder kan bare inneholde terminaler og skjermer fra sin egen Cloud-maskin. Nettleserfaner kan flyttes fritt. Åpne et lokalt arbeidsområde for å flytte andre oppdelinger dit."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszary robocze Cloud mogą zawierać tylko terminale i ekrany z własnej maszyny Cloud. Karty przeglądarki można swobodnie przenosić. Otwórz lokalny obszar roboczy, aby przenieść tam inne podziały."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os espaços de trabalho Cloud só podem conter terminais e telas da própria máquina Cloud. As abas do navegador podem ser movidas livremente. Abra um espaço de trabalho local para mover as outras divisões para lá."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочие пространства Cloud могут содержать только терминалы и экраны своей Cloud-машины. Вкладки браузера можно свободно перемещать. Откройте локальное рабочее пространство, чтобы переместить туда остальные разделы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงาน Cloud มีได้เฉพาะเทอร์มินัลและจอแสดงผลจากเครื่อง Cloud ของตนเอง แท็บเบราว์เซอร์ย้ายได้อย่างอิสระ เปิดพื้นที่ทำงานในเครื่องเพื่อย้ายส่วนแบ่งอื่นไปที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud çalışma alanları yalnızca kendi Cloud makinesindeki terminalleri ve ekranları içerebilir. Tarayıcı sekmeleri serbestçe taşınabilir. Diğer bölmeleri taşımak için yerel bir çalışma alanı açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочі простори Cloud можуть містити лише термінали й дисплеї власної Cloud-машини. Вкладки браузера можна вільно переміщувати. Відкрийте локальний робочий простір, щоб перемістити туди інші розділи."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 工作区只能包含来自同一台 Cloud 机器的终端、浏览器和显示器。打开本地工作区，然后将这些分屏移到那里。"
+            "value": "Cloud 工作区只能包含来自同一台 Cloud 机器的终端和显示器。浏览器标签页可以自由移动。打开本地工作区以移入其他分屏。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 工作區只能包含來自同一台 Cloud 機器的終端機、瀏覽器和顯示器。開啟本機工作區，然後將這些分割畫面移到那裡。"
+            "value": "Cloud 工作區只能包含來自同一台 Cloud 機器的終端機和顯示器。瀏覽器分頁可以自由移動。開啟本機工作區以移入其他分割畫面。"
           }
         }
       }
@@ -601838,65 +601904,6 @@
         }
       }
     },
-    "browser.discard.restoring": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restoring…"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ الاستعادة…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wird wiederhergestellt…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restaurando…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restauration…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "復元中…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "복원 중…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在恢复…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在還原…"
-          }
-        }
-      }
-    },
     "settings.browser.hiddenWebViewDiscardMode": {
       "extractionState": "manual",
       "localizations": {
@@ -608885,6 +608892,558 @@
           "stringUnit": {
             "state": "translated",
             "value": "Показати доступність команд Cloud"
+          }
+        }
+      }
+    },
+    "cli.remotes.error.invalidArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: invalid arguments."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: وسيطات غير صالحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: ungültige Argumente."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: argumentos no válidos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : arguments non valides."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：引数が無効です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 잘못된 인수입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：无效的参数。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：無效的引數。"
+          }
+        }
+      }
+    },
+    "cli.remotes.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: unexpected argument '%2$@'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: وسيطة غير متوقعة '%2$@'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: unerwartetes Argument '%2$@'."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: argumento inesperado '%2$@'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : argument inattendu '%2$@'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：予期しない引数 '%2$@' です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: 예상하지 못한 인수 '%2$@'입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：意外的参数 '%2$@'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：非預期的引數 '%2$@'。"
+          }
+        }
+      }
+    },
+    "cli.remotes.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: unknown flag '%2$@'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: خيار غير معروف '%2$@'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: unbekannte Option '%2$@'."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: opción desconocida '%2$@'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : option inconnue '%2$@'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：不明なオプション '%2$@' です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: 알 수 없는 옵션 '%2$@'입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：未知的选项 '%2$@'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：未知的選項 '%2$@'。"
+          }
+        }
+      }
+    },
+    "cloudPane.attachment.reason.staleDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this Cloud machine is running an older terminal runtime; upgrade it, then retry"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "auf dieser Cloud-Maschine läuft eine ältere Terminal-Laufzeit; aktualisiere sie und versuche es erneut"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cette machine Cloud utilise une ancienne version du moteur de terminal ; mettez-la à jour, puis réessayez"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل على جهاز Cloud هذا إصدار أقدم من تشغيل الطرفية؛ حدّث الجهاز ثم أعد المحاولة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta máquina de Cloud usa un runtime de terminal antiguo; actualízala y vuelve a intentarlo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Cloud 機器執行較舊的終端機執行環境；請先升級，再重試"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Cloud 机器运行较旧的终端运行时；请先升级，再重试"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신은 이전 터미널 런타임을 실행 중입니다. 업그레이드한 후 다시 시도하세요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンでは古いターミナルランタイムが実行されています。アップグレードしてから再試行してください"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ova Cloud mašina koristi starije izvršno okruženje terminala; nadogradite je pa pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne Cloud-maskine kører en ældre terminalruntime; opgrader den, og prøv igen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "questa macchina Cloud esegue un runtime del terminale meno recente; aggiornala e riprova"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud នេះកំពុងដំណើរការ runtime ស្ថានីយចាស់ជាងនេះ; ធ្វើបច្ចុប្បន្នភាព រួចព្យាយាមម្ដងទៀត"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne Cloud-maskinen kjører en eldre terminalruntime; oppgrader den og prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ta maszyna Cloud korzysta ze starszego środowiska uruchomieniowego terminala; zaktualizuj ją i spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta máquina Cloud está executando um runtime de terminal antigo; atualize-a e tente novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "на этой Cloud-машине используется старая среда выполнения терминала; обновите её и повторите попытку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud นี้กำลังใช้รันไทม์เทอร์มินัลรุ่นเก่า โปรดอัปเกรดแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bu Cloud makinesi daha eski bir terminal çalışma zamanı kullanıyor; yükseltip tekrar deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "на цій Cloud-машині працює старіше середовище термінала; оновіть її та повторіть спробу"
+          }
+        }
+      }
+    },
+    "socket.notification.effectsInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid effects"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects が指定されていないか無効です"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects 缺失或无效"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlende oder ungültige effects"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects manquant ou invalide"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة effects مفقودة أو غير صالحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects faltante o no válido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遺失或無效的 effects"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects가 없거나 잘못되었습니다"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nedostaje ili je nevažeći effects"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manglende eller ugyldig effects"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects mancante o non valido"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects បាត់ ឬមិនត្រឹមត្រូវ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manglende eller ugyldig effects"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak lub nieprawidłowa wartość effects"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects ausente ou inválido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отсутствует или недопустимое значение effects"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects หายไปหรือไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "effects eksik veya geçersiz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відсутнє або недійсне значення effects"
+          }
+        }
+      }
+    },
+    "cli.error.notifyDesktopValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop must be true|false"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون --desktop إما true|false"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop muss true|false sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop debe ser true|false"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop doit être true|false"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop には true|false を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop는 true|false여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop 必须是 true|false"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop 必須是 true|false"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop mora biti true|false"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop skal være true|false"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop deve essere true|false"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop ត្រូវតែជា true|false"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop må være true|false"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop musi mieć wartość true|false"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop deve ser true|false"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop должен быть true|false"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop ต้องเป็น true|false"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop true|false olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--desktop має бути true|false"
           }
         }
       }

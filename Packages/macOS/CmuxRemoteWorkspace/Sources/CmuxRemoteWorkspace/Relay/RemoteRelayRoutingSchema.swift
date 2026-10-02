@@ -49,9 +49,34 @@ struct RemoteRelayRoutingSchema {
                 "sender_surface_id", "sender_workspace_id",
             ]
         case "notification.create_for_target":
-            return surface.union(["title", "subtitle", "body"])
+            return surface.union(["title", "subtitle", "body", "effects"])
         default: return nil
         }
+    }
+
+    /// Effect names a relayed notification's `effects` patch may carry.
+    static let relayNotificationEffectKeys: Set<String> = [
+        "record", "markUnread", "reorderWorkspace", "desktop", "sound", "command", "paneFlash",
+    ]
+
+    /// The parameters a relay gate scans for command-bearing keys. A
+    /// notification's `effects` patch is left out only when it is a flat
+    /// object of known effect names with JSON boolean values: its `command`
+    /// entry toggles the user's own `notifications.command` and carries no
+    /// command text. Any other shape stays in the scan and is denied.
+    func commandKeyScanScope(of parameters: [String: Any], method: String) -> [String: Any] {
+        guard method == "notification.create_for_target",
+              let effects = parameters["effects"] as? [String: Any],
+              effects.allSatisfy({ Self.relayNotificationEffectKeys.contains($0.key) && Self.isJSONBoolean($0.value) })
+        else { return parameters }
+        var scope = parameters
+        scope.removeValue(forKey: "effects")
+        return scope
+    }
+
+    private static func isJSONBoolean(_ value: Any) -> Bool {
+        guard let number = value as? NSNumber else { return false }
+        return CFGetTypeID(number) == CFBooleanGetTypeID()
     }
 
     /// Claude lifecycle events a relay host may admit. Decision hooks
