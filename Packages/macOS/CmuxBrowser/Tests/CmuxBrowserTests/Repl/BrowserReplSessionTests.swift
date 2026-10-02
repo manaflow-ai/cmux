@@ -175,6 +175,44 @@ struct BrowserReplSessionTests {
         #expect(after.lines == [BrowserReplOutputLine(level: "log", text: "download.finished YSxi")])
     }
 
+    @Test(
+        "A working directory that holds the user's files is refused as the fs root",
+        arguments: [
+            "/",
+            NSHomeDirectory(),
+            NSHomeDirectory() + "/",
+            (NSHomeDirectory() as NSString).deletingLastPathComponent,
+        ]
+    )
+    func broadWorkingDirectoryIsRefused(cwd: String) async throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-session-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let session = makeSession(driver: RecordingReplDriver(), cwd: work.path)
+        defer { session.close() }
+
+        let refused = await session.evaluate(code: "console.log('ran');", cwd: cwd)
+
+        #expect(refused.lines.isEmpty)
+        #expect(refused.error?.contains("refusing to use") == true)
+        #expect(refused.error?.contains("cd to a project or scratch directory") == true)
+        #expect(session.cwd == work.path)
+        let next = await session.evaluate(code: "console.log('ran');")
+        #expect(next.error == nil)
+        #expect(next.lines == [BrowserReplOutputLine(level: "log", text: "ran")])
+    }
+
+    @Test("A session created with / as its working directory refuses to evaluate")
+    func sessionCreatedAtFileSystemRootIsRefused() async {
+        let session = makeSession(driver: RecordingReplDriver(), cwd: "/")
+        defer { session.close() }
+
+        let refused = await session.evaluate(code: "console.log(fs('exists', { path: '/etc/hosts' }));")
+
+        #expect(refused.lines.isEmpty)
+        #expect(refused.error?.contains("refusing to use '/'") == true)
+    }
+
     @Test("A closed session refuses evaluations")
     func closedSession() async {
         let session = makeSession(driver: RecordingReplDriver())
