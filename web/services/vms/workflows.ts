@@ -90,6 +90,7 @@ import {
   maxDiskMbForPlan,
   maxMemoryMbForPlan,
   maxVcpusForPlan,
+  VM_PLAN_MEMORY_MB_PER_VCPU,
   vmFreeAccessWindowDays,
 } from "./entitlements";
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
@@ -905,6 +906,21 @@ function requireMemoryPlan(planId: string, memoryMb: number | null) {
     return Effect.fail(new VmMemoryPlanError({ planId, memoryMb, maxMemoryMb }));
   }
   return Effect.void;
+}
+
+/**
+ * A machine larger than the caller's plan (created before a plan change, or
+ * on a plan the caller left) stays listed and deletable, but access verbs
+ * refuse it. CPU above the plan counts as the ladder memory that carries it.
+ * Rows without recorded resources are left to the create-time checks.
+ */
+function requireMachineFitsPlan(planId: string, metadata: Record<string, unknown>) {
+  if (!hasVmResourceReservationMetadata(metadata)) return Effect.void;
+  const shape = vmResourceReservationFromMetadata(metadata);
+  const maxMemoryMb = maxMemoryMbForPlan(planId);
+  if (shape.memoryMb <= maxMemoryMb && shape.vcpus <= maxVcpusForPlan(planId)) return Effect.void;
+  const memoryMb = Math.max(shape.memoryMb, shape.vcpus * VM_PLAN_MEMORY_MB_PER_VCPU);
+  return Effect.fail(new VmMemoryPlanError({ planId, memoryMb, maxMemoryMb }));
 }
 
 function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }) {
@@ -4373,6 +4389,9 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
         yield* repo.mergeProviderMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
       }
       vm = { ...vm, providerMetadata: { ...vm.providerMetadata, [GO_PAUSE_INTENT_KEY]: null } };
+    }
+    if (input.callerPlanId && isPaidVmPlan(input.callerPlanId)) {
+      yield* requireMachineFitsPlan(input.callerPlanId, vm.providerMetadata);
     }
     if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {
       return yield* Effect.fail(new VmFreeAccessExpiredError({

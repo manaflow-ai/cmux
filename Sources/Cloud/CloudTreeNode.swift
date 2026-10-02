@@ -75,6 +75,15 @@ final class CloudTreeNode: NSObject {
         case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
+        /// The identity glyph a top-level section header carries once for all of
+        /// its rows, so the machine and device rows under it show no repeated icon.
+        var sectionHeaderSymbol: String? {
+            switch self {
+            case .cloudMachinesSection: "cloud"
+            case .devicesSection: "desktopcomputer"
+            default: nil
+            }
+        }
     }
     let id: String
     private(set) var kind: Kind
@@ -195,7 +204,7 @@ final class CloudTreeNode: NSObject {
         case .resourcesPool: return String(localized: "cloudTree.group.resources", defaultValue: "Resources")
         case .resource(_, let row): return row.title
         case .port(let resource, let url, _):
-            return CloudTreePortPresentation(resource: resource, url: url).title
+            return CloudTreePortPresentation(resource: resource).title
         case .placeholder(_, let placeholder): return placeholder.text
         case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")

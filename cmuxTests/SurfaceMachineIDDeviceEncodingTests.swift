@@ -119,7 +119,7 @@ struct SurfaceMachineIDDeviceEncodingTests {
         #expect(local["local"] as? Bool == true)
     }
 
-    @Test("Cloud tree payload and CLI use user-facing link failure copy")
+    @Test("Cloud tree payload carries user-facing link failure copy")
     func cloudLinkFailureCopy() {
         let info = machineInfo(.cloud("brave-otter"), linkState: .error, presence: nil)
         var failed = info
@@ -140,6 +140,18 @@ struct SurfaceMachineIDDeviceEncodingTests {
         )
         #expect(lines.contains { $0.contains("cmux cannot reach the Cloud service") })
         #expect(!lines.contains { $0.contains("cloud_api_unavailable") })
+
+        let fallbackLines = CMUXCLI.vmTreeLines(
+            machine: [
+                "id": "brave-otter",
+                "status": "running",
+                "link_state": "error",
+                "link_error": "cloud_api_unavailable",
+            ],
+            resources: []
+        )
+        #expect(!fallbackLines.contains { $0.contains("cloud_api_unavailable") })
+        #expect(fallbackLines.contains { $0.contains("Link failed") })
     }
 
     @Test("Build labels qualify dev, nightly, rc, and tagged instances; stable stays bare")

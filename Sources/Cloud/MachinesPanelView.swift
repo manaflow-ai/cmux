@@ -292,6 +292,9 @@ struct MachinesPanelView: View {
             accountFlow: accountFlow,
             presentation: teamPickerPresentation,
             chromeBackgroundColor: chromeBackgroundColor,
+            isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+            onRefresh: refreshMachines,
+            onNewMachine: requestNewMachine,
             status: { cloudStatus }
         )
     }
@@ -401,9 +404,6 @@ struct MachinesPanelView: View {
         }
     }
 
-    /// Cloud-agent launcher: each agent entry opens a local terminal running
-    /// that agent preloaded with the cmux Cloud skill; Copy Cloud Prompt puts
-    /// the same kickoff prompt on the clipboard for any other terminal.
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
@@ -428,7 +428,8 @@ struct MachinesPanelView: View {
         // Max-only size and wait for a server rejection.
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
-        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
+        // The image ladder pairs one vCPU with every 2 GB (8 GB = 4 vCPU).
+        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 1) / 2) }
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         var nodeActions = CloudTreeNodeActions.bound(
@@ -487,6 +488,7 @@ struct MachinesPanelView: View {
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
+            cloudFleetListIsCurrent: viewModel.listProblem == nil && !viewModel.isNetworkOffline,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
             reveal: devicesModel.revealRequest ?? selectionReveal,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
@@ -603,7 +605,7 @@ struct MachinesPanelView: View {
         )
     }
 
-    /// Paid plans: "Your plan includes 50 machines" under the create button,
+    /// Paid plans: "Your plan includes 5 machines" under the create button,
     /// so the empty state answers "what do I get" before the Cloud Machines
     /// header shows a count. The uncapped wording only appears when an
     /// operator lifted the cap.

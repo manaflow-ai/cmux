@@ -341,10 +341,14 @@ mod tests {
 
     #[test]
     fn connection_refused_is_distinguished_from_other_transport_failures() {
-        assert!(ProviderError::Link(LinkError::Transport("connection refused".into()))
-            .is_connection_refused());
-        assert!(!ProviderError::Link(LinkError::Transport("connection reset".into()))
-            .is_connection_refused());
+        assert!(
+            ProviderError::Link(LinkError::Transport("connection refused".into()))
+                .is_connection_refused()
+        );
+        assert!(
+            !ProviderError::Link(LinkError::Transport("connection reset".into()))
+                .is_connection_refused()
+        );
     }
 
     #[test]
