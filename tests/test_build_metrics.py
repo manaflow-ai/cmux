@@ -4,6 +4,9 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -53,6 +56,14 @@ note: cache key query miss
 XCODE_26_6_COMPACT = """note: 0/316 cacheable tasks
 Build Timing Summary
 SwiftCompile (1 task) | 1.000 seconds
+** BUILD SUCCEEDED **
+"""
+
+FLEET_CACHE_LOG = """COMPILATION_CACHE_ENABLE_PLUGIN = YES
+COMPILATION_CACHE_REMOTE_SERVICE_PATH = /Users/Shared/cmux-build-fleet/xcode/fleet-cas.sock
+Build Timing Summary
+CompileSwiftSources (2 tasks) | 3.000 seconds
+Ld (1 task) | 0.500 seconds
 ** BUILD SUCCEEDED **
 """
 
@@ -156,6 +167,11 @@ class BuildMetricsTests(unittest.TestCase):
         self.assertIn("steps.hosted-compile.outcome != 'skipped'", workflow)
         self.assertIn("--compile-outcome \"$HOSTED_COMPILE_OUTCOME\"", workflow)
         self.assertIn("--host-telemetry \"$RUNNER_TEMP/glaeda-compile-telemetry.json\"", workflow)
+        self.assertIn("SEED_DISTANCE: ${{ steps.seed-derived-data.outputs.seed_distance }}", workflow)
+        self.assertNotIn(
+            "SEED_DISTANCE: ${{ steps.seed-derived-data.outputs.seed_distance || steps.prefer-seed.outputs.seed_distance }}",
+            workflow,
+        )
         self.assertIn("steps.build-metrics.outcome == 'success'", workflow)
         self.assertIn("continue-on-error: true", workflow)
 
@@ -179,9 +195,55 @@ class BuildMetricsTests(unittest.TestCase):
         self.assertEqual(receipt["compiler_cache"]["cacheable_tasks"], 3)
         self.assertEqual(receipt["compiler_cache"]["compile_seconds"], 12.5)
         self.assertEqual(receipt["compiler_cache"]["link_seconds"], 2.25)
+        self.assertEqual(receipt["compiler_cache"]["compile_wall_seconds"], 42.5)
+        self.assertEqual(receipt["compiler_cache"]["cache_backend"], "local")
         self.assertEqual(receipt["derived_data_log_count"], 1)
         self.assertEqual(receipt["activity_logs"], [{"name": "one.xcactivitylog", "bytes": 3}])
         json.dumps(receipt)
+
+    def test_receipt_identifies_fleet_cache_backend_without_emitting_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory)
+            (derived / "cmux-build.log").write_text(FLEET_CACHE_LOG)
+
+            receipt = build_metrics.build_receipt(derived, 9.25, compile_outcome="success")
+
+        self.assertEqual(receipt["compiler_cache"]["cache_backend"], "fleet")
+        self.assertEqual(receipt["compiler_cache"]["compile_wall_seconds"], 9.25)
+        self.assertNotIn("fleet-cas.sock", json.dumps(receipt["compiler_cache"]))
+
+    def test_host_sidecar_carries_wall_time_and_backend(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            derived = root / "derived"
+            derived.mkdir()
+            (derived / "cmux-build.log").write_text(FLEET_CACHE_LOG)
+            output = root / "receipt.json"
+            host = root / "host.json"
+            env = {**os.environ, "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "2"}
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(derived),
+                    "--output",
+                    str(output),
+                    "--compile-seconds",
+                    "9.25",
+                    "--compile-outcome",
+                    "success",
+                    "--host-telemetry",
+                    str(host),
+                ],
+                check=True,
+                env=env,
+            )
+            sidecar = json.loads(host.read_text())
+
+        self.assertEqual(sidecar["compile_wall_seconds"], 9.25)
+        self.assertEqual(sidecar["cache_backend"], "fleet")
+        self.assertEqual(sidecar["run_id"], "123")
+        self.assertEqual(sidecar["run_attempt"], "2")
 
 
 if __name__ == "__main__":

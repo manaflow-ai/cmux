@@ -32,8 +32,10 @@ public protocol ControlWindowContext: AnyObject {
     /// Creates a new main window and makes it the active tab-manager target for
     /// `window.create` (create + defensive activation, as the legacy body did).
     ///
+    /// - Parameter title: The optional initial workspace title, applied before
+    ///   the window becomes visible.
     /// - Returns: The new window's id, or `nil` if creation failed.
-    func controlCreateWindowAndActivate() -> UUID?
+    func controlCreateWindowAndActivate(title: String?) -> UUID?
 
     /// Closes the window with the given id for `window.close`.
     ///

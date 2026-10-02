@@ -9,7 +9,7 @@ let authedUser: AuthedUser | null = null;
 const programs: Array<Record<string, unknown>> = [];
 let routeResult: { ok: true; value: Record<string, unknown> } | { ok: false; response: Response } = {
   ok: true,
-  value: { state: "awake", diskTotalMb: 65536, cpus: 4, memoryTotalMb: 16384 },
+  value: { state: "awake", diskTotalMb: 65536, cpus: 4, memoryTotalMb: 8192 },
 };
 
 const realAuth = await import("../services/vms/auth");
@@ -84,7 +84,7 @@ describe("POST /api/vm/[id]/resize", () => {
     programs.length = 0;
     routeResult = {
       ok: true,
-      value: { state: "awake", diskTotalMb: 65536, cpus: 4, memoryTotalMb: 16384 },
+      value: { state: "awake", diskTotalMb: 65536, cpus: 4, memoryTotalMb: 8192 },
     };
   });
 
@@ -106,16 +106,16 @@ describe("POST /api/vm/[id]/resize", () => {
   });
 
   test("passes disk, CPU, and memory together and returns confirmed stats", async () => {
-    const response = await resizeRoute.POST(post({ storageMb: 64 * 1024, cpu: 4, memoryMb: 16 * 1024 }), params);
+    const response = await resizeRoute.POST(post({ storageMb: 64 * 1024, cpu: 4, memoryMb: 8 * 1024 }), params);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       id: "fs-route",
       diskTotalMb: 65536,
       cpus: 4,
-      memoryTotalMb: 16384,
+      memoryTotalMb: 8192,
       maxDiskMb: 131072,
-      maxMemoryMb: 24576,
-      maxVcpus: 6,
+      maxMemoryMb: 8192,
+      maxVcpus: 4,
     });
     expect(programs).toHaveLength(1);
     expect(programs[0]).toMatchObject({
@@ -124,7 +124,7 @@ describe("POST /api/vm/[id]/resize", () => {
       providerVmId: "fs-route",
       storageMb: 65536,
       cpu: 4,
-      memoryMb: 16384,
+      memoryMb: 8192,
     });
   });
 

@@ -57,8 +57,11 @@ struct GhosttyHostActionHandler {
             return true
         case .closeWindow:
             guard let window = context.window, let manager = context.manager else { break }
-            Task { @MainActor [weak app, weak window, weak manager] in
-                guard let app, let window, manager?.window === window,
+            let windowIdentifier = ObjectIdentifier(window)
+            Task { @MainActor [weak app, weak manager] in
+                guard let app,
+                      let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }),
+                      manager?.window === window,
                       manager?.isFinalizedForWindowClose == false else { return }
                 _ = app.closeWindowWithConfirmation(window)
             }

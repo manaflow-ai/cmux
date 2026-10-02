@@ -121,6 +121,7 @@ struct ClaudeHookSessionStoreRecoveryTests {
             arguments: ["hooks", "claude", "session-start"],
             environment: [
                 "HOME": root.path,
+                "CFFIXED_USER_HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_WORKSPACE_ID": workspaceID,

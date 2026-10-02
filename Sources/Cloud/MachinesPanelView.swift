@@ -24,6 +24,9 @@ struct MachinesPanelView: View {
     /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
+    /// The main workspace selection is the authority for the tree projection.
+    /// Keep this request window-local so another window cannot move this tree.
+    @State private var selectionReveal: CloudTreeRevealRequest?
     @State private var bannerDismissals: CloudBannerDismissalStore
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -34,6 +37,7 @@ struct MachinesPanelView: View {
 
     init(
         chromeBackgroundColor: NSColor,
+        viewModel: MachinesPanelViewModel? = nil,
         machinePinStore: CloudMachinePinStore? = nil,
         devicesModel: DevicesPanelViewModel? = nil,
         tabManager: TabManager? = nil,
@@ -46,7 +50,7 @@ struct MachinesPanelView: View {
             initialValue: AppDelegate.shared?.cloudBannerDismissalStore
                 ?? CloudBannerDismissalStore(defaults: .standard)
         )
-        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
+        _viewModel = StateObject(wrappedValue: viewModel ?? MachinesPanelViewModel(
             machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
                 guard let tabManager else { return [] }
@@ -81,6 +85,16 @@ struct MachinesPanelView: View {
         return CloudMachinesFeature.isEnabled
     }
 
+    /// Keep every New Cloud Machine affordance on the same plan gate. A plan
+    /// that has not loaded yet stays available so the shared presenter can
+    /// resolve it; once loaded, a free plan at its ceiling shows its upgrade
+    /// guidance through the existing empty-state action instead.
+    private var canCreateCloudMachine: Bool {
+        guard includesCloud else { return false }
+        guard let plan = viewModel.plan else { return true }
+        return !plan.isAtLimit || plan.isPaidPlan
+    }
+
     /// The panel replaces its cached tree as soon as a team mutation starts;
     /// waiting for the scope observer would leave the previous team's rows
     /// visible while the create or switch is still in flight.
@@ -98,6 +112,12 @@ struct MachinesPanelView: View {
     }
 
     private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
+
+    private var selectedCloudIdentity: String? {
+        guard let workspace = tabManager?.selectedWorkspace,
+              let machineID = workspace.cloudVMID else { return nil }
+        return [machineID, workspace.cloudVMBinding?.remoteWorkspaceID ?? ""].joined(separator: "\u{1f}")
+    }
 
     private var treeSnapshot: SurfaceCatalogSnapshot {
         viewModel.visibleCatalog.applyingDeviceVisibility(
@@ -124,6 +144,8 @@ struct MachinesPanelView: View {
             }
         }
         .onAppear { syncPolling(for: authState) }
+        .onAppear { refreshSelectionReveal() }
+        .onChange(of: selectedCloudIdentity) { _, _ in refreshSelectionReveal() }
         .onChange(of: devicesModel.preferences?.discoveryEnabled) { _, _ in syncPolling(for: authState) }
         .onChange(of: cloudBetaEnabled) { _, _ in syncPolling(for: authState) }
         .onReceive(NotificationCenter.default.publisher(for: DeviceSurfaceProviderRegistry.revealDeviceNotification)) { _ in
@@ -161,10 +183,40 @@ struct MachinesPanelView: View {
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
+    /// Project the selected workspace by stable machine/workspace identity.
+    /// Names are intentionally absent: duplicate workspace names are valid.
+    private func refreshSelectionReveal() {
+        guard let workspace = tabManager?.selectedWorkspace,
+              let machineID = workspace.cloudVMID else {
+            selectionReveal = nil
+            return
+        }
+        let machine = SurfaceMachineID.cloud(machineID)
+        let nodeID: String
+        if let remoteWorkspaceID = workspace.cloudVMBinding?.remoteWorkspaceID,
+           !remoteWorkspaceID.isEmpty {
+            nodeID = CloudTreeNodeBuilder.nodeID(workspace: remoteWorkspaceID, machine: machine)
+        } else {
+            nodeID = CloudTreeNodeBuilder.nodeID(machine: machine)
+        }
+        selectionReveal = CloudTreeRevealRequest(token: UUID(), nodeID: nodeID)
+    }
+
     @ViewBuilder
     private var authenticatedContent: some View {
         if includesCloud {
             controlBar
+            CloudNewMachineButton {
+                if canCreateCloudMachine {
+                    _ = AppDelegate.shared?.performNewCloudMachineAction(
+                        tabManager: tabManager,
+                        preferredWindow: tabManager?.window,
+                        debugSource: "cloudTree.newMachineButton"
+                    )
+                } else {
+                    ProUpgradePresenter.present(source: .newMachineAtLimit)
+                }
+            }
         }
         if includesCloud {
             MachinesPanelBanners(
@@ -194,6 +246,12 @@ struct MachinesPanelView: View {
             teamScopeLoading
         } else {
             content
+            if includesCloud {
+                CloudRefreshMachinesButton(
+                    isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+                    action: refreshMachines
+                )
+            }
         }
     }
 
@@ -227,7 +285,6 @@ struct MachinesPanelView: View {
 
     private var cloudStatus: some View {
         MachinesCloudStatus(
-            activeOperation: viewModel.activeOperation,
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: visibleTreeErrorDescription,
@@ -256,11 +313,15 @@ struct MachinesPanelView: View {
         return status
     }
 
-    private var controlBar: some View {
+    /// The panel's complete header, including its persistent recovery status.
+    var controlBar: some View {
         CloudTeamPickerHeader(
             accountFlow: accountFlow,
             presentation: teamPickerPresentation,
             chromeBackgroundColor: chromeBackgroundColor,
+            isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+            onRefresh: refreshMachines,
+            onNewMachine: requestNewMachine,
             status: { cloudStatus }
         )
     }
@@ -370,9 +431,6 @@ struct MachinesPanelView: View {
         }
     }
 
-    /// Cloud-agent launcher: each agent entry opens a local terminal running
-    /// that agent preloaded with the cmux Cloud skill; Copy Cloud Prompt puts
-    /// the same kickoff prompt on the clipboard for any other terminal.
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
@@ -380,6 +438,7 @@ struct MachinesPanelView: View {
             lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
             memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
             memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
+            vcpusByMemoryMb: viewModel.vcpusByMemoryMb,
             preferredWindow: tabManager?.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )
@@ -387,7 +446,6 @@ struct MachinesPanelView: View {
     /// Binds the shared Cloud and Devices tree above the outline's snapshot boundary.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in
                 viewModel?.endOperation()
                 viewModel?.refresh(tree: true)
@@ -398,7 +456,8 @@ struct MachinesPanelView: View {
         // Max-only size and wait for a server rejection.
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
-        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
+        // The image ladder pairs one vCPU with every 2 GB (8 GB = 4 vCPU).
+        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 1) / 2) }
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         var nodeActions = CloudTreeNodeActions.bound(
@@ -408,7 +467,6 @@ struct MachinesPanelView: View {
             selectLocalWorkspace: { workspaceID in
                 tabManager?.selectedTabId = workspaceID
             },
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
             refresh: { refreshMachines() },
@@ -436,7 +494,6 @@ struct MachinesPanelView: View {
                 debugSource: "cloudTree.cloudMachinesSection"
             )
         }
-        nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
@@ -457,9 +514,9 @@ struct MachinesPanelView: View {
                 incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable()
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
-            canCreateCloudMachine: includesCloud,
+            canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
-            reveal: devicesModel.revealRequest,
+            reveal: devicesModel.revealRequest ?? selectionReveal,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
         .accessibilityIdentifier("CloudMachinesTree")
@@ -549,7 +606,6 @@ struct MachinesPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("CloudMachinesEmptyState")
-        .cloudErrorCopyMenu(viewModel.lastErrorDescription)
     }
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
@@ -575,7 +631,7 @@ struct MachinesPanelView: View {
         )
     }
 
-    /// Paid plans: "Your plan includes 50 machines" under the create button,
+    /// Paid plans: "Your plan includes 5 machines" under the create button,
     /// so the empty state answers "what do I get" before the Cloud Machines
     /// header shows a count. The uncapped wording only appears when an
     /// operator lifted the cap.

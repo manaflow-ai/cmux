@@ -381,8 +381,8 @@
       "iosLink": "iOSアプリを開く"
     },
     "cloud": {
-      "title": "Cloud Macアクセス",
-      "description": "これらのMacはプライベートCloud VMネットワークへのWireGuardアクセスを持っています。iPhoneとIrohのペアリング記録は別に管理されます。",
+      "title": "CloudマシンとMacアクセス",
+      "description": "マシンごとに送信ネットワークを設定し、プライベートCloud VMネットワークへのWireGuardアクセスを持つMacを確認します。iPhoneとIrohのペアリング記録は別に管理されます。",
       "empty": "Cloud VMアクセスが登録されたMacはありません。",
       "cmux": "cmuxビルド",
       "access": "ネットワークアクセス",
@@ -404,6 +404,75 @@
       "revokeTitle": "{name}のアクセスを取り消しますか？",
       "revokeBody": "このMacをサインアウトし、すべてのCloud VMネットワークアクセスを削除します。",
       "revokeError": "このMacのアクセスを取り消せませんでした。",
+      "macAccessTitle": "Macアクセス",
+      "machines": {
+        "title": "マシン",
+        "empty": "Cloudマシンはありません。",
+        "personal": "個人",
+        "team": "チーム",
+        "status": {
+          "provisioning": "起動中",
+          "running": "実行中",
+          "failed": "失敗",
+          "paused": "一時停止中",
+          "destroyed": "削除済み"
+        }
+      },
+      "network": {
+        "open": "ネットワーク",
+        "title": "{name}の送信ネットワーク",
+        "description": "このマシンが接続できる宛先を選択します。変更は再起動なしで即時に適用されます。",
+        "loading": "ネットワークポリシーを読み込み中…",
+        "loadError": "このマシンのネットワークポリシーを読み込めませんでした。",
+        "saveError": "このネットワークポリシーを適用できませんでした。",
+        "unsupported": "このマシンは送信ネットワークの制御に対応していません。",
+        "retry": "再試行",
+        "appliedLabel": "状態:",
+        "applied": {
+          "applied": "適用済み",
+          "pending": "適用中",
+          "failed": "適用に失敗"
+        },
+        "unsaved": "未保存の変更",
+        "refresh": "更新",
+        "modeLabel": "送信アクセス",
+        "mode": {
+          "full": {
+            "label": "インターネット全体",
+            "description": "すべてのパブリックアドレス。"
+          },
+          "allowlist": {
+            "label": "許可リスト",
+            "description": "指定したプリセット、ドメイン、IP範囲のみ。"
+          },
+          "none": {
+            "label": "インターネットなし",
+            "description": "下記のcmuxホストのみ。"
+          }
+        },
+        "presetsTitle": "プリセット",
+        "presetsNote": "各プリセットは完全一致のホスト名を追加します。他のサブドメインを使うサービスには、追加のドメインが必要な場合があります。",
+        "domainsTitle": "ドメイン",
+        "domainsNote": "完全一致のホスト名で、ポート443のHTTPSのみです。ワイルドカードはまだ使えません。",
+        "domainInput": "ドメイン",
+        "rangesTitle": "IP範囲",
+        "rangesNote": "プロバイダーのファイアウォールがマシンの外側で適用します。ポートを空欄にするとすべてのポートを許可します。ポートにはプロトコルが必要です。",
+        "cidrInput": "IP範囲（CIDR）",
+        "portInput": "ポート",
+        "protocolInput": "プロトコル",
+        "anyProtocol": "すべて",
+        "noteInput": "メモ（任意）",
+        "allPorts": "すべてのポート",
+        "dnsLabel": "DNSを許可",
+        "dnsNote": "IP範囲が指す名前をツールが解決できるようにします。ドメインにはDNSは不要です。開いたDNSは送信チャネルです。プロセスは問い合わせる名前にデータを載せて外部に送れます。",
+        "requiredTitle": "常に許可",
+        "requiredNote": "cmuxは、マシン内のCLIをインストールおよび更新するために、すべてのモードでこれらのホストを必要とします。",
+        "add": "追加",
+        "remove": "削除",
+        "discard": "変更を破棄",
+        "close": "閉じる",
+        "apply": "適用"
+      },
       "emptyBody": "Mac 上の cmux が初めて Cloud VM に接続すると、その Mac がここに表示されます。"
     },
     "coderouter": {
@@ -563,6 +632,7 @@
       "billing": "請求",
       "themeDark": "ダークテーマ",
       "themeLight": "ライトテーマ",
+      "switchAccount": "アカウントを切り替え",
       "signOut": "サインアウト",
       "signingOut": "サインアウト中…",
       "signOutError": "サインアウトできませんでした。もう一度お試しください。",
@@ -651,7 +721,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "Max は月額 $200 の月払いで、最大 50 台の Cloud VM が 64 GB RAM と 16 vCPU を共有します。"
+        "upsell": "Max は月額 $200 の月払いで、最大 5 台の Cloud VM を利用でき、VM あたり最大 16 vCPU と 32 GB RAM を使えます。"
       },
       "teamPanel": {
         "notFound": "このチームは利用できません。チームから退出したか、チームが削除された可能性があります。",
@@ -663,7 +733,7 @@
         "memberReadOnly": "このプランを変更できるのはチーム管理者のみです。",
         "grantedBody": "{team} には cmux チームから Team へのアクセスが付与されています。管理するサブスクリプションはありません。",
         "seatsUsed": "{seats} シート中 {members} 使用",
-        "overSeat": "{team} にはメンバーが {members} 人いますが、有料シートは {seats} です。参加は引き続き可能です。全員をカバーするにはシートを追加してください。",
+        "overSeat": "{team} にはメンバーが {members} 人いますが、有料シートは {seats} です。シート数はメンバー数に追従し、サブスクリプションは自動的に更新されます。",
         "addSeats": "シートを追加"
       },
       "teamList": {
@@ -716,11 +786,11 @@
           ],
           "pro": [
             "Cloud VM 上のクラウドエージェント",
-            "VM 全体で共有する 24 GB RAM と 6 vCPU",
+            "最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM",
             "cmux iOS アプリ"
           ],
           "max": [
-            "VM 全体で共有する 64 GB RAM と 16 vCPU",
+            "最大 5 台の Cloud VM、VM あたり最大 16 vCPU と 32 GB RAM",
             "より大きなマシンサイズ",
             "Pro のすべての機能"
           ],
@@ -768,6 +838,11 @@
         "team": "チームを作成",
         "banner": "{plan} をご利用中です。",
         "bannerLink": "プランと請求"
+      },
+      "appStore": {
+        "title": "App Store で請求されています",
+        "body": "このプランは cmux の iPhone アプリで購入され、Apple から請求されています。変更や解約は App Store のサブスクリプションから行ってください。",
+        "manage": "App Store で管理"
       }
     },
     "testflight": {
@@ -1213,7 +1288,7 @@
         "featurePrioritySupport": "優先サポート",
         "chooseFree": "Free で続ける",
         "chooseTeam": "Team にアップグレード（${price}/シート/月）",
-        "upgradeLater": "シート数は柔軟です。支払い済みのシート数を超えて招待でき、シートは後から追加できます。",
+        "upgradeLater": "シート数はメンバー数に追従します。メンバーごとに課金され、参加や退出のたびに合計が更新されます。",
         "inviteTitle": "{team} にメンバーを招待",
         "inviteDescription": "任意です。チームのメンバーページから後で招待することもできます。",
         "inviteByEmail": "メールで招待",
@@ -1666,7 +1741,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 50 台の Cloud VM で、24 GB RAM と 6 vCPUを共有",
+        "最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -1683,7 +1758,7 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "最大 50 台の Cloud VM で 64 GB RAM と 16 vCPU を共有",
+        "最大 5 台の Cloud VM、VM あたり最大 16 vCPU と 32 GB RAM",
         "無制限のワークスペースと iOS アプリ"
       ]
     },
@@ -1782,27 +1857,27 @@
         {
           "label": "同時 Cloud VM 数",
           "free": "false",
-          "pro": "50",
-          "max": "50",
-          "team": "ユーザーごとに 50",
+          "pro": "5",
+          "max": "5",
+          "team": "ユーザーごとに 5",
           "enterprise": "カスタム",
           "go": "1"
         },
         {
-          "label": "すべての Cloud VM で共有するリソース",
+          "label": "Cloud VM あたりのリソース",
           "free": "false",
-          "pro": "24 GB RAM と 6 vCPUをすべての VM で共有",
-          "max": "すべての VM で 64 GB RAM と 16 vCPU を共有",
-          "team": "ユーザーあたり 24 GB RAM と 6 vCPUを、そのユーザーの VM で共有",
+          "pro": "4 vCPU と 8 GB RAM",
+          "max": "16 vCPU と 32 GB RAM",
+          "team": "4 vCPU と 8 GB RAM",
           "enterprise": "カスタム",
           "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
         },
         {
           "label": "最大の Cloud VM",
-          "free": "24 GB RAM",
-          "pro": "24 GB RAM",
-          "max": "64 GB RAM",
-          "team": "24 GB RAM",
+          "free": "false",
+          "pro": "8 GB RAM",
+          "max": "32 GB RAM",
+          "team": "8 GB RAM",
           "enterprise": "カスタム",
           "go": "4 GiB RAM"
         },
@@ -1900,11 +1975,11 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、24 GB RAM と 6 vCPUを共有します。Team ではユーザーごとに同じプールが適用されます。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 5 台の Cloud VM を利用でき、VM あたり最大 4 vCPU と 8 GB RAM を使えます。Team ではユーザーごとに同じ枠が適用されます。"
         },
         {
           "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。最大 50 台の Cloud VM で合計 64 GB RAM と 16 vCPU を共有します。Pro のすべてを含み、この共有リソースの範囲内で 32 GB と 64 GB のマシンを利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
+          "a": "Max は月払いで $200/月です。Pro のすべてを含み、最大 5 台の Cloud VM を利用でき、VM あたり最大 16 vCPU と 32 GB RAM です。Pro と Team のマシンは最大 4 vCPU と 8 GB RAM です。Free には Cloud VM は含まれません。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -1949,7 +2024,8 @@
       "team": "チームとエンタープライズ"
     },
     "priceMonthlyNote": "月払いは${amount}/月",
-    "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月"
+    "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月",
+    "manageInAppStore": "App Store で管理"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
@@ -3171,9 +3247,9 @@
         "automation": {
           "ampIntegration": "Amp 向けの cmux フックをオンまたはオフにします。オフにしても同梱のプラグインはインストールされたまま、何もしない状態になります。",
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。",
-          "agentAutoResume": "再試行可能な上流エラー（モデルの容量不足、過負荷、接続切断）でターンが終了した cmux 起動のエージェントに、バックオフ付きで `continue` を送信します。人の入力を待っているターンは再開しません。",
           "workspaceAutoNaming": "エージェントの会話内容からワークスペースとタブの名前を自動生成するオプトイン機能です。有効にすると、cmux は対応エージェントの各バイナリを使ってセッションを短いタイトルに要約します。手動の名前変更が常に優先されます。",
           "autoNamingAgent": "すべてのセッションの自動命名を行うエージェントを指定します。\"auto\"（既定）は各セッションをそのセッション自身のエージェントで命名します。任意のエージェントのスラッグ（claude、codex、grok、opencode、pi、omp など）を指定すると、他のエージェントのセッションも含めてすべての命名をそのエージェントが行います。実行できない、または未インストールのエージェントは各セッション自身のエージェントにフォールバックするため、命名が壊れることはありません。",
+          "agentAutoResume": "再試行可能な上流エラー（モデルの容量不足、過負荷、接続切断）でターンが終了した cmux 起動のエージェントに、バックオフ付きで `continue` を送信します。人の入力を待っているターンは再開しません。",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
@@ -3246,6 +3322,7 @@
           "compactStatusIcons": "compactAgentStatus のグリフを状態ごとに置き換える SF Symbol 名です（例: {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}）。未設定の状態は組み込みのシンボルを使い、表示できない名前も組み込みのシンボルに戻ります。",
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。",
+          "showAgentUsage": "Claude Code または Codex のステータス項目にコーディングエージェントの使用状況を追加します。モデルと使用中のコンテキストウィンドウ、さらに Claude Code では Anthropic の公開価格に基づく API コストの概算（メインスレッドとサブエージェント）を表示します。この金額は概算であり、サブスクリプションの請求額ではありません。バッチ／優先ティア、パートナー価格、高速モード、サーバーツールの料金は考慮していません。",
           "beta": {
             "conversations": {
               "enabled": "サイドバーの選択メニューに、会話をまとめて表示するビューを追加します。"
@@ -4022,7 +4099,8 @@
       "coderouterSection": "CodeRouter",
       "coderouterOverview": "概要",
       "coderouterAgents": "エージェントとモデル",
-      "coderouterCli": "CLIとトラブルシューティング"
+      "coderouterCli": "CLIとトラブルシューティング",
+      "cloudSecurity": "Cloudセキュリティ"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -4275,12 +4353,19 @@
       "limitsTitle": "プランの上限",
       "limitsDesc": "プランの上限はマシンの台数で数えます。CPUやメモリの共有プールではありません。各マシンにはそのサイズ分のリソースが割り当てられます。",
       "limitsFree": "無料アカウントではマシンを作成できません。",
-      "limitsPaid": "ProおよびMaxアカウントでは、アクティブなマシンを最大50台まで持てます。実行中または起動中のマシンがアクティブとして数えられます。",
-      "limitsTeam": "Teamアカウントでは、有料シート1つにつきアクティブなマシンを最大50台まで持てます。",
-      "limitsMax": "24 GBを超えるマシンにはcmux Maxが必要です。",
+      "limitsPaid": "ProおよびMaxアカウントでは、アクティブなマシンを最大5台まで持てます。実行中または起動中のマシンがアクティブとして数えられます。",
+      "limitsTeam": "Teamアカウントでは、有料シート1つにつきアクティブなマシンを最大5台まで持てます。",
+      "limitsMax": "8 GBを超えるマシンにはcmux Maxが必要です。Maxのマシンは最大32 GB、16 vCPUまで使えます。",
+      "limitsOversize": "プランの上限より大きいマシンはロックされます。一覧表示と削除はできますが、アップグレードするまで開く、コマンドを実行する、再開する、サイズを変更することはできません。",
       "limitsPricing": "現在の価格は料金ページを参照してください。従量課金や超過料金はありません。",
+      "agentUpdatesTitle": "コーディングエージェントを最新に保つ",
+      "agentUpdatesDesc": "この設定をオンにすると、マシンは Claude Code、Codex、OpenCode、pi、agent-browser を更新します。確認はマシンの作成後と接続のたびに行われ、24 時間に最大 1 回です。更新はバックグラウンドで切り離して実行されるため、接続を妨げることはありません。",
+      "agentUpdatesSource": "各ツールは公式の GitHub リリースから取得し、リリースアセットの sha256 ダイジェストで検証します。npm は使いません。リリースは公開から 3 日経過した後にのみインストールされ、古いバージョンに戻すことはありません。実行中のエージェントは起動時のファイルを使い続け、更新に失敗した場合は現在のバージョンがそのまま残ります。",
+      "agentUpdatesStatus": "最後の確認結果は /etc/cmux/agent-updates.state に、更新処理のログは /var/log/cmux-agent-updates.log にあります。失敗した確認は次回の接続時に再実行されます。",
+      "agentUpdatesToggle": "「新しいマシン」シートではこの設定がデフォルトでオンです。既存のマシンで変更するには、マシンを右クリックして「エージェントを最新に保つ」を選ぶか、cmux vm agent-updates を実行します。cmux vm new は --agent-updates latest を指定しない限りイメージのバージョンを保持します。更新をオフにしても、インストール済みのバージョンはそのまま残ります。",
+      "agentUpdatesNetwork": "更新が使うのは github.com, api.github.com, objects.githubusercontent.com、release-assets.githubusercontent.com だけです。cmux は「許可リスト」や「インターネットなし」を含むすべてのネットワークモードでこれらのホストを許可するため、ネットワークポリシーが更新を妨げることはありません。",
       "resizeTitle": "サイズ変更",
-      "resizeDesc": "データを失わずにマシンを大きくできます。マシンを右クリックして「マシンのサイズを変更」を選ぶか、cmux vm resize を使います。サイズ変更は拡大のみです。ディスクは4 GB単位で最大256 GB、メモリは最大64 GB、CPUは最大32 vCPUまで拡大できます。実際の上限はプランによって決まります。",
+      "resizeDesc": "データを失わずにマシンを大きくできます。マシンを右クリックして「マシンのサイズを変更」を選ぶか、cmux vm resize を使います。サイズ変更は拡大のみです。ディスクは4 GB単位で最大256 GB、メモリは最大32 GB、CPUは最大16 vCPUまで拡大できます。実際の上限はプランによって決まります。",
       "pauseTitle": "一時停止と再開",
       "pauseDesc": "cmux vm pause はマシンのコンピュートを停止します。ディスク、ワークスペース、ターミナルの履歴は残りますが、実行中のプロセスは停止します。cmux vm resume でマシンを再び起動します。一時停止中のマシンを開いたり、そのマシンでコマンドを実行したりしても起動します。",
       "pauseIdle": "アイドル状態でもマシンは自動では一時停止しません。一時停止するか削除するまで動き続けます。",
@@ -4431,7 +4516,7 @@
       "errPlan": "Cloud VMには有料プランが必要",
       "fixPlan": "無料アカウントではマシンを作成できません。料金ページでアップグレードしてください。",
       "errSize": "サイズに上位プランが必要",
-      "fixSize": "24 GBを超えるマシンにはcmux Maxが必要です。小さいサイズを選ぶか、アップグレードしてください。",
+      "fixSize": "8 GBを超えるマシンにはcmux Maxが必要です。小さいサイズを選ぶか、アップグレードしてください。",
       "errLimit": "アクティブなマシンの上限に達した",
       "fixLimit": "マシンを一時停止または削除してから、もう一度試してください。",
       "errLocked": "マシンがロックされている",
@@ -4631,6 +4716,56 @@
       "diagnoseDesc": "cr doctorは、crがサインイン済みかどうかと、使用しているCodeRouterのエンドポイントを表示します。cmux coderouter statusは、cmuxのサインイン状態、選択中のチーム、そのチームのClaudeアカウントを表示します。",
       "supportTitle": "サポート",
       "supportDesc": "失敗したリクエストを報告するときは、x-coderouter-request-idレスポンスヘッダーの値を含めてください。この値でCodeRouterの記録からそのリクエストを特定できます。"
+    },
+    "cloudSecurity": {
+      "title": "Cloudセキュリティ",
+      "metaTitle": "cmux Cloudのセキュリティ",
+      "metaDescription": "cmux Cloudマシンの分離方法、認証情報の保管場所、送信ネットワークポリシーでマシンの接続先を制限する方法を説明します。",
+      "intro": "このページでは、cmux Cloudマシンのセキュリティモデルを説明します。マシンを分離するもの、認証情報の保管場所、ネットワーク上でマシンが接続できる宛先を制限する方法です。",
+      "isolationTitle": "分離",
+      "isolationVm": "各マシンは、専用のLinuxカーネルを持つFreestyleのmicroVMです。共有カーネル上のコンテナではありません。",
+      "isolationRoot": "マシン内では、設計上パスワードなしでrootになれます。セキュリティ境界はVMであり、VM内のユーザーアカウントではありません。エージェントを含め、マシン内のすべてのプロセスはrootと同じ操作ができます。",
+      "isolationHome": "マシンを再作成すると、ホームディレクトリがリセットされます。既知の状態に戻すには、マシンを再作成してください。",
+      "credentialsTitle": "認証情報",
+      "credentialsModel": "CodeRouterのモデル認証情報がマシンに入ることはありません。リクエストがマシンを出た後に、FreestyleのTLSエッジが認証情報を追加します。プロバイダーはこれらのヘッダー値を書き込み専用で保存するため、cmuxが設定した後は誰も読み出せません。",
+      "credentialsAttach": "クライアントがマシン上でセッションを開くためのアタッチ認証情報は短時間だけ有効で、1台のマシンと1つのセッションに限定されます。",
+      "previewsTitle": "ポートプレビュー",
+      "previewsDesc": "ポートプレビューは、あなたのプライベートWireGuardネットワークを通ります。公開URLはありません。プライベートネットワーク上のデバイスだけが開けます。",
+      "networkTitle": "送信ネットワークポリシー",
+      "networkIntro": "各マシンには送信ネットワークポリシーがあります。<link>Cloudダッシュボード</link>のネットワーク設定で変更できます。変更は実行中のマシンに再起動なしで即時に適用されます。",
+      "modesTitle": "モード",
+      "modeFull": "<b>インターネット全体</b>: マシンはすべてのパブリックアドレスに接続できます。これが既定です。",
+      "modeAllowlist": "<b>許可リスト</b>: マシンは、指定したプリセット、ドメイン、IP範囲と、常に許可されるcmuxホストにのみ接続できます。",
+      "modeNone": "<b>インターネットなし</b>: マシンは常に許可されるcmuxホストにのみ接続できます。",
+      "domainsTitle": "ドメインルール",
+      "domainsExact": "ドメインルールは1つのホスト名に完全一致します。api.example.comはexample.comや他のサブドメインには一致しません。ワイルドカードはまだ使えません。",
+      "domainsHttps": "ドメインルールが許可するのは、ポート443のHTTPSのみです。",
+      "domainsSteer": "プラットフォームは、許可された各名前をマシンの/etc/hostsファイルでプロバイダーのTLSエッジに向けます。ドメインルールはDNSもIP範囲もなしで動作します。",
+      "domainsBypass": "/etc/hostsを使わない通信は誘導されません。例として、独自のDNSリゾルバーを持つコンテナや、TLS証明書をピン留めするツールがあります。IP範囲で許可しない限り、その通信はドメインに届きません。",
+      "presetsDesc": "プリセットは、よく使うサービスの完全一致の名前をまとめて追加します。Anthropic、OpenAI、OpenRouter、OpenCode、GitHub、npm、PyPI、Rustがあります。cmuxが名前の一覧を更新すると、そのプリセットを使うすべてのマシンに反映されます。有効にする前に、プリセットが追加する名前を確認してください。",
+      "rangesTitle": "IP範囲",
+      "rangesDesc": "IP範囲はIPv4またはIPv6のCIDRブロックで、1つのポートとプロトコルに絞り込むこともできます。プロバイダーのファイアウォールがマシンの外側でIP範囲を適用するため、マシン内のrootでも削除できません。",
+      "dnsTitle": "DNS",
+      "dnsDesc": "許可リストモードでは、IP範囲が指す名前をツールが解決できるようにDNSを許可できます。ドメインルールにDNSは不要です。",
+      "dnsRisk": "開いたDNSは送信チャネルです。プロセスは問い合わせる名前にデータを載せられ、リゾルバーはその問い合わせをドメインのサーバーに転送します。信頼できないコードを実行するマシンではDNSをオフにしてください。",
+      "mailTitle": "メールポート",
+      "mailDesc": "プラットフォームは、送信メールポート25、465、587をすべてのモードで常にブロックします。",
+      "requiredTitle": "常に許可されるホスト",
+      "requiredDesc": "すべてのモードで、マシン内のCLIとコーディングエージェントをインストールおよび更新するためにcmuxが必要とするホストを許可します:",
+      "requiredWhy": "これらのホストがないと、許可リストモードやインターネットなしモードのマシンはcmuxツールもエージェントの更新も取得できません。",
+      "hardeningTitle": "強化チェックリスト",
+      "hardeningAllowlist": "信頼できないリポジトリには許可リストモードを使い、作業に必要なプリセットとドメインだけを追加してください。",
+      "hardeningSecrets": "シークレットはリポジトリにもマシンにも置かないでください。マシン内のすべてのプロセスは、マシン内のものを読めます。",
+      "hardeningEdge": "マシンに保存したAPIキーよりも、CodeRouterのようなエッジで注入される認証情報を使ってください。",
+      "hardeningPresets": "プリセットは有効にする前に確認し、不要になったプリセットは削除してください。",
+      "hardeningDns": "許可リストモードでは、IP範囲が必要としない限りDNSをオフにしてください。",
+      "hardeningRecreate": "信頼できないコードを実行した後は、マシンを再作成して状態をリセットしてください。",
+      "limitsTitle": "制限",
+      "limitsLogs": "送信ログはまだありません。マシンがどこに接続したか、ポリシーがどの接続をブロックしたかは確認できません。",
+      "limitsWildcards": "ワイルドカードドメインはまだ使えません。完全一致の名前を1つずつ指定してください。",
+      "limitsTeam": "チーム全体に強制するポリシーはまだありません。ポリシーはマシンごとです。",
+      "limitsGithub": "常に許可されるホストにはgithub.comが含まれるため、インターネットなしモードでもgithub.comへのHTTPSはブロックされません。",
+      "limitsBypass": "ドメインルールは、/etc/hostsを使わない通信や証明書をピン留めする通信には適用されません。"
     }
   },
   "legal": {
@@ -6929,22 +7064,6 @@
     "signedOutBody": "コマンドラインアプリケーションがサインインを待っています。cmux アカウントでサインインすると、このターミナルの接続が完了します。このリクエストに心当たりがない場合は、このページを閉じてください。",
     "signInButton": "サインイン"
   },
-  "mobile": {
-    "agentFeed": {
-      "fullText": {
-        "seeMore": "さらに表示"
-      },
-      "search": {
-        "placeholder": "フィードを検索"
-      },
-      "openWorkspace": "ワークスペースを開く",
-      "openTab": "タブを開く",
-      "openFailed": {
-        "title": "イベントを開けませんでした",
-        "message": "このイベントのコンピュータ、ワークスペース、またはタブは利用できなくなりました。"
-      }
-    }
-  },
   "MobileRelease106": {
     "title": "1.0.6 の新機能",
     "releaseLabel": "1.0.6 · 2026年9月",
@@ -6976,5 +7095,75 @@
     "invalidTitle": "この招待はもう有効ではありません",
     "invalidBody": "期限切れ、取り消し済み、または使用済みです。チームの管理者に新しい招待を依頼してください。",
     "goToTeams": "チーム一覧へ"
+  },
+  "mobile": {
+    "agentFeed": {
+      "fullText": {
+        "seeMore": "さらに表示"
+      },
+      "search": {
+        "placeholder": "フィードを検索"
+      },
+      "openWorkspace": "ワークスペースを開く",
+      "openTab": "タブを開く",
+      "openFailed": {
+        "title": "イベントを開けませんでした",
+        "message": "このイベントのコンピュータ、ワークスペース、またはタブは利用できなくなりました。"
+      }
+    }
+  },
+  "cmuxSignIn": {
+    "signInTitle": "cmux にサインイン",
+    "signInSubtitle": "アプリ、cloud、ダッシュボードを 1 つのアカウントで。",
+    "signUpTitle": "cmux アカウントを作成",
+    "signUpSubtitle": "アプリ、cloud、ダッシュボードを 1 つのアカウントで。",
+    "continueWithProvider": "{provider} で続行",
+    "signInWithPasskey": "パスキーでサインイン",
+    "orContinueWith": "または、次の方法で続行",
+    "emailLabel": "メールアドレス",
+    "emailPlaceholder": "you@company.com",
+    "continueWithEmail": "メールで続行",
+    "emailCodeTab": "メール",
+    "emailPasswordTab": "メール & パスワード",
+    "passwordLabel": "パスワード",
+    "repeatPasswordLabel": "パスワード（確認）",
+    "signInButton": "サインイン",
+    "createAccountButton": "アカウントを作成",
+    "forgotPassword": "パスワードをお忘れですか？",
+    "noAccount": "アカウントをお持ちでないですか？",
+    "signUpLink": "登録",
+    "haveAccount": "すでにアカウントをお持ちですか？",
+    "signInLink": "サインイン",
+    "checkEmailTitle": "メールを確認してください",
+    "checkEmailBody": "{email} に送信した 6 文字のコードを入力してください。",
+    "codeLabel": "コード",
+    "back": "戻る",
+    "resendCode": "コードを再送信",
+    "chooseAccountTitle": "アカウントを選択",
+    "chooseAccountSubtitle": "cmux に進む",
+    "useAnotherAccount": "別のアカウントを使用",
+    "forgetAccount": "{account} をこの一覧から削除",
+    "signedOut": "サインアウト済み",
+    "signingInAs": "{account} としてサインインしています…",
+    "sessionEnded": "このアカウントはサインアウトしました。続けるにはもう一度サインインしてください。",
+    "redirecting": "サインインしています…",
+    "lastUsed": "前回使用",
+    "legal": "続行すると、{terms}と{privacy}に同意したことになります。",
+    "termsOfService": "利用規約",
+    "privacyPolicy": "プライバシーポリシー",
+    "signUpDisabled": "現在、新しいアカウントは作成できません。",
+    "noMethods": "現在サインインできません。しばらくしてからもう一度お試しください。",
+    "embeddedDisabled": "埋め込みページではサインインボタンが無効です。このページを別のタブで開いてください。",
+    "errorInvalidEmail": "有効なメールアドレスを入力してください。",
+    "errorPasswordRequired": "パスワードを入力してください。",
+    "errorPasswordTooShort": "{min} 文字以上で入力してください。",
+    "errorPasswordTooLong": "{max} 文字以内で入力してください。",
+    "errorPasswordsDontMatch": "パスワードが一致しません。",
+    "errorWrongPassword": "メールアドレスまたはパスワードが正しくありません。",
+    "errorInvalidCode": "このコードは無効です。メールを確認してもう一度お試しください。",
+    "errorInvalidTotp": "この 2 要素認証コードは無効です。",
+    "errorSignUpNotAllowed": "現在、新しいアカウントは作成できません。",
+    "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
+    "errorGeneric": "問題が発生しました。もう一度お試しください。"
   }
 }

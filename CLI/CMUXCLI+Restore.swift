@@ -145,8 +145,7 @@ extension CMUXCLI {
                 preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
                     record.preparedArgumentsWorkingDirectory
                 ),
-                observedPermissionMode: record.permissionMode,
-                continuationPrompt: record.continuationPrompt
+                observedPermissionMode: record.permissionMode
             )
             let planner = AgentRestorePlanner(
                 executableFileResolver: AgentRestoreExecutableFileResolver(),
@@ -425,8 +424,7 @@ extension CMUXCLI {
                 ?? (object["prepared_fork_arguments_working_directory"] as? String),
             permissionMode: object["permission_mode"] as? String,
             legacyCommand: legacyCommand,
-            legacyForkCommand: legacyForkCommand,
-            continuationPrompt: object["continuation_prompt"] as? String
+            legacyForkCommand: legacyForkCommand
         )
     }
 

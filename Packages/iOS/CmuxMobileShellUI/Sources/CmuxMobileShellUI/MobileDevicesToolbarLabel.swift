@@ -41,7 +41,10 @@ struct MobileDevicesToolbarLabel: View {
     /// nonisolated: the view's inferred main-actor isolation would otherwise
     /// make the filter closure trap when called off the main actor.
     nonisolated static func macPairingIDs(_ computerIDs: Set<String>) -> Set<String> {
-        computerIDs.filter { !MobileShellComposite.isSSHComputerID($0) }
+        computerIDs.filter {
+            !MobileShellComposite.isSSHComputerID($0)
+                && !MobileShellComposite.isCloudComputerID($0)
+        }
     }
 
     nonisolated static func warningVisible(

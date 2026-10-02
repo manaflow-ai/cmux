@@ -284,7 +284,11 @@ import UniformTypeIdentifiers
             return []
         }
         let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+        // Decode samples before inspecting presentation timestamps.
+        let output = AVAssetReaderTrackOutput(
+            track: track,
+            outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        )
         reader.add(output)
         reader.startReading()
         var times: [Double] = []
@@ -495,21 +499,17 @@ import UniformTypeIdentifiers
             error: nil
         )
     }
-
     /// A clip that reached its own `--max-seconds` limit is no longer active, so
     /// the `cmux record stop` an agent runs afterwards has to report that clip
     /// rather than claim nothing was recorded.
     @Test func stoppingAfterTheClipStoppedItselfReportsThatClip() async throws {
         let registry = WindowRecordingRegistry()
         await registry.remember(Self.finished(id: "a"))
-
         let stopped = try await registry.stop(id: nil)
-
         #expect(stopped.id == "a")
         #expect(stopped.state == .finished)
         #expect(stopped.path == "/tmp/a.mp4")
     }
-
     @Test func stoppingWithNothingEverRecordedSaysSo() async {
         let registry = WindowRecordingRegistry()
 
