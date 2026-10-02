@@ -150,6 +150,6 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         browserProfileID = try c.decodeIfPresent(String.self, forKey: .browserProfileID)
         tabGroup = try c.decodeIfPresent(TabGroupID.self, forKey: .tabGroup)
         remote = kind == .remoteTerminal ? try? c.decodeIfPresent(RemoteTerminalRef.self, forKey: .remote) : nil
-        relaunch = nil  // not decoded yet
+        relaunch = try c.decodeIfPresent(TabRelaunch.self, forKey: .relaunch)
     }
 }
