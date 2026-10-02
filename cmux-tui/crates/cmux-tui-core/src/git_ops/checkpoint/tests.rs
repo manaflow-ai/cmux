@@ -329,13 +329,22 @@ fn a_reused_key_replays_its_first_result_and_other_arguments_conflict() {
     let (code, details) = failure(&missing);
     assert_eq!(code, "resource.not_found");
     assert_eq!(details["scope"], "git_checkpoint");
-    let both = read(
-        &mux,
-        "git.checkpoint.get",
-        &repository,
-        json!({"checkpoint_id":id,"idempotency_key":"replay-1"}),
-    );
-    assert_eq!(failure(&both).0, "validation.invalid");
+    // Both lookups at once breaks the catalog's one_of, so the router refuses it before dispatch.
+    let both = json!({
+        "protocol":"cmux.protocol/2",
+        "type":"request",
+        "id":"test-get-both",
+        "operation":"git.checkpoint.get",
+        "params":{
+            "machine":"current",
+            "session":"current",
+            "path":repository.to_string_lossy(),
+            "checkpoint_id":id,
+            "idempotency_key":"replay-1",
+        },
+    });
+    let refused = handle_resource_message(&mux, &both.to_string()).unwrap_err();
+    assert_eq!(refused.code, "validation.invalid");
     mux.shutdown();
 }
 
