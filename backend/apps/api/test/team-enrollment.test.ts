@@ -121,15 +121,15 @@ describe("enrollment and audit reducer (TeamDO)", () => {
     expect(verifyChain([{ ...records[0]!, summary: "edited" }, ...records.slice(1)])).toBe(false)
   })
 
-  it("the device policy read returns only device-scoped keys, and only for a managed install", () => {
+  it("the device policy read carries cmux.json settings from device.settings, and feature keys separately, only for a managed install", () => {
     let s = ok(
       teamDomain.reduce(
         baseState(),
         "team.policy.update",
         {
           changes: [
+            { key: "device.settings", value: { value: { "ui.animationSpeed": { value: "off", mode: "enforced" }, "layout.stripScrollbar": { value: "always", mode: "default" } }, mode: "enforced" } },
             { key: "telemetry.level", value: { value: "crash_only", mode: "enforced" } },
-            { key: "updates.channel", value: { value: "stable", mode: "default" } },
             { key: "github.repoScope", value: { value: "installation", mode: "enforced" } }
           ],
           expected_version: 0
@@ -137,9 +137,17 @@ describe("enrollment and audit reducer (TeamDO)", () => {
         ctx()
       )
     ).state as TeamState
-    expect(devicePolicyFor(s, INST)).toEqual({ managed: false, version: 1, defaults: {}, enforced: {} })
+    expect(devicePolicyFor(s, INST)).toEqual({ managed: false, version: 1, defaults: {}, enforced: {}, features: {} })
     s = ok(teamDomain.reduce(s, "team.device.enroll", {}, asInstall(OWNER, INST))).state as TeamState
-    expect(devicePolicyFor(s, INST)).toEqual({ managed: true, version: 1, defaults: { "updates.channel": "stable" }, enforced: { "telemetry.level": "crash_only" } })
+    expect(devicePolicyFor(s, INST)).toEqual({
+      managed: true,
+      version: 1,
+      defaults: { "layout.stripScrollbar": "always" },
+      enforced: { "ui.animationSpeed": "off" },
+      features: { "telemetry.level": { value: "crash_only", mode: "enforced" } }
+    })
+    // Keys must look like cmux.json key paths.
+    expect(teamDomain.reduce(baseState(), "team.policy.update", { changes: [{ key: "device.settings", value: { value: { appearance: { value: {}, mode: "enforced" } }, mode: "enforced" } }], expected_version: 0 }, ctx())).toMatchObject({ ok: false, code: "policy.invalid" })
   })
 })
 
@@ -186,14 +194,14 @@ describe("enrollment over the API (workerd)", () => {
     const created = await op(session, "team.enrollment_token.create", { label: "Jamf prod", token_hash: await tokenHash(token), allowed_domains: ["acme.com"] })
     expect(created.json.ok).toBe(true)
     expect(JSON.stringify(created.json)).not.toContain(await tokenHash(token))
-    await op(session, "team.policy.update", { changes: [{ key: "computerUse.allowed", value: { value: false, mode: "enforced" } }], expected_version: 0 })
+    await op(session, "team.policy.update", { changes: [{ key: "device.settings", value: { value: { "ui.animationSpeed": { value: "off", mode: "enforced" } }, mode: "enforced" } }], expected_version: 0 })
 
     const before = await call("/v1/read", jwt, { op: "team.device.policy", params: {} })
     expect(before.json.value).toMatchObject({ managed: false, enforced: {} })
     const enrolled = await op(jwt, "team.device.enroll", { token_hash: await tokenHash(token) })
     expect(enrolled.json).toMatchObject({ ok: true, value: { install, via: "token" } })
     const after = await call("/v1/read", jwt, { op: "team.device.policy", params: {} })
-    expect(after.json.value).toMatchObject({ managed: true, version: 1, enforced: { "computerUse.allowed": false } })
+    expect(after.json.value).toMatchObject({ managed: true, version: 1, enforced: { "ui.animationSpeed": "off" } })
 
     const list = await call("/v1/read", session, { op: "team.enrollment_token.list", params: {} })
     expect(list.json.value.tokens[0]).toMatchObject({ label: "Jamf prod", uses: 1 })
