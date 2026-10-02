@@ -36,17 +36,21 @@ export function mockReply(prompt: string): string {
 export function startMockHost(onSnapshot: (snapshot: AcpmuxSnapshot) => void, schedule: (run: () => void) => void = (run) => { window.setTimeout(run, 400); }): MockActions {
   let rows: AcpmuxRow[] = [{ id: "mock-welcome", version: 1, at: Date.now(), kind: "assistant", text: "Mock agent session. Type a prompt to see the pane render a turn." }];
   let next = 0;
+  let turn = 0;
   const publish = (isWorking = false) => onSnapshot(mockSnapshot(rows, isWorking));
   const append = (row: Omit<AcpmuxRow, "id" | "version" | "at">) => { rows = [...rows, { id: `mock-${next++}`, version: 1, at: Date.now(), ...row }]; };
+  const send = (prompt: string) => {
+    const current = ++turn;
+    append({ kind: "user", text: prompt });
+    publish(true);
+    schedule(() => { if (current !== turn) return; append({ kind: "assistant", text: mockReply(prompt) }); publish(); });
+  };
   publish();
   return {
-    "chat.send": async ({ text }) => {
-      const prompt = String(text ?? "");
-      append({ kind: "user", text: prompt });
-      publish(true);
-      schedule(() => { append({ kind: "assistant", text: mockReply(prompt) }); publish(); });
-    },
-    "chat.cancel": async () => publish(),
+    "chat.send": async ({ text }) => send(String(text ?? "")),
+    // A steer ends the running turn: its reply never lands.
+    "chat.steer": async ({ text }) => { turn += 1; send(String(text ?? "")); },
+    "chat.cancel": async () => { turn += 1; publish(); },
     "chat.permission": async () => publish(),
     "chat.model": async () => undefined,
     "chat.mode": async () => undefined,

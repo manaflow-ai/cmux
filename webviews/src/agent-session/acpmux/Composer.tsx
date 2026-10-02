@@ -8,6 +8,9 @@ export const COMPOSER_LABELS = {
   placeholder: "Ask anything",
   prompt: "Prompt",
   send: "Send",
+  steer: "Steer",
+  steerHelp: "Send now, interrupting the current turn",
+  queueHelp: "Send after the current turn",
   stop: "Stop",
   commands: "Commands",
   noCommands: "No commands",
@@ -29,6 +32,8 @@ type Props = {
   snapshot: AcpmuxSnapshot;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   onSend(text: string, attachments: ComposerAttachment[]): void;
+  /** Sends mid-turn, interrupting the agent, while a turn is running. */
+  onSteer(text: string, attachments: ComposerAttachment[]): void;
   onStop(): void;
 };
 
@@ -36,7 +41,7 @@ type Props = {
 /// prompt is a single leading `/word`, filters as it grows, and picking a
 /// command writes `/name ` so its arguments can follow. Images and text files
 /// dropped anywhere on the pane, or pasted, wait as chips above the prompt.
-export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
+export function Composer({ snapshot, chips: Chips, onSend, onSteer, onStop }: Props) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -89,15 +94,17 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
     edit(next.text, next.caret);
     textarea.current?.focus();
   };
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
+  /// Hands the prompt and its attachments to `deliver` and clears the composer.
+  const take = (deliver: (text: string, attachments: ComposerAttachment[]) => void) => {
     const prompt = text.trim();
     if (!prompt && attachments.length === 0) return;
     edit("", 0);
     setAttachments([]);
     setAttachError(undefined);
-    onSend(prompt, attachments);
+    deliver(prompt, attachments);
   };
+  const submit = (event: React.FormEvent) => { event.preventDefault(); take(onSend); };
+  const empty = !text.trim() && attachments.length === 0;
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Every key belongs to the input method while it composes, not only Enter.
     if (!open || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
@@ -136,7 +143,8 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
       role="combobox" aria-expanded={open} aria-controls={open ? "acpmux-slash-menu" : undefined} aria-autocomplete="list"
       aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
       onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown} onPaste={paste} />
-    <button type="submit">{COMPOSER_LABELS.send}</button>
+    <button type="submit" title={snapshot.isWorking ? COMPOSER_LABELS.queueHelp : undefined}>{COMPOSER_LABELS.send}</button>
+    {snapshot.isWorking && <button type="button" className="acpmux-steer" title={COMPOSER_LABELS.steerHelp} disabled={empty} onClick={() => take(onSteer)}>{COMPOSER_LABELS.steer}</button>}
     <button type="button" className="acpmux-cancel" onClick={onStop}>{COMPOSER_LABELS.stop}</button>
   </form>;
 }

@@ -42,7 +42,7 @@ describe("acpmux composer slash menu", () => {
   /// jsdom fires `select` a task after the caret moves; let it land inside act.
   const settle = async () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   const key = async (name: string, isComposing = false) => act(async () => { textarea().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, isComposing, bubbles: true, cancelable: true })); });
-  const render = async (value: AcpmuxSnapshot) => act(async () => root.render(createElement(Composer, { snapshot: value, chips: () => null, onSend: (text: string, attachments: ComposerAttachment[]) => { sent.push(text); sentAttachments.push(attachments); }, onStop: () => {} })));
+  const render = async (value: AcpmuxSnapshot) => act(async () => root.render(createElement(Composer, { snapshot: value, chips: () => null, onSend: (text: string, attachments: ComposerAttachment[]) => { sent.push(text); sentAttachments.push(attachments); }, onSteer: () => {}, onStop: () => {} })));
 
   beforeEach(() => { sent = []; sentAttachments = []; root = createRoot(dom.window.document.getElementById("root")!); });
   afterEach(async () => { await act(async () => root.unmount()); });
@@ -166,6 +166,7 @@ describe("acpmux composer attachments", () => {
     snapshot: { ...snapshot(), summary: { sessionId: "s", promptCapabilities: image === undefined ? undefined : { image } } },
     chips: () => null,
     onSend: (text: string, attachments: ComposerAttachment[]) => { sent.push({ text, attachments }); },
+    onSteer: () => {},
     onStop: () => {},
   })));
   const submit = async () => act(async () => { document.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
@@ -215,5 +216,42 @@ describe("acpmux composer attachments", () => {
     await submit();
     expect(sent.map((entry) => entry.text)).toEqual(["hi"]);
     expect(document.querySelector(".acpmux-attachments")).toBeNull();
+  });
+});
+
+describe("acpmux composer steering", () => {
+  let root: ReturnType<typeof createRoot>;
+  let calls: string[];
+  const document = dom.window.document;
+  const steer = () => document.querySelector<HTMLButtonElement>(".acpmux-steer");
+  const render = async (isWorking: boolean) => act(async () => root.render(createElement(Composer, {
+    snapshot: { ...snapshot(), isWorking },
+    chips: () => null,
+    onSend: (text: string) => { calls.push(`send ${text}`); },
+    onSteer: (text: string) => { calls.push(`steer ${text}`); },
+    onStop: () => {},
+  })));
+
+  beforeEach(() => { calls = []; root = createRoot(document.getElementById("root")!); });
+  afterEach(async () => { await act(async () => root.unmount()); });
+
+  test("Steer shows only while a turn runs, and only with something to send", async () => {
+    await render(false);
+    expect(steer()).toBeNull();
+    await render(true);
+    expect(steer()!.disabled).toBe(true);
+    await act(async () => typeInto(document.querySelector("textarea")!, "use the other API"));
+    expect(steer()!.disabled).toBe(false);
+  });
+
+  test("Steer hands the prompt to onSteer and clears the box, while Send still queues", async () => {
+    await render(true);
+    await act(async () => typeInto(document.querySelector("textarea")!, " stop and use v2 "));
+    await act(async () => { steer()!.click(); });
+    expect(calls).toEqual(["steer stop and use v2"]);
+    expect(document.querySelector("textarea")!.value).toBe("");
+    await act(async () => typeInto(document.querySelector("textarea")!, "then add tests"));
+    await act(async () => { document.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })); });
+    expect(calls).toEqual(["steer stop and use v2", "send then add tests"]);
   });
 });

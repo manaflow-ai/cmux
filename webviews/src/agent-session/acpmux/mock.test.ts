@@ -20,6 +20,17 @@ describe("mock transport", () => {
     expect(snapshots.at(-1)?.rows.at(-1)).toMatchObject({ kind: "assistant", text: mockReply("hello") });
   });
 
+  test("a steer drops the running turn's reply and answers the steer", async () => {
+    const snapshots: AcpmuxSnapshot[] = [];
+    const pending: (() => void)[] = [];
+    const actions = startMockHost((snapshot) => snapshots.push(snapshot), (run) => pending.push(run));
+    await actions["chat.send"]!({ text: "first" });
+    await actions["chat.steer"]!({ text: "second" });
+    for (const run of pending.splice(0)) run();
+    expect(snapshots.at(-1)?.rows.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual([expect.any(String), mockReply("second")]);
+    expect(snapshots.at(-1)?.isWorking).toBe(false);
+  });
+
   test("new session clears the transcript", async () => {
     const snapshots: AcpmuxSnapshot[] = [];
     const actions = startMockHost((snapshot) => snapshots.push(snapshot), () => undefined);
