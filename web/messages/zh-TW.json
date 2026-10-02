@@ -542,6 +542,11 @@
         "team": "建立團隊",
         "banner": "你現在使用的是 {plan}。",
         "bannerLink": "方案與帳單"
+      },
+      "appStore": {
+        "title": "透過 App Store 計費",
+        "body": "你的方案是在 cmux iPhone App 中購買，由 Apple 計費。請在 App Store 訂閱中變更或取消。",
+        "manage": "在 App Store 中管理"
       }
     },
     "mobileDevices": {
@@ -1126,6 +1131,80 @@
       "revokeApiKeyConfirmTitle": "撤銷此 API 金鑰？",
       "apiKeyUsageDetail": "過去 30 天：{completions} 次完成 · {tokens} 個權杖（輸入 {input} / 輸出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用量不可用",
+      "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。"
+    },
+    "cloud": {
+      "title": "Cloud 機器與 Mac 存取",
+      "description": "設定每台機器的輸出網路，並檢視可透過 WireGuard 存取你的私人 Cloud VM 網路的 Mac。iPhone 和 Iroh 配對記錄另行管理。",
+      "macAccessTitle": "Mac 存取",
+      "machines": {
+        "title": "機器",
+        "empty": "你沒有 Cloud 機器。",
+        "personal": "個人",
+        "team": "團隊",
+        "status": {
+          "provisioning": "啟動中",
+          "running": "執行中",
+          "failed": "失敗",
+          "paused": "已暫停",
+          "destroyed": "已刪除"
+        }
+      },
+      "network": {
+        "open": "網路",
+        "title": "{name} 的輸出網路",
+        "description": "選擇這台機器可以連線的目標。變更會立即套用，不需重新啟動。",
+        "loading": "正在載入網路政策…",
+        "loadError": "無法載入這台機器的網路政策。",
+        "saveError": "無法套用這項網路政策。",
+        "unsupported": "這台機器不支援輸出網路控制。",
+        "retry": "重試",
+        "appliedLabel": "狀態：",
+        "applied": {
+          "applied": "已套用",
+          "pending": "套用中",
+          "failed": "套用失敗"
+        },
+        "unsaved": "有未儲存的變更",
+        "refresh": "重新整理",
+        "modeLabel": "輸出存取",
+        "mode": {
+          "full": {
+            "label": "完整網際網路",
+            "description": "任何公用位址。"
+          },
+          "allowlist": {
+            "label": "允許清單",
+            "description": "僅限你列出的預設、網域和 IP 範圍。"
+          },
+          "none": {
+            "label": "無網際網路",
+            "description": "僅限下方列出的 cmux 主機。"
+          }
+        },
+        "presetsTitle": "預設",
+        "presetsNote": "每個預設會加入完全相符的主機名稱。使用其他子網域的服務可能需要更多網域。",
+        "domainsTitle": "網域",
+        "domainsNote": "僅限完全相符的主機名稱，且僅限連接埠 443 上的 HTTPS。尚不支援萬用字元。",
+        "domainInput": "網域",
+        "rangesTitle": "IP 範圍",
+        "rangesNote": "供應商防火牆會在機器外部強制執行這些規則。連接埠留空即允許所有連接埠。指定連接埠時需要選擇通訊協定。",
+        "cidrInput": "IP 範圍 (CIDR)",
+        "portInput": "連接埠",
+        "protocolInput": "通訊協定",
+        "anyProtocol": "任何",
+        "noteInput": "備註（選填）",
+        "allPorts": "所有連接埠",
+        "dnsLabel": "允許 DNS",
+        "dnsNote": "讓工具解析你的 IP 範圍所指向的名稱。網域不需要 DNS。開放的 DNS 是一個輸出通道：程序可以把資料放在它查詢的名稱中傳送出去。",
+        "requiredTitle": "一律允許",
+        "requiredNote": "cmux 在所有模式下都需要這些主機，才能在機器中安裝和更新 CLI。",
+        "add": "新增",
+        "remove": "移除",
+        "discard": "捨棄變更",
+        "close": "關閉",
+        "apply": "套用"
+      },
       "revokeApiKeyConfirmBody": "使用此金鑰的用戶端將立即無法驗證。",
       "apiKeysEmptyTitle": "還沒有 API 金鑰",
       "apiKeysEmptyHint": "建立金鑰來驗證 CodeRouter 用戶端。",
@@ -2846,6 +2925,12 @@
       "limitsTeam": "Team 帳號每個付費席位最多可擁有 5 台使用中的機器。",
       "limitsMax": "大於 8 GB 的機器需要 cmux Max。Max 機器最高可達 32 GB 和 16 vCPU。",
       "limitsPricing": "目前的價格請參閱定價頁面。不依用量計費，也沒有超額費用。",
+      "agentUpdatesTitle": "讓程式碼代理保持最新",
+      "agentUpdatesDesc": "開啟此設定後，機器會更新 Claude Code、Codex、OpenCode、pi 和 agent-browser。機器建立後以及每次連線時都會檢查，每 24 小時最多一次。更新在背景獨立執行，因此不會阻擋連線。",
+      "agentUpdatesSource": "每個工具都來自其官方 GitHub 版本，並以發布資產的 sha256 摘要進行驗證。不使用 npm。版本發布滿 3 天後才會安裝，更新絕不會安裝較舊的版本。執行中的代理會繼續使用啟動時的檔案，更新失敗時目前版本保持不變。",
+      "agentUpdatesStatus": "上次檢查的結果在 /etc/cmux/agent-updates.state 中，更新程式的記錄在 /var/log/cmux-agent-updates.log 中。失敗的檢查會在下次連線時重新執行。",
+      "agentUpdatesToggle": "「新增機器」面板預設開啟此設定。若要為現有機器變更，請在機器上按右鍵並選擇「讓代理保持最新」，或執行 cmux vm agent-updates。除非傳入 --agent-updates latest，否則 cmux vm new 會保留映像檔中的版本。關閉更新後，已安裝的版本會保留。",
+      "agentUpdatesNetwork": "更新只使用 github.com, api.github.com, objects.githubusercontent.com 和 release-assets.githubusercontent.com。cmux 在所有網路模式下都允許這些主機，包括「允許清單」和「不連網」，因此網路政策不會阻擋更新。",
       "resizeTitle": "調整規格",
       "resizeDesc": "你可以在不遺失資料的情況下擴大機器。在機器上按右鍵並選擇 Resize machine，或使用 cmux vm resize。調整規格只能擴大機器。磁碟以 4 GB 為單位最多擴充到 256 GB，記憶體最多 32 GB，CPU 最多 16 vCPU。實際上限由你的方案決定。",
       "pauseTitle": "暫停與繼續",
@@ -5103,7 +5188,8 @@
   "pricing": {
     "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
     "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
-    "signedOutSignIn": "登入"
+    "signedOutSignIn": "登入",
+    "manageInAppStore": "在 App Store 中管理"
   },
   "platforms": {
     "macos": "macOS",
