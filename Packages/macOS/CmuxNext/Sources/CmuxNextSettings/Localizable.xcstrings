@@ -17555,526 +17555,1050 @@
         }
       }
     },
-    "settings.window.rail": {
+    "settings.group.windowBackground": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Action Rail"
+            "value": "Window Background"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "شريط الإجراءات"
+            "state": "translated",
+            "value": "خلفية النافذة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Traka radnji"
+            "state": "translated",
+            "value": "Pozadina prozora"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Handlingsbjælke"
+            "state": "translated",
+            "value": "Vinduesbaggrund"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aktionsleiste"
+            "state": "translated",
+            "value": "Fensterhintergrund"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Barra de acciones"
+            "state": "translated",
+            "value": "Fondo de la ventana"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Barre d’actions"
+            "state": "translated",
+            "value": "Arrière-plan de la fenêtre"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Barra delle azioni"
+            "state": "translated",
+            "value": "Sfondo della finestra"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "アクションレール"
+            "state": "translated",
+            "value": "ウインドウの背景"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "របារសកម្មភាព"
+            "state": "translated",
+            "value": "ផ្ទៃខាងក្រោយបង្អួច"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "작업 레일"
+            "state": "translated",
+            "value": "윈도우 배경"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Handlingslinje"
+            "state": "translated",
+            "value": "Vindusbakgrunn"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pasek akcji"
+            "state": "translated",
+            "value": "Tło okna"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Barra de ações"
+            "state": "translated",
+            "value": "Fundo da janela"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Панель действий"
+            "state": "translated",
+            "value": "Фон окна"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "แถบการทำงาน"
+            "state": "translated",
+            "value": "พื้นหลังหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Eylem çubuğu"
+            "state": "translated",
+            "value": "Pencere arka planı"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Панель дій"
+            "state": "translated",
+            "value": "Тло вікна"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Thanh thao tác"
+            "state": "translated",
+            "value": "Nền cửa sổ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "操作栏"
+            "state": "translated",
+            "value": "窗口背景"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "操作列"
+            "state": "translated",
+            "value": "視窗背景"
           }
         }
       }
     },
-    "settings.window.rail.help": {
+    "settings.default.ghosttyConfig": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A column of buttons for new tabs, agent chats, notifications, history and accounts."
+            "value": "Ghostty config"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "عمود من الأزرار لعلامات التبويب الجديدة ومحادثات الوكلاء والإشعارات والسجل والحسابات."
+            "state": "translated",
+            "value": "إعدادات Ghostty"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kolona dugmadi za nove kartice, razgovore s agentima, obavještenja, historiju i račune."
+            "state": "translated",
+            "value": "Ghostty konfiguracija"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En kolonne med knapper til nye faner, agentchats, notifikationer, historik og konti."
+            "state": "translated",
+            "value": "Ghostty-konfiguration"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Eine Spalte mit Tasten für neue Tabs, Agent-Chats, Mitteilungen, Verlauf und Accounts."
+            "state": "translated",
+            "value": "Ghostty-Konfiguration"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Una columna de botones para pestañas nuevas, chats de agentes, notificaciones, historial y cuentas."
+            "state": "translated",
+            "value": "Configuración de Ghostty"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Une colonne de boutons pour les nouveaux onglets, les discussions avec les agents, les notifications, l’historique et les comptes."
+            "state": "translated",
+            "value": "Configuration Ghostty"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Una colonna di pulsanti per nuove schede, chat con agenti, notifiche, cronologia e account."
+            "state": "translated",
+            "value": "Configurazione di Ghostty"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "新規タブ、エージェントチャット、通知、履歴、アカウント用のボタンを縦に並べます。"
+            "state": "translated",
+            "value": "Ghosttyの設定"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ជួរឈរប៊ូតុងសម្រាប់ផ្ទាំងថ្មី ការជជែកជាមួយភ្នាក់ងារ ការជូនដំណឹង ប្រវត្តិ និងគណនី។"
+            "state": "translated",
+            "value": "ការកំណត់ Ghostty"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "새 탭, 에이전트 채팅, 알림, 기록, 계정을 위한 버튼 열입니다."
+            "state": "translated",
+            "value": "Ghostty 설정"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En kolonne med knapper for nye faner, agentchatter, varsler, historikk og kontoer."
+            "state": "translated",
+            "value": "Ghostty-konfigurasjon"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kolumna przycisków do nowych kart, czatów z agentami, powiadomień, historii i kont."
+            "state": "translated",
+            "value": "Konfiguracja Ghostty"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Uma coluna de botões para novas abas, conversas com agentes, notificações, histórico e contas."
+            "state": "translated",
+            "value": "Configuração do Ghostty"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Столбец кнопок для новых вкладок, чатов с агентами, уведомлений, истории и учётных записей."
+            "state": "translated",
+            "value": "Конфигурация Ghostty"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "คอลัมน์ปุ่มสำหรับแท็บใหม่ แชทกับเอเจนต์ การแจ้งเตือน ประวัติ และบัญชี"
+            "state": "translated",
+            "value": "การกำหนดค่า Ghostty"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Yeni sekmeler, ajan sohbetleri, bildirimler, geçmiş ve hesaplar için bir düğme sütunu."
+            "state": "translated",
+            "value": "Ghostty yapılandırması"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Стовпець кнопок для нових вкладок, чатів з агентами, сповіщень, історії та облікових записів."
+            "state": "translated",
+            "value": "Конфігурація Ghostty"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Một cột nút cho thẻ mới, trò chuyện với tác tử, thông báo, lịch sử và tài khoản."
+            "state": "translated",
+            "value": "Cấu hình Ghostty"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "一列按钮，用于新建标签页、代理聊天、通知、历史记录和账户。"
+            "state": "translated",
+            "value": "Ghostty 配置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "一列按鈕，用於新增分頁、代理聊天、通知、記錄和帳號。"
+            "state": "translated",
+            "value": "Ghostty 設定"
           }
         }
       }
     },
-    "settings.choice.railLeading": {
+    "settings.appearance.backgroundOpacity": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Window Edge"
+            "value": "Opacity"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "حافة النافذة"
+            "state": "translated",
+            "value": "العتامة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Rub prozora"
+            "state": "translated",
+            "value": "Neprozirnost"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vindueskant"
+            "state": "translated",
+            "value": "Uigennemsigtighed"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fensterrand"
+            "state": "translated",
+            "value": "Deckkraft"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Borde de la ventana"
+            "state": "translated",
+            "value": "Opacidad"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bord de la fenêtre"
+            "state": "translated",
+            "value": "Opacité"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bordo della finestra"
+            "state": "translated",
+            "value": "Opacità"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ウインドウの端"
+            "state": "translated",
+            "value": "不透明度"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គែមបង្អួច"
+            "state": "translated",
+            "value": "ភាពស្រអាប់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "윈도우 가장자리"
+            "state": "translated",
+            "value": "불투명도"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vinduskant"
+            "state": "translated",
+            "value": "Opasitet"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Krawędź okna"
+            "state": "translated",
+            "value": "Krycie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Borda da janela"
+            "state": "translated",
+            "value": "Opacidade"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Край окна"
+            "state": "translated",
+            "value": "Непрозрачность"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ขอบหน้าต่าง"
+            "state": "translated",
+            "value": "ความทึบ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pencere kenarı"
+            "state": "translated",
+            "value": "Opaklık"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Край вікна"
+            "state": "translated",
+            "value": "Непрозорість"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cạnh cửa sổ"
+            "state": "translated",
+            "value": "Độ mờ đục"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "窗口边缘"
+            "state": "translated",
+            "value": "不透明度"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "視窗邊緣"
+            "state": "translated",
+            "value": "不透明度"
           }
         }
       }
     },
-    "settings.choice.railAfterSidebar": {
+    "settings.appearance.backgroundOpacity.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "After Sidebar"
+            "value": "How much of the theme color covers the material behind the window."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "بعد الشريط الجانبي"
+            "state": "translated",
+            "value": "مقدار ما يغطيه لون السمة من المادة خلف النافذة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nakon bočne trake"
+            "state": "translated",
+            "value": "Koliko boja teme prekriva materijal iza prozora."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Efter sidepanelet"
+            "state": "translated",
+            "value": "Hvor meget temafarven dækker materialet bag vinduet."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nach der Seitenleiste"
+            "state": "translated",
+            "value": "Wie stark die Themenfarbe das Material hinter dem Fenster überdeckt."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Después de la barra lateral"
+            "state": "translated",
+            "value": "Cuánto cubre el color del tema el material detrás de la ventana."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Après la barre latérale"
+            "state": "translated",
+            "value": "Dans quelle mesure la couleur du thème couvre le matériau derrière la fenêtre."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Dopo la barra laterale"
+            "state": "translated",
+            "value": "Quanto il colore del tema copre il materiale dietro la finestra."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "サイドバーの後"
+            "state": "translated",
+            "value": "ウインドウの背後のマテリアルをテーマの色がどれだけ覆うか。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បន្ទាប់ពីរបារចំហៀង"
+            "state": "translated",
+            "value": "កម្រិតដែលពណ៌ស្បែកគ្របលើសម្ភារៈនៅពីក្រោយបង្អួច។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "사이드바 다음"
+            "state": "translated",
+            "value": "테마 색상이 윈도우 뒤의 재질을 덮는 정도입니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Etter sidepanelet"
+            "state": "translated",
+            "value": "Hvor mye temafargen dekker materialet bak vinduet."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Za paskiem bocznym"
+            "state": "translated",
+            "value": "Jak bardzo kolor motywu przykrywa materiał za oknem."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Depois da barra lateral"
+            "state": "translated",
+            "value": "Quanto a cor do tema cobre o material atrás da janela."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "После боковой панели"
+            "state": "translated",
+            "value": "Насколько цвет темы закрывает материал за окном."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ถัดจากแถบด้านข้าง"
+            "state": "translated",
+            "value": "ปริมาณที่สีของธีมปิดทับวัสดุด้านหลังหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Kenar çubuğundan sonra"
+            "state": "translated",
+            "value": "Tema renginin pencerenin arkasındaki malzemeyi ne kadar örttüğü."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Після бічної панелі"
+            "state": "translated",
+            "value": "Наскільки колір теми закриває матеріал за вікном."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sau thanh bên"
+            "state": "translated",
+            "value": "Mức độ màu chủ đề phủ lên chất liệu phía sau cửa sổ."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "边栏之后"
+            "state": "translated",
+            "value": "主题颜色覆盖窗口背后材质的程度。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "側邊欄之後"
+            "state": "translated",
+            "value": "主題顏色覆蓋視窗背後材質的程度。"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundBlur": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Material"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المادة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Materijal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Materiale"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hintergrundmaterial"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Material de fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matériau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Materiale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マテリアル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្ភារៈ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재질"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Materiale"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Materiał"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Material de fundo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Материал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วัสดุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Malzeme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Матеріал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chất liệu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "材质"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "材質"
+          }
+        }
+      }
+    },
+    "settings.choice.frosted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frosted"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مُصقَّع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mat staklo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frostet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Milchglas"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esmerilado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Givré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smerigliato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すりガラス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់ព្រិល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "반투명 블러"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frostet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fosco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Матовое стекло"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฝ้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buzlu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Матове скло"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kính mờ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磨砂"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "霧面"
+          }
+        }
+      }
+    },
+    "settings.choice.glass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زجاج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staklo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glas"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glas"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidrio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vetro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ガラス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szkło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стекло"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скло"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃"
+          }
+        }
+      }
+    },
+    "settings.choice.glassClear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Glass"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زجاج شفاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozirno staklo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glas"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klarglas"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidrio transparente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verre clair"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vetro trasparente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明ガラス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់ថ្លា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "투명 유리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przezroczyste szkło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidro transparente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозрачное стекло"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจกใส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şeffaf cam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозоре скло"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kính trong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃"
           }
         }
       }
@@ -18468,6 +18992,530 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "預設"
+          }
+        }
+      }
+    },
+    "settings.window.rail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action Rail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شريط الإجراءات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Traka radnji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Handlingsbjælke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktionsleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra de acciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barre d’actions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra delle azioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アクションレール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របារសកម្មភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 레일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Handlingslinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasek akcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra de ações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель действий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบการทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eylem çubuğu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель дій"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thanh thao tác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "操作栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "操作列"
+          }
+        }
+      }
+    },
+    "settings.window.rail.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the sidebar's pinned sections as a column of icons beside it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض الأقسام المثبتة في الشريط الجانبي كعمود من الأيقونات بجانبه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje prikvačene odjeljke bočne trake kao stupac ikona pored nje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser sidepanelets fastgjorte sektioner som en kolonne af ikoner ved siden af det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt die angehefteten Bereiche der Seitenleiste als Symbolspalte daneben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra las secciones fijadas de la barra lateral como una columna de iconos junto a ella."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche les sections épinglées de la barre latérale sous forme de colonne d’icônes à côté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra le sezioni fissate della barra laterale come una colonna di icone accanto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーの固定セクションを、その横のアイコン列として表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញផ្នែកដែលបានខ្ទាស់របស់របារចំហៀង ជាជួរឈររូបតំណាងនៅក្បែរវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바의 고정된 섹션을 옆에 아이콘 열로 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser sidefeltets festede seksjoner som en kolonne med ikoner ved siden av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje przypięte sekcje paska bocznego jako kolumnę ikon obok niego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra as seções fixadas da barra lateral como uma coluna de ícones ao lado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает закреплённые разделы боковой панели столбцом значков рядом с ней."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงส่วนที่ปักหมุดของแถบด้านข้างเป็นคอลัมน์ไอคอนข้างแถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğunun sabitlenmiş bölümlerini yanında bir simge sütunu olarak gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує закріплені розділи бічної панелі стовпцем значків поруч із нею."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị các phần đã ghim của thanh bên dưới dạng một cột biểu tượng bên cạnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将边栏中固定的分区显示为旁边的一列图标。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將側邊欄中釘選的區段顯示為旁邊的一欄圖示。"
+          }
+        }
+      }
+    },
+    "settings.choice.railLeading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window Edge"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حافة النافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rub prozora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vindueskant"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fensterrand"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Borde de la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bord de la fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bordo della finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ウインドウの端"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គែមបង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "윈도우 가장자리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vinduskant"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Krawędź okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Borda da janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Край окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขอบหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pencere kenarı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Край вікна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cạnh cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗口边缘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "視窗邊緣"
+          }
+        }
+      }
+    },
+    "settings.choice.railAfterSidebar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After Sidebar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بعد الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nakon bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Efter sidepanelet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nach der Seitenleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Después de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Après la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dopo la barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーの後"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាប់ពីរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바 다음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etter sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Za paskiem bocznym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Depois da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "После боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถัดจากแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğundan sonra"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Після бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sau thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "边栏之后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄之後"
           }
         }
       }
@@ -24891,1050 +25939,1312 @@
         }
       }
     },
-    "settings.group.windowBackground": {
+    "settings.group.appTheme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Window Background"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خلفية النافذة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pozadina prozora"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vinduesbaggrund"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fensterhintergrund"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fondo de la ventana"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arrière-plan de la fenêtre"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sfondo della finestra"
+            "value": "App Theme"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ウインドウの背景"
+            "value": "アプリのテーマ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سمة التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apptema"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "App-Design"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema de la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thème de l’app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema dell’app"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ផ្ទៃខាងក្រោយបង្អួច"
+            "state": "needs_review",
+            "value": "រចនាប័ទ្មកម្មវិធី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "윈도우 배경"
+            "state": "needs_review",
+            "value": "앱 테마"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vindusbakgrunn"
+            "state": "needs_review",
+            "value": "Apptema"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tło okna"
+            "state": "needs_review",
+            "value": "Motyw aplikacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Fundo da janela"
+            "state": "needs_review",
+            "value": "Tema do app"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Фон окна"
+            "state": "needs_review",
+            "value": "Тема приложения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "พื้นหลังหน้าต่าง"
+            "state": "needs_review",
+            "value": "ธีมของแอป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pencere arka planı"
+            "state": "needs_review",
+            "value": "Uygulama teması"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Тло вікна"
+            "state": "needs_review",
+            "value": "Тема застосунку"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nền cửa sổ"
+            "state": "needs_review",
+            "value": "Chủ đề ứng dụng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "窗口背景"
+            "state": "needs_review",
+            "value": "应用主题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "視窗背景"
+            "state": "needs_review",
+            "value": "App 主題"
           }
         }
       }
     },
-    "settings.default.ghosttyConfig": {
+    "settings.appearance.theme": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty config"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعدادات Ghostty"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty konfiguracija"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty-konfiguration"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty-Konfiguration"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuración de Ghostty"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configuration Ghostty"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurazione di Ghostty"
+            "value": "Theme"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghosttyの設定"
+            "value": "テーマ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Design"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thème"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ការកំណត់ Ghostty"
+            "state": "needs_review",
+            "value": "រចនាប័ទ្ម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty 설정"
+            "state": "needs_review",
+            "value": "테마"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty-konfigurasjon"
+            "state": "needs_review",
+            "value": "Tema"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Konfiguracja Ghostty"
+            "state": "needs_review",
+            "value": "Motyw"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Configuração do Ghostty"
+            "state": "needs_review",
+            "value": "Tema"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Конфигурация Ghostty"
+            "state": "needs_review",
+            "value": "Тема"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "การกำหนดค่า Ghostty"
+            "state": "needs_review",
+            "value": "ธีม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty yapılandırması"
+            "state": "needs_review",
+            "value": "Tema"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Конфігурація Ghostty"
+            "state": "needs_review",
+            "value": "Тема"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cấu hình Ghostty"
+            "state": "needs_review",
+            "value": "Chủ đề"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty 配置"
+            "state": "needs_review",
+            "value": "主题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ghostty 設定"
+            "state": "needs_review",
+            "value": "主題"
           }
         }
       }
     },
-    "settings.appearance.backgroundOpacity": {
+    "settings.appearance.theme.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opacity"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "العتامة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neprozirnost"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uigennemsigtighed"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deckkraft"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opacidad"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opacité"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opacità"
+            "value": "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不透明度"
+            "value": "cmux とそのターミナルの配色です。スペース、ワークスペース、ターミナルのテーマが優先されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ألوان cmux وطرفياته. تتجاوزها سمة المساحة أو مساحة العمل أو الطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boje za cmux i njegove terminale. Tema prostora, radnog prostora ili terminala ima prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farver til cmux og dets terminaler. Et område-, arbejdsområde- eller terminaltema tilsidesætter det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farben für cmux und seine Terminals. Ein Space-, Arbeitsbereich- oder Terminal-Design hat Vorrang."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colores de cmux y sus terminales. El tema de un espacio, un espacio de trabajo o una terminal lo reemplaza."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Couleurs de cmux et de ses terminaux. Le thème d’un espace, d’un espace de travail ou d’un terminal le remplace."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colori di cmux e dei suoi terminali. Il tema di uno spazio, di uno spazio di lavoro o di un terminale lo sostituisce."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ភាពស្រអាប់"
+            "state": "needs_review",
+            "value": "ពណ៌សម្រាប់ cmux និងទែមីណាល់របស់វា។ រចនាប័ទ្មលំហ កន្លែងធ្វើការ ឬទែមីណាល់ មានអាទិភាពជាង។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "불투명도"
+            "state": "needs_review",
+            "value": "cmux와 터미널의 색상입니다. 스페이스, 작업 공간 또는 터미널 테마가 우선합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Opasitet"
+            "state": "needs_review",
+            "value": "Farger for cmux og terminalene. Et område-, arbeidsområde- eller terminaltema overstyrer det."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Krycie"
+            "state": "needs_review",
+            "value": "Kolory cmux i jego terminali. Motyw obszaru, obszaru roboczego lub terminala ma pierwszeństwo."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Opacidade"
+            "state": "needs_review",
+            "value": "Cores do cmux e dos seus terminais. O tema de um espaço, espaço de trabalho ou terminal o substitui."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Непрозрачность"
+            "state": "needs_review",
+            "value": "Цвета cmux и его терминалов. Тема области, рабочей области или терминала имеет приоритет."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ความทึบ"
+            "state": "needs_review",
+            "value": "สีของ cmux และเทอร์มินัล ธีมของพื้นที่ พื้นที่ทำงาน หรือเทอร์มินัลจะใช้แทน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Opaklık"
+            "state": "needs_review",
+            "value": "cmux ve terminallerinin renkleri. Alan, çalışma alanı veya terminal teması bunun yerine geçer."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Непрозорість"
+            "state": "needs_review",
+            "value": "Кольори cmux і його терміналів. Тема простору, робочого простору чи термінала має пріоритет."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Độ mờ đục"
+            "state": "needs_review",
+            "value": "Màu của cmux và các terminal. Chủ đề của không gian, không gian làm việc hoặc terminal sẽ được ưu tiên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "不透明度"
+            "state": "needs_review",
+            "value": "cmux 及其终端的配色。空间、工作区或终端主题会覆盖它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "不透明度"
+            "state": "needs_review",
+            "value": "cmux 及其終端機的配色。空間、工作區或終端機主題會優先套用。"
           }
         }
       }
     },
-    "settings.appearance.backgroundOpacity.help": {
+    "settings.appearance.interfaceSize": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How much of the theme color covers the material behind the window."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مقدار ما يغطيه لون السمة من المادة خلف النافذة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Koliko boja teme prekriva materijal iza prozora."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hvor meget temafarven dækker materialet bag vinduet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wie stark die Themenfarbe das Material hinter dem Fenster überdeckt."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cuánto cubre el color del tema el material detrás de la ventana."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dans quelle mesure la couleur du thème couvre le matériau derrière la fenêtre."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quanto il colore del tema copre il materiale dietro la finestra."
+            "value": "Interface Size"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ウインドウの背後のマテリアルをテーマの色がどれだけ覆うか。"
+            "value": "インターフェイスのサイズ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حجم الواجهة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina sučelja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grænsefladestørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oberflächengröße"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamaño de la interfaz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taille de l’interface"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimensione dell’interfaccia"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កម្រិតដែលពណ៌ស្បែកគ្របលើសម្ភារៈនៅពីក្រោយបង្អួច។"
+            "state": "needs_review",
+            "value": "ទំហំផ្ទៃប្រទាក់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "테마 색상이 윈도우 뒤의 재질을 덮는 정도입니다."
+            "state": "needs_review",
+            "value": "인터페이스 크기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hvor mye temafargen dekker materialet bak vinduet."
+            "state": "needs_review",
+            "value": "Grensesnittstørrelse"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Jak bardzo kolor motywu przykrywa materiał za oknem."
+            "state": "needs_review",
+            "value": "Rozmiar interfejsu"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Quanto a cor do tema cobre o material atrás da janela."
+            "state": "needs_review",
+            "value": "Tamanho da interface"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Насколько цвет темы закрывает материал за окном."
+            "state": "needs_review",
+            "value": "Размер интерфейса"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ปริมาณที่สีของธีมปิดทับวัสดุด้านหลังหน้าต่าง"
+            "state": "needs_review",
+            "value": "ขนาดอินเทอร์เฟซ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tema renginin pencerenin arkasındaki malzemeyi ne kadar örttüğü."
+            "state": "needs_review",
+            "value": "Arayüz boyutu"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Наскільки колір теми закриває матеріал за вікном."
+            "state": "needs_review",
+            "value": "Розмір інтерфейсу"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Mức độ màu chủ đề phủ lên chất liệu phía sau cửa sổ."
+            "state": "needs_review",
+            "value": "Kích thước giao diện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "主题颜色覆盖窗口背后材质的程度。"
+            "state": "needs_review",
+            "value": "界面大小"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "主題顏色覆蓋視窗背後材質的程度。"
+            "state": "needs_review",
+            "value": "介面大小"
           }
         }
       }
     },
-    "settings.appearance.backgroundBlur": {
+    "settings.appearance.interfaceSize.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Material"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "المادة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Materijal"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Materiale"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hintergrundmaterial"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Material de fondo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Matériau"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Materiale"
+            "value": "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "マテリアル"
+            "value": "タブ、サイドバー、その他のコントロールの文字サイズです。ターミナルの文字サイズは別に設定します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حجم نص علامات التبويب والشريط الجانبي وعناصر التحكم الأخرى. لنص الطرفية حجمه الخاص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina teksta kartica, bočne trake i drugih kontrola. Tekst terminala ima vlastitu veličinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekststørrelse for faner, sidepanelet og andre kontroller. Terminaltekst har sin egen størrelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Textgröße von Tabs, Seitenleiste und anderen Bedienelementen. Terminaltext hat eine eigene Größe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamaño del texto de las pestañas, la barra lateral y otros controles. El texto de la terminal tiene su propio tamaño."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taille du texte des onglets, de la barre latérale et des autres commandes. Le texte du terminal a sa propre taille."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimensione del testo di schede, barra laterale e altri controlli. Il testo del terminale ha una dimensione propria."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "សម្ភារៈ"
+            "state": "needs_review",
+            "value": "ទំហំអក្សររបស់ផ្ទាំង របារចំហៀង និងការគ្រប់គ្រងផ្សេងទៀត។ អក្សរទែមីណាល់មានទំហំផ្ទាល់ខ្លួន។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "재질"
+            "state": "needs_review",
+            "value": "탭, 사이드바 및 기타 컨트롤의 텍스트 크기입니다. 터미널 텍스트 크기는 따로 설정합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Materiale"
+            "state": "needs_review",
+            "value": "Tekststørrelse for faner, sidepanelet og andre kontroller. Terminaltekst har sin egen størrelse."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Materiał"
+            "state": "needs_review",
+            "value": "Rozmiar tekstu kart, paska bocznego i innych elementów sterujących. Tekst terminala ma własny rozmiar."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Material de fundo"
+            "state": "needs_review",
+            "value": "Tamanho do texto das abas, da barra lateral e de outros controles. O texto do terminal tem tamanho próprio."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Материал"
+            "state": "needs_review",
+            "value": "Размер текста вкладок, боковой панели и других элементов управления. У текста терминала свой размер."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "วัสดุ"
+            "state": "needs_review",
+            "value": "ขนาดข้อความของแท็บ แถบด้านข้าง และตัวควบคุมอื่น ๆ ข้อความในเทอร์มินัลมีขนาดของตัวเอง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Malzeme"
+            "state": "needs_review",
+            "value": "Sekmelerin, kenar çubuğunun ve diğer denetimlerin metin boyutu. Terminal metninin kendi boyutu vardır."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Матеріал"
+            "state": "needs_review",
+            "value": "Розмір тексту вкладок, бічної панелі та інших елементів керування. Текст термінала має власний розмір."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chất liệu"
+            "state": "needs_review",
+            "value": "Cỡ chữ của tab, thanh bên và các điều khiển khác. Chữ trong terminal có cỡ riêng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "材质"
+            "state": "needs_review",
+            "value": "标签页、边栏和其他控件的文字大小。终端文字有自己的大小。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "材質"
+            "state": "needs_review",
+            "value": "標籤頁、側邊欄和其他控制項的文字大小。終端機文字有自己的大小。"
           }
         }
       }
     },
-    "settings.choice.frosted": {
+    "settings.group.terminalFont": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frosted"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مُصقَّع"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mat staklo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Frostet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Milchglas"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esmerilado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Givré"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Smerigliato"
+            "value": "Font"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すりガラス"
+            "value": "フォント"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الخط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrift"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schrift"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Police"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កញ្ចក់ព្រិល"
+            "state": "needs_review",
+            "value": "ពុម្ពអក្សរ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "반투명 블러"
+            "state": "needs_review",
+            "value": "서체"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Frostet"
+            "state": "needs_review",
+            "value": "Skrift"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Matowe"
+            "state": "needs_review",
+            "value": "Czcionka"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Fosco"
+            "state": "needs_review",
+            "value": "Fonte"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Матовое стекло"
+            "state": "needs_review",
+            "value": "Шрифт"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ฝ้า"
+            "state": "needs_review",
+            "value": "แบบอักษร"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Buzlu"
+            "state": "needs_review",
+            "value": "Yazı tipi"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Матове скло"
+            "state": "needs_review",
+            "value": "Шрифт"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kính mờ"
+            "state": "needs_review",
+            "value": "Phông chữ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "磨砂"
+            "state": "needs_review",
+            "value": "字体"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "霧面"
+            "state": "needs_review",
+            "value": "字體"
           }
         }
       }
     },
-    "settings.choice.glass": {
+    "settings.terminal.fontFamily": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Glass"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "زجاج"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Staklo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Glas"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Glas"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vidrio"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verre"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vetro"
+            "value": "Font Family"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ガラス"
+            "value": "フォントファミリー"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عائلة الخط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Porodica fontova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttype"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schriftfamilie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Familia tipográfica"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famille de polices"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famiglia di font"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កញ្ចក់"
+            "state": "needs_review",
+            "value": "គ្រួសារពុម្ពអក្សរ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "유리"
+            "state": "needs_review",
+            "value": "서체 패밀리"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Glass"
+            "state": "needs_review",
+            "value": "Skriftfamilie"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Szkło"
+            "state": "needs_review",
+            "value": "Rodzina czcionek"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vidro"
+            "state": "needs_review",
+            "value": "Família da fonte"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Стекло"
+            "state": "needs_review",
+            "value": "Семейство шрифтов"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "กระจก"
+            "state": "needs_review",
+            "value": "ตระกูลแบบอักษร"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cam"
+            "state": "needs_review",
+            "value": "Yazı tipi ailesi"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Скло"
+            "state": "needs_review",
+            "value": "Сімейство шрифтів"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kính"
+            "state": "needs_review",
+            "value": "Họ phông chữ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "玻璃"
+            "state": "needs_review",
+            "value": "字体系列"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "玻璃"
+            "state": "needs_review",
+            "value": "字體系列"
           }
         }
       }
     },
-    "settings.choice.glassClear": {
+    "settings.terminal.fontFamily.help": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Glass"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "زجاج شفاف"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prozirno staklo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Klart glas"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Klarglas"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vidrio transparente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verre clair"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vetro trasparente"
+            "value": "A monospaced font installed on this Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "透明ガラス"
+            "value": "この Mac にインストールされている等幅フォントです。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط أحادي المسافة مثبّت على جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font fiksne širine instaliran na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En skrift med fast bredde, der er installeret på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine auf diesem Mac installierte Schrift mit fester Breite."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una fuente monoespaciada instalada en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une police à chasse fixe installée sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un font a spaziatura fissa installato su questo Mac."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កញ្ចក់ថ្លា"
+            "state": "needs_review",
+            "value": "ពុម្ពអក្សរទទឹងថេរដែលបានដំឡើងនៅលើ Mac នេះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "투명 유리"
+            "state": "needs_review",
+            "value": "이 Mac에 설치된 고정폭 서체입니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Klart glass"
+            "state": "needs_review",
+            "value": "En skrift med fast bredde som er installert på denne Macen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Przezroczyste szkło"
+            "state": "needs_review",
+            "value": "Czcionka o stałej szerokości zainstalowana na tym Macu."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vidro transparente"
+            "state": "needs_review",
+            "value": "Uma fonte monoespaçada instalada neste Mac."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Прозрачное стекло"
+            "state": "needs_review",
+            "value": "Моноширинный шрифт, установленный на этом Mac."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "กระจกใส"
+            "state": "needs_review",
+            "value": "แบบอักษรความกว้างคงที่ที่ติดตั้งใน Mac เครื่องนี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Şeffaf cam"
+            "state": "needs_review",
+            "value": "Bu Mac’te yüklü eş aralıklı bir yazı tipi."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Прозоре скло"
+            "state": "needs_review",
+            "value": "Моноширинний шрифт, установлений на цьому Mac."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kính trong"
+            "state": "needs_review",
+            "value": "Một phông chữ đơn cách được cài trên máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "透明玻璃"
+            "state": "needs_review",
+            "value": "此 Mac 上安装的等宽字体。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
+            "state": "needs_review",
+            "value": "這部 Mac 上安裝的等寬字體。"
+          }
+        }
+      }
+    },
+    "settings.terminal.fontSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
             "state": "translated",
-            "value": "透明玻璃"
+            "value": "Font Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォントサイズ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حجم الخط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veličina fonta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriftstørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schriftgröße"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamaño de fuente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taille de police"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dimensione del font"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំពុម្ពអក្សរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서체 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriftstørrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmiar czcionki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamanho da fonte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размер шрифта"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขนาดแบบอักษร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazı tipi boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмір шрифту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cỡ phông chữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "字体大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "字體大小"
+          }
+        }
+      }
+    },
+    "settings.choice.brailleSpinner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Braille Spinner"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点字スピナー"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مؤشر برايل الدوار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brajev indikator"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Braille-spinner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Braille-Spinner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indicador braille"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indicateur braille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indicatore braille"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សញ្ញាវិលអក្សរស្ទាប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "점자 스피너"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Braille-spinner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wskaźnik Braille’a"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indicador em braile"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спиннер Брайля"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวหมุนอักษรเบรลล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Braille döngüsü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спінер Брайля"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vòng xoay chữ nổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "盲文旋转指示器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "點字旋轉指示器"
           }
         }
       }

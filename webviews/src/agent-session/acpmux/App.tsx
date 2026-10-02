@@ -113,7 +113,7 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
 
 /// The changes view reads git scopes from whoever runs the session: the acpmux client
 /// (or the mock daemon), else the native host.
-const changesSource: ChangesSource = { scopeDiff: (scope) => callNative("git.scope.diff", { scope }) };
+const changesSource: ChangesSource = { diff: (scope) => callNative("git.diff", { scope, include_patch: true }) };
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
@@ -1001,7 +1001,7 @@ function AcpmuxPane() {
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
           "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
-          "git.scope.diff": ({ scope }) => client.gitScopeDiff(String(scope)),
+          "git.diff": ({ scope }) => client.gitDiff(String(scope)),
           "git.status": () => client.gitStatus(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
