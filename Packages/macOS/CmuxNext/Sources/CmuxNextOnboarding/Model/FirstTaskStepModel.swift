@@ -13,11 +13,15 @@ public final class FirstTaskStepModel {
     public private(set) var isPreparing = false
     /// The task's saved files, newest first.
     public private(set) var outputs: [URL] = []
-    /// Why the folder could not be prepared, if it could not.
-    public private(set) var failure: String?
+    /// True when the folder could not be prepared (the step says so; Skip stays).
+    public private(set) var failed = false
     public let folder: FirstTaskFolder
     @ObservationIgnored private let services: any OnboardingServices
     @ObservationIgnored private var watch: FolderWatch?
+    /// When the task was picked: files older than this are from an earlier run.
+    @ObservationIgnored private var startedAt = Date.distantPast
+    /// Bumped per listing, so a slow older listing never replaces a newer one.
+    @ObservationIgnored private var listing = 0
 
     init(services: any OnboardingServices) {
         self.services = services
@@ -32,16 +36,16 @@ public final class FirstTaskStepModel {
     public func pick(_ value: FirstTask) {
         guard task == nil, !isPreparing else { return }
         isPreparing = true
-        failure = nil
+        failed = false
+        // A second's slack for file systems that round modification times.
+        startedAt = Date().addingTimeInterval(-1)
         let folder = folder
         // task-owner: one-shot folder setup (a directory and a small file)
         Task { [weak self] in
-            let error = await Task.detached { () -> String? in
-                do { try folder.prepare(for: value); return nil } catch { return String(describing: error) }
-            }.value
+            let prepared = await Task.detached { (try? folder.prepare(for: value)) != nil }.value
             guard let self else { return }
             isPreparing = false
-            if let error { failure = error; return }
+            guard prepared else { failed = true; return }
             task = value
             startWatching()
         }
@@ -54,10 +58,14 @@ public final class FirstTaskStepModel {
     public func refreshOutputs() {
         guard task != nil else { return }
         let folder = folder
+        let since = startedAt
+        listing += 1
+        let current = listing
         // task-owner: one-shot directory listing off the main thread
         Task { [weak self] in
-            let files = await Task.detached { folder.outputs() }.value
-            self?.outputs = files
+            let files = await Task.detached { folder.outputs(since: since) }.value
+            guard let self, current == listing else { return }
+            outputs = files
         }
     }
 

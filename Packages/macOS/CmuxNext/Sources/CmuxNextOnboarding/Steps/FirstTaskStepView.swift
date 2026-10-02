@@ -82,7 +82,7 @@ final class FirstTaskStepView: NSView {
         if picked, chat == nil, let prompt = model.prompt {
             showChat(prompt: prompt)
         }
-        if let failure = model.failure { caption.stringValue = failure }
+        if model.failed { caption.stringValue = OnboardingStrings.firstTaskFolderFailed }
         caption.isHidden = picked && chat != nil
         renderOutputs()
     }

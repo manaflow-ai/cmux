@@ -11,6 +11,10 @@ extension OnboardingStrings {
     static var firstTaskNoAgent: String {
         String(localized: "onboarding.firstTask.noAgent", defaultValue: "The agent could not start here. Skip this step and try one from a new chat later.", bundle: .module)
     }
+    static var firstTaskFolderFailed: String {
+        String(localized: "onboarding.firstTask.folderFailed",
+               defaultValue: "cmux could not create ~/cmux/first-task. Skip this step and try a task from a new chat later.", bundle: .module)
+    }
     static var firstTaskSaved: String { String(localized: "onboarding.firstTask.saved", defaultValue: "Saved files", bundle: .module) }
     static var firstTaskOpen: String { String(localized: "onboarding.firstTask.open", defaultValue: "Open", bundle: .module) }
     static var firstTaskReveal: String { String(localized: "onboarding.firstTask.reveal", defaultValue: "Show in Finder", bundle: .module) }

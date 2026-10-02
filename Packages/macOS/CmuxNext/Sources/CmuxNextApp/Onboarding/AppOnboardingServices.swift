@@ -23,7 +23,7 @@ final class AppOnboardingServices: OnboardingServices {
 
     var savedProfile: OnboardingProfile? { owner.profile }
 
-    var canRunFirstTask: Bool { true }
+    var canRunFirstTask: Bool { services.agentTabs.canHostChat }
     var firstTaskFolder: FirstTaskFolder { .live() }
 
     func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? {

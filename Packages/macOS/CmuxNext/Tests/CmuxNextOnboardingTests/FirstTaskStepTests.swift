@@ -47,12 +47,17 @@ import Testing
         #expect(services.firstTaskView?.superview != nil, "the chat replaces the cards")
     }
 
-    /// Saved files show up as they land, newest first; the sample is input, not output.
-    @Test func savedFilesAppearWithoutTheSample() async throws {
+    /// Saved files show up as they land, newest first; the sample is input,
+    /// and a file from an earlier run is not this run's output.
+    @Test func savedFilesAppearWithoutTheSampleOrEarlierRuns() async throws {
         let services = services()
         let model = OnboardingModel(services: services, start: .firstTask)
         let folder = model.firstTask.folder.url
         defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let earlier = folder.appending(path: "welcome-note.md")
+        try Data("hi".utf8).write(to: earlier)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: earlier.path)
         model.firstTask.pick(.chart)
         await settle { model.firstTask.task != nil }
         #expect(model.firstTask.outputs.isEmpty)

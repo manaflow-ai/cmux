@@ -30,14 +30,16 @@ public nonisolated struct FirstTaskFolder: Sendable, Equatable {
         }
     }
 
-    /// What the task saved: every visible file but the sample, newest first.
-    public func outputs() -> [URL] {
+    /// What the task saved: every visible file but the sample changed at or
+    /// after `since` (earlier runs' files stay out), newest first.
+    public func outputs(since: Date = .distantPast) -> [URL] {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
         let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: .skipsHiddenFiles)) ?? []
         let dated = files.compactMap { file -> (URL, Date)? in
             guard file.lastPathComponent != Self.sampleName,
                   let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { return nil }
-            return (file, values.contentModificationDate ?? .distantPast)
+            let date = values.contentModificationDate ?? .distantPast
+            return date >= since ? (file, date) : nil
         }
         return dated.sorted { $0.1 > $1.1 }.map(\.0)
     }

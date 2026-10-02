@@ -30,8 +30,13 @@ final class FirstTaskCard: ThemedView {
         let titleLabel = OnboardingLabel.make(title, font: .systemFont(ofSize: 13, weight: .semibold), lines: 2)
         let detailLabel = OnboardingLabel.make(detail, font: OnboardingMetrics.captionFont, color: Palette.textSecondary, lines: 2)
         for view in [icon, titleLabel, detailLabel] as [NSView] { addSubview(view) }
+        let preferred = heightAnchor.constraint(equalToConstant: 120)
+        preferred.priority = .defaultLow
+        preferred.isActive = true
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 120),
+            // 120 pt, taller only when a long translation needs it.
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
+            detailLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -16),
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             icon.topAnchor.constraint(equalTo: topAnchor, constant: 16),
             titleLabel.leadingAnchor.constraint(equalTo: icon.leadingAnchor),

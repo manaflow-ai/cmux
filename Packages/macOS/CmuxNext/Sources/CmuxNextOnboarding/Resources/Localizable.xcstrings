@@ -10087,6 +10087,137 @@
           }
         }
       }
+    },
+    "onboarding.firstTask.folderFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not create ~/cmux/first-task. Skip this step and try a task from a new chat later."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر على cmux إنشاء ‎~/cmux/first-task. تخطَّ هذه الخطوة وجرّب مهمة من محادثة جديدة لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije mogao napraviti ~/cmux/first-task. Preskočite ovaj korak i kasnije isprobajte zadatak iz novog razgovora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke oprette ~/cmux/first-task. Spring dette trin over, og prøv en opgave fra en ny chat senere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux konnte ~/cmux/first-task nicht anlegen. Überspring diesen Schritt und probier später eine Aufgabe in einem neuen Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no pudo crear ~/cmux/first-task. Omite este paso y prueba una tarea desde un chat nuevo más tarde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n’a pas pu créer ~/cmux/first-task. Passez cette étape et essayez une tâche depuis une nouvelle discussion plus tard."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non è riuscito a creare ~/cmux/first-task. Salta questo passaggio e prova un compito da una nuova chat più tardi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux は ~/cmux/first-task を作成できませんでした。このステップをスキップし、あとで新しいチャットから試してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចបង្កើត ~/cmux/first-task បានទេ។ រំលងជំហាននេះ ហើយសាកល្បងកិច្ចការពីការជជែកថ្មីនៅពេលក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 ~/cmux/first-task를 만들 수 없습니다. 이 단계를 건너뛰고 나중에 새 채팅에서 해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kunne ikke opprette ~/cmux/first-task. Hopp over dette trinnet, og prøv en oppgave fra en ny chat senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie mógł utworzyć ~/cmux/first-task. Pomiń ten krok i wypróbuj zadanie później w nowym czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não conseguiu criar ~/cmux/first-task. Pule esta etapa e experimente uma tarefa em um novo chat depois."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не удалось создать ~/cmux/first-task. Пропустите этот шаг и попробуйте задачу позже в новом чате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux สร้าง ~/cmux/first-task ไม่ได้ ข้ามขั้นตอนนี้แล้วลองงานจากแชตใหม่ภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ~/cmux/first-task klasörünü oluşturamadı. Bu adımı atlayın ve daha sonra yeni bir sohbetten bir görev deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не вдалося створити ~/cmux/first-task. Пропустіть цей крок і спробуйте завдання пізніше в новому чаті."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không thể tạo ~/cmux/first-task. Hãy bỏ qua bước này và thử một tác vụ trong cuộc trò chuyện mới sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法创建 ~/cmux/first-task。跳过此步骤，稍后在新聊天中试试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法建立 ~/cmux/first-task。跳過此步驟，稍後在新聊天中試試。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
