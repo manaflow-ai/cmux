@@ -4,6 +4,8 @@
 mod agent_hook_errors;
 mod conversations;
 mod host_close;
+#[cfg(all(test, unix))]
+mod host_death_tests;
 mod idle_close;
 pub(crate) mod layout_invariants;
 mod personal;
