@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { ArrowUpIcon, StopIcon } from "./ComposerPickers";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -18,12 +19,17 @@ type Props = {
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   onSend(text: string): void;
   onStop(): void;
+  /// Bar buttons between the pickers and Send, such as the dictation mic.
+  accessory?: React.ReactNode;
 };
 
-/// The prompt box with the agent's `/` command menu. The menu opens while the
-/// prompt is a single leading `/word`, filters as it grows, and picking a
-/// command writes `/name ` so its arguments can follow.
-export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
+/// The prompt box with the agent's `/` command menu, drawn as Codex's composer:
+/// the prompt over a bar with the pickers and a round Send button, which turns
+/// into Stop while a turn runs and the prompt is empty. Enter sends and
+/// Shift+Enter breaks the line. The menu opens while the prompt is a single
+/// leading `/word`, filters as it grows, and picking a command writes `/name `
+/// so its arguments can follow.
+export function Composer({ snapshot, chips: Chips, onSend, onStop, accessory }: Props) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -51,7 +57,7 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
     edit(next.text, next.caret);
     textarea.current?.focus();
   };
-  const submit = (event: React.FormEvent) => {
+  const submit = (event: React.SyntheticEvent) => {
     event.preventDefault();
     const prompt = text.trim();
     if (!prompt) return;
@@ -60,7 +66,11 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
   };
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Every key belongs to the input method while it composes, not only Enter.
-    if (!open || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (!open) {
+      if (event.key === "Enter" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) submit(event);
+      return;
+    }
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setDismissed(text); return; }
     if (matches.length === 0) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
@@ -75,17 +85,24 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop }: Props) {
   };
   const track = (event: React.SyntheticEvent<HTMLTextAreaElement>) => setCaret(event.currentTarget.selectionStart);
 
+  const stop = snapshot.isWorking && !text.trim();
   return <form className="acpmux-composer" onSubmit={submit}>
     {open && <SlashMenu matches={matches} active={selected} empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands} onHover={setActive} onPick={pick} />}
-    <Chips snapshot={snapshot} />
-    {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
-    <textarea ref={textarea} aria-label={COMPOSER_LABELS.prompt} name="prompt" rows={2} placeholder={COMPOSER_LABELS.placeholder} value={text}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="combobox" aria-expanded={open} aria-controls={open ? "acpmux-slash-menu" : undefined} aria-autocomplete="list"
-      aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
-      onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown} />
-    <button type="submit">{COMPOSER_LABELS.send}</button>
-    {snapshot.isWorking && <button type="button" className="acpmux-cancel" onClick={onStop}>{COMPOSER_LABELS.stop}</button>}
+    <div className="acpmux-composer-box">
+      {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
+      <textarea ref={textarea} className="acpmux-composer-field" aria-label={COMPOSER_LABELS.prompt} name="prompt" rows={1} placeholder={COMPOSER_LABELS.placeholder} value={text}
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        role="combobox" aria-expanded={open} aria-controls={open ? "acpmux-slash-menu" : undefined} aria-autocomplete="list"
+        aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
+        onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown} />
+      <div className="acpmux-composer-bar">
+        <Chips snapshot={snapshot} />
+        {accessory}
+        {stop
+          ? <button type="button" className="acpmux-send acpmux-cancel" aria-label={COMPOSER_LABELS.stop} title={COMPOSER_LABELS.stop} onClick={onStop}><StopIcon /></button>
+          : <button type="submit" className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`} aria-label={COMPOSER_LABELS.send} title={COMPOSER_LABELS.send}><ArrowUpIcon /></button>}
+      </div>
+    </div>
   </form>;
 }
 

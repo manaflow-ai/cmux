@@ -11,6 +11,7 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
 import { Composer } from "./Composer";
+import { ComposerPickers } from "./ComposerPickers";
 import { turnFiles, turnRows } from "./diff";
 import { DiffPanel } from "./DiffPanel";
 
@@ -274,7 +275,7 @@ export function VirtualTranscript({ rows, onToggleActivity, onOpenDiff, expanded
 
 function PermissionCard({ permission }: { permission: AcpmuxPermission }) { return <div className="acpmux-permission-card"><strong>{permission.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }
 
-function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) { const modelOptions = snapshot.catalog.find((harness) => harness.id === snapshot.summary?.harness)?.models ?? []; const modeOptions = snapshot.summary?.modes?.availableModes ?? []; const effort = snapshot.summary?.configOptions?.find((option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort"); return <div className="acpmux-chips">{modelOptions.length > 0 && <select className="acpmux-model" aria-label="Model" value={snapshot.summary?.model ?? ""} onChange={(event) => void callNative("chat.model", { modelId: event.target.value })}>{modelOptions.map((model) => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}</select>}{modeOptions.length > 0 && <select className="acpmux-mode" aria-label="Mode" value={snapshot.summary?.modes?.currentModeId ?? ""} onChange={(event) => void callNative("chat.mode", { modeId: event.target.value })}>{modeOptions.map((mode) => <option key={mode.id} value={mode.id}>{mode.name || mode.id}</option>)}</select>}{effort && <select className="acpmux-effort" aria-label="Effort" value={effort.currentValue ?? ""} onChange={(event) => void callNative("chat.effort", { configId: effort.id, value: event.target.value })}>{effort.options.map((option) => <option key={option.value} value={option.value}>{option.name || option.value}</option>)}</select>}</div>; }
+function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) { return <ComposerPickers snapshot={snapshot} onModel={(modelId) => void callNative("chat.model", { modelId })} onMode={(modeId) => void callNative("chat.mode", { modeId })} onEffort={(configId, value) => void callNative("chat.effort", { configId, value })} />; }
 
 export function AcpmuxApp() {
   const [queryClient] = useState(createPaneQueryClient);
