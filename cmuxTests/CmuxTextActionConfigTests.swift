@@ -215,6 +215,30 @@ struct CmuxTextActionTrustGateTests {
         #expect(insertOnly.fingerprint != submitting.fingerprint)
     }
 
+    @MainActor @Test(arguments: [false, true])
+    func untrustedProjectSnippetKeepsItsImageIconLocked(submit: Bool) throws {
+        let paths = configPaths()
+        let payload = try #require(CmuxTextActionPayload(text: "echo snippet-ran", submit: submit))
+        let button = CmuxSurfaceTabBarButton(
+            id: "probe",
+            icon: .imagePath("icons/safe.svg"),
+            action: .text(payload)
+        )
+        let trusted = CmuxConfigExecutor.isTrustedSurfaceButton(
+            button,
+            workspaceCommand: nil,
+            terminalCommandSourcePath: nil,
+            surfaceTabBarConfigSourcePath: paths.project,
+            globalConfigPath: paths.global
+        )
+        #expect(!trusted)
+        #expect(button.icon?.bonsplitIcon(
+            configSourcePath: paths.project,
+            globalConfigPath: paths.global,
+            allowProjectLocalImage: trusted
+        ) == .systemImage("lock.fill"))
+    }
+
     @MainActor @Test func insertOnlyProjectSnippetConsultsTheTrustGate() throws {
         let payload = try #require(CmuxTextActionPayload(text: "echo snippet-ran\n", submit: false))
         let outcome = deliver(payload, confirm: false, fromProject: true, gateAnswer: false, deliveryResult: true)
