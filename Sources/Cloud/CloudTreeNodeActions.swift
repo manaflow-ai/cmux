@@ -538,6 +538,9 @@ struct CloudTreeNodeActions {
                                 teamID: nil
                             )
                         }
+                        guard publication.state == "active" else {
+                            throw CloudTreeSharePortError.provisioning
+                        }
                         Self.copyToPasteboard(publication.url)
                     } catch is CancellationError {
                     } catch let failure as CloudDiagnosticFailure {
@@ -635,5 +638,16 @@ struct CloudTreeNodeActions {
         #if DEBUG
         cmuxDebugLog("cloudTree.copyToPasteboard ok=\(ok) chars=\(text.count)")
         #endif
+    }
+}
+
+private enum CloudTreeSharePortError: LocalizedError {
+    case provisioning
+
+    var errorDescription: String? {
+        switch self {
+        case .provisioning:
+            return String(localized: "cloudTree.operation.sharePort.provisioning", defaultValue: "The share URL is still being provisioned. Try again in a moment.")
+        }
     }
 }
