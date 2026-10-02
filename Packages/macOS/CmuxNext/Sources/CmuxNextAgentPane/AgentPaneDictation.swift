@@ -76,11 +76,7 @@ final class AgentPaneDictation {
     /// `CMUX_NEXT_DICTATION_AUDIO_FILE` names one (machines without a microphone).
     static func defaultSession() -> DictationSession {
         #if DEBUG
-        if let clip = RecordedDictationInput.url() {
-            return DictationSession(authorizer: RecordedInputAuthorizer(), makeTranscriber: { meter in
-                OnDeviceDictationTranscriber(levelMeter: meter, recordedInput: clip)
-            })
-        }
+        if let recorded = DictationSession.recorded() { return recorded }
         #endif
         return DictationSession()
     }

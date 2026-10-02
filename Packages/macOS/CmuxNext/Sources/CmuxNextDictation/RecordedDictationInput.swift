@@ -10,12 +10,12 @@ import Foundation
 /// `CMUX_NEXT_DICTATION_AUDIO_FILE=/path/to/clip.m4a` selects it. Release
 /// builds compile none of this: every piece of it, here and at its call
 /// sites, is inside `#if DEBUG`.
-public enum RecordedDictationInput {
+enum RecordedDictationInput {
     /// The environment variable naming the clip.
-    public static let environmentKey = "CMUX_NEXT_DICTATION_AUDIO_FILE"
+    static let environmentKey = "CMUX_NEXT_DICTATION_AUDIO_FILE"
 
     /// The clip `environment` names, if any.
-    public static func url(in environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
+    static func url(in environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
         guard let path = environment[environmentKey], !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path)
     }
@@ -71,12 +71,22 @@ private final class RecordedFileReader: @unchecked Sendable {
     }
 }
 
+extension DictationSession {
+    /// A session that hears the clip `CMUX_NEXT_DICTATION_AUDIO_FILE` names
+    /// through the on-device engine, or nil when it names none.
+    public static func recorded(in environment: [String: String] = ProcessInfo.processInfo.environment) -> DictationSession? {
+        guard let clip = RecordedDictationInput.url(in: environment) else { return nil }
+        return DictationSession(authorizer: RecordedInputAuthorizer(), makeTranscriber: { meter in
+            OnDeviceDictationTranscriber(levelMeter: meter, recordedInput: clip)
+        })
+    }
+}
+
 /// With a recorded clip there is no microphone to ask for.
-public struct RecordedInputAuthorizer: DictationAuthorizing {
-    public init() {}
-    public func microphoneAuthorization() async -> DictationAuthorizationStatus { .authorized }
-    public func requestMicrophoneAuthorization() async -> Bool { true }
-    public func speechRecognitionAuthorization() async -> DictationAuthorizationStatus { .authorized }
-    public func requestSpeechRecognitionAuthorization() async -> Bool { true }
+struct RecordedInputAuthorizer: DictationAuthorizing {
+    func microphoneAuthorization() async -> DictationAuthorizationStatus { .authorized }
+    func requestMicrophoneAuthorization() async -> Bool { true }
+    func speechRecognitionAuthorization() async -> DictationAuthorizationStatus { .authorized }
+    func requestSpeechRecognitionAuthorization() async -> Bool { true }
 }
 #endif
