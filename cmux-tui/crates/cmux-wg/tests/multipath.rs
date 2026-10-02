@@ -153,6 +153,9 @@ struct World {
 const A_RELAY: &str = "198.51.100.1:40000";
 const B_RELAY: &str = "198.51.100.2:40000";
 const A_DIRECT: &str = "192.168.7.1:51820";
+/// The client's addresses after its network changed.
+const A2_RELAY: &str = "203.0.113.9:40001";
+const A2_DIRECT: &str = "192.168.7.9:51820";
 const B_DIRECT: &str = "192.168.7.2:51820";
 
 /// Both sides up on the relay only, one stream open, nothing sent yet.
@@ -235,14 +238,48 @@ impl World {
             "the stream's datagrams moved back to the relay"
         );
     }
+
+    /// (c) The client's network changes: its whole path set is replaced by
+    /// sockets at new addresses, and the old sockets close. The server keeps
+    /// its paths and follows the client's new addresses from the first
+    /// authenticated datagram on each.
+    async fn rebind_client(&mut self) {
+        let (a_relay, a_direct) = (addr(A2_RELAY), addr(A2_DIRECT));
+        let relay = LinkProfile { latency: RELAY_LATENCY, cut: false };
+        self.sim.set_link(a_relay, addr(B_RELAY), relay);
+        let direct = LinkProfile { latency: DIRECT_LATENCY, cut: false };
+        self.sim.set_link(a_direct, addr(B_DIRECT), direct);
+        let (underlay, control, relay, direct) =
+            two_paths(&self.sim, (a_relay, addr(B_RELAY)), (a_direct, addr(B_DIRECT)));
+        within(self.client.net.rebind(underlay)).await.expect("rebind");
+        self.client.control = control;
+        self.client.relay = relay;
+        self.client.direct = direct;
+
+        let before = received(&self.server.control, self.server.direct);
+        answer(&self.client.control, relay, 2 * RELAY_LATENCY);
+        answer(&self.client.control, direct, 2 * DIRECT_LATENCY);
+        assert_eq!(self.client.control.current(), Some(direct));
+        answer(&self.server.control, self.server.direct, 2 * DIRECT_LATENCY);
+        assert_eq!(self.server.control.current(), Some(self.server.direct));
+        let progress = *self.progress.borrow();
+        self.run_until(progress + 2 * MIB, progress + MIB).await;
+        assert!(
+            received(&self.server.control, self.server.direct) > before + 100,
+            "the stream's datagrams reach the server from the client's new direct address"
+        );
+        assert!(received(&self.client.control, direct) > 100, "and the server answers there");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn one_session_survives_a_path_switch_and_a_cut_path() {
+async fn one_session_survives_a_path_switch_a_cut_path_and_a_rebind() {
     let mut world = world().await;
     world.run_until(2 * MIB, MIB).await;
     world.switch_to_direct().await;
     world.cut_direct(addr(A_DIRECT)).await;
+    world.rebind_client().await;
+    assert_eq!(*world.progress.borrow() < TOTAL, true, "every change happened mid-transfer");
     world.finish().await;
 }
 

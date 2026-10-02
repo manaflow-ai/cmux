@@ -241,6 +241,29 @@ impl WgNet {
         reply_rx.await.map_err(|_| WgError::Shutdown)?
     }
 
+    /// Move the session onto a new underlay after a network change. The
+    /// session, its keys and its TCP streams stay; the old underlay is
+    /// dropped. One authenticated datagram goes out at once on the new
+    /// underlay so the peer roams to it without waiting for traffic.
+    pub async fn rebind(&self, underlay: impl Underlay) -> Result<(), WgError> {
+        self.send_rebind(Rebind::Underlay(Box::new(underlay))).await
+    }
+
+    /// Move the session onto a new UDP socket, still aimed at the current
+    /// peer address (for example the old socket's interface went away).
+    pub async fn rebind_socket(&self, socket: UdpSocket) -> Result<(), WgError> {
+        self.send_rebind(Rebind::Socket(socket)).await
+    }
+
+    async fn send_rebind(&self, rebind: Rebind) -> Result<(), WgError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.commands
+            .send(Command::Rebind { rebind, reply: reply_tx })
+            .await
+            .map_err(|_| WgError::Shutdown)?;
+        reply_rx.await.map_err(|_| WgError::Shutdown)
+    }
+
     /// Time since the last completed WireGuard handshake, if any.
     pub async fn time_since_last_handshake(&self) -> Result<Option<Duration>, WgError> {
         let (reply_tx, reply_rx) = oneshot::channel();
@@ -316,7 +339,13 @@ enum Command {
     Connect { remote: SocketAddr, reply: oneshot::Sender<Result<WgStream, WgError>> },
     Listen { port: u16, reply: oneshot::Sender<Result<WgListener, WgError>> },
     LastHandshake { reply: oneshot::Sender<Option<Duration>> },
+    Rebind { rebind: Rebind, reply: oneshot::Sender<()> },
     Shutdown,
+}
+
+enum Rebind {
+    Underlay(Box<dyn Underlay>),
+    Socket(UdpSocket),
 }
 
 /// How a newly established socket reaches its owner.
@@ -591,6 +620,22 @@ impl Driver {
             }
             Command::LastHandshake { reply } => {
                 let _ = reply.send(self.tunn.time_since_last_handshake());
+            }
+            Command::Rebind { rebind, reply } => {
+                self.underlay = match rebind {
+                    Rebind::Underlay(underlay) => underlay,
+                    Rebind::Socket(socket) => {
+                        Box::new(SocketPath::new(socket, self.underlay.peer_hint()))
+                    }
+                };
+                // An empty packet is a keepalive on a live session, and
+                // queues behind a fresh handshake otherwise.
+                if let TunnResult::WriteToNetwork(packet) =
+                    self.tunn.encapsulate(&[], &mut self.scratch)
+                {
+                    self.underlay.send(packet);
+                }
+                let _ = reply.send(());
             }
             Command::Shutdown => {}
         }
