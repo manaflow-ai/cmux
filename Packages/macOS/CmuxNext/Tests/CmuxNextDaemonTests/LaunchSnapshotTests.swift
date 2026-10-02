@@ -12,7 +12,8 @@ import Testing
         return try #require(reply["data"])
     }
 
-    static func file(session: String = "cmux-app-nx", schema: Int = 1, windows: WindowStateDocument?) throws -> Data {
+    static func file(session: String = "cmux-app-nx", schema: Int = 1, windows: WindowStateDocument?,
+                     personal: JSONValue? = nil) throws -> Data {
         var projections: [JSONValue] = []
         if let windows {
             projections.append(.object([
@@ -26,12 +27,16 @@ import Testing
                 "schema_version": .number(1), "projection_revision": .number(1), "projection": .object(["windows": .array([])]),
             ]))
         }
-        let file: JSONValue = .object([
+        var file: JSONValue = .object([
             "schema_version": .number(Double(schema)), "app": .string("cmux-tui"), "version": .string("0.1"),
             "session": .string(session), "registry_id": .string("b3060a24-9687-41ff-8d16-f0c6cb7b4dee"),
             "generation": .string("cd030a83-d78e-4e46-a7e2-44ead79f7928"), "written_at_ms": .number(1_790_000_000_000),
             "tree": try treeJSON(), "frontend_projections": .array(projections),
         ])
+        if let personal, case .object(var fields) = file {
+            fields["personal"] = personal
+            file = .object(fields)
+        }
         return try JSONEncoder().encode(file)
     }
 
@@ -52,6 +57,35 @@ import Testing
         #expect(LaunchSnapshot.decode(try Self.file(session: "cmux-app-other", windows: windows), session: "cmux-app-nx") == nil)
         #expect(LaunchSnapshot.decode(try Self.file(schema: 2, windows: windows), session: "cmux-app-nx") == nil)
         #expect(LaunchSnapshot.decode(Data("{".utf8), session: "cmux-app-nx") == nil)
+    }
+
+    static let personalJSON = #"""
+    {"personal_revision":4,"sessions":[],
+     "profiles":[{"id":"default","name":"Default","index":0,"follows":[]},{"id":"prof_a","name":"Work","index":1,"follows":[]}],
+     "pins":[],"groups":[{"id":"grp_1","profile":"prof_a","name":"G","collapsed":false,"index":0}],
+     "workspaces":[{"session_id":"s1","workspace_key":"k2","index":0,"group":"grp_1"}]}
+    """#
+
+    /// Rooms and personal groups filter and group the sidebar, so the
+    /// provisional tree carries them and the live one keeps the same models.
+    @Test func thePersonalStateDrawsBeforeConnectingAndIsKeptLive() throws {
+        let personal = try JSONDecoder().decode(JSONValue.self, from: Data(Self.personalJSON.utf8))
+        let snapshot = try #require(LaunchSnapshot.decode(try Self.file(windows: nil, personal: personal), session: "cmux-app-nx"))
+        #expect(snapshot.tree.personal?.revision == 4)
+        #expect(snapshot.tree.personal?.groups.map(\.id) == ["grp_1"])
+        // A file from an older daemon has none; the live read fills it.
+        #expect(LaunchSnapshot.decode(try Self.file(windows: nil), session: "cmux-app-nx")?.tree.personal == nil)
+
+        let store = DaemonStore()
+        store.applyProvisional(snapshot: snapshot.tree)
+        #expect(store.profiles.map(\.id) == ["default", "prof_a"])
+        #expect(store.personal.isLoaded)
+        let drawn = store.profiles.map(ObjectIdentifier.init)
+
+        var live = try Fixture.response(DaemonTree.self, "list-workspaces.json")
+        live.personal = try JSONDecoder().decode(PersonalState.self, from: Data(Self.personalJSON.utf8))
+        store.apply(snapshot: live)
+        #expect(store.profiles.map(ObjectIdentifier.init) == drawn)
     }
 
     @Test func loadsFromDiskAndRefusesOversizedFiles() throws {
