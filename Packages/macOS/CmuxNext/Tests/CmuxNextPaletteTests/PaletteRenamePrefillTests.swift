@@ -9,7 +9,7 @@ import Testing
 @MainActor
 @Suite struct PaletteRenamePrefillTests {
     /// Every rename that asks through the palette, with the kind it renames.
-    static let renames: [(ActionID, ActionTargetKind)] = [
+    nonisolated static let renames: [(ActionID, ActionTargetKind)] = [
         ("renameWorkspace", .workspace), ("renameTab", .tab), ("workspaceGroup.rename", .workspaceGroup),
         ("tabGroup.rename", .tabGroup), ("cloudRenameMachine", .machine), ("sidebar.section.rename", .sidebarSection),
     ]
@@ -38,7 +38,7 @@ import Testing
 
     /// The object a context menu targets: the last listed, never the
     /// focused one.
-    func target(_ kind: ActionTargetKind, in data: MockPaletteData) throws -> (ActionTargetRef, String) {
+    func menuTarget(_ kind: ActionTargetKind, in data: MockPaletteData) throws -> (ActionTargetRef, String) {
         let option = try #require(data.targets(of: kind).last)
         return (ActionTargetRef(kind: kind, id: option.id), option.title)
     }
@@ -46,7 +46,7 @@ import Testing
     @Test(arguments: renames)
     func renameStartsFromTheCurrentName(_ id: ActionID, _ kind: ActionTargetKind) throws {
         let (controller, data, recorder) = makeController(id)
-        let (target, title) = try target(kind, in: data)
+        let (target, title) = try menuTarget(kind, in: data)
         #expect(controller.registry.perform(id, invocation: ActionInvocation(target: target)))
         let model = controller.model
         #expect(model.isTextInput, "\(id) asks for the name")
@@ -57,7 +57,7 @@ import Testing
     @Test(arguments: renames)
     func returnCommitsTheEditedName(_ id: ActionID, _ kind: ActionTargetKind) throws {
         let (controller, data, recorder) = makeController(id)
-        let (target, _) = try target(kind, in: data)
+        let (target, _) = try menuTarget(kind, in: data)
         controller.registry.perform(id, invocation: ActionInvocation(target: target))
         let model = controller.model
         model.query = "api"
@@ -70,7 +70,7 @@ import Testing
 
     @Test func returnOnTheUntouchedNameKeepsIt() throws {
         let (controller, data, recorder) = makeController("renameWorkspace")
-        let (target, title) = try target(.workspace, in: data)
+        let (target, title) = try menuTarget(.workspace, in: data)
         controller.registry.perform("renameWorkspace", invocation: ActionInvocation(target: target))
         controller.model.handle(.submit)
         #expect(recorder.runs.first?["name"] == .string(title))
@@ -79,7 +79,7 @@ import Testing
     /// One Escape closes the prompt: it never just clears the name.
     @Test func escapeCancels() throws {
         let (controller, data, recorder) = makeController("renameWorkspace")
-        let (target, _) = try target(.workspace, in: data)
+        let (target, _) = try menuTarget(.workspace, in: data)
         var dismissed = 0
         controller.model.onDismiss = { dismissed += 1 }
         controller.registry.perform("renameWorkspace", invocation: ActionInvocation(target: target))
