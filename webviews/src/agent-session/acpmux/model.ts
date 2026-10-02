@@ -256,3 +256,14 @@ export function visibleLayoutRange(layoutModel: ConversationLayout, scrollTop: n
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
+
+/// The pane header: the agent the session runs (its first prompt already titles the session
+/// picker and opens the transcript), and a status only when it says something to act on.
+export function paneHeader(snapshot: AcpmuxSnapshot): { title: string; status: string } {
+  const harness = snapshot.summary?.harness;
+  const title = (harness && snapshot.catalog?.find((entry) => entry.id === harness)?.name) || harness || "Agent Chat";
+  // A turn running when the connection dropped never ends, so connection trouble wins over Working.
+  const connection = snapshot.connection;
+  const status = connection === "disconnected" ? "Reconnecting" : connection.startsWith("connecting") ? "Connecting" : snapshot.isWorking ? "Working" : connection === "mock" ? "Mock" : "";
+  return { title, status };
+}
