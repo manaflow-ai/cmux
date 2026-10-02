@@ -201,10 +201,18 @@ def swift_call_suffix(text: str, start: int) -> str:
     return ""
 
 
-def parse_swift_messages(path: str, text: str) -> tuple[dict[str, SwiftMessage], list[str]]:
+def parse_swift_messages(path: str, text: str, *,
+                         conflicts: set[str] | None = None) -> tuple[dict[str, SwiftMessage], list[str]]:
+    """Map each key to its one message; keys whose call sites disagree are dropped.
+
+    Pass ``conflicts`` to learn which keys were dropped: they are only named in
+    ``attention`` otherwise, and a caller merging several files must not let one
+    file's single default stand in for another file's disagreement.
+    """
     messages: dict[str, SwiftMessage] = {}
     attention: list[str] = []
-    conflicts: set[str] = set()
+    if conflicts is None:
+        conflicts = set()
     handled = 0
     for match in SWIFT_CALL.finditer(text):
         suffix = swift_call_suffix(text, match.end())
