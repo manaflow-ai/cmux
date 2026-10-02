@@ -542,6 +542,11 @@
         "team": "Créer une équipe",
         "banner": "Vous êtes maintenant sur {plan}.",
         "bannerLink": "Forfait et facturation"
+      },
+      "appStore": {
+        "title": "Facturé via l’App Store",
+        "body": "Votre forfait a été acheté dans l’app cmux pour iPhone et est facturé par Apple. Modifiez-le ou résiliez-le dans vos abonnements App Store.",
+        "manage": "Gérer dans l’App Store"
       }
     },
     "mobileDevices": {
@@ -5106,7 +5111,8 @@
   "pricing": {
     "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
     "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
-    "signedOutSignIn": "Se connecter"
+    "signedOutSignIn": "Se connecter",
+    "manageInAppStore": "Gérer dans l’App Store"
   },
   "platforms": {
     "macos": "macOS",

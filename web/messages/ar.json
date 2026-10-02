@@ -542,6 +542,11 @@
         "team": "أنشئ فريقًا",
         "banner": "أنت الآن على {plan}.",
         "bannerLink": "الخطة والفوترة"
+      },
+      "appStore": {
+        "title": "تتم الفوترة عبر App Store",
+        "body": "تم شراء خطتك في تطبيق cmux على iPhone وتتولى Apple فوترتها. يمكنك تغييرها أو إلغاؤها من اشتراكات App Store.",
+        "manage": "الإدارة في App Store"
       }
     },
     "mobileDevices": {
@@ -5101,7 +5106,8 @@
   "pricing": {
     "billingUnavailable": "الفوترة غير متاحة الآن. يُرجى المحاولة مرة أخرى لاحقًا.",
     "signedOutNotice": "لم تسجّل الدخول. سجّل الدخول لعرض خطتك الحالية أو استعادة عملية شراء سابقة.",
-    "signedOutSignIn": "تسجيل الدخول"
+    "signedOutSignIn": "تسجيل الدخول",
+    "manageInAppStore": "الإدارة في App Store"
   },
   "platforms": {
     "macos": "macOS",

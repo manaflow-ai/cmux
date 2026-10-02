@@ -542,6 +542,11 @@
         "team": "Crear un equipo",
         "banner": "Ahora estás en {plan}.",
         "bannerLink": "Plan y facturación"
+      },
+      "appStore": {
+        "title": "Facturado a través del App Store",
+        "body": "Tu plan se compró en la app de cmux para iPhone y Apple lo factura. Cámbialo o cancélalo en tus suscripciones del App Store.",
+        "manage": "Gestionar en el App Store"
       }
     },
     "mobileDevices": {
@@ -5103,7 +5108,8 @@
   "pricing": {
     "billingUnavailable": "La facturación no está disponible ahora. Inténtalo de nuevo más tarde.",
     "signedOutNotice": "No has iniciado sesión. Inicia sesión para ver tu plan actual o restaurar una compra existente.",
-    "signedOutSignIn": "Iniciar sesión"
+    "signedOutSignIn": "Iniciar sesión",
+    "manageInAppStore": "Gestionar en el App Store"
   },
   "platforms": {
     "macos": "macOS",

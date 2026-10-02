@@ -542,6 +542,11 @@
         "team": "สร้างทีม",
         "banner": "ตอนนี้คุณใช้ {plan}",
         "bannerLink": "แพ็กเกจและการเรียกเก็บเงิน"
+      },
+      "appStore": {
+        "title": "เรียกเก็บเงินผ่าน App Store",
+        "body": "แผนของคุณซื้อในแอป cmux บน iPhone และเรียกเก็บเงินโดย Apple เปลี่ยนหรือยกเลิกได้ในการสมัครสมาชิก App Store ของคุณ",
+        "manage": "จัดการใน App Store"
       }
     },
     "mobileDevices": {
@@ -5109,7 +5114,8 @@
   "pricing": {
     "billingUnavailable": "การเรียกเก็บเงินยังไม่พร้อมใช้งานในตอนนี้ โปรดลองอีกครั้งภายหลัง",
     "signedOutNotice": "คุณยังไม่ได้ลงชื่อเข้าใช้ ลงชื่อเข้าใช้เพื่อดูแผนปัจจุบันหรือกู้คืนการซื้อที่มีอยู่",
-    "signedOutSignIn": "ลงชื่อเข้าใช้"
+    "signedOutSignIn": "ลงชื่อเข้าใช้",
+    "manageInAppStore": "จัดการใน App Store"
   },
   "platforms": {
     "macos": "macOS",

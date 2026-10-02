@@ -542,6 +542,11 @@
         "team": "Opprett et team",
         "banner": "Du bruker nå {plan}.",
         "bannerLink": "Plan og fakturering"
+      },
+      "appStore": {
+        "title": "Faktureres gjennom App Store",
+        "body": "Planen din ble kjøpt i cmux-appen for iPhone og faktureres av Apple. Endre eller avslutt den i App Store-abonnementene dine.",
+        "manage": "Administrer i App Store"
       }
     },
     "mobileDevices": {
@@ -5101,7 +5106,8 @@
   "pricing": {
     "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
     "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
-    "signedOutSignIn": "Logg inn"
+    "signedOutSignIn": "Logg inn",
+    "manageInAppStore": "Administrer i App Store"
   },
   "platforms": {
     "macos": "macOS",

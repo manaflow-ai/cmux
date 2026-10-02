@@ -542,6 +542,11 @@
         "team": "Ekip oluşturun",
         "banner": "Artık {plan} planındasınız.",
         "bannerLink": "Plan ve faturalandırma"
+      },
+      "appStore": {
+        "title": "App Store üzerinden faturalandırılır",
+        "body": "Planınız cmux iPhone uygulamasında satın alındı ve Apple tarafından faturalandırılıyor. Planı App Store aboneliklerinizden değiştirin veya iptal edin.",
+        "manage": "App Store'da yönet"
       }
     },
     "mobileDevices": {
@@ -5102,7 +5107,8 @@
   "pricing": {
     "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
     "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
-    "signedOutSignIn": "Oturum aç"
+    "signedOutSignIn": "Oturum aç",
+    "manageInAppStore": "App Store'da yönet"
   },
   "platforms": {
     "macos": "macOS",

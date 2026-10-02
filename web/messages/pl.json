@@ -542,6 +542,11 @@
         "team": "Utwórz zespół",
         "banner": "Korzystasz teraz z {plan}.",
         "bannerLink": "Plan i rozliczenia"
+      },
+      "appStore": {
+        "title": "Rozliczane przez App Store",
+        "body": "Twój plan został kupiony w aplikacji cmux na iPhone’a i jest rozliczany przez Apple. Zmień go lub anuluj w subskrypcjach App Store.",
+        "manage": "Zarządzaj w App Store"
       }
     },
     "mobileDevices": {
@@ -5104,7 +5109,8 @@
   "pricing": {
     "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
     "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
-    "signedOutSignIn": "Zaloguj się"
+    "signedOutSignIn": "Zaloguj się",
+    "manageInAppStore": "Zarządzaj w App Store"
   },
   "platforms": {
     "macos": "macOS",

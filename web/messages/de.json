@@ -542,6 +542,11 @@
         "team": "Team erstellen",
         "banner": "Du nutzt jetzt {plan}.",
         "bannerLink": "Plan & Abrechnung"
+      },
+      "appStore": {
+        "title": "Abrechnung über den App Store",
+        "body": "Dein Tarif wurde in der cmux iPhone-App gekauft und wird von Apple abgerechnet. Ändere oder kündige ihn in deinen App Store-Abonnements.",
+        "manage": "Im App Store verwalten"
       }
     },
     "mobileDevices": {
@@ -5104,7 +5109,8 @@
   "pricing": {
     "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
     "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
-    "signedOutSignIn": "Anmelden"
+    "signedOutSignIn": "Anmelden",
+    "manageInAppStore": "Im App Store verwalten"
   },
   "platforms": {
     "macos": "macOS",
