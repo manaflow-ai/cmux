@@ -17,6 +17,8 @@ public struct PendingIntent: Hashable, Sendable, Identifiable {
 
     public let intent: HomeIntent
     public var state: State
+    /// Set once the intent was resent without waiting for a reconnect.
+    public var resentImmediately = false
 
     public init(intent: HomeIntent, state: State = .sending) {
         self.intent = intent
@@ -55,6 +57,34 @@ public struct IntentLog: Hashable, Sendable {
         entries.removeAll { $0.intent.key == key }
     }
 
+    /// One sent intent got no answer (`indeterminate`, or the owner became
+    /// unreachable mid-flight): it is resent with the same key.
+    public mutating func markUnconfirmed(_ key: IdempotencyKey) {
+        update(key) { if $0.state == .sending { $0.state = .unconfirmed } }
+    }
+
+    /// Takes one unconfirmed intent for an immediate resend (the connection
+    /// stayed up). At most once per intent; later resends wait for a reconnect.
+    public mutating func takeImmediateResend(_ key: IdempotencyKey) -> HomeIntent? {
+        guard let index = entries.firstIndex(where: { $0.intent.key == key }),
+              entries[index].state == .unconfirmed, !entries[index].resentImmediately else { return nil }
+        entries[index].state = .sending
+        entries[index].resentImmediately = true
+        return entries[index].intent
+    }
+
+    /// Drops intents whose conversation left the inbox. Returns their keys.
+    @discardableResult
+    public mutating func dropIntents(outside conversations: Set<ConversationID>) -> [IdempotencyKey] {
+        var dropped: [IdempotencyKey] = []
+        entries.removeAll { entry in
+            guard let id = entry.intent.op.conversation, !conversations.contains(id) else { return false }
+            dropped.append(entry.intent.key)
+            return true
+        }
+        return dropped
+    }
+
     /// On disconnect: everything still in flight becomes unconfirmed.
     public mutating func markDisconnected() {
         for index in entries.indices where entries[index].state == .sending {
@@ -90,7 +120,8 @@ public struct IntentLog: Hashable, Sendable {
             return true
         }
         if case .acknowledged(let rev) = entry.state {
-            return mirror.revision(of: entry.intent.op.stream) >= rev
+            let stream = entry.intent.op.stream
+            return !mirror.isStale(stream) && mirror.revision(of: stream) >= rev
         }
         return false
     }

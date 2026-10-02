@@ -20,6 +20,7 @@ public final class StackAuthGate: AuthGate {
 
     /// Starts session restore and begins observing the coordinator.
     public func start() {
+        guard bootstrapTask == nil else { return }
         composition.start()
         bootstrapTask = Task { [weak self] in
             guard let coordinator = self?.coordinator else { return }

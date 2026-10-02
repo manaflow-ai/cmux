@@ -1,15 +1,23 @@
 import Foundation
 public import Observation
 
+/// Why `perform` did not return a committed result.
+public enum HomeSendState: Error, Hashable, Sendable {
+    /// Sent, but the answer was lost; the store resends it with the same key
+    /// (the owner applies it once). Do not send it again yourself.
+    case pendingResend
+}
+
 /// The Home client: the confirmed mirror plus the intent log, fed by one
 /// `HomeSource`. The UI reads `rows`, `transcript(for:)` and `connection`,
 /// and changes things only through `perform(_:)`.
 @MainActor
 @Observable
 public final class HomeStore {
+    /// `.connecting` and `.offline` both refuse new ops (nothing queues).
     public private(set) var connection: HomeConnection = .connecting
     public private(set) var rows: [InboxRow] = []
-    /// Increments whenever any transcript's visible items change.
+    /// Increments whenever a transcript's visible items change.
     public private(set) var transcriptVersion: [ConversationID: Int] = [:]
     public private(set) var me: Participant?
     public private(set) var typing: [ConversationID: Set<ParticipantID>] = [:]
@@ -18,7 +26,11 @@ public final class HomeStore {
     @ObservationIgnored private(set) var mirror = HomeMirror()
     @ObservationIgnored private(set) var log = IntentLog()
     @ObservationIgnored private var eventTask: Task<Void, Never>?
-    @ObservationIgnored private var loading: Set<ConversationID> = []
+    @ObservationIgnored private var resendTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingResends: [HomeIntent] = []
+    @ObservationIgnored private var refetching: Set<HomeStream> = []
+    @ObservationIgnored private var olderLoading: Set<ConversationID> = []
+    @ObservationIgnored private var stopped = false
 
     /// Messages fetched when a conversation opens.
     public static let tailSize = 60
@@ -28,29 +40,32 @@ public final class HomeStore {
         self.source = source
     }
 
-    // `isolated deinit` needs Swift 6.2; the owner calls `stop()` instead.
-
     /// Starts consuming owner events. Idempotent.
     public func start() {
-        guard eventTask == nil else { return }
+        guard eventTask == nil, !stopped else { return }
         let source = self.source
         eventTask = Task { [weak self] in
             let stream = await source.events()
             for await event in stream {
-                guard let self else { return }
-                await self.handle(event)
+                guard let self, !self.stopped else { return }
+                self.handle(event)
             }
         }
     }
 
+    /// Ends this store (sign-out, account switch). Every later op is refused.
     public func stop() {
+        stopped = true
         eventTask?.cancel()
         eventTask = nil
+        resendTask?.cancel()
+        resendTask = nil
+        connection = .offline(since: Date())
     }
 
     // MARK: Reading
 
-    public var isOnline: Bool { connection == .online }
+    public var isOnline: Bool { connection == .online && !stopped }
 
     public func summary(_ id: ConversationID) -> ConversationSummary? { mirror.conversations[id] }
 
@@ -72,29 +87,31 @@ public final class HomeStore {
     // MARK: Paging
 
     /// Loads the newest messages of a conversation the first time it opens.
+    /// Events committed while the page loads are buffered and kept.
     public func open(_ id: ConversationID) async {
-        guard mirror.windows[id] == nil, !loading.contains(id) else { return }
+        guard mirror.windows[id] == nil else { return }
+        mirror.beginLoading(id)
         await refetch(.conversation(id))
     }
 
     public func loadOlder(_ id: ConversationID) async {
         guard let window = mirror.windows[id], !window.reachedStart, let first = window.firstSeq,
-              !loading.contains(id) else { return }
-        loading.insert(id)
-        defer { loading.remove(id) }
-        do {
-            let older = try await source.history(of: id, before: first, limit: Self.pageSize)
-            mirror.prepend(older, to: id, reachedStart: older.count < Self.pageSize)
-            bumpTranscript(id)
-        } catch {
-            // A failed page leaves the window as it was; the next scroll retries.
-        }
+              !olderLoading.contains(id) else { return }
+        olderLoading.insert(id)
+        defer { olderLoading.remove(id) }
+        guard let older = try? await source.history(of: id, before: first, limit: Self.pageSize) else { return }
+        // The window may have been replaced during the await; a page that no
+        // longer joins it is dropped (the next scroll asks again).
+        guard mirror.windows[id]?.firstSeq == first else { return }
+        if mirror.prepend(older, to: id, reachedStart: older.count < Self.pageSize) { bumpTranscript(id) }
     }
 
     // MARK: Writing
 
-    /// Sends an intent to its owner. Refused at once while offline (nothing
-    /// queues). Sends stay in the transcript until echoed or refused.
+    /// Sends an intent to its owner. Refused at once unless online (nothing
+    /// queues). Throws `HomeRejection` when refused, and
+    /// `HomeSendState.pendingResend` when the answer was lost and the store
+    /// resends it with the same key.
     @discardableResult
     public func perform(_ op: HomeOp, key: IdempotencyKey = .make()) async throws -> HomeOpResult {
         guard isOnline else { throw HomeRejection.ownerUnreachable }
@@ -106,22 +123,27 @@ public final class HomeStore {
 
     /// Retries a "Not Delivered" send as a new intent and drops the failed one.
     public func retry(_ key: IdempotencyKey) async throws {
-        guard let entry = log.entries.first(where: { $0.intent.key == key }) else { return }
+        guard isOnline else { throw HomeRejection.ownerUnreachable }
+        guard let entry = log.entries.first(where: { $0.intent.key == key }),
+              case .failed = entry.state else { return }
         log.discard(key)
         afterLogChange(entry.intent.op)
         try await perform(entry.intent.op)
     }
 
     public func discardFailed(_ key: IdempotencyKey) {
-        guard let entry = log.entries.first(where: { $0.intent.key == key }) else { return }
+        guard let entry = log.entries.first(where: { $0.intent.key == key }),
+              case .failed = entry.state else { return }
         log.discard(key)
         afterLogChange(entry.intent.op)
     }
 
-    /// Marks everything up to the newest message as read.
+    /// Marks everything up to the newest message as read (once per seq:
+    /// the visible cursor already includes a pending cursor intent).
     public func markRead(_ id: ConversationID) {
-        guard isOnline, let me = me?.id, let summary = mirror.conversations[id],
-              summary.unreadCount(me: me) > 0 else { return }
+        guard isOnline, let me = me?.id, let summary = mirror.conversations[id] else { return }
+        let visible = rows.first { $0.id == id }?.summary.readCursors[me] ?? summary.readCursors[me] ?? 0
+        guard summary.lastSeq > visible else { return }
         Task { try? await self.perform(.setReadCursor(conversation: id, seq: summary.lastSeq)) }
     }
 
@@ -147,31 +169,50 @@ public final class HomeStore {
         } catch let rejection as HomeRejection {
             switch rejection {
             case .ownerUnreachable, .indeterminate:
-                // Sent but unanswered: resent with the same key on reconnect.
-                log.markDisconnected()
+                // Possibly committed: keep it and resend with the same key.
+                log.markUnconfirmed(intent.key)
+                if isOnline, let again = log.takeImmediateResend(intent.key) { enqueueResends([again]) }
+                afterLogChange(intent.op)
+                throw HomeSendState.pendingResend
             default:
                 if case .sendMessage = intent.op {
                     log.fail(intent.key, rejection)
                 } else {
                     log.discard(intent.key)
                 }
+                afterLogChange(intent.op)
+                throw rejection
             }
-            afterLogChange(intent.op)
-            throw rejection
         }
     }
 
-    func handle(_ event: HomeEvent) async {
+    /// Resends run one at a time, in log order, so the owner sees them in order.
+    private func enqueueResends(_ intents: [HomeIntent]) {
+        pendingResends.append(contentsOf: intents)
+        guard resendTask == nil, !pendingResends.isEmpty else { return }
+        resendTask = Task { [weak self] in
+            while let self, !self.pendingResends.isEmpty, !self.stopped {
+                let next = self.pendingResends.removeFirst()
+                _ = try? await self.submit(next)
+            }
+            self?.resendTask = nil
+        }
+    }
+
+    func handle(_ event: HomeEvent) {
         switch event {
         case .connection(let state):
-            let wasOnline = isOnline
+            let wasOnline = connection == .online
             connection = state
-            if case .offline = state { log.markDisconnected(); rebuildRows() }
-            if state == .online, !wasOnline {
-                for intent in log.takeResends() {
-                    Task { _ = try? await self.submit(intent) }
-                }
+            if state != .online {
+                log.markDisconnected()
+                pendingResends.removeAll()
             }
+            if state == .online, !wasOnline {
+                enqueueResends(log.takeResends())
+                for stream in mirror.stale { scheduleRefetch(stream) }
+            }
+            rebuildRows()
         case .typing(let id, let who, let on):
             var set = typing[id] ?? []
             if on { set.insert(who) } else { set.remove(who) }
@@ -179,36 +220,63 @@ public final class HomeStore {
             rebuildRows()
         default:
             let outcome = mirror.apply(event)
-            if case .inbox(let snapshot) = event { me = snapshot.me }
+            switch event {
+            case .inbox(let snapshot):
+                me = snapshot.me
+                log.dropIntents(outside: Set(mirror.conversations.keys))
+                for stream in mirror.stale { scheduleRefetch(stream) }
+            case .conversationRemoved:
+                log.dropIntents(outside: Set(mirror.conversations.keys))
+            case .message(let message, _):
+                bumpTranscript(message.conversation)
+            default:
+                break
+            }
             settle()
             rebuildRows()
-            if case .message(let message, _) = event { bumpTranscript(message.conversation) }
-            if case .gap(let stream) = outcome { await refetch(stream) }
+            if case .gap(let stream) = outcome { scheduleRefetch(stream) }
         }
     }
 
+    private func scheduleRefetch(_ stream: HomeStream) {
+        guard !refetching.contains(stream), !stopped else { return }
+        Task { await self.refetch(stream) }
+    }
+
+    /// Fetches a stream until it is caught up (at most three tries per call).
+    /// A failure leaves it stale; the next reconnect fetches it again.
     private func refetch(_ stream: HomeStream) async {
-        switch stream {
-        case .inbox:
-            if let snapshot = try? await source.inbox() {
-                mirror.apply(inbox: snapshot)
+        guard !refetching.contains(stream), !stopped else { return }
+        refetching.insert(stream)
+        defer { refetching.remove(stream) }
+        for _ in 0..<3 where !stopped {
+            switch stream {
+            case .inbox:
+                guard let snapshot = try? await source.inbox() else { mirror.markStale(stream); return }
+                let behind = mirror.apply(inbox: snapshot)
                 me = snapshot.me
-            }
-        case .conversation(let id):
-            loading.insert(id)
-            defer { loading.remove(id) }
-            if let page = try? await source.snapshot(of: id, tail: Self.tailSize) {
-                mirror.apply(page: page)
+                settle()
+                rebuildRows()
+                for next in behind { scheduleRefetch(next) }
+                return
+            case .conversation(let id):
+                guard let page = try? await source.snapshot(of: id, tail: Self.tailSize) else {
+                    mirror.markStale(stream)
+                    return
+                }
+                let outcome = mirror.apply(page: page)
                 bumpTranscript(id)
+                settle()
+                rebuildRows()
+                if outcome == .applied { return }
             }
         }
-        settle()
-        rebuildRows()
     }
 
     private func settle() {
         let settled = log.settle(against: mirror)
-        if !settled.isEmpty { transcriptVersion = transcriptVersion.mapValues { $0 + 1 } }
+        guard !settled.isEmpty else { return }
+        for id in Array(transcriptVersion.keys) { bumpTranscript(id) }
     }
 
     private func afterLogChange(_ op: HomeOp) {

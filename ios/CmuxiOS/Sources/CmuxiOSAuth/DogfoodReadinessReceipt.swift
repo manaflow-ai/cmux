@@ -1,5 +1,6 @@
 #if DEBUG
 public import CmuxAuthRuntime
+import CMUXMobileCore
 public import Foundation
 
 /// DEBUG only: the dogfood launcher's proof that this install is signed in
@@ -34,14 +35,16 @@ public enum DogfoodReadinessReceipt {
         coordinator: AuthCoordinator,
         apiBaseURL: String,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        bundle: Bundle = .main,
-        session: URLSession = .shared
+        bundle: Bundle = .main
     ) async -> URL? {
+        let url = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(relativePath)
+        // A receipt from an earlier launch must never answer this one.
+        try? FileManager.default.removeItem(at: url)
         guard let nonce = environment["CMUX_DOGFOOD_READINESS_NONCE"], !nonce.isEmpty,
               coordinator.isAuthenticated, let user = coordinator.currentUser,
               let bundleID = bundle.bundleIdentifier else { return nil }
         guard await authenticatedCallSucceeds(coordinator: coordinator, apiBaseURL: apiBaseURL,
-                                              bundleID: bundleID, session: session) else { return nil }
+                                              bundleID: bundleID) else { return nil }
         let hasCredentials = !(environment["CMUX_UITEST_STACK_EMAIL"] ?? "").isEmpty
         let body = Body(
             nonce: nonce,
@@ -56,8 +59,6 @@ public enum DogfoodReadinessReceipt {
             written_at: ISO8601DateFormatter().string(from: Date())
         )
         do {
-            let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-            let url = home.appendingPathComponent(relativePath)
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
@@ -70,7 +71,7 @@ public enum DogfoodReadinessReceipt {
 
     /// One authenticated GET proves the stored token is valid on the server.
     private static func authenticatedCallSucceeds(
-        coordinator: AuthCoordinator, apiBaseURL: String, bundleID: String, session: URLSession
+        coordinator: AuthCoordinator, apiBaseURL: String, bundleID: String
     ) async -> Bool {
         guard let token = try? await coordinator.accessToken(),
               let url = URL(string: apiBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/device-tokens")
@@ -82,7 +83,9 @@ public enum DogfoodReadinessReceipt {
         }
         request.setValue(bundleID, forHTTPHeaderField: "X-Cmux-App-Namespace")
         request.timeoutInterval = 15
-        guard let (_, response) = try? await session.data(for: request),
+        // The credentialed session refuses redirects, so the bearer and refresh
+        // tokens never reach another origin.
+        guard let (_, response) = try? await CmxCredentialedHTTPSession().data(for: request),
               let http = response as? HTTPURLResponse else { return false }
         return (200..<300).contains(http.statusCode)
     }

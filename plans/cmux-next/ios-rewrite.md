@@ -75,6 +75,8 @@ cmux.app (ios/cmux: UIApplication + UIScene entry, ~30 lines)
   (lane 13). Feature modules never import a transport.
 - UIKit on the hot path (list, transcript, composer); SwiftUI only for low-frequency forms
   (settings, the new-Chief sheet). This matches architecture.md section 3 on the Mac.
+- One window scene for now (`UIApplicationSupportsMultipleScenes` is false): auth and Home have one
+  owner per process; iPad multi-window comes back with per-scene roots.
 - Swift 6 language mode, strict concurrency, `@MainActor` UI, `Sendable` sources, no
   `DispatchQueue.asyncAfter`, no sleeps for synchronization, no polling.
 
@@ -182,6 +184,18 @@ per conversation; events are coalesced to one UI update per frame.
    compose/invite flow (inline To: field, invite sheet, contact picker first), behind a DEV switch.
 5. Real backend: a `CloudHomeSource` over `cmux.wire/1` when lane 15 publishes the ops.
 6. Terminals: `TerminalSessionSource` on the lane 12 transport, rendering through ghostty-next.
+   - Rendering: GhosttyKit only through the pinned ghostty-next release
+     (`.binaryTarget(url:checksum:)`, plans/cmux-next/ghostty-next.md), in manual I/O mode: the
+     phone parses bytes only to draw them; attach, resize, flood catch-up and drift repair use a
+     host snapshot. Keys are encoded by Ghostty's encoder from `pressesBegan`; input goes to
+     `io_write_cb` on the caller's thread.
+   - Sizing (ghostty-next section 6): the software keyboard never changes the phone's rows; the
+     phone counts toward "smallest viewer" only while the terminal is on screen in the foreground;
+     a grow waits 250 ms; previews never count. `TerminalSessionSource.setPresence` carries this.
+   - Transport (plans/cmux-next/transport.md): WireGuard runs inside the app, no Network
+     Extension; the device key never leaves the phone; paths are LAN, NAT-punched direct, the
+     cloud tunnel ("via cloud region") and the per-host relay; `TerminalPath` is the badge.
+     A mock `TerminalSessionSource` comes first; the engine plugs in when its iOS build lands.
 7. Push, the on-device cache, accessibility audit, performance runs on device.
 
 ## 11. Open decisions

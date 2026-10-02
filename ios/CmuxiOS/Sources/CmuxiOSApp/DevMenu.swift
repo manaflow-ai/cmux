@@ -1,12 +1,13 @@
 #if DEBUG
 import CmuxHomeUI
 import CmuxiOSDesign
+import SwiftUI
 import UIKit
 
 /// DEV switcher for the Home prototypes, opened by shaking the phone.
 @MainActor
 enum DevMenu {
-    static func make(options: DevOptions) -> UIAlertController {
+    static func make(options: DevOptions, presenter: UIViewController) -> UIAlertController {
         let sheet = UIAlertController(
             title: String(localized: "dev.menu.title", defaultValue: "Prototypes", bundle: .module),
             message: String(localized: "dev.menu.message", defaultValue: "Pick a Home variant.", bundle: .module),
@@ -24,6 +25,11 @@ enum DevMenu {
                 options.set(composeFlow: flow)
             })
         }
+        // DEBUG-only lab for the transport lane's Wi-Fi to cellular test (no user strings).
+        sheet.addAction(UIAlertAction(title: "Network Lab", style: .default) { [weak presenter] _ in
+            let lab = UINavigationController(rootViewController: UIHostingController(rootView: NetLabView()))
+            presenter?.present(lab, animated: true)
+        })
         sheet.addAction(UIAlertAction(
             title: String(localized: "dev.menu.cancel", defaultValue: "Cancel", bundle: .module), style: .cancel))
         return sheet

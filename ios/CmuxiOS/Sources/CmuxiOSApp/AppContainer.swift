@@ -10,6 +10,7 @@ final class AppContainer {
     let auth: StackAuthGate
     let devOptions: DevOptions
     private(set) var home: HomeStore?
+    private var homeAccount: String?
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let composition = MobileAuthComposition(
@@ -24,7 +25,9 @@ final class AppContainer {
     /// `HomeSource`; until the Home messaging backend lands this is the mock
     /// owner (plans/cmux-next/ios-rewrite.md, step 5).
     func homeStore(for account: SignedInAccount) -> HomeStore {
-        if let home { return home }
+        if let home, homeAccount == account.userID { return home }
+        home?.stop()
+        homeAccount = account.userID
         let store = HomeStore(source: MockHomeSource())
         store.start()
         home = store
@@ -35,6 +38,7 @@ final class AppContainer {
     func signedOut() {
         home?.stop()
         home = nil
+        homeAccount = nil
     }
 
     var apiBaseURL: String { auth.composition.config.apiBaseURL }

@@ -45,7 +45,8 @@ final class RootViewController: UIViewController {
     }
 
     private func show(_ state: AuthState) {
-        guard state != shownState else { return }
+        // A new display name or email for the same account keeps the screen.
+        guard Self.screenKey(state) != shownState.map(Self.screenKey) else { return }
         shownState = state
         switch state {
         case .restoring:
@@ -56,6 +57,14 @@ final class RootViewController: UIViewController {
         case .signedIn(let account):
             showHome(account: account)
             DebugLaunchTasks.signedIn(container: container)
+        }
+    }
+
+    private static func screenKey(_ state: AuthState) -> String {
+        switch state {
+        case .restoring: "restoring"
+        case .signedOut: "signedOut"
+        case .signedIn(let account): "signedIn:" + account.userID
         }
     }
 
@@ -92,7 +101,7 @@ final class RootViewController: UIViewController {
     #if DEBUG
     override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
         guard motion == .motionShake else { return super.motionEnded(motion, with: event) }
-        present(DevMenu.make(options: container.devOptions), animated: true)
+        present(DevMenu.make(options: container.devOptions, presenter: self), animated: true)
     }
     #endif
 }
