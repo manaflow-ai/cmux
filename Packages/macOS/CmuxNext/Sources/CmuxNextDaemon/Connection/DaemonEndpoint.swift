@@ -126,7 +126,8 @@ public struct DaemonCapabilities: Sendable {
     /// once `set-terminal-command-history` turns it on (plans/cmux-next/history.md 6).
     public let terminalCommandJournal = "terminal-command-journal-v1"
     public var awaitingPin: [String] {
-        [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns]
+        [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
+         endTerminalsKeepLayout]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
