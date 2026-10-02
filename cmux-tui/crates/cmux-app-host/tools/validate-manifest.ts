@@ -90,7 +90,17 @@ export function validatePackage(dir: string, options: { generatedScopes?: Readon
   if (typeof manifest.icon === "string") paths.push(["/icon", manifest.icon])
   ;((manifest.screenshots as string[] | undefined) ?? []).forEach((p, i) => paths.push([`/screenshots/${i}`, p]))
 
+  // Native code paths (a cmux-shipped server binary, a built-in native pane view) are first-party only in
+  // phase 1 (Verified later); hosts refuse them for other tiers, and the validator says so up front.
+  const server = manifest.server as { kind?: string; catalog?: string } | undefined
+  if (typeof server?.catalog === "string") paths.push(["/server/catalog", server.catalog])
+  const firstParty = RESERVED_PUBLISHERS.has(publisher)
+  if (server?.kind === "native" && !firstParty) errors.push({ path: "/server/kind", code: "tier.native", message: "native servers are allowed only for first-party apps" })
+
   const contributes = (manifest.contributes ?? {}) as Record<string, unknown>
+  ;((contributes.paneKinds as Array<Record<string, unknown>> | undefined) ?? []).forEach((p, i) => {
+    if (p.renderer === "native" && !firstParty) errors.push({ path: `/contributes/paneKinds/${i}/renderer`, code: "tier.native", message: "native pane renderers are allowed only for first-party apps" })
+  })
   const seen = new Map<string, string>()
   const exportRefs: Array<[string, string]> = []
   for (const [kind, list] of Object.entries(contributes)) {

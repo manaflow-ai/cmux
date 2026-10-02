@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm } from "cloudflare:test"
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import type { ReduceContext } from "@cmux/ownership"
 import { policyKeys } from "@cmux/protocol"
 import { importJWK, SignJWT, type JWK } from "jose"
@@ -8,7 +8,7 @@ import { teamDomain, type TeamState } from "../src/domains/team.ts"
 import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT } from "../src/domains/team-policy.ts"
 import { integrationSyncPending, sliceHash } from "../src/domains/team-integration-sync.ts"
 
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace }
+const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace; CONNECTION_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
 
 const OWNER = "user_00000000000000000001"
@@ -353,5 +353,35 @@ describe("team policy over the API (workerd)", () => {
     expect(after.json.value.github.repo_allowlist).toEqual([])
     const policy = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.policy
     expect(policy.values["github.repoAllowList"]).toEqual({ value: "none", mode: "enforced" })
+  })
+
+  it("an SSO- or MDM-managed ConnectionDO lock always wins over TeamPolicy, and the conflict is reported (E2)", async () => {
+    const session = await sessionToken("stack-policy-ssolock")
+    expect((await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.ok).toBe(true)
+    const team = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.team as string
+    const managed = { allowed_providers: null, github: { scope: "linking_user_repos", require_org_admin: true, repo_allowlist: ["acme/api"] } }
+    // Nothing writes SSO locks yet: commit one through ConnectionDO's own system op.
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team)) as unknown as DurableObjectStub
+    // Untyped on purpose: the generic signature over ConnectionDO's RPC types is too deep for tsc.
+    const inDO: (stub: DurableObjectStub, fn: (instance: any) => Promise<void>) => Promise<void> = runInDurableObject as any
+    await inDO(connections, async (instance) => {
+      instance.bind(team)
+      const res = instance.submitSystem("integration.policy.apply_managed", { source: "sso", policy: managed, applied_by: "ssoc_test" }, "sso-lock-1")
+      expect(res.frames.some((f: any) => f.t === "reject")).toBe(false)
+    })
+    await call("/v1/ops", session, {
+      op: "team.policy.update",
+      params: { changes: [set("github.repoScope", "installation"), set("github.repoAllowList", ["acme/web"])], expected_version: 0 },
+      idempotency_key: crypto.randomUUID(),
+      origin: "user"
+    })
+    const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
+    await settle(async () => (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.integration_managed_by === "sso", stub)
+    const conn = (await call("/v1/read", session, { op: "integration.policy.get", params: {} })).json.value
+    expect(conn).toMatchObject({ source: "sso", locked: true, github: managed.github })
+    // The admin's TeamPolicy values stay (they are reported as overridden, not replaced by the copy).
+    const read = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value
+    expect(read.policy.values["github.repoAllowList"]).toEqual({ value: ["acme/web"], mode: "enforced" })
+    expect(read.integration_managed_by).toBe("sso")
   })
 })

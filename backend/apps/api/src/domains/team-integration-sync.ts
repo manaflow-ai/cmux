@@ -20,6 +20,8 @@ export interface IntegrationSyncState extends PolicyState {
   /** Hash of the slice ConnectionDO last acknowledged (or held when seeded). */
   readonly integration_synced_hash?: string
   readonly integration_synced_version?: number
+  /** ConnectionDO is locked by SSO or MDM, which wins over TeamPolicy (reported, never replaced). */
+  readonly integration_managed_by?: "sso" | "mdm" | null
 }
 
 export type IntegrationFields = ReturnType<typeof integrationSlice>
@@ -61,6 +63,11 @@ export const reduceIntegrationSeed = <S extends IntegrationSyncState>(state: S, 
   if (state.integration_seeded) return { ok: true, state, value: { seeded: false }, changed: false }
   const fields = (params as { policy?: IntegrationFields })?.policy
   if (!fields || typeof fields !== "object" || !fields.github) return { ok: false, code: "validation.invalid", message: "policy required" }
+  // Values held by an SSO or MDM lock are not admin choices: nothing is copied into TeamPolicy.
+  const managedBy = (params as { managed_by?: unknown }).managed_by
+  if (managedBy === "sso" || managedBy === "mdm") {
+    return { ok: true, state: { ...state, integration_seeded: true, integration_synced_hash: undefined, integration_managed_by: managedBy }, value: { seeded: true, copied: [] } }
+  }
   const current = currentPolicy(state)
   const copied = keysFromConnectionPolicy(fields)
   const added = (Object.keys(copied) as Array<PolicyKey>).filter((k) => current.values[k] === undefined).sort()
@@ -84,11 +91,14 @@ export const reduceIntegrationSeed = <S extends IntegrationSyncState>(state: S, 
 
 /** System op `team.policy.integration_synced {version, slice_hash}`. */
 export const reduceIntegrationSynced = <S extends IntegrationSyncState>(state: S, params: unknown): Result<S> => {
-  const p = params as { version?: unknown; slice_hash?: unknown }
+  const p = params as { version?: unknown; slice_hash?: unknown; managed_by?: unknown }
+  const managedBy = p?.managed_by === "sso" || p?.managed_by === "mdm" ? p.managed_by : null
   if (typeof p?.version !== "number" || !Number.isInteger(p.version) || typeof p.slice_hash !== "string") {
     return { ok: false, code: "validation.invalid", message: "version and slice_hash required" }
   }
   if (p.version < (state.integration_synced_version ?? 0)) return { ok: true, state, value: { version: p.version }, changed: false }
-  if (p.version === state.integration_synced_version && p.slice_hash === state.integration_synced_hash) return { ok: true, state, value: { version: p.version }, changed: false }
-  return { ok: true, state: { ...state, integration_synced_version: p.version, integration_synced_hash: p.slice_hash }, value: { version: p.version } }
+  if (p.version === state.integration_synced_version && p.slice_hash === state.integration_synced_hash && managedBy === (state.integration_managed_by ?? null)) {
+    return { ok: true, state, value: { version: p.version }, changed: false }
+  }
+  return { ok: true, state: { ...state, integration_synced_version: p.version, integration_synced_hash: p.slice_hash, integration_managed_by: managedBy }, value: { version: p.version } }
 }

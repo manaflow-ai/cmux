@@ -232,3 +232,31 @@ describe("compat with old sidebars", () => {
     expect(host.calls.find((c) => c.name === "workspace.focus")!.params).toEqual({ workspace_id: "ws_1" })
   })
 })
+
+describe("node budget accounting", () => {
+  test("rebuilding a subtree many times never hits the node limit", async () => {
+    const host = new FakeHost(app(`
+      const [on, setOn] = signal(false)
+      globalThis.toggle = () => setOn((x) => !x)
+      return { render: () => VStack([() => on() ? VStack([Text("a"), Text("b"), Text("c")]) : HStack([Text("d"), Text("e")])]) }`))
+    expect(host.mount("m1", "render")).toBe("")
+    for (let i = 0; i < 3000; i++) {
+      host.eval("toggle()")
+      await host.settle(1)
+    }
+    expect(host.logs.filter(([l]) => l === "error")).toEqual([])
+  })
+
+  test("removing list rows releases their whole subtree", async () => {
+    const host = new FakeHost(app(`
+      const [items, setItems] = signal([])
+      globalThis.setItems = setItems
+      return { render: () => VStack([ForEach({ items, key: (x) => x }, (x) => HStack([Text(() => String(x())), Text("·"), Text("row")]))]) }`))
+    host.mount("m1", "render")
+    for (let round = 0; round < 40; round++) {
+      host.eval(`setItems(Array.from({ length: 100 }, (_, i) => ${round} * 1000 + i))`)
+      await host.settle(1)
+    }
+    expect(host.logs.filter(([l]) => l === "error")).toEqual([])
+  })
+})

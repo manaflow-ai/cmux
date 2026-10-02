@@ -5,7 +5,7 @@
 import { cmux, CmuxError, deliverEvent, fireTimer, log, resolveCall, state, type Native } from "./cmux.ts"
 import { installCompat } from "./compat-sidebar-data.ts"
 import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSink, unmount } from "./materialize.ts"
-import { batch, computed, effect, flush, signal, untrack } from "./reactive.ts"
+import { batch, computed, effect, flush, onCleanup, signal, untrack } from "./reactive.ts"
 import * as views from "./view.ts"
 
 const g = globalThis as Record<string, unknown>
@@ -41,7 +41,7 @@ function install() {
   const native = g.__cmuxAppNative as Native | undefined
   if (native) state.native = native
   // Globals for app code (the old custom sidebar API plus `cmux`).
-  Object.assign(g, views, { cmux, signal, computed, effect, untrack, CmuxError })
+  Object.assign(g, views, { cmux, signal, computed, effect, untrack, onCleanup, CmuxError })
   if (typeof g.console === "undefined") {
     g.console = { log: (...a: unknown[]) => log("info", ...a), info: (...a: unknown[]) => log("info", ...a), warn: (...a: unknown[]) => log("warn", ...a), error: (...a: unknown[]) => log("error", ...a), debug: (...a: unknown[]) => log("debug", ...a) }
   }
@@ -51,10 +51,21 @@ function install() {
   g.__cmuxAppInit = (initJSON: string) =>
     entry("init", () => {
       if (!state.native && g.__cmuxAppNative) state.native = g.__cmuxAppNative as Native
-      const init = JSON.parse(initJSON || "{}") as { app?: { id: string; version: string }; settings?: Record<string, unknown>; apiVersion?: string; ops?: string[] }
+      const init = JSON.parse(initJSON || "{}") as {
+        app?: { id: string; version: string }
+        settings?: Record<string, unknown>
+        apiVersion?: string
+        ops?: string[]
+        knownOps?: string[]
+        locale?: string
+        strings?: Record<string, string>
+      }
       if (init.app) state.app = init.app
       if (init.apiVersion) state.apiVersion = init.apiVersion
       state.allowedOps = Array.isArray(init.ops) ? new Set(init.ops) : null
+      state.knownOps = Array.isArray(init.knownOps) ? new Set(init.knownOps) : null
+      state.locale = init.locale ?? "en"
+      state.strings = init.strings ?? {}
       state.settings[1](init.settings ?? {})
       return ""
     }, "init failed")
@@ -88,6 +99,16 @@ function install() {
       const record = nodeRecord(nodeId)
       if (!record || record.mount.id !== mountId) return
       const payload = payloadJSON ? JSON.parse(payloadJSON) : {}
+      // The host attests user events with a gesture token; it is ambient only while the handler runs synchronously.
+      state.gesture = typeof payload.gesture === "string" ? payload.gesture : null
+      try {
+        dispatchEvent(record, event, payload)
+      } finally {
+        state.gesture = null
+      }
+    }, undefined)
+
+  function dispatchEvent(record: NonNullable<ReturnType<typeof nodeRecord>>, event: string, payload: Record<string, any>) {
       switch (event) {
         case "menu":
           runHandler("menu", menuHandler(record, Array.isArray(payload.path) ? payload.path : []) as (() => unknown) | undefined)
@@ -111,7 +132,7 @@ function install() {
         default:
           runHandler(event, record.handlers[event] as (() => unknown) | undefined)
       }
-    }, undefined)
+  }
 
   g.__cmuxAppRunCommand = (exportName: string, argsJSON: string, cbId: number) =>
     entry("command", () => {

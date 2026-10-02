@@ -296,6 +296,7 @@ export class OwnerEngine<S, P = unknown> {
 
   /** Snapshot for one identity; `pending` narrows `decided` to the keys the client still holds. */
   snapshot(identity: string, pending?: ReadonlyArray<string>): SnapshotFrame<S> {
+    // No pending intents (want = []): no decided keys to report, so no ledger scan.
     const want = pending ? [...new Set(pending)].slice(0, 500) : undefined
     const rows = want
       ? want.length === 0

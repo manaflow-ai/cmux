@@ -6,6 +6,8 @@ import {
   deviceScopedPolicyKeys,
   EnrollmentTokenCreate,
   EnrollmentTokenRevoke,
+  DeviceReportStatus,
+  type DeviceStatus,
   type EnrollmentToken,
   type ManagedDevice
 } from "@cmux/protocol"
@@ -30,9 +32,13 @@ export interface StoredToken extends Token {
 
 export const storedHash = (tokenHash: string) => createHash("sha256").update(tokenHash).digest("base64url")
 
+export type Status = typeof DeviceStatus.Type
+
 export interface EnrollmentState extends PolicyState {
   readonly enrollment_tokens?: Readonly<Record<string, StoredToken>>
   readonly managed_devices?: Readonly<Record<string, Device>>
+  /** Latest status report per install (team.device.report_status). */
+  readonly device_status?: Readonly<Record<string, Status>>
 }
 
 export const MAX_TOKENS = 100
@@ -131,9 +137,10 @@ export const reduceDeviceRelease = <S extends EnrollmentState>(state: S, params:
   if (device.via === "token" && !isAdmin) return reject("auth.forbidden", "only a team admin may release an install enrolled by an MDM token")
   if (device.user !== ctx.principal.user && !isAdmin) return reject("auth.forbidden", "only the install's user or a team admin may release it")
   const { [d.value.install]: _gone, ...rest } = state.managed_devices ?? {}
+  const { [d.value.install]: _status, ...statusRest } = state.device_status ?? {}
   return {
     ok: true,
-    state: { ...state, managed_devices: rest },
+    state: { ...state, managed_devices: rest, device_status: statusRest },
     value: { install: d.value.install },
     audit: { summary: `install ${d.value.install} released`, detail: { install: d.value.install } }
   }
@@ -160,4 +167,46 @@ export const devicePolicyFor = (state: EnrollmentState, install: string | undefi
     }
   }
   return { managed, version: policy.version, defaults, enforced, features }
+}
+
+/** The install's latest report replaces the previous one; an identical report changes nothing. */
+export const reduceReportStatus = <S extends EnrollmentState>(state: S, params: unknown, ctx: ReduceContext): Result<S> => {
+  const d = decodeParams<typeof DeviceReportStatus.params.Type>(DeviceReportStatus, params)
+  if (!d.ok) return d
+  const p = ctx.principal
+  if (!p.install || !p.user) return reject("auth.forbidden", "team.device.report_status needs an install token")
+  // Only managed installs report: compliance reads nothing else, and TeamDO state is one row.
+  if (state.managed_devices?.[p.install]?.user !== p.user) return reject("selector.not_found", "this install is not managed by this team")
+  const prev = state.device_status?.[p.install]
+  const next: Status = {
+    install: p.install,
+    user: p.user,
+    policy_version: d.value.policy_version,
+    app_version: d.value.app_version,
+    mdm_keys: [...new Set(d.value.mdm_keys)].sort(),
+    conflicts: [...new Set(d.value.conflicts)].sort(),
+    reported_at: ctx.now
+  }
+  if (prev && JSON.stringify({ ...prev, reported_at: 0 }) === JSON.stringify({ ...next, reported_at: 0 })) return { ok: true, state, value: prev, changed: false }
+  return { ok: true, state: { ...state, device_status: { ...state.device_status, [p.install]: next } }, value: next }
+}
+
+/** Compliance per managed device: applied the current version and no MDM conflicts. */
+export const complianceFor = (state: EnrollmentState) => {
+  const version = currentPolicy(state).version
+  return {
+    policy_version: version,
+    devices: Object.values(state.managed_devices ?? {})
+      .sort((a, b) => (a.install < b.install ? -1 : 1))
+      .map((device) => {
+        const status = state.device_status?.[device.install] ?? null
+        const reasons: Array<string> = []
+        if (!status) reasons.push("no status report")
+        else {
+          if (status.policy_version !== version) reasons.push(`applied policy v${status.policy_version}, current v${version}`)
+          if (status.conflicts.length > 0) reasons.push(`MDM overrides team policy: ${status.conflicts.join(", ")}`)
+        }
+        return { device, status, compliant: reasons.length === 0, reasons }
+      })
+  }
 }

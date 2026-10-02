@@ -17,34 +17,43 @@ struct AppRegistryTests {
         try Data(manifest.utf8).write(to: dir.appending(path: "cmux-app.json"))
     }
 
-    @Test func bundledSamplesAndLocalAppsAreInstalledByDefault() async throws {
+    @Test func samplesAreOptInAndLocalAppsAreInstalledByDefault() async throws {
         let root = try scratch()
         try writeLocal(root, name: "mine", id: "local/mine")
         try writeLocal(root, name: "impostor", id: "cmux/impostor")
         let registry = AppRegistry(directory: root)
         await registry.load()
         #expect(registry.apps.map(\.id) == ["cmux/agent-status", "cmux/github-prs", "cmux/running-agents", "local/mine"])
-        #expect(registry.apps.allSatisfy { $0.isActive })
+        #expect(registry.active.map(\.id) == ["local/mine"])
+        #expect(registry.app("cmux/github-prs")?.isInstalled == false)
         #expect(registry.app("local/mine")?.bundle.source == .local)
         #expect(registry.problems.count == 1)
         #expect(registry.problems.first?.message.contains("local/ publisher") == true)
     }
 
-    @Test func installRemoveAndEnableArePersistedPerTagDirectory() async throws {
+    @Test func installRemoveEnableAndHideArePersistedPerTagDirectory() async throws {
         let root = try scratch()
         let registry = AppRegistry(directory: root)
         await registry.load()
+        for id in ["cmux/agent-status", "cmux/github-prs", "cmux/running-agents"] { try await registry.install(id) }
         try await registry.remove("cmux/github-prs")
         try await registry.setEnabled("cmux/running-agents", false)
+        try await registry.setHidden("cmux/agent-status", true)
         #expect(registry.app("cmux/github-prs")?.isInstalled == false)
         #expect(registry.active.map(\.id) == ["cmux/agent-status"])
+        // Hidden is not disabled: the app still runs, it only leaves the sidebar, palette and menus.
+        #expect(registry.app("cmux/agent-status")?.isActive == true)
+        #expect(registry.app("cmux/agent-status")?.isVisible == false)
 
         let reloaded = AppRegistry(directory: root)
         await reloaded.load()
         #expect(reloaded.app("cmux/github-prs")?.isInstalled == false)
         #expect(reloaded.app("cmux/running-agents")?.isEnabled == false)
+        #expect(reloaded.app("cmux/agent-status")?.isHidden == true)
         try await reloaded.install("cmux/github-prs")
+        try await reloaded.setHidden("cmux/agent-status", false)
         #expect(reloaded.app("cmux/github-prs")?.isActive == true)
+        #expect(reloaded.app("cmux/agent-status")?.isVisible == true)
     }
 
     @Test func appsDirectoryFollowsTheTag() {
@@ -78,8 +87,9 @@ struct AppRegistryTests {
         let root = try scratch()
         let registry = AppRegistry(directory: root)
         var changed: [String] = []
-        registry.onChange = { changed.append($0.id) }
         await registry.load()
+        try await registry.install("cmux/github-prs") // samples are opt-in
+        registry.onChange = { changed.append($0.id) }
         let prs = try #require(registry.app("cmux/github-prs"))
         #expect(prs.tier == .firstParty)
         #expect(prs.grants == AppGrants.Snapshot(scopes: ["actions:run", "net:api.github.com"], sandboxed: false))

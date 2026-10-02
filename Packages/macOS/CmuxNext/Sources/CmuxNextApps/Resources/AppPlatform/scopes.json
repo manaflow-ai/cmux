@@ -33,6 +33,42 @@
       "scope": "storage:local",
       "class": "mutation"
     },
+    "automation.create": {
+      "scope": "automation:write",
+      "class": "mutation"
+    },
+    "automation.get": {
+      "scope": "automation:read",
+      "class": "read"
+    },
+    "automation.list": {
+      "scope": "automation:read",
+      "class": "read"
+    },
+    "automation.run": {
+      "scope": "automation:execute",
+      "class": "mutation"
+    },
+    "automation.runs.list": {
+      "scope": "automation:read",
+      "class": "read"
+    },
+    "automation.settings.get": {
+      "scope": "automation:read",
+      "class": "read"
+    },
+    "automation.settings.set": {
+      "scope": "automation:write",
+      "class": "mutation"
+    },
+    "automation.update": {
+      "scope": "automation:write",
+      "class": "mutation"
+    },
+    "automation.webhook.get": {
+      "scope": "automation:read",
+      "class": "read"
+    },
     "browser.activate": {
       "scope": "browser:write",
       "class": "mutation"
@@ -77,9 +113,97 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "feed.adopt": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.answer": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.archive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.cancel": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.counts": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.get": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.kinds": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.list": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.post": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.prefs.set": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.read": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.seen": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.snooze": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.unarchive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "github.issue.comment": {
+      "scope": "github:external",
+      "class": "mutation"
+    },
+    "integration.complete": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.connect": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.list": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.policy.get": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.policy.set": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
     "integration.request": {
       "scope": "integration:<provider>",
       "class": "runtime"
+    },
+    "linear.issue.create": {
+      "scope": "linear:write",
+      "class": "mutation"
+    },
+    "linear.teams.list": {
+      "scope": "linear:read",
+      "class": "read"
     },
     "machine.get": {
       "scope": "machine:read",
@@ -277,6 +401,10 @@
       "scope": "sidebar_view:write",
       "class": "mutation"
     },
+    "slack.post_as_bot": {
+      "scope": "slack:external",
+      "class": "mutation"
+    },
     "tab.create_browser": {
       "scope": "workspace:write",
       "class": "mutation"
@@ -415,6 +543,7 @@
     }
   },
   "never": [
+    "automation.delete",
     "browser.attach",
     "browser.close",
     "browser.viewer.release",
@@ -434,6 +563,7 @@
     "install.register",
     "install.rename",
     "install.revoke",
+    "integration.revoke",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",

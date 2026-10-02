@@ -38,7 +38,7 @@ struct AppEngineTests {
         await engine.stop()
     }
 
-    @Test func tapHandlerOpsCarryUserOriginAndMutationsGetIdempotencyKeys() async throws {
+    @Test func gestureTokensGiveUserOriginOnceAndMutationsGetIdempotencyKeys() async throws {
         let (manifest, directory) = try TestApps.sample("running-agents")
         let sink = RecordingSink { request in
             switch request.op {
@@ -62,6 +62,8 @@ struct AppEngineTests {
         let focus = try #require(sink.requests.first { $0.op == "tab.focus" })
         #expect(focus.params["tab"] == "tab_9")
         #expect(focus.idempotencyKey?.isEmpty == false)
+        // The sample captured the click's gesture before its await, so the focus after it is user-initiated too.
+        #expect(focus.origin == .user)
         await engine.stop()
     }
 

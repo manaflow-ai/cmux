@@ -71,12 +71,18 @@ public nonisolated struct StatusIndicatorSettings: Hashable, Sendable {
     /// Loading color; nil takes the theme's secondary text color (derived
     /// from the Ghostty theme, never an accent blue).
     public var color: ThemeRGB?
+    /// Sources whose style hint (`cmux status set --style`) wins over
+    /// `style` (`appearance.statusIndicator.honorStatusStyle`: true, false,
+    /// or a list of sources). All by default.
+    public var honoredStyleSources: Set<StatusReport.Source> = Set(StatusReport.Source.allCases)
 
-    public init(style: StatusIndicatorStyle = .arc, scale: CGFloat = 1, thickness: CGFloat = 1.5, color: ThemeRGB? = nil) {
+    public init(style: StatusIndicatorStyle = .arc, scale: CGFloat = 1, thickness: CGFloat = 1.5, color: ThemeRGB? = nil,
+                honoredStyleSources: Set<StatusReport.Source> = Set(StatusReport.Source.allCases)) {
         self.style = style
         self.scale = scale
         self.thickness = thickness
         self.color = color
+        self.honoredStyleSources = honoredStyleSources
     }
 
     public static let scaleRange: ClosedRange<CGFloat> = 0.5...1.5

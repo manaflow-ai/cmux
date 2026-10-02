@@ -83,8 +83,12 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
           principals: ["system"],
           params:
             name === "team.policy.integration_seed"
-              ? Schema.Struct({ policy: Schema.Unknown })
-              : Schema.Struct({ version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)), slice_hash: Schema.String }),
+              ? Schema.Struct({ policy: Schema.Unknown, managed_by: Schema.optionalKey(Schema.NullOr(Schema.Literals(["sso", "mdm"]))) })
+              : Schema.Struct({
+                  version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+                  slice_hash: Schema.String,
+                  managed_by: Schema.optionalKey(Schema.NullOr(Schema.Literals(["sso", "mdm"])))
+                }),
           result: Schema.Unknown,
           errors: [],
           docs:

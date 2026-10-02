@@ -25,7 +25,8 @@ export const teamSubscriberView = (state: TeamState, principal: Principal): Team
     ...rest
   } = state
   const own = Object.fromEntries(Object.entries(state.managed_devices ?? {}).filter(([, d]) => d.user === principal.user))
-  return { ...rest, managed_devices: own }
+  const ownStatus = Object.fromEntries(Object.entries(state.device_status ?? {}).filter(([, d]) => d.user === principal.user))
+  return { ...rest, managed_devices: own, device_status: ownStatus }
 }
 
 /** The seed bumps the policy version, so members see it; the sync ack is admin-only bookkeeping. */
