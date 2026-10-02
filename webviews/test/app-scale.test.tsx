@@ -1,12 +1,7 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  closeFileSearch,
-  FilesSidebarBackdrop,
-  JumpSelect,
-  shouldDismissFileSearch,
-} from "../src/App";
+import { closeFileSearch, FilesSidebarBackdrop, JumpSelect, shouldDismissFileSearch } from "../src/App";
 import type { DiffItem } from "../src/diff-stream";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
@@ -53,9 +48,7 @@ test("large diff navigation keeps the rendered DOM bounded", () => {
 
 test("mobile file drawer backdrop is an accessible close control", () => {
   const label = createDiffViewerLabelResolver(undefined);
-  const markup = renderToStaticMarkup(
-    <FilesSidebarBackdrop label={label} onClose={() => {}} open={true} />,
-  );
+  const markup = renderToStaticMarkup(<FilesSidebarBackdrop label={label} onClose={() => {}} open={true} />);
   const dom = new JSDOM(markup);
   const backdrop = dom.window.document.getElementById("files-sidebar-backdrop");
   expect(backdrop?.tagName).toBe("BUTTON");

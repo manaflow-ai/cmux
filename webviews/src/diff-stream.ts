@@ -151,7 +151,13 @@ export async function streamPatch(options: StreamPatchOptions): Promise<void> {
     throwIfAborted();
     annotateDiffMetadata(fileDiff);
     normalizeGitFileDiffPaths(fileDiff);
-    const result = appendFileDiffToModel(model, fileDiff, patchPrefix, options.getCollapsed(), options.label("untitled"));
+    const result = appendFileDiffToModel(
+      model,
+      fileDiff,
+      patchPrefix,
+      options.getCollapsed(),
+      options.label("untitled"),
+    );
     if (result?.renamedItem) {
       options.onRename(result.renamedItem);
     }
@@ -346,7 +352,8 @@ function appendFileDiffToModel(
   const previousState = path.length === 0 ? undefined : model.pathStateByTreePath.get(treePath);
   const renamedItem = previousState == null ? undefined : moveCurrentPathItemToPrevious(model, treePath, previousState);
   const stats = fileStats(fileDiff);
-  const itemId = previousState != null || model.itemIdToFile.has(treePath) ? uniqueDiffItemId(model, `${treePath}?2`) : treePath;
+  const itemId =
+    previousState != null || model.itemIdToFile.has(treePath) ? uniqueDiffItemId(model, `${treePath}?2`) : treePath;
   const item: DiffItem = {
     id: itemId,
     type: "diff",
@@ -387,7 +394,11 @@ function appendFileDiffToModel(
   return { item, renamedItem };
 }
 
-function moveCurrentPathItemToPrevious(model: StreamingDiffModel, treePath: string, state: PathState): RenameDiffItem | undefined {
+function moveCurrentPathItemToPrevious(
+  model: StreamingDiffModel,
+  treePath: string,
+  state: PathState,
+): RenameDiffItem | undefined {
   const oldId = state.currentItemId;
   const suffix = state.currentType === "deleted" ? "?deleted" : "?previous";
   const newId = uniqueDiffItemId(model, `${treePath}${suffix}`);
@@ -438,7 +449,12 @@ function uniqueDiffItemId(model: StreamingDiffModel, baseId: string): string {
   return nextId;
 }
 
-function updateGitStatusForPath(model: StreamingDiffModel, treePath: string, changeType: string | undefined, sawDeleted: boolean): void {
+function updateGitStatusForPath(
+  model: StreamingDiffModel,
+  treePath: string,
+  changeType: string | undefined,
+  sawDeleted: boolean,
+): void {
   if (sawDeleted && changeType !== "deleted") {
     if (model.gitStatusByPath.delete(treePath)) {
       removeGitStatusEntry(model, treePath);
@@ -504,9 +520,7 @@ function createFileTreeSourceFromModel(model: StreamingDiffModel): FileTreeSourc
     previousRevision,
     revision: model.treeRevision,
     statsChanged: model.pendingStatsChanged,
-    statsByPath: new Map(
-      Array.from(model.statsByPath, ([path, stats]) => [path, { ...stats }]),
-    ),
+    statsByPath: new Map(Array.from(model.statsByPath, ([path, stats]) => [path, { ...stats }])),
     treePathByItemId: new Map(model.treePathByItemId),
   };
   model.pendingStatsChanged = false;
@@ -537,7 +551,9 @@ async function appendParsedPatchText(
   const patches = options.parsePatchFiles(patchText, "cmux-diff");
   const hasMultiplePatches = patches.length > 1;
   for (const [patchIndex, patch] of patches.entries()) {
-    const patchPrefix = hasMultiplePatches ? commitMetadataLabel(patch.patchMetadata, patchIndex, options.label) : undefined;
+    const patchPrefix = hasMultiplePatches
+      ? commitMetadataLabel(patch.patchMetadata, patchIndex, options.label)
+      : undefined;
     for (const fileDiff of patch.files ?? []) {
       await enqueueFileDiff(fileDiff, patchPrefix);
     }
@@ -745,15 +761,15 @@ export function decodeGitQuotedPath(path: string): string {
   const encoder = new TextEncoder();
   const appendText = (text: string) => bytes.push(...encoder.encode(text));
   const namedEscapes: Record<string, number> = {
-    "a": 0x07,
-    "b": 0x08,
-    "f": 0x0c,
-    "n": 0x0a,
-    "r": 0x0d,
-    "t": 0x09,
-    "v": 0x0b,
+    a: 0x07,
+    b: 0x08,
+    f: 0x0c,
+    n: 0x0a,
+    r: 0x0d,
+    t: 0x09,
+    v: 0x0b,
     "\\": 0x5c,
-    "\"": 0x22,
+    '"': 0x22,
   };
   for (let index = 0; index < path.length;) {
     const codePoint = path.codePointAt(index);
@@ -805,15 +821,15 @@ function sameFileStats(previousStats: FileStats | undefined, stats: FileStats): 
 
 function gitStatusType(changeType: string | undefined): string {
   switch (changeType) {
-  case "new":
-    return "added";
-  case "deleted":
-    return "deleted";
-  case "rename-pure":
-  case "rename-changed":
-    return "renamed";
-  default:
-    return "modified";
+    case "new":
+      return "added";
+    case "deleted":
+      return "deleted";
+    case "rename-pure":
+    case "rename-changed":
+      return "renamed";
+    default:
+      return "modified";
   }
 }
 

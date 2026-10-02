@@ -9,130 +9,108 @@ import CmuxNextWakeups
 ///
 /// Resources are sampled from hover start (the CPU baseline) until the
 /// card hides; nothing is sampled while no card is pending or shown.
-final class WorkspaceHoverCardController {
+final class WorkspaceHoverCardController: HoverCardSource {
     let resources = ResourceCardSampler(source: nil)
-    /// Ends a card an action opened (not the pointer).
-    private let pin = PinnedCardDismissal()
     /// Hover time before the first card; later cards show at once while one
-    /// is visible (moving down the list).
+    /// is visible (moving down the list), by the coordinator's rules.
     var delay: Duration = .milliseconds(600)
-    private let showTimer: DemandTimer
-    private var panel: WorkspaceHoverCardPanel?
-    private(set) var shownID: WorkspaceID?
-    private var pendingID: WorkspaceID?
+    weak var list: SidebarListView?
+    /// The app's one coordinator; the App injects it.
+    var coordinator: HoverCardCoordinator {
+        didSet {
+            guard coordinator !== oldValue else { return }
+            oldValue.unregister(self)
+            if list?.window != nil { coordinator.register(self) }
+        }
+    }
+    private var body: WorkspaceHoverCardView?
+    private var bodyID: HoverTargetID?
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
-        showTimer = DemandTimer(owner: "Sidebar.hoverCard", clock: clock)
+    init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
+        self.coordinator = coordinator
+    }
+
+    static func targetID(_ id: WorkspaceID) -> HoverTargetID { HoverTargetID("ws:\(id.rawValue)") }
+
+    private func workspaceID(_ id: HoverTargetID) -> WorkspaceID? {
+        id.rawValue.hasPrefix("ws:") ? WorkspaceID(String(id.rawValue.dropFirst(3))) : nil
+    }
+
+    /// This list's workspace whose card shows now.
+    var shownID: WorkspaceID? {
+        guard let id = coordinator.machine.shownTarget?.id, let ws = workspaceID(id), list?.workspaces[ws] != nil else { return nil }
+        return ws
     }
 
     var isVisible: Bool { shownID != nil }
 
-    /// The pointer is over `workspace`'s row, whose frame on screen is `anchor`.
-    func hover(_ workspace: SidebarWorkspace, anchor: CGRect, parent: NSWindow?) {
-        guard shownID != workspace.id, pendingID != workspace.id else { return }
-        pin.disarm()
-        startResources(for: workspace)
-        if isVisible {
-            show(workspace, anchor: anchor, parent: parent)
-            return
-        }
-        pendingID = workspace.id
-        showTimer.schedule(after: delay) { @MainActor [weak self] in
-            guard let self, self.pendingID == workspace.id else { return }
-            self.show(workspace, anchor: anchor, parent: parent)
-        }
+    // MARK: HoverCardSource
+
+    var hoverCardWindow: NSWindow? { list?.window }
+
+    func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
+        guard let list, let window = list.window,
+              let id = list.hoverCardWorkspace(at: list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)),
+              let anchor = list.hoverCardAnchor(for: id)
+        else { return nil }
+        return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay), anchor: anchor)
     }
 
-    /// Shows the card now, without the hover delay, until the next key
-    /// press, click or scroll (the "Show Resource Usage" actions).
-    func showPinned(_ workspace: SidebarWorkspace, anchor: CGRect, parent: NSWindow?) {
-        showTimer.cancel()
-        pendingID = nil
-        startResources(for: workspace)
-        show(workspace, anchor: anchor, parent: parent)
-        guard shownID == workspace.id else {
-            resources.close()
-            return
-        }
-        pin.arm { [weak self] in self?.hide() }
+    func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
+        workspaceID(id).flatMap { list?.hoverCardAnchor(for: $0) }
     }
 
-    private func startResources(for workspace: SidebarWorkspace) {
-        resources.open(.workspace(workspace.id.rawValue)) { [weak self] report in
-            guard let self, self.shownID == workspace.id else { return }
-            self.panel?.setResources(report)
+    func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
+        guard let list, let ws = workspaceID(id), let workspace = list.workspaces[ws] else { return nil }
+        let body = body ?? WorkspaceHoverCardView()
+        self.body = body
+        body.configure(workspace)
+        body.setResources(resources.report)
+        bodyID = id
+        return HoverCardBody(view: body, placement: .beside, themeAnchor: list) { [weak body] in body?.applyColors() }
+    }
+
+    func hoverCardActivated(_ id: HoverTargetID) {
+        guard let ws = workspaceID(id) else { return }
+        resources.open(.workspace(ws.rawValue)) { [weak self] report in
+            guard let self, self.bodyID == id else { return }
+            self.body?.setResources(report)
+            self.coordinator.contentChanged(id)
         }
     }
 
-    /// The hovered workspace's row content changed.
-    func refresh(_ workspace: SidebarWorkspace) {
-        guard shownID == workspace.id else { return }
-        panel?.configure(workspace)
-    }
-
-    func hide() {
-        showTimer.cancel()
-        pendingID = nil
-        pin.disarm()
+    func hoverCardDeactivated(_ id: HoverTargetID) {
         resources.close()
-        guard shownID != nil else { return }
-        shownID = nil
-        panel?.dismiss()
+        bodyID = nil
     }
 
-    private func show(_ workspace: SidebarWorkspace, anchor: CGRect, parent: NSWindow?) {
-        guard let parent, parent.isVisible else { return }
-        pendingID = nil
-        let panel = panel ?? WorkspaceHoverCardPanel()
-        self.panel = panel
-        let sliding = isVisible
-        shownID = workspace.id
-        panel.configure(workspace)
-        panel.setResources(resources.report)
-        panel.present(beside: anchor, parent: parent, sliding: sliding)
-    }
-
-    /// Design tokens changed: rebuild the card at the new sizes next time.
+    /// Design tokens changed: the next card rebuilds at the new sizes.
     func tokensChanged() {
-        hide()
-        if let panel {
-            panel.parent?.removeChildWindow(panel)
-            panel.orderOut(nil)
-        }
-        panel = nil
+        coordinator.dismiss(.action)
+        body = nil
+        bodyID = nil
     }
 }
 
-/// Borderless, non-activating child window hosting the glass card.
-final class WorkspaceHoverCardPanel: NSPanel {
+/// The workspace card body. One instance is reused for every workspace
+/// card; the app's one `HoverCardPanel` hosts it.
+final class WorkspaceHoverCardView: NSView {
     private static var padding: CGFloat { Metrics.space5 }
     static var cardWidth: CGFloat { 280 }
 
-    private let glass: NSGlassEffectView
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
     let resources = ResourceSummaryView()
-    private weak var parentWindowRef: NSWindow?
-    private var anchor: CGRect = .zero
 
     init() {
-        let content = NSView()
-        glass = Glass.makePanel(content: content, cornerRadius: Metrics.panelCornerRadius)
-        glass.translatesAutoresizingMaskIntoConstraints = true
-        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        isOpaque = false
-        backgroundColor = .clear
-        hasShadow = true
-        ignoresMouseEvents = true
-        isReleasedWhenClosed = false
-        // A no-activate test run is never active; its cards must still show.
-        hidesOnDeactivate = !WindowPlacement.noActivate
-        animationBehavior = .none
-        collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
-        contentView = glass
-
+        super.init(frame: .zero)
+        let content = self
         titleLabel.font = Typography.bodyEmphasized
-        titleLabel.lineBreakMode = .byTruncatingTail
+        // The whole name, wrapped: the card is where a clipped row title
+        // reads in full (also under Reduce Motion, which has no marquee).
+        titleLabel.lineBreakMode = .byWordWrapping
+        titleLabel.maximumNumberOfLines = 6
+        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding
         subtitleLabel.font = Typography.caption
         subtitleLabel.lineBreakMode = .byTruncatingMiddle
         resources.style = .workspace(topConsumers: 3)
@@ -157,8 +135,8 @@ final class WorkspaceHoverCardPanel: NSPanel {
         ])
     }
 
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func configure(_ workspace: SidebarWorkspace) {
         titleLabel.stringValue = workspace.title
@@ -168,68 +146,16 @@ final class WorkspaceHoverCardPanel: NSPanel {
 
     func setResources(_ report: ResourceReport?) {
         resources.show(report)
-        // The heaviest-tabs rows can appear with the first sample.
-        if isVisible { place(sliding: false) }
-    }
-
-    /// Shows the card to the right of the row, top-aligned with it.
-    func present(beside anchor: CGRect, parent: NSWindow, sliding: Bool) {
-        // The card draws in the parent window's theme (its room).
-        let scope = parent.themeScope
-        scope.adopt(self)
-        scope.addResponder(self)
-        themeDidChange()
-        if parentWindowRef !== parent {
-            parentWindowRef?.removeChildWindow(self)
-            parent.addChildWindow(self, ordered: .above)
-            parentWindowRef = parent
-        }
-        self.anchor = anchor
-        place(sliding: sliding)
-        if !isVisible || alphaValue < 1 {
-            if !isVisible { alphaValue = 0 }
-            orderFront(nil)
-            Motion.animateTimed(.fadeIn) { animator().alphaValue = 1 }
-        }
-    }
-
-    private func place(sliding: Bool) {
-        glass.layoutSubtreeIfNeeded()
-        let size = glass.fittingSize
-        var origin = CGPoint(x: anchor.maxX + Metrics.space2, y: anchor.maxY - size.height)
-        if let screen = parentWindowRef?.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            let margin = Metrics.space2
-            origin.x = min(max(origin.x, visible.minX + margin), visible.maxX - size.width - margin)
-            origin.y = min(max(origin.y, visible.minY + margin), visible.maxY - size.height - margin)
-        }
-        let frame = CGRect(origin: origin, size: size)
-        if sliding, isVisible, Motion.animatesMovement {
-            Motion.animateTimed(.panel) { animator().setFrame(frame, display: true) }
-        } else {
-            setFrame(frame, display: true)
-        }
-    }
-
-    func dismiss() {
-        Motion.animateTimed(.fadeOut, { animator().alphaValue = 0 }, completion: { [weak self] in
-            guard let self, self.alphaValue == 0 else { return }
-            self.parentWindowRef?.removeChildWindow(self)
-            self.parentWindowRef = nil
-            self.orderOut(nil)
-        })
     }
 }
 
-extension WorkspaceHoverCardPanel: ThemeResponsive {
-    /// Recolors the labels in the card's scope; `ThemeScope.adopt` and every
-    /// later change of that scope call it.
-    func themeDidChange() {
-        guard let content = contentView else { return }
-        content.performWithTheme {
+extension WorkspaceHoverCardView {
+    /// Recolors the labels in the card's theme scope; the panel runs it on
+    /// adopt and on every change of that scope.
+    func applyColors() {
+        performWithTheme {
             titleLabel.textColor = Palette.textPrimary
             subtitleLabel.textColor = Palette.textSecondary
-            glass.tintColor = Palette.glassTint
         }
     }
 }

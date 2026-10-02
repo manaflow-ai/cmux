@@ -286,7 +286,10 @@ terminal that must outlive its tabs with
 `"keep":true` to `new-tab`, `split`, or `create-terminal`. A close commits and
 updates the tree before its host exits; hosts of closed terminals end in
 parallel. For test teardown, `shutdown-daemon` with `"end_terminals":true`
-ends every terminal before the handoff. To close many tabs at once, send
+ends every terminal before the handoff; add `"keep_layout":true`
+(`end-terminals-keep-layout-v1`) to keep the tabs of placed terminals, dead,
+for the next owner (a quitting frontend that restarts shells in the same
+layout). To close many tabs at once, send
 `{"cmd":"close-tabs","surfaces":[...],"end_terminals":true}`: one durable
 commit (one journal fsync) removes every tab and ends every terminal left
 with no view that is not kept. The container closes take the same

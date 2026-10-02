@@ -71,10 +71,7 @@ export function paneClientSummary(clients: ClientInfo[], surface: Id | null): Pa
   };
 }
 
-export function clientSizingMenuItems(
-  summary: PaneClientSummary,
-  actions: ClientSizingActions,
-): ContextMenuItem[] {
+export function clientSizingMenuItems(summary: PaneClientSummary, actions: ClientSizingActions): ContextMenuItem[] {
   const self = summary.clients.find((client) => client.self);
   const items: ContextMenuItem[] = [];
   if (self) {
@@ -99,11 +96,7 @@ export function clientSizingMenuItems(
       },
       {
         label: size?.sizeParticipating ? t("excludeFromSizing") : t("useForSizing"),
-        onSelect: () => actions.setParticipation(
-          summary.surface,
-          client.client,
-          !size?.sizeParticipating,
-        ),
+        onSelect: () => actions.setParticipation(summary.surface, client.client, !size?.sizeParticipating),
       },
     ];
     if (!client.self) {

@@ -16,7 +16,10 @@ export function percentile(sorted: ArrayLike<number>, p: number): number {
 
 /** The median of `values` (unsorted); 0 when empty. */
 export function median(values: number[]): number {
-  return percentile([...values].sort((a, b) => a - b), 0.5);
+  return percentile(
+    [...values].sort((a, b) => a - b),
+    0.5,
+  );
 }
 
 /** Intervals between consecutive timestamps. */
@@ -34,7 +37,15 @@ export function droppedFrames(intervals: number[], nominal: number): number {
   return dropped;
 }
 
-export type FrameStats = { frames: number; nominal_ms: number; p50_ms: number; p95_ms: number; p99_ms: number; max_ms: number; dropped_frames: number };
+export type FrameStats = {
+  frames: number;
+  nominal_ms: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  max_ms: number;
+  dropped_frames: number;
+};
 
 /** Frame timing from display-frame timestamps, the shape of the native pane's `fling_stats`. */
 export function frameStats(timestamps: number[], nominal: number): FrameStats {
@@ -53,11 +64,21 @@ export function frameStats(timestamps: number[], nominal: number): FrameStats {
 /** p50/p95/max of `values` (unsorted), rounded. */
 export function summary(values: number[]): { p50_ms: number; p95_ms: number; max_ms: number } {
   const sorted = [...values].sort((a, b) => a - b);
-  return { p50_ms: round2(percentile(sorted, 0.5)), p95_ms: round2(percentile(sorted, 0.95)), max_ms: round2(sorted.at(-1) ?? 0) };
+  return {
+    p50_ms: round2(percentile(sorted, 0.5)),
+    p95_ms: round2(percentile(sorted, 0.95)),
+    max_ms: round2(sorted.at(-1) ?? 0),
+  };
 }
 
 /** True when the mounted rows [mountedTop, mountedBottom) leave part of the viewport empty. */
-export function isBlank(mountedTop: number, mountedBottom: number, scrollTop: number, viewportHeight: number, contentHeight: number): boolean {
+export function isBlank(
+  mountedTop: number,
+  mountedBottom: number,
+  scrollTop: number,
+  viewportHeight: number,
+  contentHeight: number,
+): boolean {
   const viewTop = Math.max(0, scrollTop);
   const viewBottom = Math.min(contentHeight, scrollTop + viewportHeight);
   if (viewBottom <= viewTop) return false;
@@ -82,9 +103,14 @@ export class FrameRing {
     this.blank = new Uint8Array(capacity);
   }
 
-  get size(): number { return this.count; }
+  get size(): number {
+    return this.count;
+  }
 
-  clear(): void { this.next = 0; this.count = 0; }
+  clear(): void {
+    this.next = 0;
+    this.count = 0;
+  }
 
   push(interval: number, layout: number, react: number, blank: boolean): void {
     this.interval[this.next] = interval;
@@ -101,7 +127,13 @@ export class FrameRing {
     const start = (this.next - this.count + this.capacity) % this.capacity;
     for (let offset = 0; offset < this.count; offset += 1) {
       const index = (start + offset) % this.capacity;
-      out.push({ interval: this.interval[index], layout: this.layout[index], react: this.react[index], other: Math.max(0, this.interval[index] - this.layout[index] - this.react[index]), blank: this.blank[index] === 1 });
+      out.push({
+        interval: this.interval[index],
+        layout: this.layout[index],
+        react: this.react[index],
+        other: Math.max(0, this.interval[index] - this.layout[index] - this.react[index]),
+        blank: this.blank[index] === 1,
+      });
     }
     return out;
   }
@@ -111,7 +143,11 @@ export type TypingSample = { frame: number; paint: number };
 
 /** Typing latency: keydown event time to the next frame and to after that frame paints. */
 export function typingSummary(samples: TypingSample[]) {
-  return { keys: samples.length, to_frame: summary(samples.map((sample) => sample.frame)), to_paint: summary(samples.map((sample) => sample.paint)) };
+  return {
+    keys: samples.length,
+    to_frame: summary(samples.map((sample) => sample.frame)),
+    to_paint: summary(samples.map((sample) => sample.paint)),
+  };
 }
 
 /**
@@ -133,7 +169,9 @@ export class AcpmuxPerf {
   private keyListener: ((event: KeyboardEvent) => void) | undefined;
 
   /** Turns measurement on; installs the composer key listener once. */
-  enable(target: Pick<Document, "addEventListener"> | undefined = typeof document === "undefined" ? undefined : document): void {
+  enable(
+    target: Pick<Document, "addEventListener"> | undefined = typeof document === "undefined" ? undefined : document,
+  ): void {
     this.enabled = true;
     if (this.keyListener || !target) return;
     this.keyListener = (event) => {
@@ -154,7 +192,9 @@ export class AcpmuxPerf {
     target.addEventListener("keydown", this.keyListener as EventListener, true);
   }
 
-  addLayout(ms: number): void { this.layoutSinceMark += ms; }
+  addLayout(ms: number): void {
+    this.layoutSinceMark += ms;
+  }
 
   /** A VirtualTranscript commit: render-start to commit took `ms`, `layoutMs` of it in geometry. */
   commit(ms: number, layoutMs: number, mountedTop: number, mountedBottom: number, now: number): void {
@@ -169,8 +209,14 @@ export class AcpmuxPerf {
   /** Resolves with the time of the next VirtualTranscript commit, or undefined after `timeoutMs`. */
   nextCommit(timeoutMs = 10_000): Promise<number | undefined> {
     return new Promise((resolve) => {
-      const timer = setTimeout(() => { this.commitWaiters = this.commitWaiters.filter((waiter) => waiter !== done); resolve(undefined); }, timeoutMs);
-      const done = (now: number) => { clearTimeout(timer); resolve(now); };
+      const timer = setTimeout(() => {
+        this.commitWaiters = this.commitWaiters.filter((waiter) => waiter !== done);
+        resolve(undefined);
+      }, timeoutMs);
+      const done = (now: number) => {
+        clearTimeout(timer);
+        resolve(now);
+      };
       this.commitWaiters.push(done);
     });
   }
@@ -185,7 +231,8 @@ export class AcpmuxPerf {
 
   /** One display frame at `now`; `blank` is whether the viewport shows past the mounted rows. */
   markFrame(now: number, blank: boolean): void {
-    if (this.lastMark !== undefined) this.ring.push(now - this.lastMark, this.layoutSinceMark, this.reactSinceMark, blank);
+    if (this.lastMark !== undefined)
+      this.ring.push(now - this.lastMark, this.layoutSinceMark, this.reactSinceMark, blank);
     this.lastMark = now;
     this.layoutSinceMark = 0;
     this.reactSinceMark = 0;
@@ -202,7 +249,14 @@ export class AcpmuxPerf {
       react: summary(samples.map((sample) => sample.react)),
       other: summary(samples.map((sample) => sample.other)),
     };
-    if (raw) result.samples = samples.map((sample) => ({ interval_ms: round2(sample.interval), layout_ms: round2(sample.layout), react_ms: round2(sample.react), other_ms: round2(sample.other), blank: sample.blank }));
+    if (raw)
+      result.samples = samples.map((sample) => ({
+        interval_ms: round2(sample.interval),
+        layout_ms: round2(sample.layout),
+        react_ms: round2(sample.react),
+        other_ms: round2(sample.other),
+        blank: sample.blank,
+      }));
     return result;
   }
 }

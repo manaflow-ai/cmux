@@ -1,13 +1,31 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { layoutConversation, type AcpmuxRow } from "./model";
+import { turnView } from "./conversation/turns";
 
 // A silent console: jsdom has no canvas, so text measurement logs and falls back to row estimates.
-const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
+});
 const globals = globalThis as Record<string, unknown>;
 /// Every ResizeObserver callback, so a test can report a viewport resize.
 const resizeCallbacks: (() => void)[] = [];
-const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "customElements", "Node", "IntersectionObserver", "ResizeObserver", "requestAnimationFrame", "cancelAnimationFrame", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
+const saved = Object.fromEntries(
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "customElements",
+    "Node",
+    "IntersectionObserver",
+    "ResizeObserver",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
+);
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
@@ -15,19 +33,38 @@ Object.assign(globals, {
   HTMLElement: dom.window.HTMLElement,
   customElements: dom.window.customElements,
   Node: dom.window.Node,
-  IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} },
-  ResizeObserver: class { constructor(callback: () => void) { resizeCallbacks.push(callback); } observe() {} unobserve() {} disconnect() {} },
+  IntersectionObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  ResizeObserver: class {
+    constructor(callback: () => void) {
+      resizeCallbacks.push(callback);
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
   requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
   cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
 // The changes view renders @pierre/diffs and @pierre/trees web components, which reach for
 // DOM classes (HTMLTemplateElement, SVGElement, ...) by their global names.
-const domClasses = Object.getOwnPropertyNames(dom.window).filter((key) => /^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in globals));
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) => /^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in globals),
+);
 for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
-afterAll(() => { Object.assign(globals, saved); for (const key of domClasses) delete globals[key]; });
+afterAll(() => {
+  Object.assign(globals, saved);
+  for (const key of domClasses) delete globals[key];
+});
 
-const { act, createElement } = await import("react").then((react) => ({ act: react.act, createElement: react.createElement }));
+const { act, createElement } = await import("react").then((react) => ({
+  act: react.act,
+  createElement: react.createElement,
+}));
 const { createRoot } = await import("react-dom/client");
 const { AcpmuxApp, VirtualTranscript } = await import("./App");
 const { acpmuxPerf } = await import("./perf");
@@ -37,37 +74,89 @@ function fakeViewport(size: { width: number; height: number }) {
   const prototype = dom.window.HTMLElement.prototype;
   const offsets = new WeakMap<object, number>();
   const isScroller = (node: HTMLElement) => node.classList.contains("acpmux-scroll");
-  Object.defineProperty(prototype, "clientHeight", { configurable: true, get(this: HTMLElement) { return isScroller(this) ? size.height : 0; } });
-  Object.defineProperty(prototype, "clientWidth", { configurable: true, get(this: HTMLElement) { return isScroller(this) ? size.width : 0; } });
+  Object.defineProperty(prototype, "clientHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return isScroller(this) ? size.height : 0;
+    },
+  });
+  Object.defineProperty(prototype, "clientWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return isScroller(this) ? size.width : 0;
+    },
+  });
   // Like a browser, the offset clamps to the content once it lays out again.
-  const contentHeight = (node: HTMLElement) => parseFloat(node.querySelector<HTMLElement>(".acpmux-spacer")?.style.height || "0");
+  const contentHeight = (node: HTMLElement) =>
+    parseFloat(node.querySelector<HTMLElement>(".acpmux-spacer")?.style.height || "0");
   const maximum = (node: HTMLElement) => Math.max(0, contentHeight(node) - size.height);
-  Object.defineProperty(prototype, "scrollHeight", { configurable: true, get(this: HTMLElement) { return isScroller(this) ? Math.max(contentHeight(this), size.height) : 0; } });
-  Object.defineProperty(prototype, "scrollTop", { configurable: true, get(this: HTMLElement) { const offset = Math.min(offsets.get(this) ?? 0, maximum(this)); offsets.set(this, offset); return offset; }, set(this: HTMLElement, value: number) { offsets.set(this, Math.max(0, Math.min(value, maximum(this)))); } });
-  return () => { for (const key of ["clientHeight", "clientWidth", "scrollHeight", "scrollTop"]) delete (prototype as unknown as Record<string, unknown>)[key]; };
+  Object.defineProperty(prototype, "scrollHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return isScroller(this) ? Math.max(contentHeight(this), size.height) : 0;
+    },
+  });
+  Object.defineProperty(prototype, "scrollTop", {
+    configurable: true,
+    get(this: HTMLElement) {
+      const offset = Math.min(offsets.get(this) ?? 0, maximum(this));
+      offsets.set(this, offset);
+      return offset;
+    },
+    set(this: HTMLElement, value: number) {
+      offsets.set(this, Math.max(0, Math.min(value, maximum(this))));
+    },
+  });
+  return () => {
+    for (const key of ["clientHeight", "clientWidth", "scrollHeight", "scrollTop"])
+      delete (prototype as unknown as Record<string, unknown>)[key];
+  };
 }
 
-const rows: AcpmuxRow[] = Array.from({ length: 200 }, (_, index) => ({ id: `row-${index}`, version: 1, at: index, kind: index % 2 ? "assistant" : "user", text: `message ${index}` }));
+const rows: AcpmuxRow[] = Array.from({ length: 200 }, (_, index) => ({
+  id: `row-${index}`,
+  version: 1,
+  at: index,
+  kind: index % 2 ? "assistant" : "user",
+  text: `message ${index}`,
+}));
 
 describe("acpmux virtual transcript", () => {
   test("re-renders that keep rows and width reuse the conversation layout", async () => {
     let layouts = 0;
     const addLayout = acpmuxPerf.addLayout.bind(acpmuxPerf);
     acpmuxPerf.enabled = true;
-    acpmuxPerf.addLayout = (ms: number) => { layouts += 1; addLayout(ms); };
+    acpmuxPerf.addLayout = (ms: number) => {
+      layouts += 1;
+      addLayout(ms);
+    };
     const root = createRoot(dom.window.document.getElementById("root")!);
     const onToggleActivity = () => {};
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(createElement(VirtualTranscript, { rows, onToggleActivity, expanded: new Set<string>() })),
+      );
       const afterMount = layouts;
       expect(afterMount).toBeGreaterThan(0);
       // A scroll or an expansion toggle re-renders with the same rows and width.
       for (let pass = 0; pass < 5; pass += 1) {
-        await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity, expanded: new Set<string>([`row-${pass}`]) })));
+        await act(async () =>
+          root.render(
+            createElement(VirtualTranscript, { rows, onToggleActivity, expanded: new Set<string>([`row-${pass}`]) }),
+          ),
+        );
       }
       expect(layouts).toBe(afterMount);
       // New rows still lay out again.
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: [...rows, { id: "row-new", version: 1, at: 999, kind: "assistant", text: "new" }], onToggleActivity, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [...rows, { id: "row-new", version: 1, at: 999, kind: "assistant", text: "new" }],
+            onToggleActivity,
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       expect(layouts).toBeGreaterThan(afterMount);
     } finally {
       await act(async () => root.unmount());
@@ -81,17 +170,27 @@ describe("acpmux virtual transcript", () => {
     const restore = fakeViewport(size);
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       const totalHeight = parseFloat((dom.window.document.querySelector(".acpmux-spacer") as HTMLElement).style.height);
       expect(scroller.scrollTop).toBe(totalHeight - 600);
-      const mountedTops = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) => parseFloat(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1] ?? "NaN"));
+      const mountedTops = () =>
+        [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) =>
+          parseFloat(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1] ?? "NaN"),
+        );
       // A fling upward: each scroll event moves a viewport and a half. The scroll
       // event commits before the frame paints (no extra animation-frame hop), and
       // rows two steps ahead are already mounted when the next step lands.
       const step = 900;
       for (const top of [totalHeight - 600 - step, totalHeight - 600 - 2 * step]) {
-        act(() => { scroller.scrollTop = top; scroller.dispatchEvent(new dom.window.Event("scroll")); });
+        act(() => {
+          scroller.scrollTop = top;
+          scroller.dispatchEvent(new dom.window.Event("scroll"));
+        });
         expect(Math.min(...mountedTops())).toBeLessThanOrEqual(Math.max(0, top - 2 * step));
         expect(Math.max(...mountedTops())).toBeGreaterThanOrEqual(top);
       }
@@ -107,8 +206,15 @@ describe("acpmux virtual transcript", () => {
     resizeCallbacks.length = 0;
     const root = createRoot(dom.window.document.getElementById("root")!);
     const fewRows = rows.slice(0, 6);
-    const render = () => root.render(createElement(VirtualTranscript, { rows: fewRows, onToggleActivity: () => {}, expanded: new Set<string>() }));
-    const resize = (height: number) => act(async () => { size.height = height; for (const callback of resizeCallbacks) callback(); });
+    const render = () =>
+      root.render(
+        createElement(VirtualTranscript, { rows: fewRows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+      );
+    const resize = (height: number) =>
+      act(async () => {
+        size.height = height;
+        for (const callback of resizeCallbacks) callback();
+      });
     try {
       await act(async () => render());
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
@@ -134,9 +240,20 @@ describe("acpmux transcript accessibility", () => {
   test("the transcript is a feed of articles placed in the whole conversation", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
-    const conversation: AcpmuxRow[] = [...rows, { id: "summary", version: 1, at: 999, kind: "turnSummary", durationMs: 3000, toolCount: 2 }];
+    const conversation: AcpmuxRow[] = [
+      ...rows,
+      { id: "summary", version: 1, at: 999, kind: "turnSummary", durationMs: 3000, toolCount: 2 },
+    ];
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: conversation,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       expect(scroller.getAttribute("role")).toBe("feed");
       expect(scroller.getAttribute("aria-label")).toBe("Transcript");
@@ -145,31 +262,54 @@ describe("acpmux transcript accessibility", () => {
       for (const article of articles) expect(article.getAttribute("aria-setsize")).toBe(String(conversation.length));
       const last = articles.at(-1)!;
       expect(last.getAttribute("aria-posinset")).toBe(String(conversation.length));
-      const mounted = articles.map((article) => ({ article, row: conversation[Number(article.getAttribute("aria-posinset")) - 1]! }));
+      const mounted = articles.map((article) => ({
+        article,
+        row: conversation[Number(article.getAttribute("aria-posinset")) - 1]!,
+      }));
       expect(mounted.find(({ row }) => row.kind === "user")?.article.getAttribute("aria-label")).toBe("You");
       expect(mounted.find(({ row }) => row.kind === "assistant")?.article.getAttribute("aria-label")).toBe("Agent");
       expect(last.hasAttribute("aria-label")).toBe(false);
-      const summary = last.querySelector(".acpmux-summary")!;
+      // Without a "Worked for" line above it, the footer says the turn's time and count.
+      const summary = last.querySelector(".cv-turn-summary")!;
       expect(summary.childNodes.length).toBe(1);
       expect(summary.textContent).toBe("Worked for 3s · 2 tool calls");
       // Older history still in acpmux: the conversation's size is unknown.
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>(), canLoadOlder: true })));
-      for (const article of dom.window.document.querySelectorAll(".acpmux-row")) expect(article.getAttribute("aria-setsize")).toBe("-1");
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: conversation,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+            canLoadOlder: true,
+          }),
+        ),
+      );
+      for (const article of dom.window.document.querySelectorAll(".acpmux-row"))
+        expect(article.getAttribute("aria-setsize")).toBe("-1");
     } finally {
       await act(async () => root.unmount());
       restore();
     }
   });
 
-  /// A blank line inside a user message rendered as an empty paragraph of two newlines, which a
-  /// pre-wrap bubble drew as two extra lines the layout never counted.
-  test("a blank line between paragraphs renders no paragraph of its own", async () => {
+  /// A prompt draws as typed in one bubble, as Codex draws it: no Markdown, so a blank line is
+  /// one blank line and not an empty paragraph of two newlines.
+  test("a prompt draws as typed in one bubble", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "u", version: 1, at: 0, kind: "user", text: "first\n\nsecond" }], onToggleActivity: () => {}, expanded: new Set<string>() })));
-      const paragraphs = [...dom.window.document.querySelectorAll(".acpmux-markdown > p")].map((node) => node.textContent);
-      expect(paragraphs).toEqual(["first", "second"]);
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [{ id: "u", version: 1, at: 0, kind: "user", text: "first\n\nsecond" }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      const bubbles = [...dom.window.document.querySelectorAll(".cv-user__bubble")];
+      expect(bubbles.map((node) => node.textContent)).toEqual(["first\n\nsecond"]);
+      expect(bubbles[0]!.querySelector("p")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       restore();
@@ -181,19 +321,39 @@ describe("acpmux transcript accessibility", () => {
   test("a nested list renders inside its item, and a numbered list keeps its numbers", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
-    const text = "- Multiplies qty by price for each order:\n  - Notebook: `3 × 4.50 = 13.50`\n  - Pens: `12 × 0.80 = 9.60`\n- Adds the subtotals.\n\n3. Third\n4. Fourth";
+    const text =
+      "- Multiplies qty by price for each order:\n  - Notebook: `3 × 4.50 = 13.50`\n  - Pens: `12 × 0.80 = 9.60`\n- Adds the subtotals.\n\n3. Third\n4. Fourth";
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "a", version: 1, at: 0, kind: "assistant", text }], onToggleActivity: () => {}, expanded: new Set<string>() })));
-      const markdown = dom.window.document.querySelector(".acpmux-markdown")!;
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [{ id: "a", version: 1, at: 0, kind: "assistant", text }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      const markdown = dom.window.document.querySelector(".cv-md")!;
       const outer = markdown.querySelector(":scope > ul")!;
       expect([...outer.querySelectorAll(":scope > li")].length).toBe(2);
       const nested = outer.querySelector(":scope > li > ul")!;
-      expect([...nested.querySelectorAll(":scope > li")].map((node) => node.textContent)).toEqual(["Notebook: 3 × 4.50 = 13.50", "Pens: 12 × 0.80 = 9.60"]);
+      expect([...nested.querySelectorAll(":scope > li")].map((node) => node.textContent)).toEqual([
+        "Notebook: 3 × 4.50 = 13.50",
+        "Pens: 12 × 0.80 = 9.60",
+      ]);
       expect(nested.querySelector("code")?.textContent).toBe("3 × 4.50 = 13.50");
       expect(markdown.textContent).not.toContain("- Notebook");
       const numbered = markdown.querySelector(":scope > ol")!;
       expect(numbered.getAttribute("start")).toBe("3");
-      expect([...numbered.querySelectorAll("li")].map((node) => node.textContent)).toEqual(["Third", "Fourth"]);
+      expect(
+        [...numbered.querySelectorAll("li")].map((node) => [
+          node.querySelector(".cv-li__num")?.textContent,
+          node.querySelector(".cv-li__text")?.textContent,
+        ]),
+      ).toEqual([
+        ["3.", "Third"],
+        ["4.", "Fourth"],
+      ]);
     } finally {
       await act(async () => root.unmount());
       restore();
@@ -207,7 +367,15 @@ describe("acpmux transcript accessibility", () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const long: AcpmuxRow = { id: "long", version: 1, at: 0, kind: "assistant", text: "word ".repeat(120).trim() };
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: [long, { id: "next", version: 1, at: 1, kind: "assistant", text: "next" }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [long, { id: "next", version: 1, at: 1, kind: "assistant", text: "next" }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       const next = dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")[1]!;
       expect(next.style.transform).toBe(`translateY(${layoutConversation([long], 760).heights[0]}px)`);
     } finally {
@@ -220,19 +388,48 @@ describe("acpmux transcript accessibility", () => {
 /// A seeded generator, so a failing shape reproduces.
 function seeded(seed: number) {
   let state = seed >>> 0;
-  return () => { state = (state * 1664525 + 1013904223) >>> 0; return state / 2 ** 32; };
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 2 ** 32;
+  };
 }
 
 /// Rows of every kind the transcript draws, in random markdown shapes.
 function randomConversation(count: number, random: () => number): AcpmuxRow[] {
-  const pieces = ["A sentence with `code` in it.", "## Heading\nText under it.", "- one\n- [ ] two\n- three", "```\nlet x = 1\n```", "> quoted", "Line one\nline two", "**bold** and [a link](https://example.com)"];
+  const pieces = [
+    "A sentence with `code` in it.",
+    "## Heading\nText under it.",
+    "- one\n- [ ] two\n- three",
+    "```\nlet x = 1\n```",
+    "> quoted",
+    "Line one\nline two",
+    "**bold** and [a link](https://example.com)",
+  ];
   return Array.from({ length: count }, (_, index) => {
     const pick = random();
-    const text = Array.from({ length: 1 + Math.floor(random() * 4) }, () => pieces[Math.floor(random() * pieces.length)]!).join("\n\n");
+    const text = Array.from(
+      { length: 1 + Math.floor(random() * 4) },
+      () => pieces[Math.floor(random() * pieces.length)]!,
+    ).join("\n\n");
     if (pick < 0.35) return { id: `r${index}`, version: 1, at: index, kind: "user", text };
     if (pick < 0.75) return { id: `r${index}`, version: 1, at: index, kind: "assistant", text };
-    if (pick < 0.85) return { id: `r${index}`, version: 1, at: index, kind: "activity", toolCount: 2, items: [{ kind: "tool", text: "Read a file" }] } as AcpmuxRow;
-    if (pick < 0.92) return { id: `r${index}`, version: 1, at: index, kind: "permission", permission: { permissionId: `p${index}`, title: "Allow this?", options: [{ id: "allow", name: "Allow" }] } } as AcpmuxRow;
+    if (pick < 0.85)
+      return {
+        id: `r${index}`,
+        version: 1,
+        at: index,
+        kind: "activity",
+        toolCount: 2,
+        items: [{ kind: "tool", text: "Read a file" }],
+      } as AcpmuxRow;
+    if (pick < 0.92)
+      return {
+        id: `r${index}`,
+        version: 1,
+        at: index,
+        kind: "permission",
+        permission: { permissionId: `p${index}`, title: "Allow this?", options: [{ id: "allow", name: "Allow" }] },
+      } as AcpmuxRow;
     return { id: `r${index}`, version: 1, at: index, kind: "turnSummary", durationMs: 2000, toolCount: 1 };
   });
 }
@@ -251,13 +448,28 @@ describe("acpmux measured rows", () => {
     const original = prototype.getBoundingClientRect;
     prototype.getBoundingClientRect = function (this: HTMLElement) {
       const index = Number(this.getAttribute("aria-posinset")) - 1;
-      const height = this.classList.contains("acpmux-row") ? drawn.get(conversation[index]?.id ?? "") ?? 0 : 0;
-      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+      const height = this.classList.contains("acpmux-row") ? (drawn.get(conversation[index]?.id ?? "") ?? 0) : 0;
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: height,
+        width: 0,
+        height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     const overlaps = () => {
       const placed = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")]
-        .map((article) => ({ index: Number(article.getAttribute("aria-posinset")) - 1, top: Number(/translateY\(([-\d.]+)px\)/.exec(article.style.transform)?.[1]) }))
+        .map((article) => ({
+          index: Number(article.getAttribute("aria-posinset")) - 1,
+          top: Number(/translateY\(([-\d.]+)px\)/.exec(article.style.transform)?.[1]),
+        }))
         .sort((a, b) => a.index - b.index);
       const found: string[] = [];
       for (let position = 1; position < placed.length; position += 1) {
@@ -265,29 +477,56 @@ describe("acpmux measured rows", () => {
         const below = placed[position]!;
         if (below.index !== above.index + 1) continue;
         const bottom = above.top + drawn.get(conversation[above.index]!.id)!;
-        if (bottom > below.top + 0.5) found.push(`${conversation[above.index]!.id} ends at ${bottom}, ${conversation[below.index]!.id} starts at ${below.top}`);
+        if (bottom > below.top + 0.5)
+          found.push(
+            `${conversation[above.index]!.id} ends at ${bottom}, ${conversation[below.index]!.id} starts at ${below.top}`,
+          );
       }
       return found;
     };
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: conversation,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       expect(overlaps()).toEqual([]);
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       // Opened at the latest row, it stays there as the rows settle to their drawn heights.
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
       expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 600);
       for (const top of [0, 4000, 9000]) {
-        await act(async () => { scroller.scrollTop = top; scroller.dispatchEvent(new dom.window.Event("scroll")); });
+        await act(async () => {
+          scroller.scrollTop = top;
+          scroller.dispatchEvent(new dom.window.Event("scroll"));
+        });
         expect(overlaps()).toEqual([]);
       }
       // A row above the viewport that grows leaves the row at the viewport's top where it is.
-      const placed = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((article) => ({ article, index: Number(article.getAttribute("aria-posinset")) - 1, top: Number(/translateY\(([-\d.]+)px\)/.exec(article.style.transform)?.[1]) }));
-      const atTop = () => placed().filter((row) => row.top <= scroller.scrollTop).sort((a, b) => b.top - a.top)[0]!;
+      const placed = () =>
+        [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-row")].map((article) => ({
+          article,
+          index: Number(article.getAttribute("aria-posinset")) - 1,
+          top: Number(/translateY\(([-\d.]+)px\)/.exec(article.style.transform)?.[1]),
+        }));
+      const atTop = () =>
+        placed()
+          .filter((row) => row.top <= scroller.scrollTop)
+          .sort((a, b) => b.top - a.top)[0]!;
       const anchor = atTop();
       const offset = scroller.scrollTop - anchor.top;
-      const above = placed().filter((row) => row.index < anchor.index).sort((a, b) => a.index - b.index)[0]!;
+      const above = placed()
+        .filter((row) => row.index < anchor.index)
+        .sort((a, b) => a.index - b.index)[0]!;
       drawn.set(conversation[above.index]!.id, drawn.get(conversation[above.index]!.id)! + 100);
-      await act(async () => { for (const callback of resizeCallbacks) (callback as (entries: { target: Element }[]) => void)([{ target: above.article }]); });
+      await act(async () => {
+        for (const callback of resizeCallbacks)
+          (callback as (entries: { target: Element }[]) => void)([{ target: above.article }]);
+      });
       expect(atTop().index).toBe(anchor.index);
       expect(scroller.scrollTop - atTop().top).toBe(offset);
       expect(overlaps()).toEqual([]);
@@ -302,24 +541,49 @@ describe("acpmux measured rows", () => {
   test("a row's drawn height re-places the rows without measuring them again", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     let measures = 0;
-    const Plain = Object.assign(() => null, { measure: () => { measures += 1; return 50; } });
+    const Plain = Object.assign(() => null, {
+      measure: () => {
+        measures += 1;
+        return 50;
+      },
+    });
     const registry = { user: Plain, assistant: Plain } as never;
     const prototype = dom.window.HTMLElement.prototype;
     const original = prototype.getBoundingClientRect;
     let drawnHeight = 0;
     prototype.getBoundingClientRect = function (this: HTMLElement) {
-      const height = this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? drawnHeight : 0;
-      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+      const height =
+        this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? drawnHeight : 0;
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: height,
+        width: 0,
+        height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>(), registry })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>(), registry }),
+        ),
+      );
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
       const estimated = parseFloat(spacer.style.height);
       const afterOpen = measures;
       drawnHeight = 90;
       const latest = dom.window.document.querySelector<HTMLElement>('.acpmux-row[aria-posinset="200"]')!;
-      await act(async () => { for (const callback of resizeCallbacks) (callback as (entries: { target: Element }[]) => void)([{ target: latest }]); });
+      await act(async () => {
+        for (const callback of resizeCallbacks)
+          (callback as (entries: { target: Element }[]) => void)([{ target: latest }]);
+      });
       expect(parseFloat(spacer.style.height)).toBe(estimated + 40);
       expect(measures).toBe(afterOpen);
     } finally {
@@ -336,12 +600,18 @@ describe("acpmux measured rows", () => {
     const restore = fakeViewport(size);
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
       expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 600);
       size.height = 400;
-      await act(async () => { for (const callback of resizeCallbacks) callback(); });
+      await act(async () => {
+        for (const callback of resizeCallbacks) (callback as (entries: unknown[]) => void)([]);
+      });
       expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 400);
     } finally {
       await act(async () => root.unmount());
@@ -357,16 +627,36 @@ describe("acpmux measured rows", () => {
     const original = prototype.getBoundingClientRect;
     let lastHeight = 120;
     prototype.getBoundingClientRect = function (this: HTMLElement) {
-      const height = this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? lastHeight : 0;
-      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+      const height =
+        this.classList.contains("acpmux-row") && this.getAttribute("aria-posinset") === "200" ? lastHeight : 0;
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: height,
+        width: 0,
+        height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     const reportLatest = async () => {
       const latest = dom.window.document.querySelector<HTMLElement>('.acpmux-row[aria-posinset="200"]')!;
-      await act(async () => { for (const callback of resizeCallbacks) (callback as (entries: { target: Element }[]) => void)([{ target: latest }]); });
+      await act(async () => {
+        for (const callback of resizeCallbacks)
+          (callback as (entries: { target: Element }[]) => void)([{ target: latest }]);
+      });
     };
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
       await reportLatest();
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
@@ -389,19 +679,48 @@ describe("acpmux measured rows", () => {
   /// and the browser clamps the offset before the layout effect sees it.
   test("opened at the latest row, it stays there as rows draw shorter than estimated", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
-    const conversation: AcpmuxRow[] = Array.from({ length: 300 }, (_, index) => ({ id: `long-${index}`, version: 1, at: index, kind: "assistant", text: `${"word ".repeat(200)}${index}` }));
+    const conversation: AcpmuxRow[] = Array.from({ length: 300 }, (_, index) => ({
+      id: `long-${index}`,
+      version: 1,
+      at: index,
+      kind: "assistant",
+      text: `${"word ".repeat(200)}${index}`,
+    }));
     const prototype = dom.window.HTMLElement.prototype;
     const original = prototype.getBoundingClientRect;
     prototype.getBoundingClientRect = function (this: HTMLElement) {
       const height = this.classList.contains("acpmux-row") ? 40 : 0;
-      return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: height, width: 0, height, toJSON() { return {}; } } as DOMRect;
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: height,
+        width: 0,
+        height,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: conversation, onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: conversation,
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
       const spacer = dom.window.document.querySelector(".acpmux-spacer") as HTMLElement;
-      for (let frame = 0; frame < 3; frame += 1) await act(async () => { scroller.dispatchEvent(new dom.window.Event("scroll")); });
+      for (let frame = 0; frame < 3; frame += 1)
+        await act(async () => {
+          scroller.dispatchEvent(new dom.window.Event("scroll"));
+        });
       expect(scroller.scrollTop).toBe(parseFloat(spacer.style.height) - 600);
     } finally {
       await act(async () => root.unmount());
@@ -417,8 +736,14 @@ describe("acpmux renderer registry", () => {
     const host = dom.window as unknown as Window;
     let firstRenders = 0;
     let secondRenders = 0;
-    const FirstChips = () => { firstRenders += 1; return null; };
-    const SecondChips = () => { secondRenders += 1; return null; };
+    const FirstChips = () => {
+      firstRenders += 1;
+      return null;
+    };
+    const SecondChips = () => {
+      secondRenders += 1;
+      return null;
+    };
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
       await act(async () => host.cmuxAcpmuxRegistry!.register("composerChips", FirstChips as never));
@@ -447,15 +772,23 @@ describe("acpmux host handshake", () => {
     onmessage?: (message: { data: string }) => void;
     constructor(readonly url: URL) {
       FakeSocket.made.push(this);
-      queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
+      queueMicrotask(() => {
+        this.readyState = 1;
+        this.onopen?.();
+      });
     }
     send(raw: string) {
       const { id, method } = JSON.parse(raw) as { id: number; method: string };
       const result = method === "_acpmux/watch" ? { sessions: [] } : {};
       queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
     }
-    close() { this.readyState = 3; }
-    drop() { this.readyState = 3; this.onclose?.(); }
+    close() {
+      this.readyState = 3;
+    }
+    drop() {
+      this.readyState = 3;
+      this.onclose?.();
+    }
   }
 
   /// The model picker reads the catalog through TanStack Query and keeps the old one across a reconnect.
@@ -468,10 +801,13 @@ describe("acpmux host handshake", () => {
         const { id, method } = JSON.parse(raw) as { id: number; method: string };
         const models = CatalogSocket.catalogs[FakeSocket.made.indexOf(this)] ?? [];
         const result =
-          method === "_acpmux/watch" ? { sessions: [{ sessionId: "s" }] }
-          : method === "_acpmux/attach" ? { session: { sessionId: "s", harness: "codex", model: "m1" }, events: [] }
-          : method === "_acpmux/harnesses" ? { harnesses: [{ id: "codex", name: "Codex", models: models.map((model) => ({ id: model })) }] }
-          : {};
+          method === "_acpmux/watch"
+            ? { sessions: [{ sessionId: "s" }] }
+            : method === "_acpmux/attach"
+              ? { session: { sessionId: "s", harness: "codex", model: "m1" }, events: [] }
+              : method === "_acpmux/harnesses"
+                ? { harnesses: [{ id: "codex", name: "Codex", models: models.map((model) => ({ id: model })) }] }
+                : {};
         const reply = () => this.onmessage?.({ data: JSON.stringify({ id, result }) });
         if (method === "_acpmux/harnesses" && CatalogSocket.holdHarnesses) CatalogSocket.held.push(reply);
         else queueMicrotask(reply);
@@ -482,12 +818,37 @@ describe("acpmux host handshake", () => {
     const host = dom.window as unknown as Record<string, unknown>;
     const realSocket = globals.WebSocket;
     globals.WebSocket = CatalogSocket;
-    host.webkit = { messageHandlers: { agentSession: { postMessage(message: { method: string }) {
-      if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
-      return Promise.resolve({ ok: true, value: { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:4100/acp", token: "t", sessionId: "s" } });
-    } } } };
-    const models = () => [...dom.window.document.querySelectorAll(".acpmux-model option")].map((option) => option.getAttribute("value"));
-    const waitFor = async (done: () => boolean) => { for (let tries = 0; tries < 100 && !done(); tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 10))); };
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string }) {
+            if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                sessionId: "s",
+              },
+            });
+          },
+        },
+      },
+    };
+    // The picker lists its models while open; open it once it exists and read the menu.
+    const models = () => {
+      const button = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
+      if (button && button.getAttribute("aria-expanded") !== "true") button.click();
+      return [...dom.window.document.querySelectorAll(".acpmux-model [role=option]")].map((option) =>
+        option.getAttribute("data-value"),
+      );
+    };
+    const waitFor = async (done: () => boolean) => {
+      for (let tries = 0; tries < 100 && !done(); tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    };
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
       await waitFor(() => models().length > 0);
@@ -516,17 +877,33 @@ describe("acpmux host handshake", () => {
     const realSocket = globals.WebSocket;
     const asked: Record<string, unknown>[] = [];
     globals.WebSocket = FakeSocket;
-    host.webkit = { messageHandlers: { agentSession: { postMessage(message: { method: string; params: Record<string, unknown> }) {
-      if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
-      asked.push(message.params);
-      return Promise.resolve({ ok: true, value: { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:4100/acp", token: "t" } });
-    } } } };
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string; params: Record<string, unknown> }) {
+            if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            asked.push(message.params);
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+              },
+            });
+          },
+        },
+      },
+    };
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
-      for (let tries = 0; tries < 100 && FakeSocket.made.length === 0; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      for (let tries = 0; tries < 100 && FakeSocket.made.length === 0; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
       expect(asked).toEqual([{}]);
       await act(async () => FakeSocket.made[0]!.drop());
-      for (let tries = 0; tries < 100 && asked.length < 2; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+      for (let tries = 0; tries < 100 && asked.length < 2; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
       expect(asked[1]).toEqual({ reconnect: true });
     } finally {
       await act(async () => root.unmount());
@@ -542,14 +919,57 @@ describe("acpmux turn diff", () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window;
     const document = dom.window.document;
-    const diffRow: AcpmuxRow = { id: "activity-2", version: 1, at: 2, kind: "activity", toolCount: 2, items: [
-      { kind: "tool", text: "Edit main.ts", tool: { id: "t1", title: "Edit main.ts", kind: "edit", status: "completed", diffs: [{ path: "/repo/src/main.ts", oldText: "a\nb\nc\n", newText: "a\nB\nc\n" }] } },
-      { kind: "tool", text: "Write notes.md", tool: { id: "t2", title: "Write notes.md", kind: "edit", status: "completed", diffs: [{ path: "/repo/notes.md", newText: "hello\n" }] } },
-    ] };
-    const turn: AcpmuxRow[] = [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow, { id: "assistant-3", version: 1, at: 3, kind: "assistant", text: "done" }];
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 2,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit main.ts",
+          tool: {
+            id: "t1",
+            title: "Edit main.ts",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/main.ts", oldText: "a\nb\nc\n", newText: "a\nB\nc\n" }],
+          },
+        },
+        {
+          kind: "tool",
+          text: "Write notes.md",
+          tool: {
+            id: "t2",
+            title: "Write notes.md",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/notes.md", newText: "hello\n" }],
+          },
+        },
+      ],
+    };
+    const turn: AcpmuxRow[] = [
+      { id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" },
+      diffRow,
+      { id: "assistant-3", version: 1, at: 3, kind: "assistant", text: "done" },
+    ];
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
-      await act(async () => host.cmuxAcpmuxBridge!.receive({ type: "snapshot", protocolVersion: 1, rows: turn, sessions: [], connection: "connected", isWorking: false, queue: [], catalog: [], canLoadOlder: false }));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: turn,
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
       const review = [...document.querySelectorAll("button")].find((button) => button.textContent === "Review changes");
       expect(review).toBeDefined();
       (review as HTMLElement).focus();
@@ -558,10 +978,18 @@ describe("acpmux turn diff", () => {
       expect(panel.querySelector(".acpmux-diff-header strong")?.textContent).toBe("2 files changed");
       expect(document.activeElement?.getAttribute("aria-label")).toBe("Back to transcript");
       // Each edit is one Pierre diff with the pane's own file header, in turn order.
-      expect([...panel.querySelectorAll(".acpmux-diff-file")].map((node) => (node as HTMLElement).dataset.path)).toEqual(["/repo/src/main.ts", "/repo/notes.md"]);
-      expect([...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null)).toEqual([true, true]);
-      expect(panel.querySelector(".acpmux-diff-tree file-tree-container, .acpmux-diff-tree [class*=tree]")).not.toBeNull();
-      const split = [...panel.querySelectorAll(".acpmux-diff-layout button")].find((button) => button.textContent === "Split")!;
+      expect(
+        [...panel.querySelectorAll(".acpmux-diff-file")].map((node) => (node as HTMLElement).dataset.path),
+      ).toEqual(["/repo/src/main.ts", "/repo/notes.md"]);
+      expect(
+        [...panel.querySelectorAll(".acpmux-diff-file")].map((node) => node.querySelector("diffs-container") !== null),
+      ).toEqual([true, true]);
+      expect(
+        panel.querySelector(".acpmux-diff-tree file-tree-container, .acpmux-diff-tree [class*=tree]"),
+      ).not.toBeNull();
+      const split = [...panel.querySelectorAll(".acpmux-diff-layout button")].find(
+        (button) => button.textContent === "Split",
+      )!;
       await act(async () => split.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
       expect(split.getAttribute("aria-pressed")).toBe("true");
       const back = panel.querySelector('[aria-label="Back to transcript"]')!;
@@ -578,9 +1006,36 @@ describe("acpmux turn diff", () => {
   test("a file in the edited-files row opens the changes at that file", async () => {
     const opened: [string, string | undefined][] = [];
     const root = createRoot(dom.window.document.getElementById("root")!);
-    const row: AcpmuxRow = { id: "activity-1", version: 1, at: 1, kind: "activity", items: [{ kind: "tool", text: "Edit", tool: { id: "t1", title: "Edit", kind: "edit", status: "completed", diffs: [{ path: "/repo/a.ts", oldText: "1", newText: "2" }] } }] };
+    const row: AcpmuxRow = {
+      id: "activity-1",
+      version: 1,
+      at: 1,
+      kind: "activity",
+      items: [
+        {
+          kind: "tool",
+          text: "Edit",
+          tool: {
+            id: "t1",
+            title: "Edit",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/a.ts", oldText: "1", newText: "2" }],
+          },
+        },
+      ],
+    };
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: [row], onToggleActivity: () => {}, onOpenDiff: (rowId: string, path?: string) => opened.push([rowId, path]), expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [row],
+            onToggleActivity: () => {},
+            onOpenDiff: (rowId: string, path?: string) => opened.push([rowId, path]),
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       const file = dom.window.document.querySelector(".acpmux-edited-file")!;
       expect(file.textContent).toBe("a.ts");
       await act(async () => file.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
@@ -596,9 +1051,21 @@ describe("acpmux composer", () => {
   test("shows only the pickers that have choices, and Stop only while a turn runs", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window;
-    const snapshot = (isWorking: boolean) => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking, queue: [], canLoadOlder: false, catalog: [{ id: "codex", models: [{ id: "gpt", name: "GPT" }] }], summary: { harness: "codex", model: "gpt", modes: { availableModes: [], currentModeId: null } } });
+    const snapshot = (isWorking: boolean) => ({
+      type: "snapshot",
+      protocolVersion: 1,
+      rows: [],
+      sessions: [],
+      connection: "connected",
+      isWorking,
+      queue: [],
+      canLoadOlder: false,
+      catalog: [{ id: "codex", models: [{ id: "gpt", name: "GPT" }] }],
+      summary: { harness: "codex", model: "gpt", modes: { availableModes: [], currentModeId: null } },
+    });
     const composer = () => dom.window.document.querySelector(".acpmux-composer")!;
-    const buttons = () => Array.from(composer().querySelectorAll("button"), (button) => button.textContent);
+    const buttons = () =>
+      Array.from(composer().querySelectorAll(".acpmux-send"), (button) => button.getAttribute("aria-label"));
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
       await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(false) as never));
@@ -606,7 +1073,8 @@ describe("acpmux composer", () => {
       expect(composer().querySelector("[aria-label=Mode]")).toBeNull();
       expect(buttons()).toEqual(["Send"]);
       await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(true) as never));
-      expect(buttons()).toEqual(["Send", "Stop"]);
+      // Send turns into Stop while a turn runs and the prompt is empty.
+      expect(buttons()).toEqual(["Stop"]);
     } finally {
       await act(async () => root.unmount());
       delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
@@ -615,7 +1083,8 @@ describe("acpmux composer", () => {
 });
 
 describe("acpmux turn counts", () => {
-  /// The fold and the turn summary read "1 tool calls".
+  /// The fold and the turn summary read "1 tool calls". A finished turn folds its work under
+  /// one "Worked for" line that carries the count.
   test("one tool call is counted in the singular", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
@@ -625,9 +1094,17 @@ describe("acpmux turn counts", () => {
       { id: "s", version: 1, at: 3, kind: "turnSummary", durationMs: 3000, toolCount: 1 },
     ];
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: turn, onToggleActivity: () => {}, expanded: new Set<string>() })));
-      expect(dom.window.document.querySelector(".acpmux-activity-toggle")?.textContent).toBe("› Worked with 1 tool call");
-      expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("Worked for 3s · 1 tool call");
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(turn, new Set()),
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      expect(dom.window.document.querySelector(".cv-worked")?.textContent).toBe("Worked for 3s · 1 tool call");
+      expect(dom.window.document.querySelector(".cv-turn-summary")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       restore();
@@ -639,11 +1116,88 @@ describe("acpmux turn counts", () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "s", version: 1, at: 3, kind: "turnSummary", toolCount: 2 }], onToggleActivity: () => {}, expanded: new Set<string>() })));
-      expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("2 tool calls");
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [{ id: "s", version: 1, at: 3, kind: "turnSummary", toolCount: 2 }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      expect(dom.window.document.querySelector(".cv-turn-summary")?.textContent).toBe("2 tool calls");
     } finally {
       await act(async () => root.unmount());
       restore();
     }
+  });
+});
+
+describe("acpmux new chat", () => {
+  /// A new chat drew an empty transcript; it now names the project, as Codex's home and new-chat screens do.
+  test("an attached session with no turns shows the hero with its folder; rows, turns, a queued prompt, a lost daemon or a missing summary hide it", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const snapshot = ({
+      rows = [] as unknown[],
+      connection = "connected",
+      cwd = "/Users/me/harness-research/" as string | undefined,
+      turnCount = 0 as number | null,
+      summary = true,
+      queue = [] as { id: string; prompt: string }[],
+      canLoadOlder = true,
+    } = {}) => ({
+      type: "snapshot",
+      protocolVersion: 1,
+      rows,
+      sessions: [],
+      connection,
+      sessionId: "s",
+      isWorking: false,
+      queue,
+      canLoadOlder,
+      catalog: [],
+      summary: summary ? { sessionId: "s", cwd, turnCount: turnCount ?? undefined } : undefined,
+    });
+    const hero = () => dom.window.document.querySelector(".acpmux-empty-title")?.textContent;
+    const show = async (value: ReturnType<typeof snapshot>) =>
+      act(async () => host.cmuxAcpmuxBridge!.receive(value as never));
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await show(snapshot({ connection: "connecting: connection refused" }));
+      expect(hero()).toBeUndefined();
+      await show(snapshot());
+      expect(hero()).toBe("What should we build in harness-research?");
+      expect(dom.window.document.querySelector(".acpmux-scroll")).toBeNull();
+      await show(snapshot({ cwd: "/Users/me" }));
+      expect(hero()).toBe("What should we build?");
+      // Between a session's reset and its attach there is no summary yet.
+      await show(snapshot({ summary: false }));
+      expect(hero()).toBeUndefined();
+      await show(snapshot({ turnCount: 2 }));
+      expect(hero()).toBeUndefined();
+      // A prompt waiting to start is not an empty chat.
+      await show(snapshot({ queue: [{ id: "p1", prompt: "first" }] }));
+      expect(hero()).toBeUndefined();
+      // A daemon that doesn't count turns (null here): older history means an old session.
+      await show(snapshot({ turnCount: null }));
+      expect(hero()).toBeUndefined();
+      await show(snapshot({ turnCount: null, canLoadOlder: false }));
+      expect(hero()).toBe("What should we build in harness-research?");
+      await show(snapshot({ rows: [{ id: "u1", version: 1, at: 1, kind: "user", text: "hi" }] }));
+      expect(hero()).toBeUndefined();
+      expect(dom.window.document.querySelector(".acpmux-scroll")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  test("the folder is the sidebar's project label, without the home folder or the root", async () => {
+    const { projectName } = await import("./EmptyState");
+    expect(projectName("/Users/me/cmux")).toBe("cmux");
+    expect(projectName("/Users/me/cmux//")).toBe("cmux");
+    expect(projectName("/Users/me")).toBeUndefined();
+    expect(projectName("/")).toBeUndefined();
+    expect(projectName(undefined)).toBeUndefined();
   });
 });

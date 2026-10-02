@@ -88,8 +88,27 @@ public final class DaemonStore {
     @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
     @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     @ObservationIgnored var agentsBySurface: [SurfaceID: AgentStatus] = [:]
-    /// Optimistic patches in application order, dropped on echo or rejection.
+    /// Legacy optimistic patches in application order, dropped on echo or
+    /// rejection (DaemonStore+Optimistic.swift; migrating to `intentLog`).
     @ObservationIgnored var pendingPatches: [PendingPatch] = []
+    /// Pending typed intents shown on top of the confirmed mirror
+    /// (DaemonStore+Intents.swift).
+    @ObservationIgnored var intentLog = IntentLog()
+    /// True while daemon state applies to the confirmed records (the
+    /// intent overlay is undone).
+    @ObservationIgnored var overlayLifted = false
+    /// Called once per intent when it leaves the log, on the main actor,
+    /// after the visible state is complete again.
+    @ObservationIgnored public var onIntentSettled: ((ClientTransactionID, IntentSettlement) -> Void)?
+    /// Settlements of the current lift, reported when it ends.
+    @ObservationIgnored var intentSettlements: [(ClientTransactionID, IntentSettlement)] = []
+    /// Mirror single-writer violations found by the debug-build check
+    /// (DaemonStore+MirrorCheck.swift), newest last (bounded).
+    @ObservationIgnored public internal(set) var mirrorViolations: [String] = []
+    /// Called on the main actor for each new mirror violation.
+    @ObservationIgnored public var onMirrorViolation: ((String) -> Void)?
+    /// The layout as the last allowed writer left it (debug builds).
+    @ObservationIgnored var mirrorFingerprint: Int?
     /// Events at or below this sequence are superseded by the last snapshot.
     @ObservationIgnored var snapshotBarrier: UInt64 = 0
     /// Set while `run(connection:scheduler:)` drives the store.
@@ -138,18 +157,23 @@ public final class DaemonStore {
 
     // MARK: Snapshot
 
-    /// Replaces the tree, reusing records by durable identity, then reapplies
-    /// optimistic patches still waiting for their echo.
+    /// Replaces the confirmed tree, reusing records by durable identity,
+    /// then shows the pending intents and legacy patches on it again.
     public func apply(snapshot tree: DaemonTree) {
-        applyTree(tree)
-        if isProvisional { isProvisional = false }
-        if !isLoaded { isLoaded = true }
-        if restoredEpoch != connectionEpoch {
-            restoredEpoch = connectionEpoch
-            restoredTabIDs = currentTabIDs
+        withOverlayLifted(snapshot: true) {
+            applyTree(tree)
+            if isProvisional { isProvisional = false }
+            if !isLoaded {
+                isLoaded = true
+                DaemonLaunchTimings.shared.mark("daemon.first_tree_applied")
+            }
+            if restoredEpoch != connectionEpoch {
+                restoredEpoch = connectionEpoch
+                restoredTabIDs = currentTabIDs
+            }
+            structureChanged()
+            reapplyPendingPatches()
         }
-        structureChanged()
-        reapplyPendingPatches()
         workspaceListMayHaveChanged()
         runAppliedWaiters(nil, snapshot: true)
     }
@@ -163,11 +187,13 @@ public final class DaemonStore {
     /// applied.
     public func applyProvisional(snapshot tree: DaemonTree) {
         guard !isLoaded else { return }
-        applyTree(tree)
-        isProvisional = true
-        // Launch snapshot tabs are restored tabs (pages made from them reload).
-        restoredTabIDs = currentTabIDs
-        structureChanged()
+        withOverlayLifted {
+            applyTree(tree)
+            isProvisional = true
+            // Launch snapshot tabs are restored tabs (pages made from them reload).
+            restoredTabIDs = currentTabIDs
+            structureChanged()
+        }
     }
 
     private var currentTabIDs: Set<String> {

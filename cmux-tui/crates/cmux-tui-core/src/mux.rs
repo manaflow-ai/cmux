@@ -16795,10 +16795,17 @@ impl Mux {
         // the runtime terminal emulator is alive: after a daemon restart the
         // in-memory VT is gone, so reconciliation degrades a kept-exited
         // terminal to the normal detach below.
-        let keep_live_views = terminal.on_exit == TerminalOnExit::Keep
-            && public_terminal_id
-                .as_ref()
-                .is_some_and(|public_id| state.terminal_catalog.contains_key(public_id));
+        // Tabs the workspace store keeps (`kept_tabs`, keep-layout) stay
+        // regardless of the runtime: a host's exit never removes them.
+        let kept_by_store = match public_terminal_id.as_ref() {
+            Some(public_id) => Self::terminal_tabs_kept_locked(&registry, &state, public_id)?,
+            None => false,
+        };
+        let keep_live_views = kept_by_store
+            || (terminal.on_exit == TerminalOnExit::Keep
+                && public_terminal_id
+                    .as_ref()
+                    .is_some_and(|public_id| state.terminal_catalog.contains_key(public_id)));
         let detach_projection = if matches!(
             terminal.lifecycle,
             TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned

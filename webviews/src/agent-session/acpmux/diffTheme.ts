@@ -44,37 +44,92 @@ export const diffColors = {
   separator: `var(--agent-control, ${codex.separator})`,
 } as const;
 
-/// Syntax colors for Shiki. Shiki needs literal colors; the background is transparent so
-/// the themed background shows through.
-const theme = {
-  name: AGENT_DIFF_THEME,
-  type: "dark",
-  colors: { "editor.background": "#00000000", "editor.foreground": codex.fg },
-  fg: codex.fg,
-  bg: "#00000000",
-  tokenColors: [
-    { settings: { foreground: codex.fg } },
-    { scope: ["markup.heading", "entity.name.section.markdown", "punctuation.definition.heading.markdown"], settings: { foreground: codex.heading, fontStyle: "bold" } },
-    { scope: ["markup.inline.raw", "markup.inline.raw.string.markdown"], settings: { foreground: codex.inlineCode } },
-    { scope: ["markup.underline.link", "string.other.link.title.markdown"], settings: { foreground: codex.link } },
-    { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: codex.comment } },
-    { scope: ["string", "string.quoted"], settings: { foreground: codex.string } },
-    { scope: ["keyword", "storage", "keyword.control"], settings: { foreground: codex.link } },
-    { scope: ["variable.other", "variable.parameter"], settings: { foreground: codex.inlineCode } },
-    { scope: ["constant.numeric", "constant.language"], settings: { foreground: codex.inlineCode } },
-    { scope: ["support.function", "entity.name.function"], settings: { foreground: codex.heading } },
-  ],
-};
+/// Syntax colors for Shiki: the terminal's ANSI colors where the host sends them
+/// (`--agent-ansi-N`, set by applyAgentTheme), Codex's otherwise. Shiki writes each color
+/// into the token's inline style, so a CSS variable resolves against the page's theme.
+/// The background is transparent so the themed background shows through.
+type Syntax = Record<
+  "fg" | "keyword" | "fn" | "string" | "number" | "comment" | "added" | "removed" | "heading" | "link",
+  string
+>;
+const syntax = (fallback: Syntax): Syntax => ({
+  fg: `var(--agent-text, ${fallback.fg})`,
+  keyword: `var(--agent-ansi-5, ${fallback.keyword})`,
+  fn: `var(--agent-ansi-4, ${fallback.fn})`,
+  string: `var(--agent-ansi-2, ${fallback.string})`,
+  number: `var(--agent-ansi-3, ${fallback.number})`,
+  comment: `var(--agent-soft, ${fallback.comment})`,
+  added: `var(--agent-ansi-2, ${fallback.added})`,
+  removed: `var(--agent-ansi-1, ${fallback.removed})`,
+  heading: `var(--agent-ansi-4, ${fallback.heading})`,
+  link: `var(--agent-ansi-5, ${fallback.link})`,
+});
 
-/// The same scopes in darker colors for a light pane.
-const light = {
-  ...theme,
-  name: AGENT_DIFF_THEME_LIGHT,
-  type: "light",
-  colors: { "editor.background": "#00000000", "editor.foreground": "#24292f" },
-  fg: "#24292f",
-  tokenColors: theme.tokenColors.map((rule) => ({ ...rule, settings: { ...rule.settings, foreground: ({ [codex.fg]: "#24292f", [codex.heading]: "#3f7d0f", [codex.inlineCode]: "#b35900", [codex.link]: "#6f42c1", [codex.comment]: "#6e7781", [codex.string]: "#0a6b52" } as Record<string, string>)[rule.settings.foreground] ?? rule.settings.foreground } })),
-};
+function shikiTheme(name: string, type: "dark" | "light", fallbackFg: string, color: Syntax) {
+  return {
+    name,
+    type,
+    colors: { "editor.background": "#00000000", "editor.foreground": fallbackFg },
+    fg: fallbackFg,
+    bg: "#00000000",
+    tokenColors: [
+      { settings: { foreground: color.fg } },
+      {
+        scope: ["markup.heading", "entity.name.section.markdown", "punctuation.definition.heading.markdown"],
+        settings: { foreground: color.heading, fontStyle: "bold" },
+      },
+      { scope: ["markup.inline.raw", "markup.inline.raw.string.markdown"], settings: { foreground: color.number } },
+      { scope: ["markup.underline.link", "string.other.link.title.markdown"], settings: { foreground: color.link } },
+      { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: color.comment } },
+      { scope: ["string", "string.quoted"], settings: { foreground: color.string } },
+      { scope: ["keyword", "storage", "keyword.control"], settings: { foreground: color.keyword } },
+      { scope: ["variable.other", "variable.parameter"], settings: { foreground: color.number } },
+      { scope: ["constant.numeric", "constant.language"], settings: { foreground: color.number } },
+      { scope: ["support.function", "entity.name.function"], settings: { foreground: color.fn } },
+      { scope: ["markup.inserted", "punctuation.definition.inserted"], settings: { foreground: color.added } },
+      { scope: ["markup.deleted", "punctuation.definition.deleted"], settings: { foreground: color.removed } },
+    ],
+  };
+}
+
+const theme = shikiTheme(
+  AGENT_DIFF_THEME,
+  "dark",
+  codex.fg,
+  syntax({
+    fg: codex.fg,
+    keyword: codex.link,
+    fn: codex.heading,
+    string: codex.string,
+    number: codex.inlineCode,
+    comment: codex.comment,
+    added: codex.addition,
+    removed: codex.deletion,
+    heading: codex.heading,
+    link: codex.link,
+  }),
+);
+/// The same scopes in darker fallbacks for a light pane.
+const light = shikiTheme(
+  AGENT_DIFF_THEME_LIGHT,
+  "light",
+  "#24292f",
+  syntax({
+    fg: "#24292f",
+    keyword: "#6f42c1",
+    fn: "#3f7d0f",
+    string: "#0a6b52",
+    number: "#b35900",
+    comment: "#6e7781",
+    added: "#1a7f37",
+    removed: "#cf222e",
+    heading: "#3f7d0f",
+    link: "#6f42c1",
+  }),
+);
+
+/// The two syntax themes, for tests.
+export const syntaxThemes = { dark: theme, light };
 
 let registered = false;
 export function registerAgentDiffTheme() {

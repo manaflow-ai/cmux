@@ -20,3 +20,15 @@ To iterate on the real pane inside a running cmux-next with hot reload:
 4. Before committing, rebuild the shipped page with `./scripts/cmux-next/build-agent-pane-web.sh`; CI runs it with `--check`.
 
 Only Debug and tagged builds read the variable; Release always loads the bundled page. The URL must be `http` on `127.0.0.1` or `localhost` with an explicit port, and anything else falls back to the bundled page. The pane only trusts that exact origin, but whatever process listens on that port receives the daemon token, so point it only at your own dev server. The dev page's CSP (`index.html`) allows same-origin scripts for Vite; the bundled page keeps its inline-only CSP.
+
+## Comparing against Codex
+
+`bun run compare:agent-pane [scenario]` renders the pane in a headless Chromium with the bridge stubbed to mock mode, replays a recorded turn (`scripts/agent-pane/<scenario fixture>.json`) through the in-page daemon and the production client, applies the default dark terminal theme the way Swift does (`scripts/agent-pane/theme.mjs`), and scores the transcript against a native Codex capture with pixelmatch, as codex-atlas-clone's `compare-region.mjs` does. It prints the mismatch and writes `$TMPDIR/cmux-agent-pane-compare/<scenario>/{ref,actual,diff,side}.png` (or `--out DIR`). The captures live in the private codex-atlas-clone checkout: pass `--atlas DIR` or set `CMUX_AGENT_PANE_ATLAS` (default `~/Projects/codex-atlas-clone`). Scenarios, with the reference's content rectangle and scroll anchor, are listed in `scripts/agent-pane/compare.mjs`.
+
+For showcase captures rather than scores, `worked-turn` has no reference: it replays a coding turn with every transcript part (the "Worked for" fold, tool rows with output, two edits, a code block and the edited-files card) and writes `actual.png`. Captures go on Catppuccin Mocha so they show the transcript follows the terminal theme:
+
+```sh
+bun run compare:agent-pane worked-turn --theme "Catppuccin Mocha" --open
+```
+
+`--theme NAME` reads a Ghostty theme from `Resources/ghostty/themes`, `--anchor TEXT` scrolls to other text, and `--open` opens the turn's fold. Code blocks color their syntax from the theme's ANSI colors (`palette`, as `--agent-ansi-0` to `--agent-ansi-15`), falling back to Codex's colors when a host sends none.
