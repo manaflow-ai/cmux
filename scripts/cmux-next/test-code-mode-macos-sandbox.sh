@@ -74,7 +74,7 @@ fi
 # Use an existing host-home file outside the allowlist, so a missing file cannot
 # make the denial assertion pass accidentally.
 env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-  HOME="$tmp/host-home" TMPDIR="$tmp/run" \
+  HOME="$tmp/run" TMPDIR="$tmp/run" \
   SMOKE_SOCKET="$proxy_socket" SMOKE_DENIED="$tmp/host-home/secret" \
   "$sandbox_exec" -f "$profile" "$bun" "$script"
 
