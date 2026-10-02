@@ -205,6 +205,76 @@ pub(super) fn watch_app_events(
     Ok(())
 }
 
+/// The browser host's listener (`cmux-browser-host`'s `default_socket_path`):
+/// `CMUX_BROWSER_HOST_SOCKET`, else `$XDG_RUNTIME_DIR/cmux/browser-host.sock`,
+/// else `$TMPDIR/cmux-<uid>/browser-host.sock`.
+pub(super) fn browser_host_socket() -> std::path::PathBuf {
+    let env = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
+    if let Some(path) = env("CMUX_BROWSER_HOST_SOCKET") {
+        return path.into();
+    }
+    let base = match env("XDG_RUNTIME_DIR") {
+        Some(dir) => std::path::PathBuf::from(dir).join("cmux"),
+        // SAFETY: getuid(2) has no failure modes or memory effects.
+        None => std::env::temp_dir().join(format!("cmux-{}", unsafe { libc::getuid() })),
+    };
+    base.join("browser-host.sock")
+}
+
+/// One request to the browser host: `{id, method, params, origin: "mcp"}`
+/// as one JSON line, answered by `{id, result}` or `{id, error}`. The host
+/// runs each request at most once, so a lost answer to a change is
+/// `in_progress`, never retried here.
+pub(super) fn browser_host(
+    method: &str,
+    params: Value,
+    timeout: Duration,
+    mutation: bool,
+) -> Result<Value, CallFailure> {
+    use std::io::Write;
+    let socket = browser_host_socket();
+    let mut stream = std::os::unix::net::UnixStream::connect(&socket).map_err(|error| {
+        CallFailure::local(
+            FailureKind::NotRun,
+            "browser_host.unavailable",
+            format!(
+                "no browser host listens on {} ({error}); start it with `cmux-browser-host serve`",
+                socket.display()
+            ),
+        )
+    })?;
+    let id = wire::random_request_id()
+        .map_err(|error| CallFailure::local(FailureKind::NotRun, "usage.invalid", error.0))?;
+    let request = json!({"id": id, "method": method, "params": params, "origin": "mcp"});
+    let mut line = serde_json::to_vec(&request).expect("JSON values serialize");
+    line.push(b'\n');
+    let sent = if mutation { FailureKind::InProgress } else { FailureKind::NotRun };
+    let lost = |message: String| CallFailure::local(sent, "transport.failed", message);
+    stream.write_all(&line).map_err(|error| lost(format!("transport error: {error}")))?;
+    stream.set_read_timeout(Some(timeout)).map_err(|error| lost(error.to_string()))?;
+    let mut reader = BufReader::new(stream);
+    loop {
+        let mut answer = String::new();
+        match reader.read_line(&mut answer) {
+            Ok(0) => return Err(lost("the browser host closed the connection".into())),
+            Ok(_) => {}
+            Err(error) => return Err(lost(format!("no answer from the browser host: {error}"))),
+        }
+        let Ok(reply) = serde_json::from_str::<Value>(&answer) else { continue };
+        if reply["id"] != json!(id) {
+            continue;
+        }
+        if let Some(error) = reply.get("error").filter(|error| !error.is_null()) {
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: error.clone(),
+                idempotency_key: None,
+            });
+        }
+        return Ok(reply.get("result").cloned().unwrap_or(Value::Null));
+    }
+}
+
 /// `ws_1a2b`: fewer than 32 lowercase hex digits after the prefix, so not a
 /// whole id but a unique prefix of one.
 pub(super) fn is_partial_id(value: &str, prefix: &str) -> bool {
