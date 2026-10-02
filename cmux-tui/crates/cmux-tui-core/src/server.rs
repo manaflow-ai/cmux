@@ -95,6 +95,7 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod browser_profiles;
+mod conversations;
 mod launch_snapshot;
 mod personal;
 pub use launch_snapshot::{
@@ -237,6 +238,10 @@ pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// `list-personal` and the `*-browser-profile` commands
 /// (plans/cmux-next/data-model.md section 5).
 pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
+/// The local conversation owner (plans/cmux-next/home.md section 2): the
+/// `conversation-*` commands and the `conversation-changed` and
+/// `conversation-typing` events, on trusted local connections only.
+pub const LOCAL_CONVERSATIONS_CAPABILITY: &str = "local-conversations-v1";
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
 /// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
 /// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
@@ -395,6 +400,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         PROFILES_CAPABILITY,
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
+        LOCAL_CONVERSATIONS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
@@ -2039,6 +2045,43 @@ enum Command {
     /// room defaults that name it.
     DeleteBrowserProfile {
         browser_profile: String,
+    },
+    /// Every local conversation, newest `updated_at` first
+    /// (`local-conversations-v1`, plans/cmux-next/home.md section 2).
+    ConversationList,
+    /// Create a local conversation. A retry with the same `idempotency_key`
+    /// and request returns the conversation it created.
+    ConversationCreate {
+        idempotency_key: String,
+        actor: String,
+        title: String,
+        participants: Value,
+    },
+    /// A conversation's summary and its last `tail` (1-500) messages.
+    ConversationSnapshot {
+        conversation: String,
+        tail: u32,
+    },
+    /// Up to `limit` (1-500) messages with seq below `before_seq`.
+    ConversationHistory {
+        conversation: String,
+        before_seq: u64,
+        limit: u32,
+    },
+    /// Apply one conversation op under a client idempotency key.
+    ConversationOp {
+        conversation: String,
+        idempotency_key: String,
+        actor: String,
+        #[serde(default)]
+        transaction: Option<String>,
+        op: Value,
+    },
+    /// Broadcast a typing indicator. Never stored.
+    ConversationTyping {
+        conversation: String,
+        actor: String,
+        on: bool,
     },
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
@@ -11095,6 +11138,11 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| {
             error.downcast_ref::<ViewportWidthError>().map(|error| error.code().to_string())
         })
+        .or_else(|| {
+            error
+                .downcast_ref::<crate::conversation_store::ConversationRejected>()
+                .map(|_| crate::conversation_store::ConversationRejected::CODE.to_string())
+        })
 }
 
 /// Answers a request line that did not decode into a command. The reply
@@ -15051,6 +15099,42 @@ fn handle_command_with_cancellation(
         Command::DeleteBrowserProfile { browser_profile } => {
             browser_profiles::delete(mux, &browser_profile)
         }
+        Command::ConversationList => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("local conversations require a trusted local connection");
+            }
+            conversations::list(mux)
+        }
+        Command::ConversationCreate { idempotency_key, actor, title, participants } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("local conversations require a trusted local connection");
+            }
+            conversations::create(mux, &idempotency_key, &actor, &title, participants)
+        }
+        Command::ConversationSnapshot { conversation, tail } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("local conversations require a trusted local connection");
+            }
+            conversations::snapshot(mux, &conversation, tail)
+        }
+        Command::ConversationHistory { conversation, before_seq, limit } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("local conversations require a trusted local connection");
+            }
+            conversations::history(mux, &conversation, before_seq, limit)
+        }
+        Command::ConversationOp { conversation, idempotency_key, actor, transaction, op } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("local conversations require a trusted local connection");
+            }
+            conversations::op(mux, &conversation, &idempotency_key, &actor, transaction, op)
+        }
+        Command::ConversationTyping { conversation, actor, on } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("local conversations require a trusted local connection");
+            }
+            conversations::typing(mux, &conversation, &actor, on)
+        }
         Command::CreateProfile {
             name,
             profile,
@@ -15754,6 +15838,14 @@ fn handle_command_with_cancellation(
                     };
                     let value = match &event {
                         MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
+                            if !trusted_pairing_client =>
+                        {
+                            continue;
+                        }
+                        // Local conversations are served to trusted local
+                        // connections only (`local-conversations-v1`).
+                        MuxEvent::ConversationChanged { .. }
+                        | MuxEvent::ConversationTyping { .. }
                             if !trusted_pairing_client =>
                         {
                             continue;
@@ -16490,6 +16582,19 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "personal-changed",
             "personal_revision": personal_revision,
         }),
+        MuxEvent::ConversationChanged { conversation, rev, transaction, change } => json!({
+            "event": "conversation-changed",
+            "conversation": conversation,
+            "rev": rev,
+            "transaction": transaction.as_deref(),
+            "change": &**change,
+        }),
+        MuxEvent::ConversationTyping { conversation, participant, on } => json!({
+            "event": "conversation-typing",
+            "conversation": conversation,
+            "participant": participant,
+            "on": on,
+        }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",
             "registry_id":registry_id,
@@ -16579,6 +16684,10 @@ mod personal_terminal_tests;
 #[cfg(test)]
 #[path = "server/browser_profile_tests.rs"]
 mod browser_profile_tests;
+
+#[cfg(test)]
+#[path = "server/conversation_tests.rs"]
+mod conversation_tests;
 
 #[cfg(test)]
 mod tests {

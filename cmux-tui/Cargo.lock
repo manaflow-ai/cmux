@@ -658,6 +658,14 @@ name = "cmux-cloud-cli"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-conversation"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-pty"
 version = "0.1.0"
 dependencies = [
@@ -844,6 +852,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-conversation",
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-tui-cdp",

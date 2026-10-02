@@ -15789,6 +15789,10 @@ impl App {
                 self.refresh_size_state_label(surface);
                 Ok(RenderAction::Draw)
             }
+            // The TUI does not render local conversations.
+            AppEvent::Mux(
+                MuxEvent::ConversationChanged { .. } | MuxEvent::ConversationTyping { .. },
+            ) => Ok(RenderAction::None),
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::BrowserResizeFailed(failure) => {
                 self.status_message =

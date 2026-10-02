@@ -1,6 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod conversations;
 mod host_close;
 mod idle_close;
 mod personal;
@@ -975,6 +976,22 @@ pub enum MuxEvent {
     /// and order; `profiles-v1`) changed. Consumers refetch `list-personal`.
     PersonalChanged {
         personal_revision: u64,
+    },
+    /// A local conversation committed an op (`local-conversations-v1`,
+    /// plans/cmux-next/home.md section 2). `rev` increases by exactly one per
+    /// committed op; `change` is the wire change object.
+    ConversationChanged {
+        conversation: String,
+        rev: u64,
+        transaction: Option<Arc<str>>,
+        change: Arc<serde_json::Value>,
+    },
+    /// A conversation participant started or stopped typing. Ephemeral:
+    /// never stored and never replayed.
+    ConversationTyping {
+        conversation: String,
+        participant: String,
+        on: bool,
     },
     /// A durable terminal-registry mutation committed. Consumers use this as
     /// a barrier, then fetch `terminal-events` or a fresh snapshot.
@@ -2594,6 +2611,15 @@ pub struct Mux {
     /// per-client memory; they never move the live shared focus, so other
     /// attached clients stay where they are.
     last_reported_focus: Mutex<Option<(PaneId, Option<usize>)>>,
+    /// The local conversation owner's store (`local-conversations-v1`,
+    /// plans/cmux-next/home.md section 1), opened on first use. It is its
+    /// own owner next to the workspace registry with its own file. Lock
+    /// order: `conversation_publish`, then this, then the registry.
+    conversations: Mutex<Option<crate::conversation_store::ConversationStore>>,
+    /// Held across one conversation write and the event it publishes, so
+    /// subscribers see `conversation-changed` in commit order. Never held by
+    /// reads.
+    conversation_publish: Mutex<()>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -3044,6 +3070,8 @@ impl Mux {
             client_sizing: Mutex::new(ClientSizingState::default()),
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
+            conversations: Mutex::new(None),
+            conversation_publish: Mutex::new(()),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]

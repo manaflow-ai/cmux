@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 775c143e40049003fdc122b643a0f7d56fee06b3e9c46dff2d40bf7fc9767faa.
+// cmux-tui mux protocol 12, IR 68e6930dfeadd77d00fdeb55a97355f9006f2e707687a36f40fa3e91e2af34e8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -429,6 +429,72 @@ pub struct CloseWorkspaceRequest {
 
 #[rustfmt::skip]
 pub type CloseWorkspaceResult = T::WorkspaceMutationResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationCreateRequest {
+    pub actor: String,
+    pub idempotency_key: String,
+    pub participants: Nullable<T::JsonValue>,
+    pub title: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationCreateResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationHistoryRequest {
+    pub before_seq: u64,
+    pub conversation: String,
+    pub limit: u32,
+}
+
+#[rustfmt::skip]
+pub type ConversationHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationListRequest {
+}
+
+#[rustfmt::skip]
+pub type ConversationListResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationOpRequest {
+    pub actor: String,
+    pub conversation: String,
+    pub idempotency_key: String,
+    pub op: Nullable<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type ConversationOpResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSnapshotRequest {
+    pub conversation: String,
+    pub tail: u32,
+}
+
+#[rustfmt::skip]
+pub type ConversationSnapshotResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationTypingRequest {
+    pub actor: String,
+    pub conversation: String,
+    pub on: bool,
+}
+
+#[rustfmt::skip]
+pub type ConversationTypingResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2662,6 +2728,30 @@ impl CmuxClient {
             self.require_protocol_field("close-workspace", 7)?;
         }
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn conversation_create(&mut self, request: ConversationCreateRequest) -> Result<ConversationCreateResult> {
+        self.execute(&CONVERSATION_CREATE_METADATA, &request)
+    }
+
+    pub fn conversation_history(&mut self, request: ConversationHistoryRequest) -> Result<ConversationHistoryResult> {
+        self.execute(&CONVERSATION_HISTORY_METADATA, &request)
+    }
+
+    pub fn conversation_list(&mut self, request: ConversationListRequest) -> Result<ConversationListResult> {
+        self.execute(&CONVERSATION_LIST_METADATA, &request)
+    }
+
+    pub fn conversation_op(&mut self, request: ConversationOpRequest) -> Result<ConversationOpResult> {
+        self.execute(&CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn conversation_snapshot(&mut self, request: ConversationSnapshotRequest) -> Result<ConversationSnapshotResult> {
+        self.execute(&CONVERSATION_SNAPSHOT_METADATA, &request)
+    }
+
+    pub fn conversation_typing(&mut self, request: ConversationTypingRequest) -> Result<ConversationTypingResult> {
+        self.execute(&CONVERSATION_TYPING_METADATA, &request)
     }
 
     pub fn copy(&mut self, request: CopyRequest) -> Result<T::CopyResult> {
