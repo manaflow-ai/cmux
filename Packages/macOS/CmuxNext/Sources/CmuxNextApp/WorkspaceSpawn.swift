@@ -34,8 +34,8 @@ struct WorkspaceSpawn: Sendable {
     }
 
     /// A workspace opened in `directory` (the Finder service "New cmux
-    /// Workspace Here").
-    init(opening directory: String) {
+    /// Workspace Here"); nil starts in the default directory.
+    init(opening directory: String?) {
         self.init(cwd: directory)
     }
 
