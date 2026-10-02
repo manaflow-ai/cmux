@@ -1,12 +1,15 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link } from "../../../i18n/navigation";
+import { fallbackContentLocales } from "../../../i18n/locale-availability";
 import posthog from "posthog-js";
 import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
+import { ContentLocaleLink } from "./content-locale-link";
 
 export function NavLinks() {
   const t = useTranslations("nav");
+  const locale = useLocale();
   return (
     <>
       <Link
@@ -34,15 +37,17 @@ export function NavLinks() {
         {t("community")}
       </Link>
       <ProUpgradeVisibility>
-        <Link
+        <ContentLocaleLink
           href="/pricing"
+          currentLocale={locale}
+          contentLocales={fallbackContentLocales}
           onClick={() =>
             posthog.capture("cmuxterm_pricing_nav_clicked", { location: "nav" })
           }
           className="hover:text-foreground transition-colors"
         >
           {t("pricing")}
-        </Link>
+        </ContentLocaleLink>
       </ProUpgradeVisibility>
       <a
         href="https://github.com/manaflow-ai/cmux"

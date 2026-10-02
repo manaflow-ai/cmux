@@ -9,10 +9,11 @@ build is no longer an opaque timestamp on install or auto-update.
 
 TestFlight shows each build as `MARKETING_VERSION (CURRENT_PROJECT_VERSION)`, for
 example `1.0.3 (20260613120501)`. `MARKETING_VERSION` is the human version
-(`ios/Config/Shared.xcconfig`, semver `X.Y.Z`); the number in parens is the build
-id, a 14-digit UTC timestamp stamped at upload time (unique and monotonic, but not
-meant to be read). Testers should track the marketing version; the timestamp only
-distinguishes rapid internal iterations of the same version.
+(`CMUX_IOS_BETA_MARKETING_VERSION` in `ios/Config/Shared.xcconfig`, semver
+`X.Y.Z`); the number in parens is the build id, a 14-digit UTC timestamp stamped
+at upload time (unique and monotonic, but not meant to be read). Testers should
+track the marketing version; the timestamp only distinguishes rapid internal
+iterations of the same version.
 
 Two audiences, two notes per entry:
 
@@ -35,10 +36,44 @@ sheet on first launch after an update, sourced from the External block. Spec in
 Keep entries short. No fluff, no AI rhetorical patterns, no em dashes (repo rule).
 Newest version on top.
 
-The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
-`ios/Config/Shared.xcconfig`. `upload-testflight.sh` enforces this before upload
-(it refuses to attach notes for a different version), so bump the version with
+The top entry's version MUST equal the checked-in
+`CMUX_IOS_BETA_MARKETING_VERSION` in `ios/Config/Shared.xcconfig`.
+`upload-testflight.sh` enforces this before upload (it refuses to attach notes
+for a different version), so bump the beta version with
 `ios/scripts/bump-ios-version.sh` in the SAME change that adds the top entry.
+
+## [1.0.6] - 2026-09-23
+
+### Internal
+
+- Require Mac 0.64.25 or NIGHTLY 0.64.25-nightly.3522337919701 for BETA and INTERNAL 1.0.6's v2 connection service and Iroh transport.
+- Show a new What's New notice only to BETA and INTERNAL 1.0.6, with exact Mac requirements, pairing opt-in, and rollback instructions.
+- Keep the existing compatibility requirements for older iOS versions.
+- Verify updating from 1.0.5 preserves sign-in and saved computers, and exercise reconnects after backgrounding.
+
+### External
+
+- Updated the Mac connection service and Iroh transport.
+- Requires cmux 0.64.25 or later, or NIGHTLY 0.64.25-nightly.3522337919701 or later. Enable iOS pairing in Settings > Mobile on each Mac.
+- If you cannot update your Mac, use cmux BETA 1.0.5 (20260914204800) in TestFlight > Previous Builds while available. Choose that exact build.
+
+---
+
+## [1.0.5] - 2026-09-15
+
+### Internal
+
+- Require explicit opt-in for iOS pairing on each Mac before discovery.
+- Fix Mac NIGHTLY registration when build settings are empty.
+- Keep iOS terminal scrolling and Iroh connections alive through reconnect gaps, stalls, and traffic bursts.
+- Preserve older iOS access to v2 Macs and saved computer metadata.
+- Add the IROH v2 Cloudflare backend and clients.
+- Improve iOS readiness receipts so they identify the installed build.
+- Dogfood focus: update from 1.0.4, confirm sign-in survives relaunch, verify both NIGHTLY Macs connect, and exercise recovery after backgrounding.
+
+### External
+
+- This build is for internal cmux BETA testing only.
 
 ---
 
@@ -46,7 +81,8 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 
 ### Internal
 
-- Version-sync bump: checked-in `MARKETING_VERSION` catches up to `1.0.4`, the version already live to external founders (an earlier upload under that version shipped stale, pre-#7636 code; the CI reship on 2026-07-09 replaced it with current `main`).
+- Mac+iOS pairing is now opt-in. Turn on Enable iOS pairing in Settings > Mobile for each cmux Mac app before testing discovery.
+- Version-sync bump: checked-in beta marketing version catches up to `1.0.4`, the version already live to external founders (an earlier upload under that version shipped stale, pre-#7636 code; the CI reship on 2026-07-09 replaced it with current `main`).
 - Fix iOS surface-teardown deadlock behind external-beta watchdog kills (#7666).
 - Add iOS account deletion and legal links (#7645).
 - iOS: terminal connection/render resilience, fail-open delivery gates, route iteration, persistent terminal surface (#7675).
@@ -62,6 +98,7 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 
 ### External
 
+- Each cmux Mac app now requires Enable iOS pairing in Settings > Mobile before that Mac can appear on iPhone.
 - Fixed an issue where the app could freeze or crash in the background.
 - Fixed an issue that could sign you out unexpectedly after updating.
 - Terminal connections recover more reliably after switching apps or losing network.

@@ -1,5 +1,8 @@
 import type {
   Adapter,
+  AgentEvent,
+  AgentPlanEntry,
+  AgentPlanStatus,
   CommandEntry,
   OptionChoice,
   OptionValue,
@@ -9,6 +12,44 @@ import type {
 } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
+
+/**
+ * The provider-neutral part of a durable cmux agent message that an ACP
+ * session needs in order to answer in context. Keeping this translation at
+ * the adapter boundary lets a future mailbox deliver messages without making
+ * ACP providers aware of cmux's storage or routing implementation.
+ */
+export interface AcpMailMessage {
+  /** Same field names as the durable `MailEnvelope`, without importing it. */
+  id: string;
+  threadId: string;
+  sender: string;
+  recipients: readonly string[];
+  subject?: string;
+  inReplyTo?: string;
+  body: string;
+}
+
+/**
+ * Render a durable message as ordinary ACP prompt text. The existing ACP
+ * `session/prompt` request remains unchanged; callers pass this result to
+ * `adapter.send` just like any other prompt. JSON keeps untrusted fields
+ * structurally separate while leaving the body readable to the receiving agent.
+ */
+export function acpPromptFromMail(message: AcpMailMessage): string {
+  return [
+    "cmux-agent-message-json-v1:",
+    JSON.stringify({
+      messageId: message.id,
+      threadId: message.threadId,
+      from: message.sender,
+      to: [...message.recipients],
+      ...(message.subject === undefined ? {} : { subject: message.subject }),
+      ...(message.inReplyTo === undefined ? {} : { inReplyTo: message.inReplyTo }),
+      body: message.body,
+    }, null, 2),
+  ].join("\n");
+}
 
 // Generic Agent Client Protocol (https://agentclientprotocol.com) client over
 // stdio NDJSON JSON-RPC. One adapter covers every ACP-speaking agent:
@@ -25,19 +66,46 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       // session/prompt calls, so serialize sends: a prompt sent while a turn
       // is in flight runs after that turn resolves.
       sess.setStatus("running");
+      const sequence = Number(sess.internal.acpTurnSequence ?? 0) + 1;
+      sess.internal.acpTurnSequence = sequence;
       const prev = (sess.internal.acpTurn as Promise<void> | undefined) ?? Promise.resolve();
       const turn = prev.then(async () => {
-        try {
-          const st = await ensureAcp(sess, def);
-          await applyInitialOptions(sess, st, def);
-          const res = await st.request("session/prompt", {
-            sessionId: st.acpSessionId,
-            prompt: [{ type: "text", text: prompt }],
-          });
-          sess.emit({ kind: "done", stats: res?.stopReason ? `stop: ${res.stopReason}` : undefined, generation } as any);
-        } catch (err) {
-          sess.emit({ kind: "error", message: truncate(String(err), 400) });
-          sess.emit({ kind: "done", generation } as any);
+        if (sess.internal.acpDisposed) return;
+        const cancelled = () => sequence <= Number(sess.internal.acpCancelledSequence ?? 0);
+        if (cancelled()) {
+          sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
+        } else {
+          try {
+            const st = await ensureAcp(sess, def);
+            if (!st || sess.internal.acpDisposed) return;
+            if (cancelled()) {
+              sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
+            } else {
+              await applyInitialOptions(sess, st, def);
+              if (sess.internal.acpDisposed) return;
+              if (cancelled()) {
+                sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
+              } else {
+                const res = await st.request("session/prompt", {
+                  sessionId: st.acpSessionId,
+                  prompt: [{ type: "text", text: prompt }],
+                });
+                if (sess.internal.acpDisposed) return;
+                sess.emit({ kind: "done", stats: res?.stopReason ? `stop: ${res.stopReason}` : undefined, generation } as any);
+              }
+            }
+          } catch (err) {
+            if (sess.internal.acpDisposed) return;
+            // Startup can reject long after a cancel, up to the 30s watchdog
+            // below, so a cancelled turn reports the cancel rather than an
+            // error for a turn the user already stopped.
+            if (cancelled()) {
+              sess.emit({ kind: "done", stats: "stop: cancelled", generation } as any);
+            } else {
+              sess.emit({ kind: "error", message: truncate(String(err), 400) });
+              sess.emit({ kind: "done", generation } as any);
+            }
+          }
         }
         if (sess.internal.acpTurn === turn) sess.setStatus("idle");
       });
@@ -45,10 +113,18 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       await turn;
     },
     stop(sess) {
+      sess.internal.acpCancelledSequence = Number(sess.internal.acpTurnSequence ?? 0);
       const st = sess.internal.acp as AcpState | undefined;
+      // A cancel during startup has no session to notify, and the queued turn
+      // only reaches its own idle/done handling after ensureAcp settles, so
+      // settle the status here instead of leaving it running until startup
+      // times out. Startup never publishes a state without a session id, so
+      // the else branch means there is nothing in flight to cancel.
       if (st?.acpSessionId) st.notify("session/cancel", { sessionId: st.acpSessionId });
+      else sess.setStatus("idle");
     },
     dispose(sess) {
+      sess.internal.acpDisposed = true;
       const st = sess.internal.acp as AcpState | undefined;
       const startingProc = sess.internal.acpStartingProc as AcpState["proc"] | undefined;
       sess.internal.acp = undefined;
@@ -59,10 +135,13 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
     },
     async setOption(sess, id, value) {
       const st = await ensureAcp(sess, def);
+      if (!st) return;
       await setAcpOption(sess, st, def, id, value);
     },
     async refreshOptions(sess) {
       const st = await ensureAcp(sess, def);
+      if (!st) return;
+      ingestAcpOptions(st, {}, def, String(st.options.find((option) => option.id === "model")?.value ?? ""));
       emitAcpState(sess, st);
     },
     async listOptions(cwd) {
@@ -85,6 +164,13 @@ interface AcpState {
   autoApprove: boolean;
   commands: CommandEntry[];
   initialApplied: boolean;
+}
+
+async function reapAcpProcess(proc: AcpState["proc"]): Promise<void> {
+  // A previous SIGTERM may have been ignored; `killed` only records that a
+  // signal was sent. Every unpublished or disposable child must actually exit.
+  if (proc.exitCode === null) proc.kill("SIGKILL");
+  await proc.exited;
 }
 
 function acpFallbackOptions(def: ProviderDef): SessionOption[] {
@@ -113,7 +199,7 @@ function effectiveSpawnModel(def: ProviderDef, options: Record<string, OptionVal
     : def.defaultModel ?? def.models?.[0]?.value ?? "";
 }
 
-function commandForSession(def: ProviderDef, options: Record<string, OptionValue>): string[] {
+export function commandForSession(def: ProviderDef, options: Record<string, OptionValue>): string[] {
   const cmd = [...(def.cmd ?? [])];
   if (def.models?.length) {
     cmd.push("--model", effectiveSpawnModel(def, options));
@@ -121,7 +207,8 @@ function commandForSession(def: ProviderDef, options: Record<string, OptionValue
   return cmd;
 }
 
-async function ensureAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
+async function ensureAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState | undefined> {
+  if (sess.internal.acpDisposed) return;
   const existing = sess.internal.acp as AcpState | undefined;
   if (existing && existing.proc.exitCode === null && !existing.proc.killed) return existing;
   const starting = sess.internal.acpStarting as Promise<AcpState> | undefined;
@@ -135,7 +222,8 @@ async function ensureAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> 
   return promise;
 }
 
-async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
+async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState | undefined> {
+  if (sess.internal.acpDisposed) return;
   const spawnModel = effectiveSpawnModel(def, sess.startOptions);
   const cmd = commandForSession(def, sess.startOptions);
   const autoApprove = typeof sess.startOptions.autoApprove === "boolean" ? sess.startOptions.autoApprove : sess.autoApprove;
@@ -204,7 +292,7 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
   let startupTimedOut = false;
   const startupTimer = setTimeout(() => {
     startupTimedOut = true;
-    proc.kill();
+    proc.kill("SIGKILL");
   }, 30_000);
   try {
     await request("initialize", {
@@ -212,6 +300,17 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
     });
     const created = await request("session/new", { cwd: sess.cwd, mcpServers: [] });
+    if (sess.internal.acpDisposed) {
+      await reapAcpProcess(proc);
+      return;
+    }
+    // Every later request carries this id, and session/cancel needs it to stop
+    // a turn, so an agent that answers without one can neither be prompted nor
+    // stopped. Failing startup reports that instead of publishing a state whose
+    // turns hang and whose Stop does nothing.
+    if (typeof created?.sessionId !== "string" || created.sessionId.length === 0) {
+      throw new Error(`${def.id} answered session/new without a sessionId`);
+    }
     st.acpSessionId = created.sessionId;
     ingestAcpOptions(st, created, def, spawnModel);
     sess.internal.acp = st;
@@ -219,7 +318,10 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
     emitAcpState(sess, st);
     return st;
   } catch (err) {
-    proc.kill();
+    // Reap this unpublished agent before clearing acpStarting so a retry
+    // cannot accumulate children that rejected startup or ignored SIGTERM.
+    clearTimeout(startupTimer);
+    await reapAcpProcess(proc);
     throw startupTimedOut ? new Error(`${def.id} did not finish ACP startup within 30s`) : err;
   } finally {
     clearTimeout(startupTimer);
@@ -254,7 +356,7 @@ async function setAcpOption(sess: SessionCtx, st: AcpState, def: ProviderDef, id
       if (!String(err).includes("Method not found")) throw err;
       res = await st.request("session/set_config", params);
     }
-    if (res?.configOptions) ingestAcpOptions(st, res);
+    if (res?.configOptions) ingestAcpOptions(st, res, def);
     else updateLocalOption(st, id, value);
   } else if (source === "mode") {
     if (typeof value !== "string") throw new Error("mode must be a string");
@@ -318,19 +420,32 @@ function ingestAcpOptions(st: AcpState, payload: any, def?: ProviderDef, spawnMo
     });
     sources.set("model", "model");
   }
-  if (def?.models?.length && !sources.has("model")) {
-    const value = String(spawnModel || st.options.find((o) => o.id === "model")?.value || def.defaultModel || def.models[0]?.value || "");
-    options.set("model", {
-      id: "model",
-      label: "Model",
-      kind: "select",
-      value,
-      choices: def.models,
-    });
+  if (def?.models?.length) {
+    options.set("model", mergeAcpModelOption(options.get("model"), def.models, def.defaultModel, spawnModel));
     sources.set("model", "spawnModel");
   }
   st.options = [...options.values()];
   st.sources = sources;
+}
+
+export function mergeAcpModelOption(
+  existing: SessionOption | undefined,
+  curated: OptionChoice[],
+  defaultModel?: string,
+  spawnModel?: string,
+): SessionOption {
+  const binary = new Map((existing?.choices ?? []).map((choice) => [choice.value, choice]));
+  const choices: OptionChoice[] = curated.map((choice) => {
+    const reported = binary.get(choice.value);
+    binary.delete(choice.value);
+    return { ...reported, ...choice };
+  });
+  choices.push(...binary.values());
+  const value = String(spawnModel || existing?.value || defaultModel || choices[0]?.value || "");
+  if (value && !choices.some((choice) => choice.value === value)) {
+    choices.push({ value, label: prettifyModelLabel(value), description: "Reported by the agent" });
+  }
+  return { id: "model", label: "Model", kind: "select", value, choices };
 }
 
 function configOption(opt: any): SessionOption | null {
@@ -385,8 +500,27 @@ function withAcpLocalOptions(options: SessionOption[], autoApprove: boolean): Se
   ];
 }
 
+function normalizeAcpPlanStatus(status: unknown): AgentPlanStatus {
+  return status === "pending" || status === "in_progress" || status === "completed" ? status : "unknown";
+}
+
+function normalizeAcpPlanEntries(entries: unknown): AgentPlanEntry[] {
+  if (!Array.isArray(entries)) return [];
+  return entries.map((entry: any) => ({
+    text: typeof entry?.content === "string" ? entry.content : String(entry?.content ?? ""),
+    status: normalizeAcpPlanStatus(entry?.status),
+    ...(entry?.priority == null ? {} : { priority: String(entry.priority) }),
+  }));
+}
+
+function acpPlanEvent(entries: unknown): Extract<AgentEvent, { kind: "plan" }> | null {
+  const normalized = normalizeAcpPlanEntries(entries);
+  return normalized.length ? { kind: "plan", entries: normalized } : null;
+}
+
 // Notifications and reverse requests from the agent.
 function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, msg: any, writeMsg: (m: unknown) => void) {
+  if (sess.internal.acpDisposed) return;
   if (msg.method === "session/update") {
     const u = msg.params?.update;
     if (!u) return;
@@ -402,7 +536,7 @@ function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, ms
           kind: "tool-start",
           toolId: u.toolCallId,
           name: u.title ?? u.kind ?? "tool",
-          detail: truncate(JSON.stringify(u.rawInput ?? {})),
+          detail: acpToolCallDetail(u.locations, u.rawInput),
         });
         break;
       case "tool_call_update":
@@ -416,10 +550,10 @@ function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, ms
         }
         break;
       case "plan":
-        sess.emit({
-          kind: "status",
-          text: "plan: " + (u.entries ?? []).map((e: any) => e.content).join(" → ").slice(0, 300),
-        });
+        {
+          const plan = acpPlanEvent(u.entries);
+          if (plan) sess.emit(plan);
+        }
         break;
       case "available_commands_update":
         st.commands = normalizeCommands(u.availableCommands);
@@ -485,10 +619,38 @@ function normalizeCommands(commands: any): CommandEntry[] {
   })).filter((c) => c.name);
 }
 
-function contentText(content: unknown): string {
+export function acpToolCallDetail(locations: unknown, rawInput: unknown): string {
+  const paths = Array.isArray(locations)
+    ? locations
+      .map((location: any) => typeof location?.path === "string" ? location.path : "")
+      .filter(Boolean)
+    : [];
+  return truncate(paths.length ? paths.join(", ") : JSON.stringify(rawInput ?? {}));
+}
+
+function lineCount(text: string): number {
+  return text ? text.split(/\r\n|\r|\n/).length : 0;
+}
+
+function diffText(content: any): string {
+  const oldText = typeof content.oldText === "string" ? content.oldText : "";
+  const newText = typeof content.newText === "string" ? content.newText : "";
+  const path = typeof content.path === "string" && content.path ? content.path : "unknown path";
+  return `diff ${path} (+${lineCount(newText)}/-${lineCount(oldText)})${newText ? `\n${newText}` : ""}`;
+}
+
+export function contentText(content: unknown): string {
   if (!Array.isArray(content)) return "";
-  return content
-    .map((c: any) => c?.content?.text ?? c?.text ?? "")
+  const parts = content.map((c: any) => ({
+    text: c?.type === "diff"
+      ? diffText(c)
+      : c?.type === "terminal"
+        ? `terminal ${String(c.terminalId ?? "")}`.trim()
+        : c?.content?.text ?? c?.text ?? "",
+    separate: c?.type === "diff" || c?.type === "terminal",
+  }));
+  return parts
+    .map((part, index) => `${index > 0 && (part.separate || parts[index - 1]!.separate) ? " " : ""}${part.text}`)
     .join("");
 }
 
@@ -540,7 +702,7 @@ async function fetchAcpCommands(def: ProviderDef, cwd: string): Promise<CommandE
       });
     });
   } finally {
-    proc.kill();
+    await reapAcpProcess(proc);
   }
 }
 
@@ -600,6 +762,6 @@ async function fetchAcpOptions(def: ProviderDef, cwd: string, fallback: SessionO
       });
     });
   } finally {
-    proc.kill();
+    await reapAcpProcess(proc);
   }
 }

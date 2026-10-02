@@ -68,6 +68,51 @@ import CmuxSettings
         #expect(model.numberedDigitRejections.contains(action.rawValue))
     }
 
+    @Test func hostDefaultResolversStayIsolated() async throws {
+        let (firstStore, firstCatalog, firstErrorLog) = makeStore()
+        let (secondStore, secondCatalog, secondErrorLog) = makeStore()
+        let action = ShortcutAction.switchRightSidebarToFiles
+        let firstDefault = StoredShortcut(first: ShortcutStroke(key: "2", control: true))
+        let secondDefault = StoredShortcut(first: ShortcutStroke(key: "7", control: true))
+
+        let first = ShortcutListModel(
+            jsonStore: firstStore,
+            catalog: firstCatalog,
+            errorLog: firstErrorLog,
+            defaultShortcutResolver: ShortcutDefaultResolver { candidate in
+                candidate == action
+                    ? .stroke(firstDefault.first)
+                    : .useBuiltIn
+            }
+        )
+        let second = ShortcutListModel(
+            jsonStore: secondStore,
+            catalog: secondCatalog,
+            errorLog: secondErrorLog,
+            defaultShortcutResolver: ShortcutDefaultResolver { candidate in
+                candidate == action
+                    ? .stroke(secondDefault.first)
+                    : .useBuiltIn
+            }
+        )
+        let hidden = ShortcutListModel(
+            jsonStore: JSONConfigStore(
+                fileURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("shortcut-list-hidden-(UUID().uuidString).json")
+            ),
+            catalog: SettingCatalog(),
+            errorLog: SettingsErrorLog(),
+            defaultShortcutResolver: ShortcutDefaultResolver { candidate in
+                candidate == action ? .stroke(nil) : .useBuiltIn
+            }
+        )
+
+        #expect(first.effective(for: action) == firstDefault)
+        #expect(second.effective(for: action) == secondDefault)
+        #expect(first.effective(for: action) == firstDefault)
+        #expect(hidden.effective(for: action) == nil)
+    }
+
     @Test func assignRejectsBareKeyAtModelBoundary() async throws {
         // WHY: the model is the persistence boundary; callers must not bypass
         // recorder UI validation and write bare app-level shortcuts.
@@ -432,6 +477,60 @@ import CmuxSettings
                 == String(
                     localized: "shortcut.when.caption.browserOrFilePreviewTextEditorFocus",
                     defaultValue: "Only while a browser pane or text file preview is focused"
+                )
+        )
+    }
+
+    @Test func persistedGlobalSearchCollisionDisplaysRuntimeFallback() async throws {
+        let (store, catalog, errorLog) = makeStore()
+        let collision = StoredShortcut(first: ShortcutStroke(
+            key: "g", command: true, option: true, control: true
+        ))
+        try await store.set(
+            [
+                ShortcutAction.showHideAllWindows.rawValue: collision,
+                ShortcutAction.globalSearch.rawValue: collision,
+            ],
+            for: catalog.shortcuts.bindings
+        )
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings.count == 2 })
+
+        #expect(model.effective(for: .showHideAllWindows) == collision)
+        #expect(model.effective(for: .globalSearch) == ShortcutAction.globalSearch.defaultShortcut)
+    }
+
+    @Test func invalidPersistedShowHideChordDisplaysNoEffectiveHotkey() async throws {
+        let (store, catalog, errorLog) = makeStore()
+        let invalidChord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "c")
+        )
+        let sentinel = StoredShortcut(first: ShortcutStroke(key: "j", command: true))
+        try await store.set(
+            [
+                ShortcutAction.showHideAllWindows.rawValue: invalidChord,
+                ShortcutAction.openSettings.rawValue: sentinel,
+            ],
+            for: catalog.shortcuts.bindings
+        )
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings[ShortcutAction.openSettings.rawValue] == sentinel })
+
+        #expect(model.effective(for: .showHideAllWindows) == nil)
+    }
+
+    @Test func scopeCaptionDescribesSimulatorFocus() {
+        let (store, catalog, errorLog) = makeStore()
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+
+        #expect(
+            model.scopeCaption(for: .simulatorHome)
+                == String(
+                    localized: "shortcut.when.caption.simulatorFocus",
+                    defaultValue: "Only while a Simulator is focused"
                 )
         )
     }

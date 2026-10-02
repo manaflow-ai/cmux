@@ -130,4 +130,65 @@ struct RemoteTmuxSessionRenameTitleTests {
         #expect(workspace.customTitle == "dev")
         #expect(window.title == "dev")
     }
+
+    @Test func tmuxWindowNameRemainsAuthoritativeOverTerminalTitle() throws {
+        let (_, workspace, _) = makeMirror(sessionName: "work", title: "work")
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.updateRemoteTmuxTabTitle(panelId: panelId, title: "explicit tmux name")
+        let changed = workspace.updatePanelTitle(
+            panelId: panelId,
+            title: "/Users/austinwang"
+        )
+
+        #expect(!changed)
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+    }
+
+    @Test func tmuxTitlesRemainAuthoritativeOverTerminalTitleIngress() throws {
+        let (_, workspace, manager) = makeMirror(sessionName: "work", title: "work")
+        let panelId = try #require(workspace.focusedPanelId)
+        let surface = try #require(workspace.terminalPanel(for: panelId)?.surface)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+        manager.selectedTabId = workspace.id
+        workspace.updateRemoteTmuxTabTitle(panelId: panelId, title: "explicit tmux name")
+
+        let postTerminalTitle: (String) -> Void = { title in
+            NotificationCenter.default.post(
+                name: .ghosttyDidSetTitle,
+                object: surface,
+                userInfo: GhosttyTitleChange(
+                    tabId: workspace.id,
+                    surfaceId: panelId,
+                    title: title
+                ).userInfo
+            )
+            manager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        }
+
+        postTerminalTitle("codex")
+
+        #expect(workspace.bonsplitController.tab(tabId)?.icon == "terminal.fill")
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == nil)
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+        #expect(workspace.title == "work")
+        #expect(workspace.processTitle == "work")
+
+        postTerminalTitle("/Users/austinwang")
+
+        #expect(workspace.bonsplitController.tab(tabId)?.icon == "terminal.fill")
+        #expect(workspace.bonsplitController.tab(tabId)?.iconAsset == nil)
+        #expect(workspace.bonsplitController.tab(tabId)?.iconImageData == nil)
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+        #expect(workspace.title == "work")
+        #expect(workspace.processTitle == "work")
+
+        manager.focusedSurfaceTitleDidChange(tabId: workspace.id)
+
+        #expect(workspace.panelTitles[panelId] == "explicit tmux name")
+        #expect(workspace.title == "work")
+        #expect(workspace.processTitle == "work")
+
+    }
 }

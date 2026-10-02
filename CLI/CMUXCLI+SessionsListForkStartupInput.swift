@@ -58,11 +58,17 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord
     ) -> AgentHookLaunchCommandRecord? {
         guard let launchCommand = record.launchCommand,
+              (agent == "claude" || !sessionsListLaunchCommandIsRejected(launchCommand)),
               AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: agent),
               !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
             return nil
         }
         return launchCommand
+    }
+
+    /// Treats an explicitly rejected capture as unusable fork evidence.
+    func sessionsListLaunchCommandIsRejected(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
+        launchCommand?.isRejectedCapture == true
     }
 
     func sessionsListWorkingDirectoryPrefixed(_ command: String, workingDirectory: String?) -> String {
@@ -83,7 +89,7 @@ extension CMUXCLI {
         environment: [String: String]?
     ) -> [String] {
         guard let environment, !environment.isEmpty else { return [] }
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: agent)
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: agent)
         var environmentParts: [String] = []
         var preservedClaudeKeys: [String] = []
         for key in selectedEnvironment.keys.sorted() {

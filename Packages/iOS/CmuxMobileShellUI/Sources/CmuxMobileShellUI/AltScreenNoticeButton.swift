@@ -3,11 +3,20 @@ import SwiftUI
 
 struct AltScreenNoticeButton: View {
     let dismissNotice: () -> Void
+    @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @State private var isPresentingExplanation = false
+
+    private var explanationPresentation: MobileChildSheetPresentation {
+        childPresentationProvider?.presentation(
+            for: .workspaceDetail(.alternateScreenExplanation),
+            fallback: $isPresentingExplanation
+        )
+            ?? MobileChildSheetPresentation(isPresented: $isPresentingExplanation)
+    }
 
     var body: some View {
         Button {
-            isPresentingExplanation = true
+            explanationPresentation.present()
         } label: {
             Label(buttonAccessibilityLabel, systemImage: "exclamationmark.triangle.fill")
         }
@@ -15,14 +24,27 @@ struct AltScreenNoticeButton: View {
         .foregroundStyle(.orange)
         .accessibilityLabel(buttonAccessibilityLabel)
         .accessibilityIdentifier("MobileTerminalAltScreenNoticeButton")
-        .popover(isPresented: $isPresentingExplanation) {
-            popoverContent
-                .presentationCompactAdaptation(.popover)
+        .popover(isPresented: explanationPresentation.isPresented) {
+            ViewThatFits(in: .vertical) {
+                popoverContent
+
+                ScrollView {
+                    popoverContent
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+            .frame(
+                idealWidth: AltScreenNoticePresentationSizing.maxWidth,
+                maxWidth: AltScreenNoticePresentationSizing.maxWidth
+            )
+            .mobileNoticePresentationSizing()
+            .presentationCompactAdaptation(.popover)
+            .onDisappear(perform: explanationPresentation.didDismiss)
         }
     }
 
     private var popoverContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Label {
                 Text(title)
                     .fixedSize(horizontal: false, vertical: true)
@@ -39,11 +61,13 @@ struct AltScreenNoticeButton: View {
 
             Button(action: dismissFromPopover) {
                 Text(dismissActionTitle)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .font(.footnote.weight(.medium))
+            .accessibilityIdentifier("MobileTerminalAltScreenNoticeDismissPermanentlyButton")
         }
         .padding(16)
-        .frame(maxWidth: 320, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .multilineTextAlignment(.leading)
     }
 
@@ -64,7 +88,7 @@ struct AltScreenNoticeButton: View {
     private var explanation: String {
         L10n.string(
             "mobile.altScreenNotice.explanation",
-            defaultValue: "A full-screen terminal app is running in this session. Full-screen apps mirror the Mac terminal's exact size, so the view may not fill this screen."
+            defaultValue: "Full-screen mode mirrors the Mac terminal's exact size, so it may not fill this screen, and scrolling won't be as smooth. Claude Code: `/tui default`. Codex: restart with `codex --no-alt-screen`."
         )
     }
 
@@ -77,6 +101,6 @@ struct AltScreenNoticeButton: View {
 
     private func dismissFromPopover() {
         dismissNotice()
-        isPresentingExplanation = false
+        explanationPresentation.dismiss()
     }
 }

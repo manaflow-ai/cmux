@@ -25,14 +25,19 @@ import {
   type SyncStorage,
   type SyncWriteResult,
 } from "./syncStorage";
-import { buildDelta, type SyncDeltaFrame } from "./sync";
+import {
+  buildDelta,
+  type SyncDeltaFrame,
+  type SyncServerFrame,
+} from "./sync";
+import { sanitizePublishedRoutes } from "./routePrivacy";
 
 export const DEVICES_COLLECTION = "devices";
 
 /** One tagged app instance inside a device record. List-shape fields only. */
 export interface DeviceInstanceRecord {
   tag: string;
-  /** Attach routes (the registry-mirrored set), opaque here as in presence. */
+  /** Registry-mirrored routes after the presence publication policy. */
   routes: PresenceRoute[];
   /** Last-seen epoch ms AS OF the rev this record was stamped at. Not live. */
   lastSeenAtAtRev: number;
@@ -70,7 +75,7 @@ export function deriveDeviceRecord(
     lastSeenAtAtRev: newest.lastSeenAt,
     instances: sorted.map((i) => ({
       tag: i.tag,
-      routes: i.routes ?? [],
+      routes: sanitizePublishedRoutes(i.routes) ?? [],
       lastSeenAtAtRev: i.lastSeenAt,
     })),
   };
@@ -122,6 +127,30 @@ export function routesEqual(
  * stored-vs-derived comparison the generic upsert expects. */
 export function deviceRecordEqual(stored: DeviceRecord, next: DeviceRecord): boolean {
   return !deviceShapeChanged(stored, next);
+}
+
+/** Defensively scrub records read from pre-hardening sync storage. */
+export function sanitizeDeviceRecord(record: DeviceRecord): DeviceRecord {
+  return {
+    ...record,
+    instances: record.instances.map((instance) => ({
+      ...instance,
+      routes: sanitizePublishedRoutes(instance.routes) ?? [],
+    })),
+  };
+}
+
+/** Sanitize stored device snapshots/deltas immediately before publication. */
+export function sanitizeDeviceSyncFrame<Frame extends SyncServerFrame<DeviceRecord>>(
+  frame: Frame,
+): Frame {
+  if (frame.type === "sync.tick") return frame;
+  return {
+    ...frame,
+    records: frame.records.map((record) => record.deleted
+      ? record
+      : { ...record, payload: sanitizeDeviceRecord(record.payload) }),
+  } as Frame;
 }
 
 /** Reconcile the whole `devices` collection against the DO's current presence

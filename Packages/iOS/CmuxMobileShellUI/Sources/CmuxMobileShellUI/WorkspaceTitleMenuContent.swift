@@ -3,17 +3,74 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceTitleMenuContent: View {
-    let workspace: MobileWorkspacePreview
+    let workspaceName: String
+    let hasUnread: Bool
+    let canCustomizeWorkspace: Bool
     let canRenameWorkspace: Bool
     let canToggleReadState: Bool
     let canCloseWorkspace: Bool
+    let canReconnect: Bool
+    var canBrowseFiles = false
+    var connectedDevices: MobileTerminalConnectedDevicesMenuItem?
+    let presentCustomization: () -> Void
     let presentRename: () -> Void
     let toggleReadState: () -> Void
     let requestClose: () -> Void
+    let reconnect: () -> Void
+    var browseFiles: () -> Void = {}
+    var presentConnectedDevices: () -> Void = {}
 
     var body: some View {
-        if canRenameWorkspace || canToggleReadState || canCloseWorkspace {
-            Section(workspace.name) {
+        if canReconnect {
+            Section {
+                Button(action: reconnect) {
+                    Label(
+                        L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"),
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceTitleReconnectMenuItem")
+            }
+        }
+        if canBrowseFiles {
+            Section {
+                Button(action: browseFiles) {
+                    Label(
+                        L10n.string("mobile.ssh.files.menuItem", defaultValue: "Browse Files"),
+                        systemImage: "folder"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceTitleFilesMenuItem")
+            }
+        }
+        if let connectedDevices {
+            Section {
+                Button(action: presentConnectedDevices) {
+                    Label {
+                        Text(TerminalSizingText.connectedDevices())
+                        Text(TerminalSizingText.otherDevices(connectedDevices.otherDeviceCount))
+                    } icon: {
+                        Image(systemName: "rectangle.connected.to.line.below")
+                    }
+                }
+                .accessibilityIdentifier("MobileWorkspaceTitleConnectedDevicesMenuItem")
+            }
+        }
+        if canCustomizeWorkspace || canRenameWorkspace || canToggleReadState || canCloseWorkspace {
+            Section(workspaceName) {
+                if canCustomizeWorkspace {
+                    Button(action: presentCustomization) {
+                        Label(
+                            L10n.string(
+                                "mobile.workspace.customize.title",
+                                defaultValue: "Customize Workspace"
+                            ),
+                            systemImage: "slider.horizontal.3"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileWorkspaceTitleCustomizeMenuItem")
+                }
+
                 if canRenameWorkspace {
                     Button(action: presentRename) {
                         Label(
@@ -27,10 +84,10 @@ struct WorkspaceTitleMenuContent: View {
                 if canToggleReadState {
                     Button(action: toggleReadState) {
                         Label(
-                            workspace.hasUnread
+                            hasUnread
                                 ? L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")
                                 : L10n.string("mobile.workspace.markUnread", defaultValue: "Mark as Unread"),
-                            systemImage: workspace.hasUnread ? "envelope.open" : "envelope.badge"
+                            systemImage: hasUnread ? "envelope.open" : "envelope.badge"
                         )
                     }
                     .accessibilityIdentifier("MobileWorkspaceTitleReadStateMenuItem")

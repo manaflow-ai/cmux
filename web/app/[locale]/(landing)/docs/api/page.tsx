@@ -1,6 +1,5 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
@@ -8,12 +7,11 @@ import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.api" });
-  return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/api"),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "api",
+    path: "/docs/api",
+  });
 }
 
 function Cmd({
@@ -213,8 +211,10 @@ cmux current-workspace --json`}
         name="new-split"
         desc={t("newSplitDesc")}
         cli={`cmux new-split right
-cmux new-split down`}
-        socket={`{"id":"split-new","method":"surface.split","params":{"direction":"right"}}`}
+cmux new-split down
+cmux new-split down --command "npm run dev"`}
+        socket={`{"id":"split-new","method":"surface.split","params":{"direction":"right"}}
+{"id":"split-cmd","method":"surface.split","params":{"direction":"down","initial_input":"npm run dev\\r"}}`}
       />
       <Cmd
         name="list-panels"

@@ -32,6 +32,13 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserThemeMode"
     )
 
+    /// Default page zoom factor for newly opened browser pages (`1.0` is 100%).
+    public let defaultZoomLevel = DefaultsKey<Double>(
+        id: "browser.defaultZoomLevel",
+        defaultValue: BrowserZoomSettings.defaultLevel,
+        userDefaultsKey: BrowserZoomSettings.userDefaultsKey
+    )
+
     public let discardHiddenWebViews = DefaultsKey<Bool>(
         id: "browser.discardHiddenWebViews",
         defaultValue: true,
@@ -42,6 +49,28 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         id: "browser.hiddenWebViewDiscardDelaySeconds",
         defaultValue: 300,
         userDefaultsKey: "browserHiddenWebViewDiscardDelaySeconds"
+    )
+
+    public let hiddenWebViewDiscardMode = DefaultsKey<BrowserHiddenWebViewDiscardMode>(
+        id: "browser.hiddenWebViewDiscardMode",
+        defaultValue: .memoryBudget,
+        userDefaultsKey: "browserHiddenWebViewDiscardMode"
+    )
+
+    /// Physical memory, in megabytes, that hidden browser panes may keep
+    /// before the pane hidden longest is discarded.
+    public let hiddenWebViewMemoryBudgetMB = DefaultsKey<Int>(
+        id: "browser.hiddenWebViewMemoryBudgetMB",
+        defaultValue: 2048,
+        userDefaultsKey: "browserHiddenWebViewMemoryBudgetMB"
+    )
+
+    /// Whether a page unloaded to save memory restores as soon as its pane
+    /// is shown. When off, the pane waits for the user to restore it.
+    public let autoRestoreUnloadedPages = DefaultsKey<Bool>(
+        id: "browser.autoRestoreUnloadedPages",
+        defaultValue: true,
+        userDefaultsKey: "browserAutoRestoreUnloadedPages"
     )
 
     /// Shows a save panel for each browser download instead of saving directly
@@ -73,13 +102,26 @@ public struct BrowserCatalogSection: SettingCatalogSection {
     public let urlsToAlwaysOpenExternally = DefaultsKey<String>(
         id: "browser.urlsToAlwaysOpenExternally",
         defaultValue: "",
-        userDefaultsKey: "browserExternalOpenPatterns"
+        userDefaultsKey: BrowserExternalURLPolicy.userDefaultsKey
     )
 
     public let insecureHttpHostsAllowedInEmbeddedBrowser = DefaultsKey<String>(
         id: "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
         defaultValue: "localhost\n*.localhost\n127.0.0.1\n::1\n0.0.0.0\n*.localtest.me",
         userDefaultsKey: "browserInsecureHTTPAllowlist"
+    )
+
+    /// User/team URL restrictions for every remote embedded-browser navigation.
+    /// One host or URL pattern per line; Settings shows loopback development
+    /// entries as a suggested starting list. Local absolute `file:` documents
+    /// opened through cmux's trusted app-owned navigation path remain available
+    /// while this web-origin restriction is active. The restriction becomes
+    /// active when a custom value is saved, unless the MDM key
+    /// ``BrowserURLAllowlistPolicy/managedDefaultsKey`` is forced.
+    public let urlAllowlist = DefaultsKey<String>(
+        id: "browser.urlAllowlist",
+        defaultValue: BrowserURLAllowlistPolicy.defaultAllowlistText,
+        userDefaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey
     )
 
     public let showImportHintOnBlankTabs = DefaultsKey<Bool>(

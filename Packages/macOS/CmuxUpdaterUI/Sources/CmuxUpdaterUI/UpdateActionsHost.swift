@@ -14,6 +14,13 @@ public protocol UpdateActionsHost: AnyObject {
     /// "Install and Relaunch" action on the detected-update popover).
     func attemptUpdate()
 
+    /// Copies updater details through the host application's clipboard owner.
+    ///
+    /// - Parameter text: The details to publish.
+    /// - Returns: Whether the host accepted the clipboard mutation.
+    @discardableResult
+    func copyUpdateDetails(_ text: String) -> Bool
+
     /// The filesystem path of the update log, shown in the error popover's details block.
     var updateLogPath: String { get }
 }

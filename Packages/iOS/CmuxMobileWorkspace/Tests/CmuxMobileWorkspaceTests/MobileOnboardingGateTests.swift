@@ -1,36 +1,47 @@
+import CmuxMobileShellModel
 import Testing
 
 @testable import CmuxMobileWorkspace
 
 @Suite struct MobileOnboardingGateTests {
-    /// The genuine first run: never onboarded and no paired Mac. Onboarding shows.
-    @Test func showsOnboardingForNeverOnboardedNeverPaired() {
-        #expect(MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: false
+    @Test(arguments: [
+        MobileOnboardingProgress.welcome,
+        MobileOnboardingProgress.connect,
+    ])
+    func showsEveryIncompleteMilestoneWhenSignedIn(_ progress: MobileOnboardingProgress) {
+        #expect(progress.shouldShowOnboarding(
+            isAuthenticated: true,
+            isRestoringSession: false
         ))
     }
 
-    /// Pairing state must not suppress the first-run explainer. Otherwise a user
-    /// who auto-paired before seeing onboarding can delete every computer and get
-    /// sent to onboarding later.
-    @Test func showsOnboardingForNeverOnboardedButPaired() {
-        #expect(MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: false
+    @Test func skipsCompletedOnboarding() {
+        #expect(!MobileOnboardingProgress.complete.shouldShowOnboarding(
+            isAuthenticated: true,
+            isRestoringSession: false
         ))
     }
 
-    /// Already onboarded and not yet paired: onboarding was seen, fall through to
-    /// the add-device / pairing flow without showing it again.
-    @Test func skipsOnboardingForOnboardedNeverPaired() {
-        #expect(!MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: true
+    @Test(arguments: [
+        MobileOnboardingProgress.welcome,
+        MobileOnboardingProgress.connect,
+        MobileOnboardingProgress.complete,
+    ])
+    func neverShowsSignedOut(_ progress: MobileOnboardingProgress) {
+        #expect(!progress.shouldShowOnboarding(
+            isAuthenticated: false,
+            isRestoringSession: false
         ))
     }
 
-    /// Onboarded and paired: never show onboarding.
-    @Test func skipsOnboardingForOnboardedAndPaired() {
-        #expect(!MobileOnboardingGate.shouldShowOnboarding(
-            hasSeenOnboarding: true
+    @Test(arguments: [
+        MobileOnboardingProgress.welcome,
+        MobileOnboardingProgress.connect,
+    ])
+    func neverShowsWhileSessionIsRestoring(_ progress: MobileOnboardingProgress) {
+        #expect(!progress.shouldShowOnboarding(
+            isAuthenticated: true,
+            isRestoringSession: true
         ))
     }
 }

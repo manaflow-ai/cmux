@@ -1,18 +1,16 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.browserAutomation" });
-  return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/browser-automation"),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "browserAutomation",
+    path: "/docs/browser-automation",
+  });
 }
 
 export default function BrowserAutomationPage() {
@@ -250,7 +248,8 @@ cmux browser surface:2 frame main`}</CodeBlock>
 
       <DocsHeading level={2} id="downloads-section">{t("downloadsSection")}</DocsHeading>
       <CodeBlock lang="bash">{`cmux browser surface:2 click "a#download-report"
-cmux browser surface:2 download --path /tmp/report.csv --timeout-ms 30000`}</CodeBlock>
+cmux browser surface:2 download --path /tmp/report.csv --timeout-ms 30000
+cmux browser surface:2 download list --limit 5 --json`}</CodeBlock>
 
       <DocsHeading level={2} id="common-patterns">{t("commonPatterns")}</DocsHeading>
 

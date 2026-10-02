@@ -1,7 +1,7 @@
 import Foundation
 
 /// A terminal color theme: the base background/foreground/cursor/selection
-/// colors plus the 16-entry ANSI palette.
+/// colors plus the ANSI palette.
 ///
 /// This is the canonical theme value the mobile terminal renders with. It is a
 /// pure value type (no UIKit/AppKit) so it lives in `CMUXMobileCore` and can be
@@ -15,15 +15,25 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     public var background: String
     /// Terminal foreground color (`#rrggbb`).
     public var foreground: String
+    /// Ghostty bold-color behavior (`bright` or `#rrggbb`), or `nil` when unset.
+    public var boldColor: String?
     /// Cursor color (`#rrggbb`).
     public var cursor: String
+    /// Cell-relative cursor-color semantics, when configured.
+    public var cursorColorSemantic: CellRelativeColor?
     /// Cursor text color (`#rrggbb`), or `nil` to let the terminal derive one.
     public var cursorText: String?
+    /// Cell-relative cursor-text semantics, when configured.
+    public var cursorTextSemantic: CellRelativeColor?
     /// Selection background color (`#rrggbb`).
     public var selectionBackground: String
+    /// Cell-relative selection-background semantics, when configured.
+    public var selectionBackgroundSemantic: CellRelativeColor?
     /// Selection foreground color (`#rrggbb`).
     public var selectionForeground: String
-    /// The 16-color ANSI palette, indices `0...15`, low to high.
+    /// Cell-relative selection-foreground semantics, when configured.
+    public var selectionForegroundSemantic: CellRelativeColor?
+    /// The ANSI palette, either its 16-color base or all 256 entries.
     ///
     /// Indices 0-7 are the normal colors and 8-15 are the bright variants, in
     /// the standard order: black, red, green, yellow, blue, magenta, cyan, white.
@@ -31,28 +41,45 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
 
     /// The number of palette entries a valid theme must carry.
     public static let paletteCount = 16
+    /// The number of entries in a complete Ghostty palette snapshot.
+    public static let extendedPaletteCount = 256
 
     public init(
         background: String,
         foreground: String,
+        boldColor: String? = nil,
         cursor: String,
+        cursorColorSemantic: CellRelativeColor? = nil,
         cursorText: String? = nil,
+        cursorTextSemantic: CellRelativeColor? = nil,
         selectionBackground: String,
+        selectionBackgroundSemantic: CellRelativeColor? = nil,
         selectionForeground: String,
+        selectionForegroundSemantic: CellRelativeColor? = nil,
         palette: [String]
     ) {
         self.background = background
         self.foreground = foreground
+        self.boldColor = boldColor
         self.cursor = cursor
+        self.cursorColorSemantic = cursorColorSemantic
         self.cursorText = cursorText
+        self.cursorTextSemantic = cursorTextSemantic
         self.selectionBackground = selectionBackground
+        self.selectionBackgroundSemantic = selectionBackgroundSemantic
         self.selectionForeground = selectionForeground
+        self.selectionForegroundSemantic = selectionForegroundSemantic
         self.palette = palette
     }
 
     /// Whether every color string parses and the palette has exactly 16 entries.
     public var isValid: Bool {
-        guard palette.count == Self.paletteCount else { return false }
+        guard palette.count == Self.paletteCount || palette.count == Self.extendedPaletteCount else { return false }
+        if let boldColor,
+           boldColor.lowercased() != "bright",
+           Self.rgbComponents(boldColor) == nil {
+            return false
+        }
         var colors = [background, foreground, cursor, selectionBackground, selectionForeground]
         colors.append(contentsOf: palette)
         if let cursorText { colors.append(cursorText) }
@@ -87,14 +114,31 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
         var lines: [String] = []
         if let bg = Self.canonicalHex(background) { lines.append("background = \(bg)") }
         if let fg = Self.canonicalHex(foreground) { lines.append("foreground = \(fg)") }
-        if let cur = Self.canonicalHex(cursor) { lines.append("cursor-color = \(cur)") }
-        if let cursorText, let curText = Self.canonicalHex(cursorText) {
+        if let boldColor {
+            if boldColor.lowercased() == "bright" {
+                lines.append("bold-color = bright")
+            } else if let color = Self.canonicalHex(boldColor) {
+                lines.append("bold-color = \(color)")
+            }
+        }
+        if let cursorColorSemantic {
+            lines.append("cursor-color = \(cursorColorSemantic.rawValue)")
+        } else if let cur = Self.canonicalHex(cursor) {
+            lines.append("cursor-color = \(cur)")
+        }
+        if let cursorTextSemantic {
+            lines.append("cursor-text = \(cursorTextSemantic.rawValue)")
+        } else if let cursorText, let curText = Self.canonicalHex(cursorText) {
             lines.append("cursor-text = \(curText)")
         }
-        if let selBg = Self.canonicalHex(selectionBackground) {
+        if let selectionBackgroundSemantic {
+            lines.append("selection-background = \(selectionBackgroundSemantic.rawValue)")
+        } else if let selBg = Self.canonicalHex(selectionBackground) {
             lines.append("selection-background = \(selBg)")
         }
-        if let selFg = Self.canonicalHex(selectionForeground) {
+        if let selectionForegroundSemantic {
+            lines.append("selection-foreground = \(selectionForegroundSemantic.rawValue)")
+        } else if let selFg = Self.canonicalHex(selectionForeground) {
             lines.append("selection-foreground = \(selFg)")
         }
         for (index, color) in palette.enumerated() {

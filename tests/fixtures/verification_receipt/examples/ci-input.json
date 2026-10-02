@@ -1,0 +1,44 @@
+{
+  "note": "Content-minimised GitHub REST run/job records and log excerpt; no raw environment. Log digest in output covers this excerpt.",
+  "run": {
+    "id": 35523305193,
+    "run_attempt": 1,
+    "head_sha": "e0deb0e897e58de722015e714700b2ec6c220bc6",
+    "event": "pull_request",
+    "path": ".github/workflows/ci.yml",
+    "conclusion": "failure",
+    "pull_requests": [
+      {
+        "head": {
+          "sha": "e0deb0e897e58de722015e714700b2ec6c220bc6"
+        },
+        "base": {
+          "sha": "b334a7deeb0ff65bc9ee4d1c6a2bf7d454795110"
+        }
+      }
+    ],
+    "repository": {
+      "full_name": "manaflow-ai/cmux"
+    }
+  },
+  "job": {
+    "id": 106111086646,
+    "run_id": 35523305193,
+    "name": "workflow-guard-tests",
+    "labels": [
+      "blacksmith-4vcpu-ubuntu-2404"
+    ],
+    "conclusion": "success",
+    "steps": [
+      {
+        "name": "Validate docs deployment authentication guard",
+        "status": "completed",
+        "conclusion": "success",
+        "number": 7,
+        "started_at": "2026-09-20T16:38:24Z",
+        "completed_at": "2026-09-20T16:38:24Z"
+      }
+    ]
+  },
+  "log": "2026-09-20T16:38:23.7502672Z HEAD is now at 25930fe8 Merge e0deb0e897e58de722015e714700b2ec6c220bc6 into b334a7deeb0ff65bc9ee4d1c6a2bf7d454795110\n2026-09-20T16:38:23.7557087Z [command]/usr/local/bin/git log -1 --format=%H\n2026-09-20T16:38:23.7574164Z 25930fe8a91012ad178343016774d6850d5fd3db\n2026-09-20T16:38:24.8596693Z ##[group]Run python3 tests/test_docs_deploy_auth_guard.py\n2026-09-20T16:38:24.8847663Z Ran 3 tests in 0.000s\n2026-09-20T16:38:24.8847785Z OK\n"
+}

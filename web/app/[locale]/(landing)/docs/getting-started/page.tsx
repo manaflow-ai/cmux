@@ -1,8 +1,7 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
-import { Link } from "@/i18n/navigation";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
 import { DownloadButton } from "@/app/[locale]/components/download-button";
@@ -10,12 +9,11 @@ import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.gettingStarted" });
-  return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/getting-started"),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "gettingStarted",
+    path: "/docs/getting-started",
+  });
 }
 
 export default function GettingStartedPage() {
@@ -56,11 +54,23 @@ brew install --cask cmux`}</CodeBlock>
       </ul>
 
       <DocsHeading level={2} id="cli-setup">{t("cliSetup")}</DocsHeading>
-      <p>{t("cliDesc")}</p>
+      <p>
+        {t.rich("cliDesc", {
+          strong: (chunks) => <strong>{chunks}</strong>,
+        })}
+      </p>
+      <p>{t("cliManual")}</p>
       <CodeBlock lang="bash">{`sudo ln -sf "/Applications/cmux.app/Contents/Resources/bin/cmux" /usr/local/bin/cmux`}</CodeBlock>
       <p>{t("cliThen")}</p>
       <CodeBlock lang="bash">{`cmux list-workspaces
 cmux notify --title "Build Complete" --body "Your build finished"`}</CodeBlock>
+
+      <DocsHeading level={2} id="default-terminal">{t("defaultTerminal")}</DocsHeading>
+      <p>
+        {t.rich("defaultTerminalDesc", {
+          strong: (chunks) => <strong>{chunks}</strong>,
+        })}
+      </p>
 
       <DocsHeading level={2} id="auto-updates">{t("autoUpdates")}</DocsHeading>
       <p>{t("autoUpdatesDesc")}</p>

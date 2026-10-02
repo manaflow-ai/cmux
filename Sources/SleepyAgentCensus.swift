@@ -12,6 +12,7 @@ final class SleepyAgentCensus: SleepyAgentCensusing {
         case codex
         case opencode
         case pi
+        case ollama
         case other
     }
 
@@ -34,7 +35,8 @@ final class SleepyAgentCensus: SleepyAgentCensusing {
     private static func compute() -> SleepyAgentCounts {
         guard let app = AppDelegate.shared else { return SleepyAgentCounts() }
         var counts = SleepyAgentCounts()
-        for workspace in app.openWorkspacesForPetCensus() {
+        let workspaces = app.openWorkspacesForPetCensus()
+        for workspace in workspaces {
             for (key, pid) in workspace.agentPIDs where pid > 0 {
                 switch bucket(forStatusKey: key) {
                 case .claude:
@@ -45,12 +47,46 @@ final class SleepyAgentCensus: SleepyAgentCensusing {
                     counts.opencode += 1
                 case .pi:
                     counts.pi += 1
+                case .ollama:
+                    counts.ollama += 1
                 case .other:
                     counts.other += 1
                 }
             }
         }
+        addProcessScanOnlyAgents(to: &counts, workspaces: workspaces)
         return counts
+    }
+
+    /// Hookless agents (ollama) never self-report a PID, so they are invisible
+    /// to the hook census above. Count them from the cached live-agent index
+    /// the vault process scanner maintains, gated on the agent process still
+    /// being alive so a persisted-for-restore snapshot cannot summon a pet
+    /// after its agent exits.
+    private static func addProcessScanOnlyAgents(
+        to counts: inout SleepyAgentCounts,
+        workspaces: [Workspace]
+    ) {
+        guard let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() else { return }
+        let workspacesByID = Dictionary(
+            workspaces.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for (panelKey, entry) in index.forkValidationEntries() {
+            guard entry.snapshot.kind == .ollama,
+                  let workspace = workspacesByID[panelKey.workspaceId],
+                  let panel = workspace.terminalPanel(for: panelKey.panelId),
+                  workspace.agentPIDKeysByPanelId[panel.id]?.isEmpty ?? true,
+                  entry.agentProcessIDs.contains(where: isProcessAlive) else {
+                continue
+            }
+            counts.ollama += 1
+        }
+    }
+
+    private static func isProcessAlive(_ pid: Int) -> Bool {
+        guard pid > 0 else { return false }
+        return kill(pid_t(pid), 0) == 0 || errno == EPERM
     }
 
     nonisolated static func bucket(forStatusKey key: String) -> Bucket {
@@ -63,6 +99,9 @@ final class SleepyAgentCensus: SleepyAgentCensusing {
         }
         if normalized.contains("opencode") || normalized.contains("open-code") {
             return .opencode
+        }
+        if normalized.contains("ollama") {
+            return .ollama
         }
         // Live agent-hook PID keys are dotted ("<statusKey>.<sessionId>"),
         // so bucket on the base status key, not the raw dictionary key.

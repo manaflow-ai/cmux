@@ -5,7 +5,7 @@ import Testing
 
 /// Behavioral tests for ``TerminalAccessoryConfiguration``: the source of truth
 /// for the reorderable terminal accessory bar. These verify the fresh-install
-/// default layout (modifiers leading, zoom trailing), reorder + hide/show
+/// default layout (modifiers leading, zoom trailing, gallery copy hidden), reorder + hide/show
 /// round-trips, and the v1/v2 → v3 widening migration that folds the
 /// previously-pinned modifier/zoom/paste built-ins into the configurable region.
 ///
@@ -26,7 +26,7 @@ struct TerminalAccessoryConfigurationTests {
 
     // MARK: - Gating test #1: fresh-install default order
 
-    @Test("fresh install puts modifiers (incl. ⇧) at the front and zoom at the back, all shown")
+    @Test("fresh install puts modifiers at the front, zoom at the back, and hides the files copy")
     func freshInstallDefaultOrder() throws {
         let config = TerminalAccessoryConfiguration(defaults: freshDefaults())
         let order = config.displayOrder
@@ -42,14 +42,25 @@ struct TerminalAccessoryConfigurationTests {
         let tabIndex = try #require(order.firstIndex(of: id(.tab)))
         #expect(order[tabIndex + 1] == id(.escape))
         #expect(order[tabIndex + 2] == id(.returnKey))
-        // Everything is shown on a fresh install, including the now-configurable
-        // modifiers (⇧ among them)/zoom/paste.
+        // Everything except the gallery's secondary accessory copy is shown.
         for action in TerminalInputAccessoryAction.configurableActions {
-            #expect(config.isEnabled(action.itemID))
+            #expect(config.isEnabled(action.itemID) == (action != .files))
         }
         // ⇧ is now a surfaced, shown, user-configurable bar button.
         #expect(order.contains(id(.shift)))
         #expect(config.isEnabled(id(.shift)))
+    }
+
+    @Test("files remains configurable after the chip migration")
+    func filesCanBeReenabledAndPersisted() {
+        let defaults = freshDefaults()
+        let config = TerminalAccessoryConfiguration(defaults: defaults)
+        #expect(!config.isEnabled(id(.files)))
+        #expect(config.displayOrder.contains(id(.files)))
+
+        config.setEnabled(id(.files), true)
+        let reloaded = TerminalAccessoryConfiguration(defaults: defaults)
+        #expect(reloaded.isEnabled(id(.files)))
     }
 
     // MARK: - Return key
@@ -71,16 +82,18 @@ struct TerminalAccessoryConfigurationTests {
 
     @Test("Return's persisted identifier is stable")
     func returnKeyStableIdentifier() {
-        // The persisted key is `builtin.<rawValue>`; Return is appended last in the
-        // enum so existing built-ins keep their raw values. Lock the storage key so
-        // a future reorder of the enum cannot silently shift it.
+        // The persisted key is `builtin.<rawValue>`; the enum is append-only so
+        // existing built-ins keep their raw values. Lock the storage key so a
+        // future reorder of the enum cannot silently shift it.
         let stored = TerminalInputAccessoryAction.returnKey.itemID.storageKey
         #expect(stored == "builtin.\(TerminalInputAccessoryAction.returnKey.rawValue)")
         let parsed = ToolbarItemID(storageKey: stored)
         #expect(parsed == id(.returnKey))
-        // Appended last: its raw value is the max across all cases.
-        let maxRaw = TerminalInputAccessoryAction.allCases.map(\.rawValue).max()
-        #expect(TerminalInputAccessoryAction.returnKey.rawValue == maxRaw)
+        // Append-only enum: pin the persisted raw values of the appended cases
+        // so a reorder cannot silently shift them (new cases go after the max).
+        #expect(TerminalInputAccessoryAction.returnKey.rawValue == 29)
+        #expect(TerminalInputAccessoryAction.ollama.rawValue == 30)
+        #expect(TerminalInputAccessoryAction.files.rawValue == 31)
     }
 
     // MARK: - Reorder + hide/show round-trips

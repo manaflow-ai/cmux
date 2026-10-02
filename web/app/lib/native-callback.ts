@@ -3,7 +3,11 @@ import type { NextRequest } from "next/server";
 export const DEFAULT_NATIVE_CALLBACK_SCHEME = "cmux";
 export const NATIVE_CALLBACK_HOST = "auth-callback";
 
-const NATIVE_SCHEMES = new Set([DEFAULT_NATIVE_CALLBACK_SCHEME, "cmux-nightly"]);
+const NATIVE_SCHEMES = new Set([
+  DEFAULT_NATIVE_CALLBACK_SCHEME,
+  "cmux-nightly",
+  "cmux-rc",
+]);
 
 export function nativeCallbackHrefForScheme(scheme: string): string {
   return `${scheme}://${NATIVE_CALLBACK_HOST}`;
@@ -16,6 +20,14 @@ export function validatedNativeCallbackScheme(
   const scheme = rawScheme?.trim().toLowerCase() ?? "";
   if (scheme && isAllowedNativeScheme(scheme, request)) return scheme;
   return DEFAULT_NATIVE_CALLBACK_SCHEME;
+}
+
+export function trustedNativeCallbackScheme(
+  rawScheme: string | null | undefined,
+): string | null {
+  const scheme = rawScheme?.trim().toLowerCase() ?? "";
+  if (NATIVE_SCHEMES.has(scheme) || scheme === "cmux-dev") return scheme;
+  return /^cmux-dev-[a-z0-9-]+$/.test(scheme) ? scheme : null;
 }
 
 export function isAllowedNativeReturnTo(

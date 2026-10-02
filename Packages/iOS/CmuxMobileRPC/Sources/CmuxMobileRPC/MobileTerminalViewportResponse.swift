@@ -12,16 +12,27 @@ public struct MobileTerminalViewportResponse: Decodable, Sendable {
     public let columns: Int?
     /// The effective shared row count, if reported.
     public let rows: Int?
+    /// Render producer lifetime whose revision floor was captured with this response.
+    public let renderEpoch: String?
+    /// Every frame at or below this revision predates the acknowledged viewport.
+    public let renderRevisionFloor: UInt64?
 
     private enum CodingKeys: String, CodingKey {
         case columns
         case rows
+        case renderEpoch = "render_epoch"
+        case renderRevisionFloor = "render_revision_floor"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         columns = try container.decodeIfPresent(Int.self, forKey: .columns)
         rows = try container.decodeIfPresent(Int.self, forKey: .rows)
+        renderEpoch = try container.decodeIfPresent(String.self, forKey: .renderEpoch)
+        renderRevisionFloor = try container.decodeIfPresent(
+            UInt64.self,
+            forKey: .renderRevisionFloor
+        )
     }
 
     /// The effective grid when both dimensions are present and positive.

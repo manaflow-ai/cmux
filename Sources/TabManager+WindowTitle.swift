@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 
 extension TabManager {
@@ -13,7 +14,7 @@ extension TabManager {
 
     func updateWindowTitleForSelectedTab() {
         guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }) else {
+              let tab = workspacesById[selectedTabId] else {
             updateWindowTitle(for: nil)
             return
         }
@@ -23,7 +24,7 @@ extension TabManager {
     func updateWindowTitle(for tab: Workspace?) {
         let title = windowTitle(for: tab)
         guard let targetWindow = window else { return }
-        targetWindow.title = title
+        windowTitleWriter.apply(title, to: targetWindow)
     }
 
     /// The name to display for `tab` across window chrome — the custom title
@@ -36,10 +37,59 @@ extension TabManager {
     /// `title` is merely seeded equal to the group name at creation and would
     /// otherwise drift when the group is renamed.
     func resolvedWorkspaceDisplayTitle(for tab: Workspace) -> String {
-        if let group = workspaceGroups.first(where: { $0.anchorWorkspaceId == tab.id }) {
-            return group.name
+        let anchorGroupName = workspaces.groupNamesByAnchorWorkspaceId[tab.id]
+        return resolvedWorkspaceDisplayTitle(for: tab, anchorGroupName: anchorGroupName)
+    }
+
+    func resolvedWorkspaceDisplayTitle(forWorkspaceId workspaceId: UUID) -> String? {
+        guard let workspace = workspacesById[workspaceId] else { return nil }
+        return resolvedWorkspaceDisplayTitle(for: workspace)
+    }
+
+    func resolvedWorkspaceDisplayTitles(for workspaceIds: Set<UUID>) -> [UUID: String] {
+        guard !workspaceIds.isEmpty else { return [:] }
+        let groupNamesByAnchorId = workspaces.groupNamesByAnchorWorkspaceId
+        var titles: [UUID: String] = [:]
+        titles.reserveCapacity(workspaceIds.count)
+        for workspaceId in workspaceIds {
+            guard let workspace = workspacesById[workspaceId] else { continue }
+            titles[workspaceId] = resolvedWorkspaceDisplayTitle(
+                for: workspace,
+                anchorGroupName: groupNamesByAnchorId[workspaceId]
+            )
         }
-        return tab.title
+        return titles
+    }
+
+    private func resolvedWorkspaceDisplayTitle(for workspace: Workspace, anchorGroupName: String?) -> String {
+        anchorGroupName ?? workspace.title
+    }
+
+    /// The display title with the workspace's host appended for SSH and Cloud
+    /// workspaces (`title · host`), as shown in the window title bar and
+    /// `NSWindow.title`. Local workspaces keep the plain display title.
+    func resolvedWorkspaceWindowTitle(for tab: Workspace) -> String {
+        let title = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return "" }
+        return tab.hostLabel.windowTitle(appendingTo: title)
+    }
+
+    /// Refreshes title chrome after a workspace's host changed, for example
+    /// when `cmux ssh` attaches its remote configuration or a Cloud machine's
+    /// name arrives after the workspace was selected.
+    func workspaceHostLabelDidChange(_ workspace: Workspace) {
+        guard workspace.owningTabManager === self,
+              workspacesById[workspace.id] === workspace else {
+            return
+        }
+        if selectedTabId == workspace.id {
+            refreshWindowTitle()
+        }
+        NotificationCenter.default.post(
+            name: .workspaceTitleDidChange,
+            object: self,
+            userInfo: [GhosttyNotificationKey.tabId: workspace.id]
+        )
     }
 
     private func windowTitle(for tab: Workspace?) -> String {
@@ -51,9 +101,11 @@ extension TabManager {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         } ?? ""
         let activeDirectory = activeWindowTitleDirectory(for: tab)
+        // `{activeWorkspace}` stays host-free; `{defaultTitle}` carries the host.
+        let workspaceFallback = activeDirectory.isEmpty ? "cmux" : activeDirectory
         let resolvedTitle = template.resolved(context: WindowTitleTemplateContext(
             defaultTitle: defaultTitle,
-            activeWorkspace: workspaceTitle.isEmpty ? defaultTitle : workspaceTitle,
+            activeWorkspace: workspaceTitle.isEmpty ? (tab == nil ? defaultTitle : workspaceFallback) : workspaceTitle,
             activeDirectory: activeDirectory,
             windowId: windowId,
             appName: "cmux"
@@ -64,10 +116,12 @@ extension TabManager {
 
     private func defaultWindowTitle(for tab: Workspace?) -> String {
         guard let tab else { return "cmux" }
-        let trimmedTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedTitle.isEmpty { return trimmedTitle }
+        let windowTitle = resolvedWorkspaceWindowTitle(for: tab)
+        if !windowTitle.isEmpty { return windowTitle }
         let trimmedDirectory = activeWindowTitleDirectory(for: tab)
-        return trimmedDirectory.isEmpty ? "cmux" : trimmedDirectory
+        if !trimmedDirectory.isEmpty { return tab.hostLabel.windowTitle(appendingTo: trimmedDirectory) }
+        let hostLabel = tab.hostLabel
+        return hostLabel.isRemote && !hostLabel.label.isEmpty ? hostLabel.label : "cmux"
     }
 
     private func activeWindowTitleDirectory(for tab: Workspace?) -> String {

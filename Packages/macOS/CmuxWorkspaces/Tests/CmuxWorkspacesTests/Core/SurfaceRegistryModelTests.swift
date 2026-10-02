@@ -17,6 +17,7 @@ struct SurfaceRegistryModelTests {
         #expect(model.pendingNonFocusSplitFocusReassert == nil)
         #expect(model.nonFocusSplitFocusReassertGeneration == 0)
         #expect(model.surfaceTTYNames.isEmpty)
+        #expect(model.surfaceTTYDevices.isEmpty)
         #expect(model.panelShellActivityStates.isEmpty)
     }
 
@@ -56,13 +57,16 @@ struct SurfaceRegistryModelTests {
         let kept = UUID()
         let dropped = UUID()
         model.surfaceTTYNames = [kept: "/dev/ttys001", dropped: "/dev/ttys002"]
+        model.surfaceTTYDevices = [kept: 1, dropped: 2]
         model.panelShellActivityStates = [kept: .commandRunning, dropped: .promptIdle]
 
         let valid: Set<UUID> = [kept]
         model.surfaceTTYNames = model.surfaceTTYNames.filter { valid.contains($0.key) }
+        model.surfaceTTYDevices = model.surfaceTTYDevices.filter { valid.contains($0.key) }
         model.panelShellActivityStates = model.panelShellActivityStates.filter { valid.contains($0.key) }
 
         #expect(model.surfaceTTYNames == [kept: "/dev/ttys001"])
+        #expect(model.surfaceTTYDevices == [kept: 1])
         #expect(model.panelShellActivityStates == [kept: .commandRunning])
     }
 }

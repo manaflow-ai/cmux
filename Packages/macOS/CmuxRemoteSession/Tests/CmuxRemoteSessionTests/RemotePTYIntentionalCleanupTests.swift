@@ -90,7 +90,7 @@ struct RemotePTYIntentionalCleanupTests {
     private static func markReady(_ coordinator: RemoteSessionCoordinator, lease: RemoteProxyLease) {
         coordinator.queue.sync {
             coordinator.proxyLease = lease
-            coordinator.proxyEndpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
+            coordinator.proxyEndpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424, credential: .random())
             coordinator.daemonReady = true
         }
     }
@@ -120,6 +120,7 @@ struct RemotePTYIntentionalCleanupTests {
             host: IntentionalCleanupTestHost(),
             configuration: configuration,
             proxyBroker: broker,
+            connectionBroker: NativeSSHConnectionBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
                 homeDirectory: FileManager.default.temporaryDirectory
             ),
@@ -129,11 +130,17 @@ struct RemotePTYIntentionalCleanupTests {
             buildInfo: IntentionalCleanupBuildInfo(),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
-                missingRequiredFunctionality: ""
+                missingRequiredFunctionality: "",
+                cloudNotificationClearWorkspaceInvalid: "",
+                cloudNotificationClearWorkspaceDenied: "",
+                cloudNotificationClearSurfaceInvalid: ""
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@"
+                suspendedDetailFormat: "%@",
+                reverseRelayUnavailableRetrying: "",
+                reverseRelayPortUnavailableRetrying: "",
+                controlMasterOwnershipUnavailable: ""
             )
         )
     }

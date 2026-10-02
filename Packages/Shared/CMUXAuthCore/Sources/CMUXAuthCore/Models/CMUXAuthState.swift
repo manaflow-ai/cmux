@@ -22,7 +22,8 @@ public struct CMUXAuthState: Equatable, Sendable {
     /// priority order: cleared auth, mock data, a UI-test fixture user,
     /// pending auto-login, then the cached user. A cached user with known
     /// tokens is treated as signed in immediately while runtime validation
-    /// proceeds in the background.
+    /// remains explicitly in progress. This lets the authenticated UI render
+    /// without allowing token-dependent work to race the restore.
     /// - Parameters:
     ///   - clearAuthRequested: Whether the launch requested a cleared auth state.
     ///   - mockDataEnabled: Whether mock-data mode is active.
@@ -57,7 +58,7 @@ public struct CMUXAuthState: Equatable, Sendable {
         }
 
         if hasTokens, let cachedUser {
-            return Self(isAuthenticated: true, currentUser: cachedUser, isRestoringSession: false)
+            return Self(isAuthenticated: true, currentUser: cachedUser, isRestoringSession: true)
         }
 
         return Self(isAuthenticated: false, currentUser: cachedUser, isRestoringSession: hasTokens)

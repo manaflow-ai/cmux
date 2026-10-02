@@ -31,11 +31,11 @@ public struct UserDefaultsSettingsClient: SettingsWriting {
     }
 
     public func value<Value: SettingCodable>(for key: DefaultsKey<Value>) -> Value {
-        Value.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
+        key.value(in: defaults)
     }
 
     public func valueIfPresent<Value: SettingCodable>(for key: DefaultsKey<Value>) -> Value? {
-        Value.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey))
+        key.decodedValue(in: defaults)
     }
 
     public func set<Value: SettingCodable>(_ value: Value, for key: DefaultsKey<Value>) {

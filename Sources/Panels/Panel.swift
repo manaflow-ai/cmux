@@ -1,19 +1,26 @@
 import Foundation
 import Combine
 import AppKit
+import CmuxFoundation
 
 /// Type of panel content
-public enum PanelType: String, Codable, Sendable {
+public enum PanelType: String, Codable, CaseIterable, Sendable {
     case terminal
     case browser
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
     case customSidebar
+    case simulator
     case agentSession
     case project
     case extensionBrowser
+    case workspaceTodo
+    case notifications
     case cloudVMLoading
+    case mobilePairing
+    case accountSignIn
+    case cloudVPNSetup
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -38,8 +45,28 @@ public enum PanelType: String, Codable, Sendable {
             self = .agentSession
             return
         }
+        if rawValue.lowercased() == Self.workspaceTodo.rawValue.lowercased() {
+            self = .workspaceTodo
+            return
+        }
+        if rawValue.lowercased() == Self.notifications.rawValue.lowercased() {
+            self = .notifications
+            return
+        }
         if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {
             self = .cloudVMLoading
+            return
+        }
+        if rawValue.lowercased() == Self.mobilePairing.rawValue.lowercased() {
+            self = .mobilePairing
+            return
+        }
+        if rawValue.lowercased() == Self.accountSignIn.rawValue.lowercased() {
+            self = .accountSignIn
+            return
+        }
+        if rawValue.lowercased() == Self.cloudVPNSetup.rawValue.lowercased() {
+            self = .cloudVPNSetup
             return
         }
         throw DecodingError.dataCorruptedError(
@@ -91,19 +118,21 @@ public enum PanelFocusIntent: Equatable {
 
 public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case navigation
+    case userInitiated
     case notificationArrival
     case notificationDismiss
     case unreadIndicatorDismiss
     case debug
 }
 
+/// The built-in attention color used when no configured override is valid.
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
-    case notificationBlue
+    case cmuxAccent
 
-    var strokeColor: NSColor {
+    func strokeColor(accent: CmuxAccentColor) -> NSColor {
         switch self {
-        case .notificationBlue:
-            return .systemBlue
+        case .cmuxAccent:
+            return accent.dynamicNSColor
         }
     }
 }
@@ -140,20 +169,20 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 
 enum WorkspaceAttentionCoordinator {
     static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .cmuxAccent,
         glowOpacity: 0.35,
         glowRadius: 3
     )
 
     static let flashRingStyle = WorkspaceAttentionFlashPresentation(
-        accent: .notificationBlue,
+        accent: .cmuxAccent,
         glowOpacity: 0.6,
         glowRadius: 6
     )
 
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> WorkspaceAttentionFlashPresentation {
         switch reason {
-        case .navigation, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+        case .navigation, .userInitiated, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             return flashRingStyle
         }
     }
@@ -167,7 +196,7 @@ enum WorkspaceAttentionCoordinator {
         switch reason {
         case .navigation:
             isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
-        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+        case .userInitiated, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             isAllowed = true
         }
 
@@ -187,7 +216,7 @@ enum FocusFlashCurve: Equatable {
 enum PanelOverlayRingMetrics {
     static let inset: CGFloat = 2
     static let cornerRadius: CGFloat = 6
-    static let lineWidth: CGFloat = 2.5
+    static let lineWidth: CGFloat = .paneIndicatorStrokeWidth
 
     static func pathRect(in bounds: CGRect) -> CGRect {
         bounds.insetBy(dx: inset, dy: inset)
@@ -223,15 +252,37 @@ struct FocusFlashSegment: Equatable {
     let curve: FocusFlashCurve
 }
 
-enum FocusFlashPattern {
-    static let values: [Double] = [0, 1, 0, 1, 0]
-    static let keyTimes: [Double] = [0, 0.25, 0.5, 0.75, 1]
-    static let duration: TimeInterval = 0.9
-    static let curves: [FocusFlashCurve] = [.easeOut, .easeIn, .easeOut, .easeIn]
+/// The attention flash shape. One short pulse by default: enough to say where
+/// focus or attention landed without replaying a blink on every move between
+/// panes. `notifications.paneFlashDoubleBlink` restores the older double blink.
+struct FocusFlashPattern: Equatable {
+    let values: [Double]
+    let keyTimes: [Double]
+    let duration: TimeInterval
+    let curves: [FocusFlashCurve]
+
+    static let pulse = FocusFlashPattern(
+        values: [0, 1, 0],
+        keyTimes: [0, 0.3, 1],
+        duration: 0.6,
+        curves: [.easeOut, .easeIn]
+    )
+    static let doubleBlink = FocusFlashPattern(
+        values: [0, 1, 0, 1, 0],
+        keyTimes: [0, 0.25, 0.5, 0.75, 1],
+        duration: 0.9,
+        curves: [.easeOut, .easeIn, .easeOut, .easeIn]
+    )
+
+    /// The shape the user has chosen, read when a flash starts.
+    static var current: FocusFlashPattern {
+        NotificationPaneFlashSettings.usesDoubleBlink() ? doubleBlink : pulse
+    }
+
     static let ringInset: Double = Double(PanelOverlayRingMetrics.inset)
     static let ringCornerRadius: Double = Double(PanelOverlayRingMetrics.cornerRadius)
 
-    static var segments: [FocusFlashSegment] {
+    var segments: [FocusFlashSegment] {
         let stepCount = min(curves.count, values.count - 1, keyTimes.count - 1)
         return (0..<stepCount).map { index in
             let startTime = keyTimes[index]
@@ -245,10 +296,10 @@ enum FocusFlashPattern {
         }
     }
 
-    static func opacity(at elapsed: TimeInterval) -> Double {
+    func opacity(at elapsed: TimeInterval) -> Double {
         guard elapsed >= 0, elapsed <= duration else { return 0 }
 
-        for index in 0..<segments.count {
+        for index in 0..<min(curves.count, values.count - 1, keyTimes.count - 1) {
             let startTime = keyTimes[index] * duration
             let endTime = keyTimes[index + 1] * duration
             if elapsed > endTime {
@@ -257,7 +308,7 @@ enum FocusFlashPattern {
 
             let segmentDuration = max(endTime - startTime, 0.0001)
             let rawProgress = max(0, min(1, (elapsed - startTime) / segmentDuration))
-            let curvedProgress = interpolatedProgress(rawProgress, curve: curves[index])
+            let curvedProgress = Self.interpolatedProgress(rawProgress, curve: curves[index])
             let startOpacity = values[index]
             let endOpacity = values[index + 1]
             return startOpacity + ((endOpacity - startOpacity) * curvedProgress)
@@ -307,6 +358,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Unfocus the panel
     func unfocus()
 
+    /// Read the panel's live user selection without changing focus or UI state.
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult
+
     /// Trigger a focus flash animation for this panel.
     func triggerFlash(reason: WorkspaceAttentionFlashReason)
 
@@ -335,6 +389,11 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
 extension Panel {
     public var displayIcon: String? { nil }
     public var isDirty: Bool { false }
+
+    /// Captures the panel's current selection without changing focus or state.
+    public func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        .unsupported
+    }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
         _ = window
@@ -371,114 +430,5 @@ extension Panel {
 
     func triggerFlash() {
         triggerFlash(reason: .navigation)
-    }
-}
-
-@MainActor
-final class CloudVMLoadingPanel: Panel {
-    enum Phase {
-        case loading
-        case failed(String, elapsedSeconds: Int)
-    }
-
-    let id: UUID
-    let workspaceId: UUID
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
-    let panelType: PanelType = .cloudVMLoading
-    @Published var startedAt: Date
-    @Published var phase: Phase = .loading
-
-    var displayTitle: String {
-        String(localized: "panel.cloudVM.loading.title", defaultValue: "Cloud VM")
-    }
-
-    var displayIcon: String? { "cloud.fill" }
-
-    init(id: UUID = UUID(), workspaceId: UUID, startedAt: Date = Date()) {
-        self.id = id
-        self.workspaceId = workspaceId
-        self.startedAt = startedAt
-    }
-
-    func close() {}
-    func focus() {}
-    func unfocus() {}
-    func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
-
-    func showFailure(_ message: String) {
-        let trimmed = Self.presentableFailureMessage(from: message)
-        let elapsedSeconds = max(0, Int(Date().timeIntervalSince(startedAt).rounded(.down)))
-        phase = .failed(trimmed.isEmpty
-            ? String(localized: "panel.cloudVM.loading.failed.generic", defaultValue: "Cloud VM could not be opened.")
-            : trimmed,
-            elapsedSeconds: elapsedSeconds
-        )
-    }
-
-    var hasFailed: Bool {
-        if case .failed = phase { return true }
-        return false
-    }
-
-    var isLoading: Bool {
-        if case .loading = phase { return true }
-        return false
-    }
-
-    func resetLoading() {
-        startedAt = Date()
-        phase = .loading
-    }
-
-    private static func presentableFailureMessage(from rawMessage: String) -> String {
-        let cleaned = rawMessage
-            .replacingOccurrences(of: "\u{001B}[2K", with: "")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: .newlines)
-            .map { line in
-                line
-                    .replacingOccurrences(of: #"\[[0-9;]*[A-Za-z]"#, with: "", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            .filter { !$0.isEmpty }
-        let joined = cleaned.joined(separator: "\n")
-        let lowercased = joined.lowercased()
-
-        if lowercased.contains("local cmux web server") || lowercased.contains("localhost:") || lowercased.contains("127.0.0.1:") {
-            return String(
-                localized: "panel.cloudVM.loading.failed.localServer",
-                defaultValue: "The local cmux web server is offline. Start it and retry Open Cloud VM."
-            )
-        }
-        if lowercased.contains("waiting for the cloud vm service")
-            || lowercased.contains("vm_cloud_service_unavailable")
-            || lowercased.contains("http 502")
-            || lowercased.contains("http 503")
-            || lowercased.contains("service unavailable") {
-            return String(
-                localized: "panel.cloudVM.loading.failed.serviceUnavailable",
-                defaultValue: "The Cloud VM service could not create a VM yet. Retry keeps using this pinned Cloud VM slot, and once a VM exists cmux will always reattach to that same VM."
-            )
-        }
-        if lowercased.contains("password") || lowercased.contains("permission denied") {
-            return String(
-                localized: "panel.cloudVM.loading.failed.auth",
-                defaultValue: "cmux could not open a passwordless terminal session. Try opening the Cloud VM again."
-            )
-        }
-
-        var seen = Set<String>()
-        let collapsed = cleaned.filter { line in
-            let key = line.lowercased()
-            if seen.contains(key) { return false }
-            seen.insert(key)
-            return !key.contains("created cloud vm")
-                && !key.contains("[cmux]")
-                && !key.contains("freestyle")
-                && !key.contains("provider")
-                && !key.contains("http://")
-                && !key.contains("https://")
-        }
-        return String(collapsed.joined(separator: "\n").prefix(600))
     }
 }

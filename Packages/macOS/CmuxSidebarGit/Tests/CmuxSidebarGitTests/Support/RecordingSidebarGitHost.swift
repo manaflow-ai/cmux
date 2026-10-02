@@ -12,6 +12,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         case clearGitBranch(UUID, UUID)
         case pullRequestBadge(UUID, UUID, SidebarPullRequestBadge)
         case clearPullRequestBadge(UUID, UUID)
+        case scheduleGitMetadataProbe(UUID, UUID, String)
         case clearAllGitMetadata
         case clearAllPullRequestMetadata
     }
@@ -32,8 +33,12 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     }
 
     var workspaces: [(id: UUID, state: WorkspaceState)] = []
-    var watchEnabled = true
-    var pollingEnabled = false
+    var gitMetadataActivity: SidebarGitMetadataActivity = .activePolling
+    var pullRequestActivity: SidebarGitMetadataActivity = .disabled
+    var pollingEnabled: Bool {
+        get { pullRequestActivity.performsActivePolling }
+        set { pullRequestActivity = newValue ? .activePolling : .disabled }
+    }
     var mobileHostActive = false
     var selectedWorkspaceId: UUID?
     private(set) var events: [ProjectionEvent] = []
@@ -170,6 +175,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         record(.clearPullRequestBadge(workspaceId, panelId))
     }
 
+    func schedulePanelGitMetadataProbe(workspaceId: UUID, panelId: UUID, reason: String) {
+        record(.scheduleGitMetadataProbe(workspaceId, panelId, reason))
+    }
+
     func clearAllSidebarGitMetadata() {
         for index in workspaces.indices {
             for panelId in workspaces[index].state.panels.keys {
@@ -191,8 +200,6 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
 
     // MARK: Environment
 
-    var isGitMetadataWatchEnabled: Bool { watchEnabled }
-    var isPullRequestPollingEnabled: Bool { pollingEnabled }
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool { mobileHostActive }
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval { mobileHostActive ? interval : 0 }
 }

@@ -1,15 +1,18 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobilePairedMac
+import CmuxMobileSSH
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// The Computers screen: the Macs signed in to the user's account, each shown
-/// with its name, live/last-seen status, and workspace count. The main workspace
-/// list owns the Mac picker; this screen manages the saved computer set and lets
-/// users inspect or remove one. The data is the durable-object–backed device
+/// The Computers screen: the user's Computers — paired Mac app instances
+/// (device + build) — each shown once, grouped under the connection method
+/// that Computer is configured to use (Iroh or Tailscale, set per Computer in
+/// its configuration). The main workspace list owns the Mac picker; this
+/// screen manages the saved set and lets users inspect one or choose whether
+/// it appears on this iPhone. The data is the durable-object–backed device
 /// registry (with a paired-Mac fallback) plus live presence.
 ///
 /// Snapshot boundary (see AGENTS.md): every row below the `List` takes an
@@ -21,79 +24,222 @@ struct DeviceTreeView: View {
     /// Open a workspace (forwarded from the shell). Unused by the management list
     /// today; kept so a future "show this computer's workspaces" tap can use it.
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
+    /// Creates a workspace on a visible, connected Cloud computer.
+    var createWorkspaceOnCloudMachine: ((String) -> Void)? = nil
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
-
-    /// The computer whose destructive remove action is awaiting confirmation.
-    /// Stored at list scope so reusable rows do not own transient presentation
-    /// state while `List` is recycling swipe-action rows.
-    @State private var computerPendingRemovalID: String?
-
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Live app routes dismiss through the root modal owner. Standalone hosts
+    /// leave this nil and retain the environment dismissal fallback.
+    var dismissAction: (() -> Void)? = nil
+    /// Whether the Mac sections, pairing, and account-scoped reloads apply.
+    /// `false` without Stack auth (an attach-ticket session), which lists
+    /// only SSH computers.
+    var macPairingAvailable = true
+    /// The workspace list's computer filter; selecting an SSH computer here
+    /// scopes the list to it (PRD D22).
+    @AppStorage(WorkspaceMacSelection.storageKey) private var macSelection: WorkspaceMacSelection = .all
+    @State private var path = NavigationPath()
+    @State private var pendingSSHDeleteID: UUID?
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
-    /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/forgetMac``
-    /// actually removes. (Building from `deviceTreeDevices`, which prefers the team
-    /// registry, would make Remove ineffective: a registry-backed row reappears on
-    /// the next registry load.) Each is enriched with presence, live status, and how
-    /// many aggregated workspaces it contributes. Built by the shared
+    /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/hideMac``
+    /// filters locally. Each is enriched with presence, live status, and how
+    /// many aggregated workspaces it contributes. Hidden Macs remain in the
+    /// same section with their switches off. Built by the shared
     /// ``MacComputerSnapshot/snapshots(from:)`` so the disconnected reconnect
     /// list shows exactly the same computer set.
     private var computers: [MacComputerSnapshot] {
         MacComputerSnapshot.snapshots(from: store)
     }
 
+    /// Which row lives in which section (method sections + Hidden Computers).
+    /// The visibility switches mutate the store asynchronously, so the row's
+    /// section move lands after the toggle's own transaction has ended;
+    /// animating the list on this key keeps that move smooth. Keyed on
+    /// membership only, so the 10s presence refresh (same rows, new status
+    /// text) doesn't animate.
+    private var rowMembership: [String] {
+        let macIDs = MacComputerListSection.sections(from: computers).flatMap { section in
+            [section.id] + section.computers.map(\.id)
+        }
+        let hiddenIDs = ["hidden"] + store.hiddenComputers.map(\.id)
+        let cloudIDs = ["cloud"] + cloudHosts.map(\.hostID)
+        return macIDs + hiddenIDs + cloudIDs
+    }
+
+    private var cloudHosts: [MobileExternalHostSummary] {
+        store.externalHostSummaries.sorted { lhs, rhs in
+            if lhs.isHidden != rhs.isHidden {
+                return !lhs.isHidden
+            }
+            return (lhs.displayName ?? lhs.hostID) < (rhs.displayName ?? rhs.hostID)
+        }
+    }
+
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
-                if computers.isEmpty {
+                if !macPairingAvailable {
+                    EmptyView()
+                } else if computers.isEmpty
+                    && store.hiddenComputers.isEmpty
+                    && store.externalHostSummaries.isEmpty {
                     emptySection
                 } else {
-                    Section {
-                        ForEach(computers) { computer in
-                            MacComputerRow(
-                                computer: computer,
-                                requestRemove: requestComputerRemoval,
-                                isConfirmingRemove: removalConfirmationBinding(for: computer.deviceId),
-                                confirmRemove: { _ in confirmComputerRemoval() }
+                    // One row per Computer, grouped under the connection
+                    // method that Computer is configured to use. The method
+                    // itself is changed in the Computer's own configuration.
+                    ForEach(MacComputerListSection.sections(from: computers)) { section in
+                        Section {
+                            ComputerVisibilityRows(
+                                visibleComputers: section.computers,
+                                hiddenComputers: [],
+                                mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                                setCaffeine: setCaffeine,
+                                caffeineMutatingComputerIDs: store.caffeineMutatingPairingIDs,
+                                gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs,
+                                hide: hideComputer,
+                                unhide: unhideComputer
                             )
+                        } header: {
+                            Text(section.title)
                         }
+                    }
+                    if !store.hiddenComputers.isEmpty {
+                        Section {
+                            ComputerVisibilityRows(
+                                visibleComputers: [],
+                                hiddenComputers: store.hiddenComputers,
+                                mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                                gateWarningPairingIDs: store.macVersionUpdateRequiredPairingIDs,
+                                hide: hideComputer,
+                                unhide: unhideComputer
+                            )
+                        } header: {
+                            Text(L10n.string(
+                                "mobile.connections.hidden.title",
+                                defaultValue: "Hidden Computers"
+                            ))
+                        }
+                    }
+                    if !store.externalHostSummaries.isEmpty {
+                        // Cloud machines are computers too. Their switch hides
+                        // a machine's workspaces on this phone exactly as a
+                        // Mac's does; managing the machine itself lives in
+                        // the Cloud tab.
+                        Section {
+                            ForEach(cloudHosts) { host in
+                                CloudComputerRow(
+                                    host: host,
+                                    setVisible: { visible in
+                                        store.setExternalHost(host.hostID, hidden: !visible)
+                                    },
+                                    createWorkspace: createWorkspaceOnCloudMachine.map { action in
+                                        { action(host.hostID) }
+                                    }
+                                )
+                            }
+                        } header: {
+                            Text(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
+                        }
+                    }
+                    Section {
                         if showAddDevice != nil {
                             addComputerRow
                         }
                     } footer: {
                         Text(L10n.string(
-                            "mobile.computers.footer",
-                            defaultValue: "The computers signed in to your account. Use the workspace title picker to focus one computer or show All Computers."
+                            "mobile.connections.footer",
+                            defaultValue: "Each computer connects using the method set in its own configuration. Turning a computer off hides its workspaces on this iPhone; it stays signed in to your account."
                         ))
                     }
                 }
+                // SSH computers sit after the route-kind sections and show
+                // even with no paired Macs (PRD D6).
+                SSHComputersSection(
+                    computers: SSHComputerRowSnapshot.snapshots(from: store.sshComputers),
+                    actions: sshSectionActions
+                )
             }
             .listStyle(.insetGrouped)
-            .navigationDestination(for: String.self) { deviceId in
-                MacComputerDetailView(store: store, macDeviceID: deviceId)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: rowMembership)
+            .navigationDestination(for: SSHComputerEditorTarget.self) { target in
+                SSHComputerEditorView(
+                    computers: store.sshComputers,
+                    existing: target.hostID.flatMap { store.sshComputers.host(id: $0) },
+                    showsCancel: false,
+                    onFinish: { _ in
+                        if !path.isEmpty { path.removeLast() }
+                    }
+                )
             }
-            .navigationTitle(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+            .alert(
+                SSHCopy().deleteHostTitle,
+                isPresented: Binding(
+                    get: { pendingSSHDeleteID != nil },
+                    set: { if !$0 { pendingSSHDeleteID = nil } }
+                ),
+                presenting: pendingSSHDeleteID
+            ) { hostID in
+                Button(SSHCopy().delete, role: .destructive) {
+                    deleteSSHComputer(hostID)
+                }
+                .accessibilityIdentifier("ssh.delete.confirm")
+                Button(SSHCopy().cancel, role: .cancel) {}
+            } message: { _ in
+                Text(SSHCopy().deleteHostMessage)
+            }
+            .navigationDestination(for: MacConnectionRef.self) { ref in
+                if let computer = computers.first(where: { $0.id == ref.pairingID }) {
+                    MacComputerDetailView(
+                        store: store,
+                        macDeviceID: computer.deviceId,
+                        instanceTag: computer.instanceTag,
+                        focusedRouteKind: ref.routeKind
+                    )
+                }
+            }
+            .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if showAddDevice != nil {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(action: addComputer) {
+                ToolbarItem(placement: .topBarLeading) {
+                    if showAddDevice != nil, macPairingAvailable {
+                        // Adding can mean pairing a Mac or saving an SSH
+                        // computer, so the + offers both (HIG Menus).
+                        Menu {
+                            Button(action: addComputer) {
+                                Label(SSHCopy().pairMacEllipsis, systemImage: "macbook.and.iphone")
+                            }
+                            .accessibilityIdentifier("ssh.addMenu.pairMac")
+                            Button(action: addSSHComputer) {
+                                Label(SSHCopy().addComputerEllipsis, systemImage: "terminal")
+                            }
+                            .accessibilityIdentifier("ssh.addMenu.ssh")
+                        } label: {
                             Image(systemName: "plus")
                         }
-                        .accessibilityLabel(L10n.string("mobile.computers.add", defaultValue: "Add Computer"))
+                        .accessibilityLabel(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
+                        .accessibilityIdentifier("MobileComputersAddButton")
+                    } else {
+                        Button(action: addSSHComputer) {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel(SSHCopy().addComputer)
                         .accessibilityIdentifier("MobileComputersAddButton")
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
-                        dismiss()
+                        dismissScreen()
                     }
                     .accessibilityIdentifier("MobileDeviceTreeDone")
                 }
             }
             .refreshable { await reload() }
             .task {
+                guard macPairingAvailable else { return }
                 // This screen is the user's connection-debug view. The online dots
                 // (presence) and secondary workspace counts already update live via
                 // push subscriptions, so keeping it "live" just needs a gentle,
@@ -118,64 +264,120 @@ struct DeviceTreeView: View {
     private var addComputerRow: some View {
         Button(action: addComputer) {
             Label(
-                L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                L10n.string("mobile.connections.add", defaultValue: "Add Computer"),
                 systemImage: "plus"
             )
         }
         .accessibilityIdentifier("MobileComputersAddRow")
     }
 
+    private var sshSectionActions: SSHComputersSectionActions {
+        SSHComputersSectionActions(
+            select: selectSSHComputer,
+            edit: { path.append(SSHComputerEditorTarget.edit($0)) },
+            disconnect: { hostID in
+                let computers = store.sshComputers
+                Task { await computers.disconnect(hostID: hostID) }
+            },
+            requestDelete: { pendingSSHDeleteID = $0 },
+            add: addSSHComputer
+        )
+    }
+
+    private func addSSHComputer() {
+        path.append(SSHComputerEditorTarget.new)
+    }
+
+    /// PRD D22: an SSH computer opens its workspace list like a Mac. Scope the
+    /// list to it, connect (which asks any first-connect questions above
+    /// every screen), and return to the list.
+    private func selectSSHComputer(_ hostID: UUID) {
+        let deviceID = store.sshComputerDeviceID(hostID: hostID)
+        macSelection = .machine(deviceID)
+        let store = store
+        Task { _ = await store.switchToMac(macDeviceID: deviceID) }
+        dismissScreen()
+    }
+
+    private func deleteSSHComputer(_ hostID: UUID) {
+        let computers = store.sshComputers
+        if case .machine(let id) = macSelection, store.sshHostID(computerDeviceID: id) == hostID {
+            macSelection = .all
+        }
+        Task { try? await computers.deleteHost(id: hostID) }
+    }
+
     /// Present the add-device (pairing) flow, then dismiss this screen. Shared by
     /// the top-left toolbar button and the end-of-list row.
     private func addComputer() {
         showAddDevice?()
-        dismiss()
+        dismissScreen()
+    }
+
+    private func dismissScreen() {
+        if let dismissAction {
+            dismissAction()
+        } else {
+            dismiss()
+        }
     }
 
     @ViewBuilder
     private var emptySection: some View {
         Section {
-            Text(L10n.string(
-                "mobile.computers.empty",
-                defaultValue: "No computers yet. Add one to see its workspaces here."
-            ))
-            .foregroundStyle(.secondary)
+            Text(emptyDescription)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("MobileComputersEmptyDescription")
         }
     }
 
-    private func requestComputerRemoval(_ deviceID: String) {
-        computerPendingRemovalID = deviceID
+    private var emptyDescription: String {
+        let description = showAddDevice != nil
+            ? L10n.string(
+                "mobile.v2.connections.empty",
+                defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
+            )
+            : L10n.string(
+                "mobile.v2.devices.emptyDescription",
+                defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
+            )
+        return "\(description) \(MobilePairingCopy().emptyWorkspaceMessage)"
     }
 
-    private func removalConfirmationBinding(for deviceID: String) -> Binding<Bool> {
-        Binding(
-            get: { computerPendingRemovalID == deviceID },
-            set: { isPresented in
-                if isPresented {
-                    computerPendingRemovalID = deviceID
-                } else if computerPendingRemovalID == deviceID {
-                    computerPendingRemovalID = nil
-                }
-            }
+    private func hideComputer(_ computer: MacComputerSnapshot) {
+        store.requestHideStoredPairedMacEntries(
+            representativeID: computer.id,
+            aliasIDs: computer.aliasIDs
         )
     }
 
-    private func confirmComputerRemoval() {
-        guard let deviceID = computerPendingRemovalID else {
-            return
-        }
-        computerPendingRemovalID = nil
+    /// Leading-swipe keep-awake toggle: targets exactly the swiped Computer's
+    /// own connection, never whichever Mac happens to be active.
+    private func setCaffeine(_ computer: MacComputerSnapshot, _ enabled: Bool) {
         Task {
-            await store.forgetMac(macDeviceID: deviceID)
-            await reload()
+            await store.setCaffeineEnabled(
+                enabled,
+                macDeviceID: computer.deviceId,
+                instanceTag: computer.instanceTag
+            )
         }
     }
 
+    private func unhideComputer(_ computer: MobileHiddenComputer) {
+        store.requestUnhideMacDeviceID(
+            computer.macDeviceID,
+            instanceTag: computer.instanceTag
+        )
+    }
+
     private func reload() async {
-        // Load the local paired Macs first so the list has a fallback source the
-        // instant it appears, then refresh from the registry.
-        await store.loadPairedMacs()
-        await store.loadRegistryDevices()
+        // These are independent account-scoped reads. Start them together so
+        // the slower registry request cannot delay the paired-Mac list, while
+        // each loader's generation gate keeps stale results from publishing.
+        async let pairedMacs: Bool = store.loadPairedMacs()
+        async let registryDevices: Void = store.loadRegistryDevices()
+        _ = await pairedMacs
+        await registryDevices
     }
 }
 #endif

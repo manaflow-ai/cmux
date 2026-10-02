@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 /// Round-trip coverage for per-monitor window-geometry memory (issue #2135).
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveAppContext)
 @MainActor
 struct AppDelegateDisplayConfigRestoreTests {
     // MARK: fixtures
@@ -352,6 +352,18 @@ struct AppDelegateDisplayConfigRestoreTests {
     }
 
     @Test
+    func restoredMainWindowsRestoreAppKitKeyViewLoopAfterTopologyAssembly() {
+        let appDelegate = testAppDelegate()
+        let windowId = appDelegate.createMainWindow(
+            sessionWindowSnapshot: emptyWindowSnapshot(),
+            shouldActivate: false
+        )
+        defer { closeCreatedWindow(appDelegate, windowId: windowId) }
+
+        #expect(appDelegate.mainWindow(for: windowId)?.autorecalculatesKeyViewLoop == true)
+    }
+
+    @Test
     func reconcileSkippedDuringSessionRestoreKeepsCaptureFirewallArmed() {
         let appDelegate = testAppDelegate()
         appDelegate.isScreenChangeCaptureSuppressed = true
@@ -397,10 +409,15 @@ struct AppDelegateDisplayConfigRestoreTests {
         let appDelegate = testAppDelegate()
         try #require(!NSScreen.screens.isEmpty)
         let restoredWindowId = UUID()
+        // Restore drops phantom (0-workspace, no Dock) windows (#6646), so the
+        // restored window carries one workspace.
+        var restoredWindow = emptyWindowSnapshot(windowId: restoredWindowId)
+        restoredWindow.tabManager = TabManager(autoWelcomeIfNeeded: false)
+            .sessionSnapshot(includeScrollback: false)
         let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: 1_000,
-            windows: [emptyWindowSnapshot(windowId: restoredWindowId)]
+            windows: [restoredWindow]
         )
         appDelegate.isScreenChangeCaptureSuppressed = true
         defer {

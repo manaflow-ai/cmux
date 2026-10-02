@@ -195,7 +195,7 @@ struct AgentChatOwnedServerSession: Sendable, Hashable {
     }
 }
 
-nonisolated struct AgentChatSidecarStateFile: Decodable, Sendable, Hashable {
+struct AgentChatSidecarStateFile: Decodable, Sendable, Hashable {
     var port: Int
     var pid: Int
     var launchId: String?

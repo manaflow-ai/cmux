@@ -1,3 +1,4 @@
+internal import CmuxFoundation
 internal import CmuxRemoteDaemon
 internal import Foundation
 internal import Network
@@ -23,7 +24,7 @@ extension RemotePTYBridgeServer {
         private static let maxPendingInputWrites = 256
         private static let maxPendingInputBytes = 4 * 1024 * 1024
 
-        private let connection: NWConnection
+        let connection: NWConnection
         let rpcClient: any RemotePTYBridgeRPCClient
         let sessionID: String
         private let attachmentID: String
@@ -35,12 +36,12 @@ extension RemotePTYBridgeServer {
         let rpcQueue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.rpc.\(UUID().uuidString)", qos: .userInitiated)
         let strings: any RemotePTYBridgeStrings
         private let clock: any RemoteProxyRetryClock
-        private let onClose: () -> Void
+        let onClose: () -> Void
         let inputFlow: RemotePTYBridgeInputFlow
         private let inputSeqAckEnabled: Bool
 
         var isClosed = false
-        private var isAttaching = false
+        var isAttaching = false
         private var isAttached = false
         private var handshakeBuffer = Data()
         private var pendingInputBeforeAttach = Data()
@@ -54,6 +55,7 @@ extension RemotePTYBridgeServer {
         var remoteAttachment: RemotePTYBridgeAttachment?
         private var clientPID: pid_t?
         private var clientProcessExitSource: (any DispatchSourceProcess)?
+        var didNotifyClose = false
 
         init(
             connection: NWConnection,
@@ -109,7 +111,11 @@ extension RemotePTYBridgeServer {
         }
 
         func stop() {
-            close(detach: true)
+            if isClosed {
+                forceClosePendingShutdown()
+            } else {
+                close(detach: true)
+            }
         }
 
         func receiveNext() {
@@ -168,7 +174,7 @@ extension RemotePTYBridgeServer {
             }
             guard let payload = try? JSONSerialization.jsonObject(with: lineData, options: []) as? [String: Any],
                   let receivedToken = payload["token"] as? String,
-                  receivedToken == token else {
+                  receivedToken.constantTimeEquals(token) else {
                 close(detach: false)
                 return
             }
@@ -215,7 +221,7 @@ extension RemotePTYBridgeServer {
                 if case .success(let remoteAttachment) = result {
                     detachRemoteAttachment(remoteAttachment)
                 }
-                onClose()
+                notifyCloseOnce()
                 return
             }
             do {
@@ -224,6 +230,7 @@ extension RemotePTYBridgeServer {
                 sendBridgeStatus([
                     "type": "ready",
                     "attachment_token": remoteAttachment.token,
+                    "replay_bytes": remoteAttachment.replayByteCount,
                 ])
                 isAttached = true
                 let pendingPTYEvents = pendingPTYEventsBeforeReady
@@ -397,7 +404,7 @@ extension RemotePTYBridgeServer {
                 guard let self else { return }
                 self.queue.async {
                     self.connection.cancel()
-                    self.onClose()
+                    self.notifyCloseOnce()
                 }
             })
         }
@@ -425,7 +432,7 @@ extension RemotePTYBridgeServer {
                         guard let self else { return }
                         self.queue.async {
                             self.connection.cancel()
-                            self.onClose()
+                            self.notifyCloseOnce()
                         }
                     }
                 )
@@ -435,7 +442,7 @@ extension RemotePTYBridgeServer {
             if isAttaching {
                 return
             }
-            onClose()
+            notifyCloseOnce()
         }
 
         private static func strictInt(_ value: Any?) -> Int? {

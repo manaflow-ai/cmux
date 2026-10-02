@@ -5,7 +5,7 @@ import Foundation
 /// `ForEach` gathers row identifiers on every list diff, so the id must be
 /// cheap to create and hash. Keep the discriminator as a byte so SwiftUI's
 /// per-scroll list diff avoids enum-payload hash/equality witnesses.
-nonisolated struct SidebarWorkspaceRenderItemID: Hashable {
+struct SidebarWorkspaceRenderItemID: Hashable {
     private let kind: UInt8
     private let uuid: UUID
 
@@ -15,6 +15,13 @@ nonisolated struct SidebarWorkspaceRenderItemID: Hashable {
 
     static func workspace(_ uuid: UUID) -> Self {
         Self(kind: 2, uuid: uuid)
+    }
+
+    /// Returns the durable group identifier when this row represents a group.
+    /// Workspace rows return `nil`; callers should use their row-specific
+    /// fallback identity for those rows.
+    var groupId: UUID? {
+        kind == 1 ? uuid : nil
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {

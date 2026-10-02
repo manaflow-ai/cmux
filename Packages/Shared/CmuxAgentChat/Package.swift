@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxAgentChat",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
@@ -22,6 +22,7 @@ let package = Package(
         .testTarget(
             name: "CmuxAgentChatTests",
             dependencies: ["CmuxAgentChat"],
+            resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

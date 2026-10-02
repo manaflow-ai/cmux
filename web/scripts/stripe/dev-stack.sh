@@ -67,17 +67,12 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 stripe_config="$(stripe config --list 2>/dev/null || true)"
+# Stripe CLI has printed this as `test_mode_api_key = 'sk_...'` and, in newer
+# releases, as `test_mode_api_key=sk_...`; accept both.
 STRIPE_SECRET_KEY="$(
   printf '%s\n' "$stripe_config" \
-    | awk '
-      $1 == "test_mode_api_key" {
-        value = $0
-        sub(/^[^:=]+[[:space:]]*[:=]?[[:space:]]*/, "", value)
-        gsub(/["'\'']/, "", value)
-        print value
-        exit
-      }
-    '
+    | sed -n -E "s/^[[:space:]]*test_mode_api_key[[:space:]]*[:=][[:space:]]*['\"]?(sk_test_[A-Za-z0-9]+)['\"]?.*$/\1/p" \
+    | head -n 1
 )"
 
 if [[ -z "$STRIPE_SECRET_KEY" || "$STRIPE_SECRET_KEY" != sk_test_* ]]; then
@@ -85,9 +80,9 @@ if [[ -z "$STRIPE_SECRET_KEY" || "$STRIPE_SECRET_KEY" != sk_test_* ]]; then
   exit 1
 fi
 
-web_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-web.XXXXXX.log")"
-stripe_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-listen.XXXXXX.log")"
-secret_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-secret.XXXXXX.log")"
+web_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-web.XXXXXX")"
+stripe_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-listen.XXXXXX")"
+secret_log="$(mktemp "${TMPDIR:-/tmp}/cmux-stripe-secret.XXXXXX")"
 web_pid=""
 stripe_pid=""
 secret_pid=""
@@ -158,7 +153,7 @@ if [[ -z "$slug" ]]; then
 fi
 db_container="${CMUX_DB_CONTAINER_NAME:-cmux-postgres-${slug}-dev-${PORT}}"
 
-events="checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed"
+events="checkout.session.completed,checkout.session.async_payment_succeeded,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed,charge.refunded"
 
 echo "cmux Stripe dev stack"
 echo "  Web log: $web_log"

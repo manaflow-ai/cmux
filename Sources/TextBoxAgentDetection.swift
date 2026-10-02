@@ -1,3 +1,4 @@
+import CmuxAgentChat
 import Foundation
 
 enum TextBoxAgentDetection: CaseIterable {
@@ -5,6 +6,7 @@ enum TextBoxAgentDetection: CaseIterable {
     case codex
     case opencode
     case pi
+    case ollama
 
     private var launchDefinitionIDs: Set<String> {
         switch self {
@@ -18,6 +20,8 @@ enum TextBoxAgentDetection: CaseIterable {
             // omp (oh-my-pi) has its own task-manager definition but is a
             // pi variant for textbox agent detection.
             return ["pi", "omp"]
+        case .ollama:
+            return ["ollama"]
         }
     }
 
@@ -31,6 +35,8 @@ enum TextBoxAgentDetection: CaseIterable {
             return ["opencode", "open-code", "opencode-ai", "omo"]
         case .pi:
             return ["pi", "pi-coding-agent", "omp"]
+        case .ollama:
+            return ["ollama"]
         }
     }
 
@@ -73,6 +79,23 @@ enum TextBoxAgentDetection: CaseIterable {
         claudeCode.matches(context: context)
     }
 
+    static func composedPromptSubmitKey(containsNewline: Bool, context: String) -> String {
+        // A terminal can run another provider after its original launch or
+        // restore. Prefer current process identities, including providers that
+        // do not participate in textbox prefix completion (Gemini, Grok, Cursor).
+        let activeIdentities = context.split(separator: "\n").compactMap { line in
+            metadataValue(String(line).trimmingCharacters(in: .whitespacesAndNewlines), prefix: "agentPIDKey:")
+        }.filter { !$0.isEmpty }
+        let isClaude = activeIdentities.isEmpty
+            ? isClaudeCode(context: context)
+            : activeIdentities.contains { claudeCode.matchesIdentity($0) }
+        return isClaude && containsNewline ? "ctrl+enter" : "return"
+    }
+
+    static func composedPromptSubmitKey(containsNewline: Bool, agentKind: ChatAgentKind) -> String {
+        agentKind == .claude && containsNewline ? "ctrl+enter" : "return"
+    }
+
     static func boundedLaunchCommandContext(from rawCommand: String) -> String? {
         let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else { return nil }
@@ -89,6 +112,8 @@ enum TextBoxAgentDetection: CaseIterable {
             return "opencode"
         case .pi:
             return "pi"
+        case .ollama:
+            return "ollama"
         }
     }
 
@@ -133,7 +158,8 @@ enum TextBoxAgentDetection: CaseIterable {
         let resolved = Self.resolvedCommandSegment(tokens)
         guard let executable = resolved.arguments.first else { return false }
         let basename = (executable as NSString).lastPathComponent
-        if matchesIdentity(basename) {
+        if matchesIdentity(basename),
+           matchesLaunchArguments(resolved.arguments, environment: resolved.environment) {
             return true
         }
 
@@ -141,6 +167,22 @@ enum TextBoxAgentDetection: CaseIterable {
         return Self.shellSubcommandSegments(from: resolved.arguments).contains { segment in
             matchesLaunchExecutableSegment(segment, depth: depth + 1)
         }
+    }
+
+    /// `ollama` is an interactive agent only for its `run` subcommand;
+    /// `ollama serve`/`pull`/`list` are utility invocations that must not
+    /// count as an agent launch. Other agents' bare executables are agents.
+    private func matchesLaunchArguments(
+        _ arguments: [String],
+        environment: [String: String]
+    ) -> Bool {
+        guard self == .ollama else { return true }
+        return CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: arguments.first ?? "",
+            processPath: arguments.first,
+            arguments: arguments,
+            environment: environment
+        )?.id == "ollama"
     }
 
     private func matchesIdentity(_ rawValue: String) -> Bool {
@@ -315,7 +357,7 @@ enum TextBoxAgentDetection: CaseIterable {
             return nil
         }
         let key = String(token[..<equalsIndex])
-        guard key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil else {
+        guard key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*\z"#, options: .regularExpression) != nil else {
             return nil
         }
         return (key, String(token[token.index(after: equalsIndex)...]))

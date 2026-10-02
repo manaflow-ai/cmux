@@ -1,6 +1,5 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
@@ -12,12 +11,11 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.dock" });
-  return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/dock"),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "dock",
+    path: "/docs/dock",
+  });
 }
 
 export default function DockPage() {
@@ -63,6 +61,13 @@ export default function DockPage() {
       "title": "Feed",
       "command": "cmux feed tui --opentui",
       "height": 320
+    },
+    {
+      "id": "dashboard",
+      "title": "Dashboard",
+      "type": "browser",
+      "url": "http://127.0.0.1:8877/sidebar",
+      "chrome": false
     }
   ]
 }`}</CodeBlock>
@@ -93,6 +98,24 @@ export default function DockPage() {
               <code>command</code>
             </td>
             <td>{t("fieldCommand")}</td>
+          </tr>
+          <tr>
+            <td>
+              <code>type</code>
+            </td>
+            <td>{t("fieldType")}</td>
+          </tr>
+          <tr>
+            <td>
+              <code>url</code>
+            </td>
+            <td>{t("fieldUrl")}</td>
+          </tr>
+          <tr>
+            <td>
+              <code>chrome</code>
+            </td>
+            <td>{t("fieldChrome")}</td>
           </tr>
           <tr>
             <td>

@@ -1,25 +1,15 @@
 import Foundation
 
-/// Owns the dedicated-window bookkeeping ``RemoteTmuxController`` uses for the
-/// "one cmux window per remote endpoint" mirror mode (Option 1): the host↔window
-/// bindings and the in-flight-attach guard set.
+/// Owns remote-tmux attach concurrency guards and kill-on-close markers.
 ///
-/// Factored out of the controller so the two-way binding (and its always-paired
-/// insert/remove) plus the re-entrant-attach guard live behind one small
-/// `@MainActor` surface. ``beginAttach(hostHash:)`` is a synchronous
+/// Factored out of the controller so the re-entrant-attach guard lives behind
+/// one small `@MainActor` surface. ``beginAttach(hostHash:)`` is a synchronous
 /// check-and-insert so callers can guard an `await` gap without an extra
 /// suspension point.
 @MainActor
 final class RemoteTmuxWindowRegistry {
-    /// ``RemoteTmuxHost/connectionHash`` → the dedicated cmux window mirroring that
-    /// endpoint (Option 1).
-    private var windowIdByHost: [String: UUID] = [:]
-    /// Reverse map: cmux window id → the full host it mirrors (for window-close
-    /// detach and new-session-in-window, which need the endpoint's port/identity).
-    private var hostByWindowId: [UUID: RemoteTmuxHost] = [:]
     /// Endpoint ``RemoteTmuxHost/connectionHash`` values with an in-flight
-    /// `mirrorHostInNewWindow(host:activateWindow:)`, so a re-entrant call across
-    /// the `await` gap can't open a second window for the same endpoint.
+    /// attach, so a re-entrant call across the `await` gap can't duplicate work.
     private var pendingAttaches: Set<String> = []
     /// Window ids whose pending close was initiated by an explicit close of the
     /// window's LAST remote workspace (a tab/session close), so the close-commit
@@ -28,29 +18,6 @@ final class RemoteTmuxWindowRegistry {
     /// `performClose`, consumed on the (non-vetoed) close commit, and cleared if
     /// the close is vetoed.
     private var killSessionsOnClose: Set<UUID> = []
-
-    /// Returns `true` if `windowId` is a dedicated remote-tmux mirror window.
-    /// Used by the session-snapshot path to exclude these windows: a mirror window
-    /// needs a live SSH connection and can't be restored from a generic snapshot.
-    func isDedicatedWindow(_ windowId: UUID) -> Bool {
-        hostByWindowId[windowId] != nil
-    }
-
-    /// Binds `host` to its dedicated `windowId` (both directions).
-    func bind(host: RemoteTmuxHost, windowId: UUID) {
-        windowIdByHost[host.connectionHash] = windowId
-        hostByWindowId[windowId] = host
-    }
-
-    /// The dedicated window currently bound to `hostHash`, if any (the reuse check).
-    func windowId(forHostHash hostHash: String) -> UUID? {
-        windowIdByHost[hostHash]
-    }
-
-    /// The full host bound to `windowId`, if any (carries port/identity).
-    func host(forWindowId windowId: UUID) -> RemoteTmuxHost? {
-        hostByWindowId[windowId]
-    }
 
     /// Atomically records an in-flight attach for `hostHash`; returns `false` if one
     /// is already in flight (the re-entrant-attach guard). Synchronous and
@@ -64,21 +31,6 @@ final class RemoteTmuxWindowRegistry {
     /// Clears the in-flight-attach marker for `hostHash` (the `defer`).
     func endAttach(hostHash: String) {
         pendingAttaches.remove(hostHash)
-    }
-
-    /// Removes the binding for `hostHash` in BOTH directions, returning the window id
-    /// that was bound (if any).
-    @discardableResult
-    func unbind(hostHash: String) -> UUID? {
-        guard let windowId = windowIdByHost.removeValue(forKey: hostHash) else { return nil }
-        hostByWindowId.removeValue(forKey: windowId)
-        return windowId
-    }
-
-    /// Removes the binding for `windowId` in BOTH directions.
-    func unbind(windowId: UUID) {
-        guard let host = hostByWindowId.removeValue(forKey: windowId) else { return }
-        windowIdByHost.removeValue(forKey: host.connectionHash)
     }
 
     /// Marks `windowId`'s impending close as a tab/session close that should kill

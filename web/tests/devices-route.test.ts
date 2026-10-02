@@ -25,20 +25,61 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: { getUser },
 }));
 
-const { DELETE, GET, POST } = await import("../app/api/devices/route");
+const { DELETE, GET, PATCH, POST } = await import("../app/api/devices/route");
 const { hostIsLoopback, hostIsTailscaleAttachable, manualRoutesAreValid } = await import(
   "../app/api/devices/route-classification"
+);
+const { clearNativeAuthCacheForTests, clearStackThrottleCircuitForTests } = await import(
+  "../services/vms/auth"
 );
 
 let sql: Sql | null = null;
 
 const DEVICE_A = "11111111-1111-4111-8111-111111111111";
 const DEVICE_B = "22222222-2222-4222-8222-222222222222";
+const IROH_ENDPOINT_ID = "a".repeat(64);
+const APPROVED_IROH_RELAY = "https://use4.relay.cmux.dev/";
 
+const legacyTailscaleRoute = {
+  id: "legacy",
+  kind: "tailscale",
+  priority: 0,
+  endpoint: { type: "host_port", host: "100.64.1.2", port: 51001 },
+};
+
+const privateIrohRoute = {
+  id: "iroh-private",
+  kind: "iroh",
+  priority: 1,
+  endpoint: {
+    type: "peer",
+    id: IROH_ENDPOINT_ID,
+    relay_hint: "legacy-private-relay-hint",
+    relay_url: APPROVED_IROH_RELAY,
+    direct_addrs: ["192.168.1.20:49152", "100.64.1.2:49152"],
+  },
+};
+
+const publicIrohRoute = {
+  id: "iroh-private",
+  kind: "iroh",
+  priority: 1,
+  endpoint: {
+    type: "peer",
+    id: IROH_ENDPOINT_ID,
+    relay_url: APPROVED_IROH_RELAY,
+  },
+};
+
+// Tokens are per simulated user. `verifyRequest` caches successful native
+// verifications keyed by the exact access/refresh pair, and in production two
+// users can never present the same Stack token pair, so impersonating user 2
+// under user 1's literal tokens is unrealizable and would replay user 1's
+// cached identity, silently bypassing the ownership guards under test.
 function authHeaders(teamId?: string): Record<string, string> {
   const base: Record<string, string> = {
-    authorization: "Bearer access-token",
-    "x-stack-refresh-token": "refresh-token",
+    authorization: `Bearer access-token-${currentUserId}`,
+    "x-stack-refresh-token": `refresh-token-${currentUserId}`,
     "content-type": "application/json",
   };
   if (teamId) base["x-cmux-team-id"] = teamId;
@@ -48,6 +89,14 @@ function authHeaders(teamId?: string): Record<string, string> {
 function registerRequest(body: Record<string, unknown>, teamId?: string): Request {
   return new Request("https://cmux.test/api/devices", {
     method: "POST",
+    headers: authHeaders(teamId),
+    body: JSON.stringify(body),
+  });
+}
+
+function withdrawRequest(body: Record<string, unknown>, teamId?: string): Request {
+  return new Request("https://cmux.test/api/devices", {
+    method: "PATCH",
     headers: authHeaders(teamId),
     body: JSON.stringify(body),
   });
@@ -68,13 +117,127 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  clearNativeAuthCacheForTests();
+  // The Stack-throttle case above opens the 10 s circuit; close it so the
+  // cases that follow see the route, not the circuit's 429.
+  clearStackThrottleCircuitForTests();
+  currentUserId = "registry-user-1";
+  getUser.mockClear();
   if (!sql) return;
   await sql`truncate devices, device_app_instances, account_deletion_tombstones restart identity cascade`;
-  getUser.mockClear();
-  currentUserId = "registry-user-1";
 });
 
 describe("device registry route", () => {
+  dbTest("withdraws one owned tag, preserves siblings, and rejects other owners/teams", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "default", routes: [legacyTailscaleRoute] }));
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "nightly", routes: [legacyTailscaleRoute] }));
+
+    const withdrawn = await PATCH(withdrawRequest({ deviceId: DEVICE_A, tag: "default" }));
+    expect(withdrawn.status).toBe(200);
+    expect(await withdrawn.json()).toEqual({ ok: true, withdrawn: true });
+
+    const visible = await GET(new Request("https://cmux.test/api/devices", { headers: authHeaders() }));
+    const listed = await visible.json() as { devices: Array<{ instances: Array<{ tag: string; routes: unknown[] }> }> };
+    expect(listed.devices[0]?.instances.map((instance) => instance.tag)).toEqual(["nightly"]);
+    expect(listed.devices[0]?.instances[0]?.routes).toHaveLength(1);
+
+    const missingInstance = await PATCH(withdrawRequest({ deviceId: DEVICE_A, tag: "never-registered" }));
+    expect(missingInstance.status).toBe(200);
+    expect(await missingInstance.json()).toEqual({ ok: true, withdrawn: false });
+    const missingDevice = await PATCH(withdrawRequest({ deviceId: DEVICE_B, tag: "default" }));
+    expect(missingDevice.status).toBe(403);
+    expect(await missingDevice.json()).toEqual({ error: "device_not_owned" });
+    const [counts] = await sql<{ devices: number; instances: number }[]>`
+      select (select count(*)::int from devices) as devices,
+             (select count(*)::int from device_app_instances) as instances
+    `;
+    expect(counts).toEqual({ devices: 1, instances: 2 });
+
+    currentUserId = "registry-user-2";
+    const otherOwner = await PATCH(withdrawRequest({ deviceId: DEVICE_A, tag: "nightly" }));
+    expect(otherOwner.status).toBe(403);
+    expect(await otherOwner.json()).toEqual({ error: "device_not_owned" });
+    const otherTeam = await PATCH(withdrawRequest({ deviceId: DEVICE_A, tag: "nightly" }, "team-b"));
+    expect(otherTeam.status).toBe(403);
+    expect(await otherTeam.json()).toEqual({ error: "device_not_owned" });
+    currentUserId = "registry-user-1";
+    const unchanged = await GET(new Request("https://cmux.test/api/devices", { headers: authHeaders() }));
+    const after = await unchanged.json() as { devices: Array<{ instances: Array<{ tag: string; routes: unknown[] }> }> };
+    expect(after.devices[0]?.instances.map((instance) => instance.tag)).toEqual(["nightly"]);
+    expect(after.devices[0]?.instances[0]?.routes).toHaveLength(1);
+  });
+
+  test("withdrawal requires native authentication", async () => {
+    const response = await PATCH(new Request("https://cmux.test/api/devices", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deviceId: DEVICE_A, tag: "default" }),
+    }));
+    expect(response.status).toBe(401);
+  });
+
+  dbTest("withdrawal rejects missing tags and non-member teams without touching the instance", async () => {
+    expect((await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "default", routes: [legacyTailscaleRoute] }))).status).toBe(200);
+    const missingTag = await PATCH(withdrawRequest({ deviceId: DEVICE_A }));
+    expect(missingTag.status).toBe(400);
+    expect(await missingTag.json()).toEqual({ error: "invalid_tag" });
+    const nonMember = await PATCH(withdrawRequest({ deviceId: DEVICE_A, tag: "default" }, "team-not-mine"));
+    expect(nonMember.status).toBe(403);
+    expect(await nonMember.json()).toEqual({ error: "team_not_found" });
+  });
+
+  dbTest("withdrawal maps an account-deletion failure through the Effect boundary", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    expect((await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "default", routes: [legacyTailscaleRoute] }))).status).toBe(200);
+    await sql`
+      insert into account_deletion_tombstones (user_id_hash, user_id, status)
+      values (${accountDeletionUserHash("registry-user-1")}, ${"registry-user-1"}, 'pending')
+    `;
+    const response = await PATCH(withdrawRequest({ deviceId: DEVICE_A, tag: "default" }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "account_deletion_in_progress" });
+    const [row] = await sql<{ routes: unknown[] }[]>`
+      select routes from device_app_instances where tag = 'default'
+    `;
+    expect(row.routes).toHaveLength(1);
+  });
+
+  dbTest("withdraws only the unavailable app instance and does not cache discovery", async () => {
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "default", routes: [legacyTailscaleRoute] }));
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "feature", routes: [legacyTailscaleRoute] }));
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "feature", routes: [] }));
+    const response = await GET(new Request("https://cmux.test/api/devices", { headers: authHeaders() }));
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const body = await response.json() as { devices: Array<{ instances: Array<{ tag: string }> }> };
+    expect(body.devices).toHaveLength(1);
+    expect(body.devices[0]?.instances.map((instance) => instance.tag)).toEqual(["default"]);
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "default", routes: [] }));
+    const withdrawn = await GET(new Request("https://cmux.test/api/devices", { headers: authHeaders() }));
+    expect((await withdrawn.json() as { devices: unknown[] }).devices).toEqual([]);
+  });
+
+  test("maps Stack Auth throttles instead of returning a platform 500", async () => {
+    (getUser as unknown as {
+      mockImplementationOnce(implementation: () => Promise<never>): void;
+    }).mockImplementationOnce(async () => {
+      throw new AggregateError([
+        new Error("Rate limited, no retry-after header received"),
+      ]);
+    });
+
+    const response = await GET(
+      new Request("https://cmux.test/api/devices", {
+        method: "GET",
+        headers: authHeaders(),
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+  });
+
   dbTest("blocks registration while account deletion is in progress", async () => {
     if (!sql) throw new Error("test database not initialized");
 
@@ -193,6 +356,138 @@ describe("device registry route", () => {
     expect(list.devices[0].instances[0].routes[0].endpoint.host).toBe("100.9.9.9");
   });
 
+  dbTest("an unchanged re-registration is answered without touching the rows", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const body = {
+      deviceId: DEVICE_A,
+      platform: "mac",
+      displayName: "Registry Mac",
+      tag: "default",
+      routes: [privateIrohRoute],
+    };
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    const [first] = await sql<{ updated_at: Date; last_seen_at: Date }[]>`
+      select updated_at, last_seen_at from device_app_instances
+      where tag = 'default' and device_id in (
+        select id from devices where device_uuid = ${DEVICE_A}
+      )
+    `;
+
+    // The Mac republishes the same route set: its own dedupe key includes hint
+    // timestamps this route strips before storing, so it re-POSTs identical
+    // rows. The server must answer without writing.
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    const [second] = await sql<{ updated_at: Date; last_seen_at: Date }[]>`
+      select updated_at, last_seen_at from device_app_instances
+      where tag = 'default' and device_id in (
+        select id from devices where device_uuid = ${DEVICE_A}
+      )
+    `;
+    expect(second.updated_at.getTime()).toBe(first.updated_at.getTime());
+    expect(second.last_seen_at.getTime()).toBe(first.last_seen_at.getTime());
+
+    // A genuinely changed route set still writes through immediately.
+    const changed = await POST(registerRequest({
+      ...body,
+      routes: [legacyTailscaleRoute],
+    }));
+    expect(changed.status).toBe(200);
+    const [third] = await sql<{ routes: unknown[] }[]>`
+      select routes from device_app_instances
+      where tag = 'default' and device_id in (
+        select id from devices where device_uuid = ${DEVICE_A}
+      )
+    `;
+    expect((third.routes[0] as { kind: string }).kind).toBe("tailscale");
+  }, 30_000);
+
+  dbTest("presence is refreshed once per touch interval, not once per poll", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const body = {
+      deviceId: DEVICE_A,
+      platform: "mac",
+      displayName: "Registry Mac",
+      tag: "default",
+      routes: [privateIrohRoute],
+    };
+    expect((await POST(registerRequest(body))).status).toBe(200);
+
+    const instanceUpdatedAt = async (): Promise<Date> => {
+      const [row] = await sql!<{ updated_at: Date }[]>`
+        select updated_at from device_app_instances
+        where tag = 'default' and device_id in (
+          select id from devices where device_uuid = ${DEVICE_A}
+        )
+      `;
+      return row.updated_at;
+    };
+    const backdatePresence = async (minutes: number): Promise<void> => {
+      await sql!`
+        update device_app_instances
+        set last_seen_at = now() - make_interval(mins => ${minutes})
+        where tag = 'default' and device_id in (
+          select id from devices where device_uuid = ${DEVICE_A}
+        )
+      `;
+    };
+
+    // Four minutes of identical polls stay inside the five-minute touch
+    // interval, so the registry answers them without writing. At the previous
+    // one-minute default every one of these polls wrote both rows, which is
+    // what made this the hottest write in production.
+    const before = await instanceUpdatedAt();
+    await backdatePresence(4);
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    expect((await instanceUpdatedAt()).getTime()).toBe(before.getTime());
+
+    // Past the interval, presence is refreshed so the device list keeps a
+    // roughly current "last seen" without a write per poll.
+    await backdatePresence(6);
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    expect((await instanceUpdatedAt()).getTime()).toBeGreaterThan(before.getTime());
+  }, 30_000);
+
+  dbTest("native lease renewal bypasses the longer legacy no-op timestamp throttle", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const body = {
+      deviceId: DEVICE_A, platform: "mac", tag: "default",
+      routes: [legacyTailscaleRoute], discoveryLease: true,
+      instanceLabels: { color: "blue" },
+    };
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    await sql`
+      update device_app_instances set last_seen_at = now() - interval '61 seconds'
+      where tag = 'default'
+    `;
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    const [row] = await sql<{ labels: Record<string, unknown>; age: number }[]>`
+      select labels, extract(epoch from (now() - last_seen_at))::float as age
+      from device_app_instances where tag = 'default'
+    `;
+    expect(row.labels).toEqual({ color: "blue", discoveryLease: true });
+    expect(row.age).toBeLessThan(30);
+  });
+
+  dbTest("GET expires short and legacy leases while preserving fresh siblings and manual remotes", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    for (const [tag, discoveryLease] of [["fresh", true], ["expired", true], ["legacy-expired", false]] as const) {
+      expect((await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag, discoveryLease, routes: [legacyTailscaleRoute] }))).status).toBe(200);
+    }
+    expect((await POST(registerRequest({ deviceId: DEVICE_B, platform: "mac", tag: "manual", manual: true, routes: [legacyTailscaleRoute] }))).status).toBe(200);
+    await sql`update device_app_instances set last_seen_at = now() - interval '181 seconds' where tag = 'expired'`;
+    await sql`update device_app_instances set last_seen_at = now() - interval '2 days' where tag in ('legacy-expired', 'manual')`;
+    const response = await GET(new Request("https://cmux.test/api/devices", { headers: authHeaders() }));
+    const body = await response.json() as { devices: Array<{ deviceId: string; instances: Array<{ tag: string }> }> };
+    const byID = new Map(body.devices.map((device) => [device.deviceId, device.instances.map((instance) => instance.tag)]));
+    expect(byID.get(DEVICE_A)).toEqual(["fresh"]);
+    expect(byID.get(DEVICE_B)).toEqual(["manual"]);
+  });
+
+  // 26 sequential registrations, each a full HTTP + transaction round trip
+  // against a containerized Postgres. The assertion is the instance cap, not
+  // latency, and the default 5s budget leaves no headroom for a cold pool.
   dbTest("caps app instances per device when the tag varies", async () => {
     if (!sql) throw new Error("test database not initialized");
 
@@ -224,7 +519,7 @@ describe("device registry route", () => {
       registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "tag-0", routes: [] }),
     );
     expect(reRegister.status).toBe(200);
-  });
+  }, 30_000);
 
   dbTest("drops structurally invalid route entries on register", async () => {
     if (!sql) throw new Error("test database not initialized");
@@ -254,15 +549,79 @@ describe("device registry route", () => {
     expect(routes).toHaveLength(2);
   });
 
+  dbTest("persists and returns only public Iroh rendezvous data while preserving legacy routes", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const register = await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        tag: "stable",
+        routes: [
+          legacyTailscaleRoute,
+          privateIrohRoute,
+          {
+            ...privateIrohRoute,
+            id: "iroh-unmanaged-relay",
+            endpoint: {
+              ...privateIrohRoute.endpoint,
+              relay_url: "https://attacker.example/relay",
+            },
+          },
+        ],
+      }),
+    );
+    expect(register.status).toBe(200);
+
+    const [{ routes: storedRoutes }] = await sql<{ routes: unknown[] }[]>`
+      select routes from device_app_instances
+      where device_id in (select id from devices where device_uuid = ${DEVICE_A})
+        and tag = 'stable'
+    `;
+    expect(storedRoutes).toEqual([
+      legacyTailscaleRoute,
+      publicIrohRoute,
+      {
+        ...publicIrohRoute,
+        id: "iroh-unmanaged-relay",
+        endpoint: { type: "peer", id: IROH_ENDPOINT_ID },
+      },
+    ]);
+    expect(JSON.stringify(storedRoutes)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(storedRoutes)).not.toContain("legacy-private-relay-hint");
+    expect(JSON.stringify(storedRoutes)).not.toContain("attacker.example");
+
+    // Simulate an unsafe Iroh route written by a pre-hardening deployment. A
+    // same-team member must not receive its private hints from the GET boundary.
+    await sql`
+      update device_app_instances
+      set routes = ${sql.json([legacyTailscaleRoute, privateIrohRoute])}
+      where device_id in (select id from devices where device_uuid = ${DEVICE_A})
+        and tag = 'stable'
+    `;
+    currentUserId = "registry-user-2";
+    const listResponse = await GET(
+      new Request("https://cmux.test/api/devices", { method: "GET", headers: authHeaders() }),
+    );
+    expect(listResponse.status).toBe(200);
+    const list = (await listResponse.json()) as {
+      devices: Array<{ instances: Array<{ routes: unknown[] }> }>;
+    };
+    const returnedRoutes = list.devices[0]?.instances[0]?.routes;
+    expect(returnedRoutes).toEqual([legacyTailscaleRoute, publicIrohRoute]);
+    expect(JSON.stringify(returnedRoutes)).not.toContain("192.168.1.20");
+    expect(JSON.stringify(returnedRoutes)).not.toContain("legacy-private-relay-hint");
+  });
+
   dbTest("registers the same device UUID in two teams the user belongs to", async () => {
     if (!sql) throw new Error("test database not initialized");
 
     // Same physical Mac (same cmux UUID), registered under team-a then team-b.
     const inA = await POST(
-      registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: [] }, "team-a"),
+      registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: [legacyTailscaleRoute] }, "team-a"),
     );
     const inB = await POST(
-      registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: [] }, "team-b"),
+      registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: [legacyTailscaleRoute] }, "team-b"),
     );
     expect(inA.status).toBe(200);
     expect(inB.status).toBe(200);
@@ -415,13 +774,12 @@ describe("device registry route", () => {
     }
   });
 
-  test("hostIsTailscaleAttachable accepts only CGNAT and *.ts.net", () => {
+  test("hostIsTailscaleAttachable accepts only numeric Tailscale peer addresses", () => {
     for (const host of [
       "100.64.0.1",
       "100.127.255.255",
       "100.100.5.7",
-      "my-mac.tailnet.ts.net",
-      "MY-MAC.TS.NET",
+      "fd7a:115c:a1e0::1",
     ]) {
       expect(hostIsTailscaleAttachable(host)).toBe(true);
     }
@@ -434,9 +792,9 @@ describe("device registry route", () => {
       "8.8.8.8",
       "example.com",
       "my-mac.local",
-      "fd7a:115c:a1e0::1",
-      // Malformed .ts.net strings that pass a naive suffix check but are not
-      // dialable bare hosts.
+      "my-mac.tailnet.ts.net",
+      "MY-MAC.TS.NET",
+      // MagicDNS never crosses this persistence boundary, valid or malformed.
       "bad host.ts.net",
       "https://mac.ts.net",
       "mac.ts.net:51001",
@@ -448,6 +806,10 @@ describe("device registry route", () => {
       "0100.64.1.2",
       "100.064.1.2",
       "100.64.01.2",
+      "100.100.100.100",
+      "100.100.0.1",
+      "100.115.92.1",
+      "fd7a:115c:a1e0::53",
     ]) {
       expect(hostIsTailscaleAttachable(host)).toBe(false);
     }
@@ -464,7 +826,8 @@ describe("device registry route", () => {
     ];
     // Valid: id present, tailscale host:port, attachable host, in-range port.
     expect(manualRoutesAreValid(ok())).toBe(true);
-    expect(manualRoutesAreValid(ok({}, { host: "my-mac.ts.net", port: 1 }))).toBe(true);
+    expect(manualRoutesAreValid(ok({}, { host: "fd7a:115c:a1e0::1", port: 1 }))).toBe(true);
+    expect(manualRoutesAreValid(ok({}, { host: "my-mac.ts.net", port: 1 }))).toBe(false);
     expect(manualRoutesAreValid(ok({ priority: 0 }))).toBe(true); // integer priority ok
     expect(manualRoutesAreValid(ok({ priority: 5 }))).toBe(true);
     expect(manualRoutesAreValid(ok({ priority: "0" }))).toBe(false); // string priority (iOS drops it)

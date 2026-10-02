@@ -39,7 +39,7 @@ GET  /v1/presence/subscribe -> forward w/ verified team ------> WS (hibernation)
 
 - **State machine** (`src/core.ts`): pure and synchronous. A team's presence
   is a map of app instances keyed by `(deviceId, tag)`, the same identity as
-  the Aurora registry (`devices.device_uuid` + `device_app_instances.tag`).
+  the PlanetScale Postgres registry (`devices.device_uuid` + `device_app_instances.tag`).
   Online is set by a heartbeat; offline is an explicit event, produced either
   by a goodbye heartbeat (`stopping: true`, clean shutdown) or by the DO alarm
   when heartbeats stop.
@@ -79,8 +79,8 @@ GET  /v1/presence/subscribe -> forward w/ verified team ------> WS (hibernation)
 ## Migrations and durability
 
 Presence is deliberately ephemeral. The durable source of device identity is
-the Aurora `devices` / `device_app_instances` registry
-(https://github.com/manaflow-ai/cmux/pull/5626); this service adds no Aurora
+the PlanetScale Postgres `devices` / `device_app_instances` registry
+(https://github.com/manaflow-ai/cmux/pull/5626); this service adds no Postgres
 columns and therefore ships no Drizzle migration. DO storage keeps the live
 instance map plus a 24h offline tail for "last seen", pruned by the same
 alarm, and the durable per-device owner pins. Losing the service's storage
@@ -91,7 +91,7 @@ The service's own schema story is the `[[migrations]]` block in
 `wrangler.toml`: Durable Object class migrations are applied by
 `wrangler deploy` in the deploy-on-push workflow, atomically with the code, so
 storage classes can never lag the deployed code the way the prod Aurora
-migrations once lagged the web deploy. If presence ever does need an Aurora
+migrations once lagged the web deploy. If presence ever does need a Postgres
 column, the Drizzle migration must land in `web/db/migrations` and is applied
 by the `web-db-migrations` CI job and the cloud-vm migrate workflow
 (`.github/workflows/cloud-vm-migrate.yml`), per the cloud-vm-ops runbook.
@@ -127,6 +127,50 @@ a breaking change to those costs nothing in practice. The durable **owner
 pins** are never pruned, so a change to their shape is the one case that
 genuinely requires the versioned-record plus lazy-upgrade treatment. Most
 presence deploys can ship freely; only owner-pin schema changes need care.
+
+## Workspace viewing presence
+
+Workspace viewing is a separate protocol from device reachability. The source
+of truth is the `WorkspacePresence` Durable Object selected by a validated
+`WorkspacePresenceScope`; the Worker owns authentication and room routing, and
+the client that owns the visible workspace owns its viewing lease. A room is
+either a Cloud VM workspace scoped to a verified team or an on-device workspace
+scoped to the authenticated account, host UUID, app instance tag, and host
+workspace UUID. Client messages can only set the connection's active/inactive
+view state; identity, profile image, room, and expiry are server-owned.
+
+`GET /v1/workspace-presence?scope=<encoded-scope>` upgrades to a hibernating
+WebSocket. The Worker verifies the Stack bearer, checks Cloud team membership,
+resolves the DO by a structured room key, and forwards bounded identity and
+token-expiry headers. Clients send active-view renewals every 15 seconds and the DO applies them
+to the live lease. The DO sends full versioned snapshots, coalesces multiple
+devices for one account, expires active leases after 45 seconds, and closes the
+connection at the bounded authentication deadline. Disconnects, backgrounding, scope switches, and account changes
+therefore remove a viewer without requiring a separate leave mutation.
+
+The shared `CmuxWorkspacePresence` package owns scope validation, the wire
+snapshot, WebSocket transport, reconnect/backoff model, and injected-clock
+tests. The Mac controller follows the foreground window's selected workspace,
+including a Cloud binding that arrives after selection. Mounted Cloud workspace
+rows subscribe passively through `WorkspacePresenceRoster`, so a collaborator's
+profile head appears on the right of the workspace they are viewing even when
+you have selected another workspace. Multiple windows share each room's
+connection; detached or hidden rows release it. Four heads fit in the stack,
+with an overflow count and all display names available through native row hover
+and VoiceOver. The iOS shell publishes its selected, host-owned Mac scope through
+the same protocol. Local-only rows, signed-out accounts, and unavailable rooms
+have no heads. The surface adds no tab, panel, or empty-state badge.
+
+The Worker adds only the append-only `WorkspacePresence` Durable Object class
+migration (`v3`); no Postgres columns or platform entitlements are involved.
+Profile names and HTTPS avatar URLs are read from the verified Stack user
+record, bounded before they enter a snapshot, and have no localization or
+persistence side effects. Focused package tests cover scope and snapshot
+validation, independent row rosters, passive subscriptions, selection changes,
+inactivity, disconnect publication, account-generation replacement, and teardown.
+Native-row tests exercise hover/VoiceOver updates and cell reuse, plus compact
+overflow sizing. Worker tests cover room isolation, lease expiry/coalescing,
+strict view messages, and bounded profile projection.
 
 ## CI/CD
 
@@ -168,6 +212,10 @@ the first production deploy and dogfood.
   (https://github.com/manaflow-ai/cmux/pull/5648) rows, writes pushed routes
   through to the paired-Mac store, and kicks a reconnect when the active Mac
   comes online while the phone is disconnected.
+- **Workspace viewer clients** (`CmuxWorkspacePresence` plus the Mac controller
+  and iOS announcer): use the dedicated viewing protocol described above. They
+  never add workspace identifiers or collaborator metadata to device heartbeat
+  payloads.
 
 ## Local development
 

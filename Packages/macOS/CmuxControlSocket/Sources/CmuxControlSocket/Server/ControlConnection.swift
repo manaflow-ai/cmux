@@ -14,12 +14,28 @@ public struct ControlConnection: Sendable {
     /// failed.
     public let peerProcessID: pid_t?
 
+    /// Access-policy generation captured when the server accepted this client.
+    public let authorizationGeneration: UInt64
+
+    /// Pollable signal for revocation of the captured authorization generation.
+    public let authorizationRevocationSignal: SocketAuthorizationRevocationSignal
+
     /// Creates a connection value.
     /// - Parameters:
     ///   - socket: The accepted client socket descriptor.
     ///   - peerProcessID: The peer PID captured at accept time, if available.
-    public init(socket: Int32, peerProcessID: pid_t?) {
+    ///   - authorizationGeneration: Access-policy generation at accept time.
+    ///   - authorizationRevocationSignal: Signal revoked with the generation.
+    public init(
+        socket: Int32,
+        peerProcessID: pid_t?,
+        authorizationGeneration: UInt64,
+        authorizationRevocationSignal: SocketAuthorizationRevocationSignal =
+            SocketAuthorizationRevocationSignal()
+    ) {
         self.socket = socket
         self.peerProcessID = peerProcessID
+        self.authorizationGeneration = authorizationGeneration
+        self.authorizationRevocationSignal = authorizationRevocationSignal
     }
 }

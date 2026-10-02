@@ -7,9 +7,12 @@ export type CliAuthTokens = {
   readonly refreshToken: string;
 };
 
+export type CliAuthClient = "cmux-vault" | "subrouter";
+
 type ApprovedClaimRow = {
   readonly id: string;
   readonly userId: string | null;
+  readonly client: CliAuthClient;
 };
 
 type StatusRow = {
@@ -35,10 +38,18 @@ export type CliAuthRepository = {
  * Mints a fresh Stack session for the approved user. Runs only after the claim
  * transaction has been won, so tokens are never persisted anywhere server-side.
  */
-export type CliAuthTokenMinter = (userId: string) => Promise<CliAuthTokens | null>;
+export type CliAuthTokenMinter = (
+  userId: string,
+  client: CliAuthClient,
+) => Promise<CliAuthTokens | null>;
 
 export type ClaimCliAuthResult =
-  | { readonly status: "approved"; readonly accessToken: string; readonly refreshToken: string }
+  | {
+    readonly status: "approved";
+    readonly client: CliAuthClient;
+    readonly accessToken: string;
+    readonly refreshToken: string;
+  }
   | { readonly status: "pending" | "expired" };
 
 export async function claimCliAuthTokens(
@@ -48,14 +59,24 @@ export async function claimCliAuthTokens(
   now: Date,
 ): Promise<ClaimCliAuthResult> {
   type ClaimOutcome =
-    | { readonly kind: "claimed"; readonly id: string; readonly userId: string }
+    | {
+      readonly kind: "claimed";
+      readonly id: string;
+      readonly userId: string;
+      readonly client: CliAuthClient;
+    }
     | { readonly kind: "terminal"; readonly status: "pending" | "expired" };
 
   const claim = await repository.transaction<ClaimOutcome>(async (tx) => {
     const approved = await tx.selectApprovedForClaim(deviceCodeHash, now);
     if (approved?.userId) {
       await tx.markClaimed(approved.id);
-      return { kind: "claimed", id: approved.id, userId: approved.userId };
+      return {
+        kind: "claimed",
+        id: approved.id,
+        userId: approved.userId,
+        client: approved.client,
+      };
     }
 
     const row = await tx.selectStatus(deviceCodeHash);
@@ -69,7 +90,7 @@ export async function claimCliAuthTokens(
 
   let tokens: CliAuthTokens | null = null;
   try {
-    tokens = await mintTokens(claim.userId);
+    tokens = await mintTokens(claim.userId, claim.client);
   } catch {
     tokens = null;
   }
@@ -83,9 +104,28 @@ export async function claimCliAuthTokens(
 
   return {
     status: "approved",
+    client: claim.client,
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
   };
+}
+export async function pendingCliAuthClientForUserCode(
+  userCode: string,
+  now: Date,
+): Promise<CliAuthClient | null> {
+  const [row] = await cloudDb()
+    .select({ client: vaultCliAuthRequests.client })
+    .from(vaultCliAuthRequests)
+    .where(
+      and(
+        eq(vaultCliAuthRequests.userCode, userCode),
+        eq(vaultCliAuthRequests.status, "pending"),
+        gt(vaultCliAuthRequests.expiresAt, now),
+      ),
+    )
+    .orderBy(vaultCliAuthRequests.createdAt)
+    .limit(1);
+  return cliAuthClient(row?.client);
 }
 
 export function drizzleCliAuthRepository(): CliAuthRepository {
@@ -99,6 +139,7 @@ export function drizzleCliAuthRepository(): CliAuthRepository {
               .select({
                 id: vaultCliAuthRequests.id,
                 userId: vaultCliAuthRequests.userId,
+                client: vaultCliAuthRequests.client,
               })
               .from(vaultCliAuthRequests)
               .where(
@@ -110,7 +151,9 @@ export function drizzleCliAuthRepository(): CliAuthRepository {
               )
               .limit(1)
               .for("update");
-            return row ?? null;
+            if (!row) return null;
+            const client = cliAuthClient(row.client);
+            return client ? { ...row, client } : null;
           },
           markClaimed: async (id) => {
             await tx
@@ -138,4 +181,8 @@ export function drizzleCliAuthRepository(): CliAuthRepository {
         .where(and(eq(vaultCliAuthRequests.id, id), eq(vaultCliAuthRequests.status, "claimed")));
     },
   };
+}
+
+function cliAuthClient(value: unknown): CliAuthClient | null {
+  return value === "cmux-vault" || value === "subrouter" ? value : null;
 }

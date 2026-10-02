@@ -9,7 +9,28 @@ extension RemoteTmuxControlConnection {
         // misalign the positional correlation.
         guard !pendingCommands.isEmpty else { return }
         let kind = pendingCommands.removeFirst()
+        #if DEBUG
+        switch kind {
+        case .paneRects, .listWindows, .perWindowSize:
+            cmuxDebugLog(
+                "remote.fifo.dequeue \(kind) depth=\(pendingCommands.count)"
+                    + " err=\(isError ? 1 : 0) lines=\(lines.count)"
+                    + " bytes=\(lines.reduce(0) { $0 + $1.utf8.count })"
+            )
+        default:
+            break
+        }
+        #endif
+        defer {
+            if case .listWindows = kind {
+                completeWindowListRequest()
+            }
+        }
         guard !isError else {
+            failPaneSeedCommand(kind, errorLines: lines)
+            if case let .paneColorReport(paneId, colors) = kind {
+                rejectPaneColorReport(paneId: paneId, colors: colors, lines: lines)
+            }
             // An errored activity query must still complete (with nil) — a close
             // decision is waiting on it and falls back to the cached state.
             if case let .activityQuery(token) = kind,
@@ -20,6 +41,14 @@ extension RemoteTmuxControlConnection {
                let completion = newWindowCompletions.removeValue(forKey: token) {
                 completion(nil)
             }
+            if case let .newPane(token) = kind,
+               let completion = newPaneCompletions.removeValue(forKey: token) {
+                completion(nil)
+            }
+            if case let .tracked(token) = kind,
+               let completion = trackedSendCompletions.removeValue(forKey: token) {
+                completion(false)
+            }
             // A rejected per-window size normally means the server predates
             // the '@id:WxH' form: degrade to session-wide sizing, visibly.
             // But a "can't find window" error is about ONE dead window (it
@@ -27,7 +56,7 @@ extension RemoteTmuxControlConnection {
             // whole connection.
             if case let .perWindowSize(windowId) = kind {
                 if lines.joined(separator: " ").localizedCaseInsensitiveContains("find window") {
-                    lastWindowSizes[windowId] = nil
+                    removeWindowSizeClaim(windowId: windowId)
                 } else {
                     notePerWindowSizeRejected()
                 }
@@ -37,6 +66,20 @@ extension RemoteTmuxControlConnection {
             // observers keep the last VERIFIED layout (never a raw one).
             if case let .paneRects(windowId, generation) = kind {
                 handlePaneRectsFailure(windowId: windowId, generation: generation)
+            }
+            if case let .windowReorder(isLast) = kind {
+                completeWindowReorderCommand(isLast: isLast, failed: true)
+            }
+            if case let .listWindows(requestGeneration, retainedPaneIDs) = kind {
+                if windowReorderRecoveryGeneration == requestGeneration {
+                    restartAfterWindowReorderRecoveryFailure()
+                } else if !retainedPaneIDs.isEmpty {
+                    record("window-list-retention-reconnect")
+                    beginReconnecting()
+                }
+            }
+            if case .listWindowOrder = kind {
+                requestFullWindowOrderRecovery()
             }
             // Errors are dropped by design (results correlate positionally), but
             // an invisible %error has already hidden one real bug — an unquoted
@@ -55,9 +98,24 @@ extension RemoteTmuxControlConnection {
                 RemoteTmuxControlStreamParser.id(Substring($0), sigil: "@")
             }
             completion(windowId)
+        case let .newPane(token):
+            guard let completion = newPaneCompletions.removeValue(forKey: token) else { break }
+            let paneId = lines.first.flatMap {
+                RemoteTmuxControlStreamParser.id(Substring($0), sigil: "%")
+            }
+            completion(paneId)
         case let .paneRects(windowId, generation):
             handlePaneRectsReply(windowId: windowId, generation: generation, lines: lines)
-        case .listWindows:
+        case let .listWindows(requestGeneration, retainedPaneIDs):
+            // A pending order verification owns the window-order ledger: an
+            // incidental topology refetch (e.g. a %window-add landing mid-batch)
+            // shares the current generation tag, and letting it replace the
+            // optimistic order would make the follow-up `listWindowOrder`
+            // verification compare the server order against itself — reporting
+            // success for a reorder that never reached the desired order.
+            let completesReorderRecovery = windowReorderRecoveryGeneration == requestGeneration
+            let shouldApplyWindowOrder = requestGeneration == windowReorderGeneration
+                && (windowReorderVerificationGeneration == nil || completesReorderRecovery)
             var order: [Int] = []
             var next: [Int: RemoteTmuxWindow] = [:]
             for line in lines {
@@ -99,11 +157,13 @@ extension RemoteTmuxControlConnection {
                 // Replace topology instead of merging: a remote close missed while
                 // disconnected leaves no %window-close, so prune stale panes here.
                 let liveIDs = Set(order)
+                let optimisticLiveOrder = windowOrder.filter { liveIDs.contains($0) }
                 // REMOVALS and name updates publish now (they carry no leaf
                 // geometry); every window's GEOMETRY is staged and published
                 // only by its rects reply. Verified entries for surviving
                 // windows stay as-is until then.
                 windowsByID = windowsByID.filter { liveIDs.contains($0.key) }
+                prunePublishedPaneOwnership(liveWindowIds: liveIDs)
                 pendingLayouts = pendingLayouts.filter { liveIDs.contains($0.key) }
                 // A population that starts from an empty table (first attach,
                 // reconnect reseed after every window closed) publishes
@@ -123,24 +183,21 @@ extension RemoteTmuxControlConnection {
                     flushInitialBatchIfDrained()
                 }
                 for (id, window) in next {
-                    if let existing = windowsByID[id], existing.name != window.name {
-                        windowsByID[id] = RemoteTmuxWindow(
-                            id: id, name: window.name,
-                            width: existing.width, height: existing.height,
-                            layout: existing.layout, visibleLayout: existing.visibleLayout,
-                            zoomed: existing.zoomed
-                        )
-                    }
+                    applyWindowName(windowId: id, name: window.name)
                     stagePendingLayout(
                         windowId: id,
                         node: window.layout, visibleNode: window.visibleLayout,
                         zoomed: window.zoomed, name: window.name
                     )
                 }
+                // This complete snapshot decides only the close gaps already
+                // represented when its request was sent. A later overlapping
+                // close remains retained for its own snapshot.
+                paneIDsRetainedUntilWindowList.subtract(retainedPaneIDs)
                 // Per-window sizing state must not outlive the topology: a
                 // stale pin would be replayed by the reconnect reseed, and a
                 // pending debounce could fire at a dead @id.
-                lastWindowSizes = lastWindowSizes.filter { liveIDs.contains($0.key) }
+                retainWindowSizeClaims(for: liveIDs)
                 for (id, task) in windowSizeDebounceTasks where !liveIDs.contains(id) {
                     task.cancel()
                     windowSizeDebounceTasks[id] = nil
@@ -149,9 +206,34 @@ extension RemoteTmuxControlConnection {
                     lastSizeRequestWindowId = nil
                 }
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
-                windowTitleRowsVisible = windowTitleRowsVisible.filter { liveIDs.contains($0.key) }
-                prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
-                windowOrder = order
+                windowTitleRowPlacements = windowTitleRowPlacements.filter { liveIDs.contains($0.key) }
+                prunePaneState(keeping: paneIDsForStatePruning())
+                #if DEBUG
+                cmuxDebugLog(
+                    "remote.window.snapshot order=\(order)"
+                        + " prior=\(windowOrder)"
+                )
+                #endif
+                windowOrder = shouldApplyWindowOrder
+                    ? order
+                    : decoding.windowOrder(order, applyingReorder: optimisticLiveOrder)
+                if completesReorderRecovery {
+                    windowReorderRecoveryGeneration = nil
+                    // The batch that escalated here is judged against the
+                    // recovered authoritative order rather than failed outright:
+                    // the escalation cause (membership change mid-batch) says
+                    // nothing about whether the swaps landed. Compare only the
+                    // windows the batch actually ordered, so a window that
+                    // appeared or closed mid-flight doesn't fail a reorder tmux
+                    // in fact applied (and e.g. roll back pin state for it).
+                    if let generation = windowReorderVerificationGeneration {
+                        let desiredSet = Set(optimisticLiveOrder)
+                        finishWindowReorderVerification(
+                            generation: generation,
+                            succeeded: order.filter { desiredSet.contains($0) } == optimisticLiveOrder
+                        )
+                    }
+                }
                 // Publish removals/order/names; geometry rides each window's
                 // rects reply.
                 observers.notifyTopologyChanged()
@@ -160,8 +242,12 @@ extension RemoteTmuxControlConnection {
                 // (see ``PostAttachAction``).
                 switch pendingPostAttachAction {
                 case .reseed:
+                    pushMirrorSessionEnvironment()
+                    replayPaneColorReports()
                     reseedAfterReconnect()
                 case .applyClientSize:
+                    pushMirrorSessionEnvironment()
+                    replayPaneColorReports()
                     // A surface that hasn't computed a grid yet is covered by the
                     // debounced `setClientSize` instead.
                     if let size = lastClientSize {
@@ -175,8 +261,46 @@ extension RemoteTmuxControlConnection {
                 // the publication point (each window's rects reply): here
                 // `windowsByID` is still empty on a first connect — geometry
                 // publishes only when the rects replies land.
+            } else if completesReorderRecovery {
+                restartAfterWindowReorderRecoveryFailure()
+            } else if !retainedPaneIDs.isEmpty {
+                record("window-list-retention-reconnect")
+                beginReconnecting()
             }
-        case let .capturePane(paneId):
+        case let .listWindowOrder(requestGeneration):
+            let order = lines.compactMap { line in
+                RemoteTmuxControlStreamParser.id(
+                    Substring(line.trimmingCharacters(in: .whitespacesAndNewlines)),
+                    sigil: "@"
+                )
+            }
+            let knownWindowIDs = Set(windowsByID.keys)
+            guard !order.isEmpty,
+                  order.count == knownWindowIDs.count,
+                  Set(order) == knownWindowIDs else {
+                // A concurrent add/close needs the existing full topology path.
+                requestFullWindowOrderRecovery()
+                break
+            }
+            let optimisticOrder = windowOrder.filter { knownWindowIDs.contains($0) }
+            finishWindowReorderVerification(
+                generation: requestGeneration,
+                succeeded: requestGeneration == windowReorderGeneration && order == windowOrder
+            )
+            let reconciledOrder = requestGeneration == windowReorderGeneration
+                ? order
+                : decoding.windowOrder(order, applyingReorder: optimisticOrder)
+            if reconciledOrder != windowOrder {
+                windowOrder = reconciledOrder
+                observers.notifyTopologyChanged()
+            }
+        case .paneOutputReset:
+            // Server-side output-cursor barrier only; capture owns the paint.
+            break
+        case .paneOutputContinue:
+            // Server-side cutover edge only; the state result completed the seed.
+            break
+        case let .capturePane(paneId, seedID):
             // capture-pane -e -S output is the pane's history + visible rows (with
             // SGR escapes). Home + clear the VISIBLE SCREEN (ESC[2J — NOT ESC[3J,
             // which would erase the scrollback we are seeding), then write every
@@ -189,16 +313,15 @@ extension RemoteTmuxControlConnection {
             // the visible screen.
             let painted = "\u{1b}[H\u{1b}[2J" + lines.joined(separator: "\r\n")
             if let data = painted.data(using: .utf8) {
-                observers.emitPaneOutput(paneId, data)
+                installPaneSeedCapture(paneId: paneId, seedID: seedID, data: data)
             }
-        case let .paneState(paneId):
+        case let .paneState(paneId, seedID):
             // Restore the pane's terminal state (scroll region + DEC modes + cursor)
             // onto the mirror surface, applied after the capture paint. The scroll
             // region (DECSTBM) is the important one: without it an inline TUI's
             // region-relative redraws land on the wrong rows even at a static size.
-            if let line = lines.first {
-                observers.emitPaneOutput(paneId, decoding.paneStateSeedSequence(from: line))
-            }
+            let state = lines.first.map(decoding.paneStateSeedSequence(from:)) ?? Data()
+            finishPaneSeed(paneId: paneId, seedID: seedID, state: state)
         case let .panePath(paneId):
             if let path = lines.first?.trimmingCharacters(in: .whitespaces), !path.isEmpty {
                 observers.emitPaneCwd(paneId, path)
@@ -218,7 +341,7 @@ extension RemoteTmuxControlConnection {
             // consumers (batch close, workspace close, quit warning) benefit too.
             for (paneId, state) in states { paneForegroundStates[paneId] = state }
             completion(states)
-        case let .paneAltScreen(paneId):
+        case let .paneAltScreen(paneId, seedID):
             // Match the mirror surface to the remote pane's screen (alt = no reflow on
             // resize). Emitted before the capture paint that follows in the FIFO, so the
             // seeded rows land on the right screen. The else branch is load-bearing on a
@@ -226,23 +349,85 @@ extension RemoteTmuxControlConnection {
             // remote pane is now on primary, force it back (1049l) so the capture doesn't
             // paint onto a stale alt screen.
             if lines.first?.trimmingCharacters(in: .whitespaces) == "1" {
-                observers.emitPaneOutput(paneId, Self.altScreenEnterSequence)
+                appendPaneSeedPrefix(
+                    paneId: paneId, seedID: seedID, data: Self.altScreenEnterSequence
+                )
             } else {
-                observers.emitPaneOutput(paneId, Self.altScreenExitSequence)
+                appendPaneSeedPrefix(
+                    paneId: paneId, seedID: seedID, data: Self.altScreenExitSequence
+                )
             }
         case .perWindowSize:
             // A successful per-window size push replies with an empty block;
             // the interesting outcome (%error -> capability fallback) is
             // handled in the error branch above.
             break
-        case .other:
+        case let .windowReorder(isLast):
+            completeWindowReorderCommand(isLast: isLast, failed: false)
+        case let .tracked(token):
+            trackedSendCompletions.removeValue(forKey: token)?(true)
+        case .paneColorReport, .other:
             break
         }
+    }
+
+    /// Verifies a successful reorder without restaging every window's geometry.
+    func requestWindowOrder() {
+        guard let generation = windowReorderVerificationGeneration else { return }
+        guard sendInternal(
+            "list-windows -F \"#{window_id}\"",
+            kind: .listWindowOrder(reorderGeneration: generation)
+        ) else {
+            finishWindowReorderVerification(generation: generation, succeeded: false)
+            return
+        }
+    }
+
+    /// Escalates a failed order-only verification to blocking full recovery.
+    /// The pending verification is NOT failed here: escalation means the cheap
+    /// check was inconclusive (membership changed, malformed reply), so the
+    /// batch is resolved against the recovery's authoritative order instead.
+    /// A recovery that itself fails reconnects, which fails the verification.
+    func requestFullWindowOrderRecovery() {
+        windowReorderRecoveryGeneration = windowReorderGeneration
+        requestWindows()
+    }
+
+    /// Reconciles every completed batch while rejected swaps use full recovery.
+    func completeWindowReorderCommand(isLast: Bool, failed: Bool) {
+        windowReorderBatchFailed = windowReorderBatchFailed || failed
+        guard isLast else { return }
+        if windowReorderBatchFailed {
+            requestFullWindowOrderRecovery()
+        } else {
+            requestWindowOrder()
+        }
+        windowReorderBatchFailed = false
     }
 
     func failPendingNewWindowRequests() {
         let completions = Array(newWindowCompletions.values)
         newWindowCompletions.removeAll()
         completions.forEach { $0(nil) }
+    }
+
+    func failPendingNewPaneRequests() {
+        let completions = Array(newPaneCompletions.values)
+        newPaneCompletions.removeAll()
+        completions.forEach { $0(nil) }
+    }
+
+    func finishWindowReorderVerification(generation: UInt64, succeeded: Bool) {
+        if windowReorderVerificationGeneration == generation {
+            windowReorderVerificationGeneration = nil
+        }
+        windowReorderVerifications.removeValue(forKey: generation)?(succeeded)
+    }
+
+    func failPendingWindowReorderVerifications() {
+        let verifications = windowReorderVerifications.sorted { $0.key < $1.key }
+        windowReorderVerificationGeneration = nil
+        windowReorderVerifications.removeAll()
+        verifications.forEach { $0.value(false) }
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 
 @MainActor
@@ -44,7 +45,7 @@ struct CmuxConfigExecutor {
                 onExecuted?()
             }
         } else if let rawCommand = command.command {
-            let targetTerminal = tabManager.selectedWorkspace?.focusedTerminalPanel
+            let targetTerminal = tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel
             guard let targetTerminal else { return false }
             return prepareShellInputIfAuthorized(
                 rawCommand,
@@ -73,9 +74,24 @@ struct CmuxConfigExecutor {
         tabManager: TabManager,
         baseCwd: String,
         globalConfigPath: String,
+        settingPresets: [String: CmuxSettingValue] = [:],
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
+        if case .setting(let change) = action.action {
+            let didStart = CmuxSettingActionRunner.run(
+                change,
+                actionSourcePath: action.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                settingPresets: settingPresets,
+                confirm: action.confirm ?? false,
+                title: action.title,
+                presentingWindow: presentingWindow
+            )
+            if didStart { onExecuted?() }
+            return didStart
+        }
+
         if let syntheticCommand = action.inlineWorkspaceSyntheticCommand {
             // Inline `type: "workspace"` actions reuse the named-command path via a
             // synthetic definition so trust, restart, confirm, and layout behavior
@@ -115,7 +131,9 @@ struct CmuxConfigExecutor {
 
         guard let command = action.terminalCommand else { return false }
         let target = action.terminalCommandTarget ?? .newTabInCurrentPane
-        let targetTerminal = (target == .currentTerminal) ? tabManager.selectedWorkspace?.focusedTerminalPanel : nil
+        let targetTerminal = (target == .currentTerminal)
+            ? tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel
+            : nil
         let targetWorkspace = (target == .newTabInCurrentPane) ? tabManager.selectedWorkspace : nil
         return prepareShellInputIfAuthorized(
             command,
@@ -272,6 +290,11 @@ struct CmuxConfigExecutor {
             displayTitle: displayTitle,
             configPath: configPath
         )
+        let content = CmuxAlertContent(
+            flattenedText: alert.informativeText,
+            separatingScrollableDetails: sanitizeForDisplay(command)
+        )
+        content.apply(to: alert, presentingWindow: presentingWindow)
         alert.beginSheetModal(for: presentingWindow) { response in
             completion(handleConfirmDialogResponse(response, descriptor: descriptor))
         }
@@ -288,6 +311,11 @@ struct CmuxConfigExecutor {
             displayTitle: displayTitle,
             configPath: configPath
         )
+        let content = CmuxAlertContent(
+            flattenedText: alert.informativeText,
+            separatingScrollableDetails: sanitizeForDisplay(command)
+        )
+        content.apply(to: alert, presentingWindow: nil)
         return handleConfirmDialogResponse(alert.runModal(), descriptor: descriptor)
     }
 

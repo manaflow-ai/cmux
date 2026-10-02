@@ -36,7 +36,16 @@ private final class SchedulerProbe {
             Issue.record("no in-flight send for report \(id)")
             return
         }
-        continuation.resume(returning: rows.map { (columns: 40, rows: $0) })
+        continuation.resume(
+            returning: rows.map {
+                (
+                    columns: 40,
+                    rows: $0,
+                    renderEpoch: nil,
+                    renderRevisionFloor: nil
+                )
+            }
+        )
     }
 
     /// Cooperatively spin until `condition` holds (all work is main-actor, so
@@ -121,6 +130,23 @@ struct TerminalViewportReportSchedulerTests {
         #expect(await probe.waitUntil { probe.applied.count == 1 })
         #expect(probe.applied.first?.id == 1)
         #expect(probe.applied.first?.rows == nil)
+    }
+
+    @Test("relay retry backoff is bounded and resets only for a new negotiation")
+    func relayRetryBackoffIsBounded() {
+        var backoff = TerminalViewportRetryBackoff(
+            delays: [.milliseconds(100), .milliseconds(400), .seconds(2)]
+        )
+
+        #expect(backoff.nextDelay() == .milliseconds(100))
+        #expect(backoff.nextDelay() == .milliseconds(400))
+        #expect(backoff.nextDelay() == .seconds(2))
+        #expect(backoff.nextDelay() == nil)
+        #expect(backoff.attemptsScheduled == 3)
+
+        backoff.reset()
+        #expect(backoff.attemptsScheduled == 0)
+        #expect(backoff.nextDelay() == .milliseconds(100))
     }
 
     @Test("cancel during an in-flight send never applies its echo")

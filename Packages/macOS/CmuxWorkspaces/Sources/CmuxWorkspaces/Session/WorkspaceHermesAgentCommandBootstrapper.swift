@@ -48,6 +48,9 @@ struct WorkspaceHermesAgentCommandBootstrapper {
     }
 
     func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {
+        if let localTmuxCommand = LocalTmuxRestoreCommandPolicy().restorableCommand(rawCommand) {
+            return localTmuxCommand
+        }
         guard let command = rawCommand?.trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty,
               terminalCommandLooksLikeOMXHud(command) else {

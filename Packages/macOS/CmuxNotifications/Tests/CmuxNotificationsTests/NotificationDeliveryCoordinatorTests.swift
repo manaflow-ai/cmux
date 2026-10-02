@@ -5,15 +5,65 @@ import UserNotifications
 
 @MainActor
 private final class FakeNotificationCenter: UserNotificationCenterConfiguring {
-    private(set) var categories: Set<UNNotificationCategory> = []
+    var categories: Set<UNNotificationCategory> = []
+    private(set) var installCount = 0
     private(set) var delegate: (any UNUserNotificationCenterDelegate)?
 
-    func setNotificationCategories(_ categories: Set<UNNotificationCategory>) {
+    func notificationCategories() async -> Result<
+        Set<UNNotificationCategory>,
+        UserNotificationCenterFailure
+    > {
+        .success(categories)
+    }
+
+    /// When true, category installation suspends until
+    /// ``releaseCategoryInstall()``, modeling the framework's unbounded wait
+    /// on a wedged daemon.
+    var stallCategoryInstall = false
+    private var stallWaiters: [CheckedContinuation<Void, Never>] = []
+    private var categoryInstallWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func setNotificationCategories(
+        _ categories: Set<UNNotificationCategory>
+    ) async -> Result<Void, UserNotificationCenterFailure> {
+        if stallCategoryInstall {
+            await withCheckedContinuation { stallWaiters.append($0) }
+        }
         self.categories = categories
+        installCount += 1
+        let waiters = categoryInstallWaiters
+        categoryInstallWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        return .success(())
     }
 
     func setDelegate(_ delegate: (any UNUserNotificationCenterDelegate)?) {
         self.delegate = delegate
+    }
+
+    /// Suspends until the fire-and-forget category install has landed.
+    func waitForCategoryInstall() async {
+        guard categories.isEmpty else { return }
+        await withCheckedContinuation { categoryInstallWaiters.append($0) }
+    }
+
+    /// Suspends until an install lands beyond `count`, for tests whose center
+    /// starts pre-seeded (the empty-set guard above would return immediately).
+    func waitForCategoryInstall(past count: Int) async {
+        guard installCount <= count else { return }
+        await withCheckedContinuation { categoryInstallWaiters.append($0) }
+    }
+
+    /// Lets a stalled category installation proceed.
+    func releaseCategoryInstall() {
+        stallCategoryInstall = false
+        let waiters = stallWaiters
+        stallWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
 
@@ -28,7 +78,12 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
     var openSucceeds = true
     var performSucceeds = true
     private(set) var opens: [OpenCall] = []
-    private(set) var storedOpens: [(id: UUID, fallbackTabId: UUID, fallbackSurfaceId: UUID?)] = []
+    private(set) var storedOpens: [(
+        id: UUID,
+        fallbackTabId: UUID,
+        fallbackSurfaceId: UUID?,
+        fallbackRetargetsToLiveSurfaceOwner: Bool
+    )] = []
     private(set) var performedClickActions: [NotificationNavClickAction] = []
     private(set) var markedReadIds: [UUID] = []
 
@@ -37,8 +92,13 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
         return openSucceeds
     }
 
-    func openNotification(id: UUID, fallbackTabId: UUID, fallbackSurfaceId: UUID?) -> Bool {
-        storedOpens.append((id: id, fallbackTabId: fallbackTabId, fallbackSurfaceId: fallbackSurfaceId))
+    func openNotification(
+        id: UUID,
+        fallbackTabId: UUID,
+        fallbackSurfaceId: UUID?,
+        fallbackRetargetsToLiveSurfaceOwner: Bool
+    ) -> Bool {
+        storedOpens.append((id, fallbackTabId, fallbackSurfaceId, fallbackRetargetsToLiveSurfaceOwner))
         return openSucceeds
     }
 
@@ -49,6 +109,54 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
 
     func markNotificationRead(id: UUID) {
         markedReadIds.append(id)
+    }
+}
+
+@MainActor
+private final class FakeTerminalReplying: NotificationTerminalReplying {
+    struct Reply: Equatable {
+        let text: String
+        let tabId: UUID
+        let surfaceId: UUID?
+        let retargetsToLiveSurfaceOwner: Bool
+    }
+
+    var succeeds = true
+    var suspendsReply = false
+    private var replyCompletion: CheckedContinuation<Void, Never>?
+    private var replyStarted: CheckedContinuation<Void, Never>?
+    private(set) var replies: [Reply] = []
+
+    func sendReply(
+        text: String,
+        tabId: UUID,
+        surfaceId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool
+    ) async -> Bool {
+        replies.append(.init(
+            text: text,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+        ))
+        if suspendsReply {
+            await withCheckedContinuation { continuation in
+                replyCompletion = continuation
+                replyStarted?.resume()
+                replyStarted = nil
+            }
+        }
+        return succeeds
+    }
+
+    func waitForReply() async {
+        guard replyCompletion == nil else { return }
+        await withCheckedContinuation { replyStarted = $0 }
+    }
+
+    func finishReply() {
+        replyCompletion?.resume()
+        replyCompletion = nil
     }
 }
 
@@ -69,6 +177,12 @@ private final class FakeFeedReplying: NotificationFeedReplying {
     func permissionCapabilities(requestId: String) -> NotificationFeedPermissionCapabilities? {
         capabilitiesByRequestId[requestId]
     }
+
+    private(set) var openedWorkstreamIds: [String] = []
+
+    func openWorkstream(workstreamId: String) {
+        openedWorkstreamIds.append(workstreamId)
+    }
 }
 
 @MainActor
@@ -85,20 +199,60 @@ private final class DummyNotificationDelegate: NSObject, UNUserNotificationCente
 @Suite(.serialized)
 @MainActor
 struct NotificationDeliveryCoordinatorTests {
+    @Test("configure preserves live minted question categories")
+    func configurePreservesMintedQuestionCategories() async throws {
+        let center = FakeNotificationCenter()
+        center.categories = [UNNotificationCategory(
+            identifier: "CMUXFeedQuestion.live-req",
+            actions: [],
+            intentIdentifiers: [],
+            options: []
+        )]
+        let delegate = DummyNotificationDelegate()
+        let coordinator = makeCoordinator(center: center)
+
+        coordinator.configureUserNotifications(delegate: delegate)
+        await center.waitForCategoryInstall(past: 0)
+
+        #expect(center.categories.contains { $0.identifier == "CMUXFeedQuestion.live-req" })
+        #expect(center.categories.contains { $0.identifier == "terminal.category" })
+    }
+
     @Test("configure installs terminal and Feed categories and delegate")
-    func configureInstallsCategoriesAndDelegate() throws {
+    func configureInstallsCategoriesAndDelegate() async throws {
         let center = FakeNotificationCenter()
         let delegate = DummyNotificationDelegate()
         let coordinator = makeCoordinator(center: center)
 
         coordinator.configureUserNotifications(delegate: delegate)
+        #expect((center.delegate as AnyObject?) === delegate)
+        await center.waitForCategoryInstall()
 
         let categories = categoriesByIdentifier(center.categories)
-        #expect((center.delegate as AnyObject?) === delegate)
+        #expect(Set(categories.keys) == [
+            "terminal.category",
+            "terminal.textReply",
+            "CMUXFeedPermission",
+            "CMUXFeedPermissionDeny",
+            "CMUXFeedPermissionOnce",
+            "CMUXFeedPermissionAlways",
+            "CMUXFeedPermissionAll",
+            "CMUXFeedPermissionOnceAlways",
+            "CMUXFeedPermissionOnceAll",
+            "CMUXFeedPermissionAlwaysAll",
+            "CMUXFeedPermissionOnceAlwaysAll",
+            "CMUXFeedExitPlan",
+            "CMUXFeedQuestion",
+        ])
         let terminalCategory = try #require(categories["terminal.category"])
         #expect(terminalCategory.actions.map(\.identifier) == ["terminal.show"])
         #expect(terminalCategory.actions.map(\.title) == ["Show"])
         #expect(terminalCategory.options.contains(.customDismissAction))
+
+        let textReplyCategory = try #require(categories["terminal.textReply"])
+        #expect(textReplyCategory.actions.map(\.identifier) == ["terminal.reply", "terminal.show"])
+        #expect(textReplyCategory.actions.first is UNTextInputNotificationAction)
+        #expect(textReplyCategory.options.contains(.customDismissAction))
 
         let fullPermission = try #require(categories["CMUXFeedPermissionOnceAlwaysAll"])
         #expect(fullPermission.actions.map(\.identifier) == [
@@ -117,11 +271,33 @@ struct NotificationDeliveryCoordinatorTests {
             "feed.exit_plan.ultraplan",
             "feed.exit_plan.manual",
             "feed.exit_plan.autoAccept",
+            "feed.exit_plan.revise",
         ])
+        #expect(exitPlan.actions.last is UNTextInputNotificationAction)
 
         let question = try #require(categories["CMUXFeedQuestion"])
         #expect(question.actions.map(\.identifier) == ["feed.question.open"])
         #expect(question.actions.first?.options.contains(.foreground) == true)
+    }
+
+    @Test("configuration never blocks its caller on notification-center entry")
+    func configureDoesNotBlockCallingExecutor() async {
+        let center = FakeNotificationCenter()
+        // Category installation cannot finish until the test releases it, so
+        // the assertion below is causal: it can only pass when configure hands
+        // control back without waiting on the (wedged) center entry.
+        center.stallCategoryInstall = true
+        let coordinator = makeCoordinator(center: center)
+
+        coordinator.configureUserNotifications(delegate: DummyNotificationDelegate())
+
+        #expect(
+            center.categories.isEmpty,
+            "configure must return before category installation completes"
+        )
+        center.releaseCategoryInstall()
+        await center.waitForCategoryInstall()
+        #expect(!center.categories.isEmpty)
     }
 
     @Test("presentation options include sound only when the notification has sound")
@@ -139,8 +315,22 @@ struct NotificationDeliveryCoordinatorTests {
         #expect(audible.contains(.sound))
     }
 
+    @Test("presentation options drop sound for a banner whose pane became focused")
+    func presentationOptionsKeepSoundQuiet() {
+        let coordinator = makeCoordinator()
+        let content = UNMutableNotificationContent()
+        content.sound = .default
+
+        let quiet = coordinator.presentationOptions(for: content, keepsSoundQuiet: true)
+        #expect(quiet.contains(.banner))
+        #expect(quiet.contains(.list))
+        #expect(!quiet.contains(.sound))
+
+        #expect(coordinator.presentationOptions(for: content).contains(.sound))
+    }
+
     @Test("Feed permission always falls back to once when always is unsupported")
-    func feedPermissionAlwaysFallsBackToOnce() {
+    func feedPermissionAlwaysFallsBackToOnce() async {
         let feed = FakeFeedReplying()
         feed.capabilitiesByRequestId["req-1"] = NotificationFeedPermissionCapabilities(
             supportsOnce: true,
@@ -149,7 +339,7 @@ struct NotificationDeliveryCoordinatorTests {
         )
         let coordinator = makeCoordinator(feedReplying: feed)
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: "CMUXFeedPermissionOnceAlways",
             actionIdentifier: "feed.permission.always",
             requestIdentifier: "feed.req-1",
@@ -160,7 +350,7 @@ struct NotificationDeliveryCoordinatorTests {
     }
 
     @Test("Feed permission action is consumed without reply when requested mode is unsupported")
-    func feedPermissionUnsupportedModeDoesNotReply() {
+    func feedPermissionUnsupportedModeDoesNotReply() async {
         let feed = FakeFeedReplying()
         feed.capabilitiesByRequestId["req-1"] = NotificationFeedPermissionCapabilities(
             supportsOnce: true,
@@ -169,7 +359,7 @@ struct NotificationDeliveryCoordinatorTests {
         )
         let coordinator = makeCoordinator(feedReplying: feed)
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: "CMUXFeedPermissionAll",
             actionIdentifier: "feed.permission.all",
             requestIdentifier: "feed.req-1",
@@ -180,12 +370,12 @@ struct NotificationDeliveryCoordinatorTests {
     }
 
     @Test("Feed response without request id is consumed before terminal routing")
-    func feedMissingRequestIdIsConsumed() {
+    func feedMissingRequestIdIsConsumed() async {
         let terminal = FakeTerminalNavigation()
         let feed = FakeFeedReplying()
         let coordinator = makeCoordinator(terminalNavigation: terminal, feedReplying: feed)
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: "CMUXFeedQuestion",
             actionIdentifier: UNNotificationDefaultActionIdentifier,
             requestIdentifier: "feed.missing",
@@ -197,11 +387,11 @@ struct NotificationDeliveryCoordinatorTests {
     }
 
     @Test("Feed question default response activates the app")
-    func feedQuestionDefaultActivatesApp() {
+    func feedQuestionDefaultActivatesApp() async {
         let activation = FakeApplicationActivation()
         let coordinator = makeCoordinator(applicationActivation: activation)
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: "CMUXFeedQuestion",
             actionIdentifier: UNNotificationDefaultActionIdentifier,
             requestIdentifier: "feed.req-2",
@@ -211,14 +401,265 @@ struct NotificationDeliveryCoordinatorTests {
         #expect(activation.activationCount == 1)
     }
 
+    @Test("Feed permission banner click opens the agent's workstream", arguments: [
+        "CMUXFeedPermissionOnceAlways",
+        "CMUXFeedExitPlan",
+        "CMUXFeedQuestion",
+        "CMUXFeedQuestion.req-3",
+    ])
+    func feedDefaultOpensWorkstream(categoryIdentifier: String) async {
+        let activation = FakeApplicationActivation()
+        let feed = FakeFeedReplying()
+        let terminal = FakeTerminalNavigation()
+        let coordinator = makeCoordinator(
+            terminalNavigation: terminal,
+            feedReplying: feed,
+            applicationActivation: activation
+        )
+
+        await coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: categoryIdentifier,
+            actionIdentifier: UNNotificationDefaultActionIdentifier,
+            requestIdentifier: "feed.req-3",
+            userInfo: ["requestId": "req-3", "workstreamId": "session-3"]
+        ))
+
+        #expect(activation.activationCount == 1)
+        #expect(feed.openedWorkstreamIds == ["session-3"])
+        #expect(feed.replies.isEmpty)
+        #expect(terminal.opens.isEmpty)
+    }
+
+    @Test("Feed banner click without a workstream only activates the app")
+    func feedDefaultWithoutWorkstreamActivatesOnly() async {
+        let activation = FakeApplicationActivation()
+        let feed = FakeFeedReplying()
+        let coordinator = makeCoordinator(feedReplying: feed, applicationActivation: activation)
+
+        await coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "CMUXFeedPermission",
+            actionIdentifier: UNNotificationDefaultActionIdentifier,
+            requestIdentifier: "feed.req-4",
+            userInfo: ["requestId": "req-4"]
+        ))
+
+        #expect(activation.activationCount == 1)
+        #expect(feed.openedWorkstreamIds.isEmpty)
+    }
+
+    @Test("Feed banner dismiss neither activates the app nor opens the workstream")
+    func feedDismissDoesNotActivate() async {
+        let activation = FakeApplicationActivation()
+        let feed = FakeFeedReplying()
+        let coordinator = makeCoordinator(feedReplying: feed, applicationActivation: activation)
+
+        await coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "CMUXFeedPermission",
+            actionIdentifier: UNNotificationDismissActionIdentifier,
+            requestIdentifier: "feed.req-5",
+            userInfo: ["requestId": "req-5", "workstreamId": "session-5"]
+        ))
+
+        #expect(activation.activationCount == 0)
+        #expect(feed.openedWorkstreamIds.isEmpty)
+        #expect(feed.replies.isEmpty)
+    }
+
+    @Test("exit-plan revise sends manual mode with trimmed feedback")
+    func exitPlanReviseSendsFeedback() async {
+        let feed = FakeFeedReplying()
+        let coordinator = makeCoordinator(feedReplying: feed)
+
+        await coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "CMUXFeedExitPlan",
+            actionIdentifier: "feed.exit_plan.revise",
+            requestIdentifier: "feed.req-revise",
+            userInfo: ["requestId": "req-revise"],
+            userText: "  revise the tests  "
+        ))
+
+        #expect(feed.replies == [
+            .init(requestId: "req-revise", decision: .exitPlan(.manual, feedback: "revise the tests")),
+        ])
+    }
+
+    @Test("exit-plan revise with empty feedback opens the app, never approves")
+    func exitPlanReviseEmptyFeedbackDoesNotApprove() async {
+        let feed = FakeFeedReplying()
+        let activation = FakeApplicationActivation()
+        let coordinator = makeCoordinator(feedReplying: feed, applicationActivation: activation)
+
+        await coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "CMUXFeedExitPlan",
+            actionIdentifier: "feed.exit_plan.revise",
+            requestIdentifier: "feed.req-revise",
+            userInfo: ["requestId": "req-revise"],
+            userText: "   "
+        ))
+
+        #expect(feed.replies.isEmpty)
+        #expect(activation.activationCount == 1)
+    }
+
+    @Test("dynamic question option sends the matching option id")
+    func dynamicQuestionOptionSendsSelection() async {
+        let feed = FakeFeedReplying()
+        let coordinator = makeCoordinator(feedReplying: feed)
+
+        await coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "CMUXFeedQuestion.req-question",
+            actionIdentifier: "feed.question.option.1",
+            requestIdentifier: "feed.req-question",
+            userInfo: [
+                "requestId": "req-question",
+                "questionOptionIds": ["one", "two", "three"],
+            ]
+        ))
+
+        #expect(feed.replies == [
+            .init(requestId: "req-question", decision: .question(selections: ["two"])),
+        ])
+    }
+
+    @Test("dynamic question other sends raw user text")
+    func dynamicQuestionOtherSendsRawText() async {
+        let feed = FakeFeedReplying()
+        let coordinator = makeCoordinator(feedReplying: feed)
+
+        await coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "CMUXFeedQuestion.req-question",
+            actionIdentifier: "feed.question.other",
+            requestIdentifier: "feed.req-question",
+            userInfo: ["requestId": "req-question"],
+            userText: "  keep these spaces  "
+        ))
+
+        #expect(feed.replies == [
+            .init(requestId: "req-question", decision: .question(selections: ["  keep these spaces  "])),
+        ])
+    }
+
+    @Test("malformed dynamic question action activates the app without replying")
+    func malformedDynamicQuestionActivatesApp() async {
+        let feed = FakeFeedReplying()
+        let activation = FakeApplicationActivation()
+        let coordinator = makeCoordinator(
+            feedReplying: feed,
+            applicationActivation: activation
+        )
+
+        await coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "CMUXFeedQuestion.req-question",
+            actionIdentifier: "feed.question.option.9",
+            requestIdentifier: "feed.req-question",
+            userInfo: [
+                "requestId": "req-question",
+                "questionOptionIds": ["one", "two"],
+            ]
+        ))
+
+        #expect(feed.replies.isEmpty)
+        #expect(activation.activationCount == 1)
+    }
+
+    @Test("terminal text reply sends to exact surface and marks read")
+    func terminalTextReplySendsAndMarksRead() async {
+        let terminal = FakeTerminalNavigation()
+        let replying = FakeTerminalReplying()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let notificationId = UUID()
+        let coordinator = makeCoordinator(terminalNavigation: terminal, terminalReplying: replying)
+
+        await coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "terminal.textReply",
+            actionIdentifier: "terminal.reply",
+            requestIdentifier: notificationId.uuidString,
+            userInfo: [
+                "tabId": tabId.uuidString,
+                "surfaceId": surfaceId.uuidString,
+                "retargetsToLiveSurfaceOwner": false,
+            ],
+            userText: "  continue  "
+        ))
+
+        #expect(replying.replies == [.init(
+            text: "continue",
+            tabId: tabId,
+            surfaceId: surfaceId,
+            retargetsToLiveSurfaceOwner: false
+        )])
+        #expect(terminal.markedReadIds == [notificationId])
+        #expect(terminal.storedOpens.isEmpty)
+    }
+
+    @Test("notification replies await terminal delivery before read or fallback", arguments: [true, false])
+    func terminalReplyWaitsForDelivery(succeeds: Bool) async {
+        let terminal = FakeTerminalNavigation()
+        let replying = FakeTerminalReplying()
+        replying.suspendsReply = true
+        replying.succeeds = succeeds
+        let notificationId = UUID()
+        let coordinator = makeCoordinator(terminalNavigation: terminal, terminalReplying: replying)
+        let delivery = Task { @MainActor in
+            await coordinator.handle(NotificationDeliveryResponse(
+                categoryIdentifier: "terminal.textReply",
+                actionIdentifier: "terminal.reply",
+                requestIdentifier: notificationId.uuidString,
+                userInfo: ["tabId": UUID().uuidString, "surfaceId": UUID().uuidString],
+                userText: "continue"
+            ))
+        }
+
+        await replying.waitForReply()
+        #expect(terminal.markedReadIds.isEmpty)
+        #expect(terminal.storedOpens.isEmpty)
+        replying.finishReply()
+        await delivery.value
+        #expect(terminal.markedReadIds == (succeeds ? [notificationId] : []))
+        #expect(terminal.storedOpens.count == (succeeds ? 0 : 1))
+    }
+
+    @Test("empty terminal text reply falls back to opening")
+    func emptyTerminalTextReplyOpens() async {
+        let terminal = FakeTerminalNavigation()
+        let replying = FakeTerminalReplying()
+        let tabId = UUID()
+        let notificationId = UUID()
+        let coordinator = makeCoordinator(terminalNavigation: terminal, terminalReplying: replying)
+
+        await coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "terminal.textReply",
+            actionIdentifier: "terminal.reply",
+            requestIdentifier: notificationId.uuidString,
+            userInfo: ["tabId": tabId.uuidString],
+            userText: " \n "
+        ))
+
+        #expect(replying.replies.isEmpty)
+        #expect(terminal.storedOpens.count == 1)
+    }
+
+    @Test("reply shape wire and agent category mappings fail closed")
+    func replyShapeMappings() {
+        #expect(TerminalNotificationReplyShape(wire: nil) == .none)
+        #expect(TerminalNotificationReplyShape(wire: "unknown") == .none)
+        #expect(TerminalNotificationReplyShape(wire: "text") == .text)
+        #expect(TerminalNotificationReplyShape.forAgentCategory(wire: "turn-complete") == .text)
+        #expect(TerminalNotificationReplyShape.forAgentCategory(wire: "idle-reminder") == .text)
+        #expect(TerminalNotificationReplyShape.forAgentCategory(wire: "needs-permission") == .none)
+        #expect(TerminalNotificationReplyShape.forAgentCategory(wire: "other") == .none)
+        #expect(TerminalNotificationReplyShape.forAgentCategory(wire: nil) == .none)
+    }
+
     @Test("terminal default response with click action performs and marks read")
-    func terminalDefaultClickActionPerformsAndMarksRead() {
+    func terminalDefaultClickActionPerformsAndMarksRead() async {
         let terminal = FakeTerminalNavigation()
         let notificationId = UUID()
         let tabId = UUID()
         let coordinator = makeCoordinator(terminalNavigation: terminal)
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: "terminal.category",
             actionIdentifier: UNNotificationDefaultActionIdentifier,
             requestIdentifier: notificationId.uuidString,
@@ -235,14 +676,14 @@ struct NotificationDeliveryCoordinatorTests {
     }
 
     @Test("terminal default response opens stored notification using notificationId fallback")
-    func terminalDefaultOpensStoredNotification() {
+    func terminalDefaultOpensStoredNotification() async {
         let terminal = FakeTerminalNavigation()
         let tabId = UUID()
         let surfaceId = UUID()
         let notificationId = UUID()
         let coordinator = makeCoordinator(terminalNavigation: terminal)
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: "terminal.category",
             actionIdentifier: "terminal.show",
             requestIdentifier: "not-a-uuid",
@@ -250,6 +691,7 @@ struct NotificationDeliveryCoordinatorTests {
                 "tabId": tabId.uuidString,
                 "surfaceId": surfaceId.uuidString,
                 "notificationId": notificationId.uuidString,
+                "retargetsToLiveSurfaceOwner": false,
             ]
         ))
 
@@ -257,18 +699,31 @@ struct NotificationDeliveryCoordinatorTests {
         #expect(terminal.storedOpens.first?.id == notificationId)
         #expect(terminal.storedOpens.first?.fallbackTabId == tabId)
         #expect(terminal.storedOpens.first?.fallbackSurfaceId == surfaceId)
+        #expect(terminal.storedOpens.first?.fallbackRetargetsToLiveSurfaceOwner == false)
         #expect(terminal.opens.isEmpty)
         #expect(terminal.markedReadIds.isEmpty)
+
+        await coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "terminal.category",
+            actionIdentifier: "terminal.show",
+            requestIdentifier: UUID().uuidString,
+            userInfo: [
+                "tabId": tabId.uuidString,
+                "surfaceId": surfaceId.uuidString,
+            ]
+        ))
+
+        #expect(terminal.storedOpens.last?.fallbackRetargetsToLiveSurfaceOwner == true)
     }
 
     @Test("terminal default response without notification id opens raw tab and surface")
-    func terminalDefaultWithoutNotificationIdOpensTarget() {
+    func terminalDefaultWithoutNotificationIdOpensTarget() async {
         let terminal = FakeTerminalNavigation()
         let tabId = UUID()
         let surfaceId = UUID()
         let coordinator = makeCoordinator(terminalNavigation: terminal)
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: "terminal.category",
             actionIdentifier: "terminal.show",
             requestIdentifier: "not-a-uuid",
@@ -284,13 +739,13 @@ struct NotificationDeliveryCoordinatorTests {
     }
 
     @Test("terminal dismiss marks notification read using request identifier")
-    func terminalDismissMarksRead() {
+    func terminalDismissMarksRead() async {
         let terminal = FakeTerminalNavigation()
         let tabId = UUID()
         let notificationId = UUID()
         let coordinator = makeCoordinator(terminalNavigation: terminal)
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: "terminal.category",
             actionIdentifier: UNNotificationDismissActionIdentifier,
             requestIdentifier: notificationId.uuidString,
@@ -302,12 +757,12 @@ struct NotificationDeliveryCoordinatorTests {
     }
 
     @Test("terminal dismiss marks notification read without requiring tab id")
-    func terminalDismissMarksReadWithoutTabId() {
+    func terminalDismissMarksReadWithoutTabId() async {
         let terminal = FakeTerminalNavigation()
         let notificationId = UUID()
         let coordinator = makeCoordinator(terminalNavigation: terminal)
 
-        coordinator.handle(NotificationDeliveryResponse(
+        await coordinator.handle(NotificationDeliveryResponse(
             categoryIdentifier: "terminal.category",
             actionIdentifier: UNNotificationDismissActionIdentifier,
             requestIdentifier: notificationId.uuidString,
@@ -321,20 +776,28 @@ struct NotificationDeliveryCoordinatorTests {
     private func makeCoordinator(
         center: FakeNotificationCenter = FakeNotificationCenter(),
         terminalNavigation: FakeTerminalNavigation = FakeTerminalNavigation(),
+        terminalReplying: FakeTerminalReplying = FakeTerminalReplying(),
         feedReplying: FakeFeedReplying = FakeFeedReplying(),
         applicationActivation: FakeApplicationActivation = FakeApplicationActivation()
     ) -> NotificationDeliveryCoordinator {
         NotificationDeliveryCoordinator(
             center: center,
             terminalNavigation: terminalNavigation,
+            terminalReplying: terminalReplying,
             feedReplying: feedReplying,
             applicationActivation: applicationActivation,
             terminalIdentifiers: TerminalNotificationDeliveryIdentifiers(
                 categoryIdentifier: "terminal.category",
-                showActionIdentifier: "terminal.show"
+                textReplyCategoryIdentifier: "terminal.textReply",
+                showActionIdentifier: "terminal.show",
+                replyActionIdentifier: "terminal.reply",
+                retargetsToLiveSurfaceOwnerUserInfoKey: "retargetsToLiveSurfaceOwner"
             ),
             actionTitles: NotificationDeliveryActionTitles(
                 show: "Show",
+                reply: "Reply",
+                replySend: "Send",
+                replyPlaceholder: "Message the agent…",
                 feedPermissionAllowOnce: "Allow Once",
                 feedPermissionAlways: "Always",
                 feedPermissionAll: "All tools",
@@ -342,7 +805,9 @@ struct NotificationDeliveryCoordinatorTests {
                 feedExitPlanUltraplan: "Ultraplan",
                 feedExitPlanManual: "Manual",
                 feedExitPlanAutoAccept: "Auto",
-                feedQuestionReply: "Reply"
+                feedExitPlanRevise: "Revise…",
+                feedQuestionReply: "Reply",
+                feedQuestionOther: "Other…"
             )
         )
     }

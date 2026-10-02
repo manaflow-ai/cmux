@@ -71,6 +71,42 @@ struct ControlCommandCoordinatorTabActionTests {
         #expect(supportedActions.contains(.string("toggle_full_width_tab")))
     }
 
+    @Test func tabActionRejectsExplicitNullSurfaceIDBeforeContextMutation() {
+        let context = FakeTabActionControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "tab.action",
+            params: [
+                "action": .string("close_right"),
+                "surface_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+        #expect(context.actionKey == nil)
+        #expect(context.surfaceID == nil)
+    }
+
+    @Test func tabActionRejectsExplicitNullTabIDBeforeContextMutation() {
+        let context = FakeTabActionControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "tab.action",
+            params: [
+                "action": .string("close_right"),
+                "tab_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Tab not found", data: nil))
+        #expect(context.actionKey == nil)
+        #expect(context.surfaceID == nil)
+    }
+
     @Test func failedFullWidthTabToggleReturnsInvalidState() throws {
         let surfaceID = UUID()
         let context = FakeTabActionControlCommandContext()
@@ -96,5 +132,32 @@ struct ControlCommandCoordinatorTabActionTests {
         #expect(code == "invalid_state")
         #expect(message == "Failed to toggle full-width tab mode")
         #expect(data == nil)
+    }
+
+    @Test func closeBatchRequiresForceWhenActiveProcessesAreReported() throws {
+        let activeSurfaceID = UUID()
+        let context = FakeTabActionControlCommandContext()
+        context.resolution = .confirmationRequired([activeSurfaceID])
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "tab.action",
+            params: [
+                "action": .string("close-right"),
+                "force": .bool(false),
+            ]
+        ))
+
+        guard case .err(let code, let message, let data) = result else {
+            Issue.record("expected confirmation_required tab.action error")
+            return
+        }
+        #expect(context.force == false)
+        #expect(code == "confirmation_required")
+        #expect(message == "One or more surfaces have a running process; retry with force=true")
+        #expect(data == .object([
+            "surface_ids": .array([.string(activeSurfaceID.uuidString)])
+        ]))
     }
 }

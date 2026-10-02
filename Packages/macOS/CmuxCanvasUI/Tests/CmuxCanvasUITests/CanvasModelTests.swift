@@ -89,6 +89,27 @@ struct CanvasModelTests {
         #expect(model.revision != before)
     }
 
+    @Test func reorderPanelClampsExtremeOffsetsWithoutOverflow() {
+        let model = makeModel()
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        model.restoreFrames([
+            (id: a, frame: CGRect(x: 0, y: 0, width: 300, height: 200)),
+            (id: b, frame: CGRect(x: 400, y: 0, width: 300, height: 200)),
+            (id: c, frame: CGRect(x: 800, y: 0, width: 300, height: 200)),
+        ])
+        #expect(model.joinPanel(b, withPaneContaining: a))
+        #expect(model.joinPanel(c, withPaneContaining: a))
+        let paneID = model.paneID(containing: a)!
+
+        #expect(model.reorderPanel(b, by: .max))
+        #expect(model.layout.panelIds(in: paneID)?.map(\.rawValue) == [a, c, b])
+
+        #expect(model.reorderPanel(b, by: .min))
+        #expect(model.layout.panelIds(in: paneID)?.map(\.rawValue) == [b, a, c])
+    }
+
     @Test func joinAndBreakRoundTrip() {
         let model = makeModel()
         let a = UUID()

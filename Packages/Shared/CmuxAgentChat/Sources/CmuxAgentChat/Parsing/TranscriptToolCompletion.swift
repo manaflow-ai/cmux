@@ -59,7 +59,8 @@ struct TranscriptToolCompletion: Sendable {
                 summary: toolUse.summary,
                 inputDetail: toolUse.inputDetail,
                 output: output.map { budget.body($0) },
-                status: failed ? .failed : .succeeded
+                status: failed ? .failed : .succeeded,
+                referencedPaths: toolUse.referencedPaths
             )
             return message.replacingKind(.toolUse(completed))
         case .question(let question):
