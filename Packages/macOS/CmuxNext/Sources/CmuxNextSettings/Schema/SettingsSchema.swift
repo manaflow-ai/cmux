@@ -153,6 +153,16 @@ public nonisolated enum SettingsSchema {
                 default: "compact", keywords: ["size", "spacing"]
             ),
             SettingDescriptor(
+                BordersSetting.configPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.borders", "Borders"),
+                help: SettingsText.text("settings.appearance.borders.help", "None removes every border, hairline and separator in the app."),
+                kind: .choice([
+                    SettingChoice(BorderMode.default.rawValue, SettingsText.text("settings.choice.default", "Default")),
+                    SettingChoice(BorderMode.none.rawValue, SettingsText.text("settings.choice.none", "None")),
+                ]),
+                default: .string(BordersSetting.fallback.rawValue), keywords: ["border", "hairline", "separator", "outline", "line"]
+            ),
+            SettingDescriptor(
                 AnimationSpeedSetting.configPath, section: .appearance, group: look,
                 title: SettingsText.text("settings.ui.animationSpeed", "Animations"),
                 kind: .choice([

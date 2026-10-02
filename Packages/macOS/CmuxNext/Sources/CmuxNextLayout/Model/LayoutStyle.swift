@@ -32,6 +32,8 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// Draws the hairline pane border (`layout.paneBorder` = subtle). While
     /// it shows, split dividers draw no line: the borders separate panes.
     public var showsPaneBorder = false
+    /// Divider lines and every other line draw (`appearance.borders`).
+    public var drawsLines = true
     /// The focus ring (`focusRing.*`). Drawn in the overlay plane only.
     public var focusRing = FocusRingSettings()
     /// The attention ring of panes with an unread notification
@@ -75,8 +77,15 @@ extension LayoutStyle {
         style.panePadding = Metrics.panePadding
         style.paneCornerRadius = Metrics.paneCornerRadius
         style.showsPaneBorder = Metrics.paneBorder == .subtle
+        style.drawsLines = Borders.drawsLines
         style.focusRing = DesignSettings.shared.focusRing
         style.attention = DesignSettings.shared.attention
+        if !style.drawsLines {
+            // No outlines: the focused pane is marked by the others' dim
+            // (`inactivePaneDimming`), the unread mark by the sidebar badge.
+            style.focusRing.enabled = false
+            style.attention.width = 0
+        }
         style.paneBorderColor = DesignSettings.shared.paneChrome.borderColor
         style.paneBorderWidth = Metrics.paneBorderWidth
         // cmux.json `layout.minimumPaneWidth` / `layout.minimumPaneHeight`.

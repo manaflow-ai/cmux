@@ -1,0 +1,944 @@
+- table:
+  - rowgroup:
+    - row "Hacker Newsnew | past | comments | ask | show | jobs | submit login":
+      - cell "Hacker Newsnew | past | comments | ask | show | jobs | submit login":
+        - table:
+          - rowgroup:
+            - row "Hacker Newsnew | past | comments | ask | show | jobs | submit login":
+              - cell:
+                - link:
+                  - /url: https://news.ycombinator.com/
+              - cell "Hacker Newsnew | past | comments | ask | show | jobs | submit":
+                - link "Hacker News":
+                  - /url: https://news.ycombinator.com/news
+                - link "new":
+                  - /url: https://news.ycombinator.com/newest
+                - text: "|"
+                - link "past":
+                  - /url: https://news.ycombinator.com/front
+                - text: "|"
+                - link "comments":
+                  - /url: https://news.ycombinator.com/newcomments
+                - text: "|"
+                - link "ask":
+                  - /url: https://news.ycombinator.com/ask
+                - text: "|"
+                - link "show":
+                  - /url: https://news.ycombinator.com/show
+                - text: "|"
+                - link "jobs":
+                  - /url: https://news.ycombinator.com/jobs
+                - text: "|"
+                - link "submit":
+                  - /url: https://news.ycombinator.com/submit
+              - cell "login":
+                - link "login":
+                  - /url: https://news.ycombinator.com/login?goto=news
+    - row
+    - row:
+      - cell:
+        - table:
+          - rowgroup:
+            - 'row "1. upvote Livenerf: Has Opus 5.5 been nerfed yet? (github.com/ninjahawk)"':
+              - cell "1."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49901736&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "Livenerf: Has Opus 5.5 been nerfed yet? (github.com/ninjahawk)"':
+                - 'link "Livenerf: Has Opus 5.5 been nerfed yet?"':
+                  - /url: https://github.com/ninjahawk/livenerf
+                - text: (
+                - link "github.com/ninjahawk":
+                  - /url: https://news.ycombinator.com/from?site=github.com/ninjahawk
+                - text: )
+            - row "334 points by bryan0 5 hours ago | hide | 143 comments":
+              - cell
+              - cell "334 points by bryan0 5 hours ago | hide | 143 comments":
+                - text: 334 points by
+                - link "bryan0":
+                  - /url: https://news.ycombinator.com/user?id=bryan0
+                - generic "2026-09-29T22:36:14":
+                  - link "5 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49901736
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49901736&goto=news
+                - text: "|"
+                - link "143 comments":
+                  - /url: https://news.ycombinator.com/item?id=49901736
+            - row
+            - row "2. upvote U.S. postal inspectors shut down website selling counterfeit postage labels (postalemployeenetwork.com)":
+              - cell "2."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49899090&how=up&goto=news
+                  - generic "upvote"
+              - cell "U.S. postal inspectors shut down website selling counterfeit postage labels (postalemployeenetwork.com)":
+                - link "U.S. postal inspectors shut down website selling counterfeit postage labels":
+                  - /url: https://postalemployeenetwork.com/news/2026/09/26/u-s-postal-inspectors-shut-down-website-selling-millions-of-counterfeit-postage-labels/
+                - text: (
+                - link "postalemployeenetwork.com":
+                  - /url: https://news.ycombinator.com/from?site=postalemployeenetwork.com
+                - text: )
+            - row "188 points by ilamont 8 hours ago | hide | 113 comments":
+              - cell
+              - cell "188 points by ilamont 8 hours ago | hide | 113 comments":
+                - text: 188 points by
+                - link "ilamont":
+                  - /url: https://news.ycombinator.com/user?id=ilamont
+                - generic "2026-09-29T19:30:17":
+                  - link "8 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49899090
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49899090&goto=news
+                - text: "|"
+                - link "113 comments":
+                  - /url: https://news.ycombinator.com/item?id=49899090
+            - row
+            - row "3. upvote America.gov (america.gov)":
+              - cell "3."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49893509&how=up&goto=news
+                  - generic "upvote"
+              - cell "America.gov (america.gov)":
+                - link "America.gov":
+                  - /url: https://america.gov/
+                - text: (
+                - link "america.gov":
+                  - /url: https://news.ycombinator.com/from?site=america.gov
+                - text: )
+            - row "423 points by plesiv 13 hours ago | hide | 347 comments":
+              - cell
+              - cell "423 points by plesiv 13 hours ago | hide | 347 comments":
+                - text: 423 points by
+                - link "plesiv":
+                  - /url: https://news.ycombinator.com/user?id=plesiv
+                - generic "2026-09-29T14:04:57":
+                  - link "13 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49893509
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49893509&goto=news
+                - text: "|"
+                - link "347 comments":
+                  - /url: https://news.ycombinator.com/item?id=49893509
+            - row
+            - 'row "4. upvote Show HN: Real-time Solar System with 526k asteroids and all tracked satellites (bl2.net)"':
+              - cell "4."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49898778&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "Show HN: Real-time Solar System with 526k asteroids and all tracked satellites (bl2.net)"':
+                - 'link "Show HN: Real-time Solar System with 526k asteroids and all tracked satellites"':
+                  - /url: https://space.bl2.net/
+                - text: (
+                - link "bl2.net":
+                  - /url: https://news.ycombinator.com/from?site=bl2.net
+                - text: )
+            - row "152 points by wanick 8 hours ago | hide | 35 comments":
+              - cell
+              - cell "152 points by wanick 8 hours ago | hide | 35 comments":
+                - text: 152 points by
+                - link "wanick":
+                  - /url: https://news.ycombinator.com/user?id=wanick
+                - generic "2026-09-29T19:08:01":
+                  - link "8 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49898778
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49898778&goto=news
+                - text: "|"
+                - link "35 comments":
+                  - /url: https://news.ycombinator.com/item?id=49898778
+            - row
+            - row "5. upvote Strange Parodies of Atari 2600 Video Game Box Cover Art (2008) (mightygodking.com)":
+              - cell "5."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49903383&how=up&goto=news
+                  - generic "upvote"
+              - cell "Strange Parodies of Atari 2600 Video Game Box Cover Art (2008) (mightygodking.com)":
+                - link "Strange Parodies of Atari 2600 Video Game Box Cover Art (2008)":
+                  - /url: https://mightygodking.com/2008/04/21/fun-from-yesterday/
+                - text: (
+                - link "mightygodking.com":
+                  - /url: https://news.ycombinator.com/from?site=mightygodking.com
+                - text: )
+            - row "11 points by peter_d_sherman 2 hours ago | hide | 3 comments":
+              - cell
+              - cell "11 points by peter_d_sherman 2 hours ago | hide | 3 comments":
+                - text: 11 points by
+                - link "peter_d_sherman":
+                  - /url: https://news.ycombinator.com/user?id=peter_d_sherman
+                - generic "2026-09-30T01:47:14":
+                  - link "2 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49903383
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49903383&goto=news
+                - text: "|"
+                - link "3 comments":
+                  - /url: https://news.ycombinator.com/item?id=49903383
+            - row
+            - 'row "6. upvote PSSA: A non-transformer language model written from scratch in Rust (github.com/sparticle62ops)"':
+              - cell "6."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49903993&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "PSSA: A non-transformer language model written from scratch in Rust (github.com/sparticle62ops)"':
+                - 'link "PSSA: A non-transformer language model written from scratch in Rust"':
+                  - /url: https://github.com/Sparticle62ops/pssa
+                - text: (
+                - link "github.com/sparticle62ops":
+                  - /url: https://news.ycombinator.com/from?site=github.com/sparticle62ops
+                - text: )
+            - row "4 points by sparticle62 28 minutes ago | hide | discuss":
+              - cell
+              - cell "4 points by sparticle62 28 minutes ago | hide | discuss":
+                - text: 4 points by
+                - link "sparticle62":
+                  - /url: https://news.ycombinator.com/user?id=sparticle62
+                - generic "2026-09-30T03:19:54":
+                  - link "28 minutes ago":
+                    - /url: https://news.ycombinator.com/item?id=49903993
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49903993&goto=news
+                - text: "|"
+                - link "discuss":
+                  - /url: https://news.ycombinator.com/item?id=49903993
+            - row
+            - 'row "7. upvote GPT 6.1 Sol: Near-Astra intelligence for a fifth of the price (openai.com)"':
+              - cell "7."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49896586&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "GPT 6.1 Sol: Near-Astra intelligence for a fifth of the price (openai.com)"':
+                - 'link "GPT 6.1 Sol: Near-Astra intelligence for a fifth of the price"':
+                  - /url: https://openai.com/index/introducing-gpt-6-1-sol/
+                - text: (
+                - link "openai.com":
+                  - /url: https://news.ycombinator.com/from?site=openai.com
+                - text: )
+            - row "827 points by crorella 10 hours ago | hide | 756 comments":
+              - cell
+              - cell "827 points by crorella 10 hours ago | hide | 756 comments":
+                - text: 827 points by
+                - link "crorella":
+                  - /url: https://news.ycombinator.com/user?id=crorella
+                - generic "2026-09-29T17:06:45":
+                  - link "10 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49896586
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49896586&goto=news
+                - text: "|"
+                - link "756 comments":
+                  - /url: https://news.ycombinator.com/item?id=49896586
+            - row
+            - row "8. upvote How Delhi cut electricity loss from 50 to 5 percent (ieee.org)":
+              - cell "8."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49892245&how=up&goto=news
+                  - generic "upvote"
+              - cell "How Delhi cut electricity loss from 50 to 5 percent (ieee.org)":
+                - link "How Delhi cut electricity loss from 50 to 5 percent":
+                  - /url: https://spectrum.ieee.org/delhi-electricity-loss
+                - text: (
+                - link "ieee.org":
+                  - /url: https://news.ycombinator.com/from?site=ieee.org
+                - text: )
+            - row "459 points by rbanffy 15 hours ago | hide | 268 comments":
+              - cell
+              - cell "459 points by rbanffy 15 hours ago | hide | 268 comments":
+                - text: 459 points by
+                - link "rbanffy":
+                  - /url: https://news.ycombinator.com/user?id=rbanffy
+                - generic "2026-09-29T12:43:29":
+                  - link "15 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49892245
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49892245&goto=news
+                - text: "|"
+                - link "268 comments":
+                  - /url: https://news.ycombinator.com/item?id=49892245
+            - row
+            - row "9. upvote PS5 Relapse Exploit (github.com/ntfargo)":
+              - cell "9."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49895304&how=up&goto=news
+                  - generic "upvote"
+              - cell "PS5 Relapse Exploit (github.com/ntfargo)":
+                - link "PS5 Relapse Exploit":
+                  - /url: https://github.com/ntfargo/Relapse-Exploit
+                - text: (
+                - link "github.com/ntfargo":
+                  - /url: https://news.ycombinator.com/from?site=github.com/ntfargo
+                - text: )
+            - row "253 points by therepanic 12 hours ago | hide | 139 comments":
+              - cell
+              - cell "253 points by therepanic 12 hours ago | hide | 139 comments":
+                - text: 253 points by
+                - link "therepanic":
+                  - /url: https://news.ycombinator.com/user?id=therepanic
+                - generic "2026-09-29T15:44:41":
+                  - link "12 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49895304
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49895304&goto=news
+                - text: "|"
+                - link "139 comments":
+                  - /url: https://news.ycombinator.com/item?id=49895304
+            - row
+            - 'row "10. upvote Language models for text classification: From bag-of-words to Jev (sebastianraschka.com)"':
+              - cell "10."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49891203&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "Language models for text classification: From bag-of-words to Jev (sebastianraschka.com)"':
+                - 'link "Language models for text classification: From bag-of-words to Jev"':
+                  - /url: https://magazine.sebastianraschka.com/p/classifier-history-and-jev
+                - text: (
+                - link "sebastianraschka.com":
+                  - /url: https://news.ycombinator.com/from?site=sebastianraschka.com
+                - text: )
+            - row "49 points by Anon84 6 hours ago | hide | 1 comment":
+              - cell
+              - cell "49 points by Anon84 6 hours ago | hide | 1 comment":
+                - text: 49 points by
+                - link "Anon84":
+                  - /url: https://news.ycombinator.com/user?id=Anon84
+                - generic "2026-09-29T11:06:25":
+                  - link "6 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49891203
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49891203&goto=news
+                - text: "|"
+                - link "1 comment":
+                  - /url: https://news.ycombinator.com/item?id=49891203
+            - row
+            - row "11. upvote Backblaze drive stats for Q2 2026 (backblaze.com)":
+              - cell "11."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49893002&how=up&goto=news
+                  - generic "upvote"
+              - cell "Backblaze drive stats for Q2 2026 (backblaze.com)":
+                - link "Backblaze drive stats for Q2 2026":
+                  - /url: https://www.backblaze.com/blog/backblaze-drive-stats-for-q2-2026/
+                - text: (
+                - link "backblaze.com":
+                  - /url: https://news.ycombinator.com/from?site=backblaze.com
+                - text: )
+            - row "111 points by HieronymusBosch 11 hours ago | hide | 22 comments":
+              - cell
+              - cell "111 points by HieronymusBosch 11 hours ago | hide | 22 comments":
+                - text: 111 points by
+                - link "HieronymusBosch":
+                  - /url: https://news.ycombinator.com/user?id=HieronymusBosch
+                - generic "2026-09-29T13:34:20":
+                  - link "11 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49893002
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49893002&goto=news
+                - text: "|"
+                - link "22 comments":
+                  - /url: https://news.ycombinator.com/item?id=49893002
+            - row
+            - 'row "12. upvote Phyllotaxis: An audio-reactive LED display (jagi.studio)"':
+              - cell "12."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49880411&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "Phyllotaxis: An audio-reactive LED display (jagi.studio)"':
+                - 'link "Phyllotaxis: An audio-reactive LED display"':
+                  - /url: https://jagi.studio/posts/phyllotaxis/
+                - text: (
+                - link "jagi.studio":
+                  - /url: https://news.ycombinator.com/from?site=jagi.studio
+                - text: )
+            - row "267 points by evakhoury 1 day ago | hide | 45 comments":
+              - cell
+              - cell "267 points by evakhoury 1 day ago | hide | 45 comments":
+                - text: 267 points by
+                - link "evakhoury":
+                  - /url: https://news.ycombinator.com/user?id=evakhoury
+                - generic "2026-09-28T16:18:57":
+                  - link "1 day ago":
+                    - /url: https://news.ycombinator.com/item?id=49880411
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49880411&goto=news
+                - text: "|"
+                - link "45 comments":
+                  - /url: https://news.ycombinator.com/item?id=49880411
+            - row
+            - row "13. upvote Needed 1+1, built a functional programming language (hereticpleb.vercel.app)":
+              - cell "13."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49895864&how=up&goto=news
+                  - generic "upvote"
+              - cell "Needed 1+1, built a functional programming language (hereticpleb.vercel.app)":
+                - link "Needed 1+1, built a functional programming language":
+                  - /url: https://hereticpleb.vercel.app/blog/needed-one-plus-one/
+                - text: (
+                - link "hereticpleb.vercel.app":
+                  - /url: https://news.ycombinator.com/from?site=hereticpleb.vercel.app
+                - text: )
+            - row "46 points by birdculture 5 hours ago | hide | 14 comments":
+              - cell
+              - cell "46 points by birdculture 5 hours ago | hide | 14 comments":
+                - text: 46 points by
+                - link "birdculture":
+                  - /url: https://news.ycombinator.com/user?id=birdculture
+                - generic "2026-09-29T16:18:26":
+                  - link "5 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49895864
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49895864&goto=news
+                - text: "|"
+                - link "14 comments":
+                  - /url: https://news.ycombinator.com/item?id=49895864
+            - row
+            - row "14. upvote Remembering the Chicago Pile, the First Nuclear Reactor (newyorker.com)":
+              - cell "14."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49884583&how=up&goto=news
+                  - generic "upvote"
+              - cell "Remembering the Chicago Pile, the First Nuclear Reactor (newyorker.com)":
+                - link "Remembering the Chicago Pile, the First Nuclear Reactor":
+                  - /url: https://www.newyorker.com/tech/annals-of-technology/remembering-chicago-pile-worlds-first-nuclear-reactor
+                - text: (
+                - link "newyorker.com":
+                  - /url: https://news.ycombinator.com/from?site=newyorker.com
+                - text: )
+            - row "8 points by conorcleary 2 hours ago | hide | 1 comment":
+              - cell
+              - cell "8 points by conorcleary 2 hours ago | hide | 1 comment":
+                - text: 8 points by
+                - link "conorcleary":
+                  - /url: https://news.ycombinator.com/user?id=conorcleary
+                - generic "2026-09-28T21:24:01":
+                  - link "2 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49884583
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49884583&goto=news
+                - text: "|"
+                - link "1 comment":
+                  - /url: https://news.ycombinator.com/item?id=49884583
+            - row
+            - 'row "15. upvote NAND-16: a computer built from 277,248 NAND gates (somethingbig.ai)"':
+              - cell "15."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49871018&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "NAND-16: a computer built from 277,248 NAND gates (somethingbig.ai)"':
+                - 'link "NAND-16: a computer built from 277,248 NAND gates"':
+                  - /url: https://somethingbig.ai/computer
+                - text: (
+                - link "somethingbig.ai":
+                  - /url: https://news.ycombinator.com/from?site=somethingbig.ai
+                - text: )
+            - row "114 points by rossant 10 hours ago | hide | 62 comments":
+              - cell
+              - cell "114 points by rossant 10 hours ago | hide | 62 comments":
+                - text: 114 points by
+                - link "rossant":
+                  - /url: https://news.ycombinator.com/user?id=rossant
+                - generic "2026-09-27T21:26:06":
+                  - link "10 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49871018
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49871018&goto=news
+                - text: "|"
+                - link "62 comments":
+                  - /url: https://news.ycombinator.com/item?id=49871018
+            - row
+            - row "16. upvote We’re forgetting what darkness feels like (theguardian.com)":
+              - cell "16."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49898050&how=up&goto=news
+                  - generic "upvote"
+              - cell "We’re forgetting what darkness feels like (theguardian.com)":
+                - link "We’re forgetting what darkness feels like":
+                  - /url: https://www.theguardian.com/environment/2026/sep/29/night-sky-darkness-city-regulation
+                - text: (
+                - link "theguardian.com":
+                  - /url: https://news.ycombinator.com/from?site=theguardian.com
+                - text: )
+            - row "86 points by pseudolus 5 hours ago | hide | 54 comments":
+              - cell
+              - cell "86 points by pseudolus 5 hours ago | hide | 54 comments":
+                - text: 86 points by
+                - link "pseudolus":
+                  - /url: https://news.ycombinator.com/user?id=pseudolus
+                - generic "2026-09-29T18:22:40":
+                  - link "5 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49898050
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49898050&goto=news
+                - text: "|"
+                - link "54 comments":
+                  - /url: https://news.ycombinator.com/item?id=49898050
+            - row
+            - 'row "17. upvote Show HN: A working 3D model of an Enigma machine (enigma.design)"':
+              - cell "17."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49896757&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "Show HN: A working 3D model of an Enigma machine (enigma.design)"':
+                - 'link "Show HN: A working 3D model of an Enigma machine"':
+                  - /url: https://enigma.design/
+                - text: (
+                - link "enigma.design":
+                  - /url: https://news.ycombinator.com/from?site=enigma.design
+                - text: )
+            - row "46 points by primitivesuave 6 hours ago | hide | 12 comments":
+              - cell
+              - cell "46 points by primitivesuave 6 hours ago | hide | 12 comments":
+                - text: 46 points by
+                - link "primitivesuave":
+                  - /url: https://news.ycombinator.com/user?id=primitivesuave
+                - generic "2026-09-29T17:15:56":
+                  - link "6 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49896757
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49896757&goto=news
+                - text: "|"
+                - link "12 comments":
+                  - /url: https://news.ycombinator.com/item?id=49896757
+            - row
+            - 'row "18. upvote Commodore 64: Mercenary (gamesexplained.com)"':
+              - cell "18."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49859482&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "Commodore 64: Mercenary (gamesexplained.com)"':
+                - 'link "Commodore 64: Mercenary"':
+                  - /url: https://gamesexplained.com/c64/mercenary/
+                - text: (
+                - link "gamesexplained.com":
+                  - /url: https://news.ycombinator.com/from?site=gamesexplained.com
+                - text: )
+            - row "37 points by a1r 7 hours ago | hide | 6 comments":
+              - cell
+              - cell "37 points by a1r 7 hours ago | hide | 6 comments":
+                - text: 37 points by
+                - link "a1r":
+                  - /url: https://news.ycombinator.com/user?id=a1r
+                - generic "2026-09-26T19:00:46":
+                  - link "7 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49859482
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49859482&goto=news
+                - text: "|"
+                - link "6 comments":
+                  - /url: https://news.ycombinator.com/item?id=49859482
+            - row
+            - 'row "19. upvote Show HN: NSL – WSL for Linux (frostyard.github.io)"':
+              - cell "19."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49894351&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "Show HN: NSL – WSL for Linux (frostyard.github.io)"':
+                - 'link "Show HN: NSL – WSL for Linux"':
+                  - /url: https://frostyard.github.io/nsl/
+                - text: (
+                - link "frostyard.github.io":
+                  - /url: https://news.ycombinator.com/from?site=frostyard.github.io
+                - text: )
+            - row "100 points by bketelsen 12 hours ago | hide | 70 comments":
+              - cell
+              - cell "100 points by bketelsen 12 hours ago | hide | 70 comments":
+                - text: 100 points by
+                - link "bketelsen":
+                  - /url: https://news.ycombinator.com/user?id=bketelsen
+                - generic "2026-09-29T14:51:36":
+                  - link "12 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49894351
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49894351&goto=news
+                - text: "|"
+                - link "70 comments":
+                  - /url: https://news.ycombinator.com/item?id=49894351
+            - row
+            - row "20. upvote A Staff Engineer's Guide to Inventing Work (sujithjay.com)":
+              - cell "20."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49878857&how=up&goto=news
+                  - generic "upvote"
+              - cell "A Staff Engineer's Guide to Inventing Work (sujithjay.com)":
+                - link "A Staff Engineer's Guide to Inventing Work":
+                  - /url: https://sujithjay.com/inventing-work
+                - text: (
+                - link "sujithjay.com":
+                  - /url: https://news.ycombinator.com/from?site=sujithjay.com
+                - text: )
+            - row "208 points by amortize 15 hours ago | hide | 44 comments":
+              - cell
+              - cell "208 points by amortize 15 hours ago | hide | 44 comments":
+                - text: 208 points by
+                - link "amortize":
+                  - /url: https://news.ycombinator.com/user?id=amortize
+                - generic "2026-09-28T14:46:07":
+                  - link "15 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49878857
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49878857&goto=news
+                - text: "|"
+                - link "44 comments":
+                  - /url: https://news.ycombinator.com/item?id=49878857
+            - row
+            - 'row "21. upvote Deser: Rethinking Rust Serialization (pocoo.org)"':
+              - cell "21."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49901149&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "Deser: Rethinking Rust Serialization (pocoo.org)"':
+                - 'link "Deser: Rethinking Rust Serialization"':
+                  - /url: https://lucumr.pocoo.org/2026/9/29/deser/
+                - text: (
+                - link "pocoo.org":
+                  - /url: https://news.ycombinator.com/from?site=pocoo.org
+                - text: )
+            - row "38 points by tosh 6 hours ago | hide | 6 comments":
+              - cell
+              - cell "38 points by tosh 6 hours ago | hide | 6 comments":
+                - text: 38 points by
+                - link "tosh":
+                  - /url: https://news.ycombinator.com/user?id=tosh
+                - generic "2026-09-29T21:48:27":
+                  - link "6 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49901149
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49901149&goto=news
+                - text: "|"
+                - link "6 comments":
+                  - /url: https://news.ycombinator.com/item?id=49901149
+            - row
+            - 'row "22. upvote Ask HN: What are you reading?"':
+              - cell "22."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49893157&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "Ask HN: What are you reading?"':
+                - 'link "Ask HN: What are you reading?"':
+                  - /url: https://news.ycombinator.com/item?id=49893157
+            - row "175 points by dan-bailey 12 hours ago | hide | 422 comments":
+              - cell
+              - cell "175 points by dan-bailey 12 hours ago | hide | 422 comments":
+                - text: 175 points by
+                - link "dan-bailey":
+                  - /url: https://news.ycombinator.com/user?id=dan-bailey
+                - generic "2026-09-29T13:44:43":
+                  - link "12 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49893157
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49893157&goto=news
+                - text: "|"
+                - link "422 comments":
+                  - /url: https://news.ycombinator.com/item?id=49893157
+            - row
+            - row "23. upvote Tcl/Tk 9.1 (tcl-lang.org)":
+              - cell "23."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49896712&how=up&goto=news
+                  - generic "upvote"
+              - cell "Tcl/Tk 9.1 (tcl-lang.org)":
+                - link "Tcl/Tk 9.1":
+                  - /url: https://www.tcl-lang.org/software/tcltk/9.1.html
+                - text: (
+                - link "tcl-lang.org":
+                  - /url: https://news.ycombinator.com/from?site=tcl-lang.org
+                - text: )
+            - row "253 points by dmux 10 hours ago | hide | 91 comments":
+              - cell
+              - cell "253 points by dmux 10 hours ago | hide | 91 comments":
+                - text: 253 points by
+                - link "dmux":
+                  - /url: https://news.ycombinator.com/user?id=dmux
+                - generic "2026-09-29T17:13:38":
+                  - link "10 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49896712
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49896712&goto=news
+                - text: "|"
+                - link "91 comments":
+                  - /url: https://news.ycombinator.com/item?id=49896712
+            - row
+            - row "24. upvote Stuck in the Suez Canal – the short version (2021) (cathsenker.co.uk)":
+              - cell "24."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49866031&how=up&goto=news
+                  - generic "upvote"
+              - cell "Stuck in the Suez Canal – the short version (2021) (cathsenker.co.uk)":
+                - link "Stuck in the Suez Canal – the short version (2021)":
+                  - /url: https://cathsenker.co.uk/stuck-in-the-suez-canal-the-short-version/
+                - text: (
+                - link "cathsenker.co.uk":
+                  - /url: https://news.ycombinator.com/from?site=cathsenker.co.uk
+                - text: )
+            - row "48 points by joebig 8 hours ago | hide | 5 comments":
+              - cell
+              - cell "48 points by joebig 8 hours ago | hide | 5 comments":
+                - text: 48 points by
+                - link "joebig":
+                  - /url: https://news.ycombinator.com/user?id=joebig
+                - generic "2026-09-27T12:17:39":
+                  - link "8 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49866031
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49866031&goto=news
+                - text: "|"
+                - link "5 comments":
+                  - /url: https://news.ycombinator.com/item?id=49866031
+            - row
+            - row "25. upvote Vermont replacing power plants with home batteries (bbc.com)":
+              - cell "25."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49897993&how=up&goto=news
+                  - generic "upvote"
+              - cell "Vermont replacing power plants with home batteries (bbc.com)":
+                - link "Vermont replacing power plants with home batteries":
+                  - /url: https://www.bbc.com/future/article/20260928-a-virtual-power-plant-hidden-in-vermont-homes-is-keeping-the-lights-on-during-storms
+                - text: (
+                - link "bbc.com":
+                  - /url: https://news.ycombinator.com/from?site=bbc.com
+                - text: )
+            - row "114 points by devonnull 6 hours ago | hide | 104 comments":
+              - cell
+              - cell "114 points by devonnull 6 hours ago | hide | 104 comments":
+                - text: 114 points by
+                - link "devonnull":
+                  - /url: https://news.ycombinator.com/user?id=devonnull
+                - generic "2026-09-29T18:19:02":
+                  - link "6 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49897993
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49897993&goto=news
+                - text: "|"
+                - link "104 comments":
+                  - /url: https://news.ycombinator.com/item?id=49897993
+            - row
+            - row "26. upvote Everybody’s home. No one’s coming over (derekthompson.org)":
+              - cell "26."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49891295&how=up&goto=news
+                  - generic "upvote"
+              - cell "Everybody’s home. No one’s coming over (derekthompson.org)":
+                - link "Everybody’s home. No one’s coming over":
+                  - /url: https://www.derekthompson.org/p/the-death-of-the-american-host
+                - text: (
+                - link "derekthompson.org":
+                  - /url: https://news.ycombinator.com/from?site=derekthompson.org
+                - text: )
+            - row "761 points by barry-cotter 16 hours ago | hide | 684 comments":
+              - cell
+              - cell "761 points by barry-cotter 16 hours ago | hide | 684 comments":
+                - text: 761 points by
+                - link "barry-cotter":
+                  - /url: https://news.ycombinator.com/user?id=barry-cotter
+                - generic "2026-09-29T11:14:45":
+                  - link "16 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49891295
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49891295&goto=news
+                - text: "|"
+                - link "684 comments":
+                  - /url: https://news.ycombinator.com/item?id=49891295
+            - row
+            - 'row "27. upvote Dots: Always-on agents (openai.com)"':
+              - cell "27."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49896604&how=up&goto=news
+                  - generic "upvote"
+              - 'cell "Dots: Always-on agents (openai.com)"':
+                - 'link "Dots: Always-on agents"':
+                  - /url: https://openai.com/index/introducing-dots/
+                - text: (
+                - link "openai.com":
+                  - /url: https://news.ycombinator.com/from?site=openai.com
+                - text: )
+            - row "480 points by alvis 10 hours ago | hide | 360 comments":
+              - cell
+              - cell "480 points by alvis 10 hours ago | hide | 360 comments":
+                - text: 480 points by
+                - link "alvis":
+                  - /url: https://news.ycombinator.com/user?id=alvis
+                - generic "2026-09-29T17:07:57":
+                  - link "10 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49896604
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49896604&goto=news
+                - text: "|"
+                - link "360 comments":
+                  - /url: https://news.ycombinator.com/item?id=49896604
+            - row
+            - row "28. upvote Sustainable energy without the hot air (2008) (withouthotair.com)":
+              - cell "28."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49892175&how=up&goto=news
+                  - generic "upvote"
+              - cell "Sustainable energy without the hot air (2008) (withouthotair.com)":
+                - link "Sustainable energy without the hot air (2008)":
+                  - /url: https://www.withouthotair.com/
+                - text: (
+                - link "withouthotair.com":
+                  - /url: https://news.ycombinator.com/from?site=withouthotair.com
+                - text: )
+            - row "140 points by 0sake_rs 15 hours ago | hide | 80 comments":
+              - cell
+              - cell "140 points by 0sake_rs 15 hours ago | hide | 80 comments":
+                - text: 140 points by
+                - link "0sake_rs":
+                  - /url: https://news.ycombinator.com/user?id=0sake_rs
+                - generic "2026-09-29T12:38:18":
+                  - link "15 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49892175
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49892175&goto=news
+                - text: "|"
+                - link "80 comments":
+                  - /url: https://news.ycombinator.com/item?id=49892175
+            - row
+            - row "29. upvote Building a certificate authority for the whole Internet (cloudflare.com)":
+              - cell "29."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49893144&how=up&goto=news
+                  - generic "upvote"
+              - cell "Building a certificate authority for the whole Internet (cloudflare.com)":
+                - link "Building a certificate authority for the whole Internet":
+                  - /url: https://blog.cloudflare.com/cloudflare-certificate-authority/
+                - text: (
+                - link "cloudflare.com":
+                  - /url: https://news.ycombinator.com/from?site=cloudflare.com
+                - text: )
+            - row "37 points by ewpratten 9 hours ago | hide | 21 comments":
+              - cell
+              - cell "37 points by ewpratten 9 hours ago | hide | 21 comments":
+                - text: 37 points by
+                - link "ewpratten":
+                  - /url: https://news.ycombinator.com/user?id=ewpratten
+                - generic "2026-09-29T13:44:00":
+                  - link "9 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49893144
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49893144&goto=news
+                - text: "|"
+                - link "21 comments":
+                  - /url: https://news.ycombinator.com/item?id=49893144
+            - row
+            - row "30. upvote How our vibe coded website looks like a designer made it (railcode.dev)":
+              - cell "30."
+              - cell "upvote":
+                - link "upvote":
+                  - /url: https://news.ycombinator.com/vote?id=49901973&how=up&goto=news
+                  - generic "upvote"
+              - cell "How our vibe coded website looks like a designer made it (railcode.dev)":
+                - link "How our vibe coded website looks like a designer made it":
+                  - /url: https://railcode.dev/blog/vibe-coded-website
+                - text: (
+                - link "railcode.dev":
+                  - /url: https://news.ycombinator.com/from?site=railcode.dev
+                - text: )
+            - row "98 points by yakkomajuri 4 hours ago | hide | 50 comments":
+              - cell
+              - cell "98 points by yakkomajuri 4 hours ago | hide | 50 comments":
+                - text: 98 points by
+                - link "yakkomajuri":
+                  - /url: https://news.ycombinator.com/user?id=yakkomajuri
+                - generic "2026-09-29T22:59:28":
+                  - link "4 hours ago":
+                    - /url: https://news.ycombinator.com/item?id=49901973
+                - text: "|"
+                - link "hide":
+                  - /url: https://news.ycombinator.com/hide?id=49901973&goto=news
+                - text: "|"
+                - link "50 comments":
+                  - /url: https://news.ycombinator.com/item?id=49901973
+            - row
+            - row
+            - row "More":
+              - cell
+              - cell "More":
+                - link "More":
+                  - /url: https://news.ycombinator.com/?p=2
+    - row "Guidelines | FAQ | Lists | API | Security | Legal | Apply to YC | Contact Search:":
+      - cell "Guidelines | FAQ | Lists | API | Security | Legal | Apply to YC | Contact Search:":
+        - table:
+          - rowgroup:
+            - row:
+              - cell
+        - link "Guidelines":
+          - /url: https://news.ycombinator.com/newsguidelines.html
+        - text: "|"
+        - link "FAQ":
+          - /url: https://news.ycombinator.com/newsfaq.html
+        - text: "|"
+        - link "Lists":
+          - /url: https://news.ycombinator.com/lists
+        - text: "|"
+        - link "API":
+          - /url: https://github.com/HackerNews/API
+        - text: "|"
+        - link "Security":
+          - /url: https://news.ycombinator.com/security.html
+        - text: "|"
+        - link "Legal":
+          - /url: https://www.ycombinator.com/legal/
+        - text: "|"
+        - link "Apply to YC":
+          - /url: https://www.ycombinator.com/apply/
+        - text: "|"
+        - link "Contact":
+          - /url: mailto:hn@ycombinator.com
+        - text: "Search:"
+        - textbox

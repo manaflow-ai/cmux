@@ -86,6 +86,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both
     /// nil (Ghostty's values) when unset or invalid.
     public var windowBackground = WindowBackgroundOverride()
+    /// `appearance.borders`; "default" when unset or invalid.
+    public var borders: BorderMode = BordersSetting.fallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
@@ -150,6 +152,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        let (borders, bordersDiagnostic) = BordersSetting.parse(root)
+        snapshot.borders = borders
+        if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }

@@ -258,7 +258,8 @@ final class ScreenContentView: NSView {
             let isFocused = pane == focused
             host.setChrome(
                 showsRing: ringAllowed && isFocused,
-                dim: multiple && dimsInactive && !isFocused ? style.inactivePaneDimming : 0,
+                // With appearance.borders none the ring is off and the dim is the focus cue.
+                dim: multiple && (dimsInactive || !style.drawsLines) && !isFocused ? style.inactivePaneDimming : 0,
                 focusRing: style.focusRing,
                 border: PaneOverlayView.Border(shows: style.showsPaneBorder, width: style.paneBorderWidth, color: style.paneBorderColor),
                 attention: attention[pane],

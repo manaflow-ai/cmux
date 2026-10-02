@@ -1,0 +1,62 @@
+Browser tab: 370922480, Title: "Agentic Infrastructure - Vercel", URL: "http://127.0.0.1:18911/corpus/vercel.html".
+1 AXWebArea Agentic Infrastructure - Vercel, URL: 127.0.0.1:18911/corpus/vercel.html
+	2 container
+		3 link Description: Skip to content, Value: vercel.com/#geist-skip-nav
+		4 container marketing-header
+			5 link (collapsed) Description: Vercel, Value: vercel.com/home, ID: marketing-header-logo, Secondary Actions: Expand
+			6 container Main navigation
+				7 button (collapsed) Products, Secondary Actions: Expand
+				8 button (collapsed) Resources, Secondary Actions: Expand
+				9 link Description: Enterprise, Value: vercel.com/enterprise
+				10 link Description: Pricing, Value: vercel.com/pricing
+			11 link Description: Get a Demo, Value: vercel.com/contact/sales
+			12 link Description: Log In, Value: vercel.com/login
+			13 link Description: Sign Up, Value: vercel.com/signup
+		14 container
+			15 text Ship 26 is coming to SF
+			16 link Description: Get your ticket, Value: vercel.com/ship?utm_campaign=ship-sf2026&utm_source=site&utm_medium=homepage
+			17 container
+				18 heading Agentic Infrastructure, Value: 1
+					19 text Agentic Infrastructure
+				20 text For coding agents to ship apps and agents automated by agents.
+				21 link Description: Deploy now, Value: vercel.com/new
+				22 link Description: Talk to sales, Value: vercel.com/contact/sales
+			23 container
+				24 image Meta
+				25 image Charles Schwab
+				26 image DoorDash
+				27 image OpenAI
+				28 image SpaceXAI
+				29 image The Weather Company
+				30 image Polymarket
+			31 heading Build agents on infrastructure that thinks like them, Value: 2
+				32 text Build agents on infrastructure that thinks like them
+			33 container
+				34 image Build agents on infrastructure that thinks like them
+				35 text Notion powers millions  of agent conversations daily on Vercel.
+				36 content list
+					37 text Features
+					38 text Durable Orchestration
+					39 text Sandboxed Environments
+					40 text AI Model Gateway
+					41 text Fluid Compute
+			42 heading Ship apps that scale from zero to millions instantly, Value: 2
+				43 text Ship apps that scale from zero to millions instantly
+			44 container
+				45 image Ship apps that scale from zero to millions instantly
+				46 text Zapier serves over 100 million  monthly website visits on Vercel.
+				47 content list
+					48 text Features
+					49 text Global Delivery
+					50 text Deployment Environments
+					51 text Serverless Functions
+					52 text Web Application Firewall
+	53 container react-scan-toast
+		54 container react-scan-toast-title
+			55 text ⚛️ React Not Detected
+		56 text React is not detected on this page.
+Please ensure you're visiting a React application.
+		57 button react-scan-toast-close-button
+			58 image
+
+The focused UI element is 1 AXWebArea Agentic Infrastructure - Vercel, URL: 127.0.0.1:18911/corpus/vercel.html

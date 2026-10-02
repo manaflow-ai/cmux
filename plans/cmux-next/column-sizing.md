@@ -23,8 +23,11 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 - `layout.stickyColumnEdge` (right), `layout.stickyColumnMode` (docked), `layout.minimumPaneWidth`
   (200 pt), `layout.minimumPaneHeight` (64 pt): Settings window (General > Columns) and cmux.json;
   `ColumnLayoutSettingsTests` checks each default in the parser, the schema and `DesignSettings`.
-- New Column keeps Cmd-Shift-Opt-N: Cmd-Opt-D is macOS's Dock show/hide shortcut and cmux's Split
-  Browser Right, so it is not free.
+- New Column is Ctrl-Cmd-D (user decision 2026-10-02; no other cmux action has it, macOS's
+  text Look Up uses it only in text views). It replaces Cmd-Shift-Opt-N; rebind under
+  `shortcuts.bindings.newColumn` in cmux.json or in Settings > Shortcuts. Cmd-Opt-D stays macOS's
+  Dock shortcut and Split Browser Right.
+- The refusal HUD stays for every action refused from the keyboard or menu (user decision).
 - Not done: `layout.closeSizing` (even/neighbor). The app cannot apply it to closes it does not
   initiate (the last tab exiting, other clients) without inferring from its mirror, which the
   ownership principles forbid; it needs `ClosePane {sizing}` in the store.
@@ -33,7 +36,7 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 
 - Cmd-D / Cmd-Shift-D always split the focused pane inside its own column: never create a column,
   never scroll. Too narrow at the minimum pane width: refuse with a short HUD message.
-- New Column (default Cmd-Opt-D, follow cmux-keyboard-shortcuts) appends a column right after the
+- New Column (default Ctrl-Cmd-D) appends a column right after the
   current one and scrolls to reveal it; the only creating command that scrolls.
 - `layout.splitSizing`: `even` (default; every pane along the split axis in that column gets equal
   size) | `halve` (only the split pane halves).
@@ -54,8 +57,9 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
 - `InsertColumn {after_pane, width_permille, new_column: caller id, new_pane: caller id,
   idempotency_key}`; the client resolves `matchCurrent`, `fitScreen` or a fraction to permille
   (viewports are per client, so the store never sees a screen size).
-- `ClosePane {pane, sizing: even|neighbor, idempotency_key}`; the result carries a neighbor hint;
-  each client picks its own focus (focus is client view state).
+- `ClosePane {pane, sizing: even|neighbor, idempotency_key}`; it carries and returns no focus or
+  neighbor hint: each client computes focus from its own before/after projections
+  (`FocusAfterClose`, the focus-after-close lead; ownership lead decision 2026-10-02).
 - No floats on the wire or in the reducer: ratios and widths are integer permille; ratios in a
   column sum to 1000 with a defined remainder rule.
 - Reducer invariants with tests: tab conservation, every column has a pane, ratios sum to 1000,

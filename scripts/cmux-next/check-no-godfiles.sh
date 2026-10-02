@@ -38,6 +38,8 @@ rust_file_limit=1000
 rust_fn_limit=60
 rust_test_file_limit=1500
 rust_test_fn_limit=120
+# A Rust function declaration line (free fn, method, trait item).
+rust_fn_re='^[[:space:]]*(pub(\([a-z:_ ]+\))? +)?(default +)?(const +)?(async +)?(unsafe +)?(extern +"[A-Za-z]+" +)?fn +[A-Za-z_]'
 
 status=0
 
@@ -103,7 +105,7 @@ fi
 while IFS= read -r rel; do
   [[ -f "$repo/$rel" ]] || continue
   lines=$(wc -l < "$repo/$rel" | tr -d ' ')
-  fns=$(grep -cE '^[[:space:]]*(pub(\([a-z:_ ]+\))? +)?(default +)?(const +)?(async +)?(unsafe +)?(extern +"[A-Za-z]+" +)?fn +[A-Za-z_]' "$repo/$rel" || true)
+  fns=$(grep -cE "$rust_fn_re" "$repo/$rel" || true)
   if [[ "$rel" =~ /(tests|benches|examples)/ || "$rel" =~ (^|/|_)tests\.rs$ ]]; then
     printf 'rust-file\t%s\t%d\t%d\t%d\t%d\n' "$rel" "$lines" "$fns" "$rust_test_file_limit" "$rust_test_fn_limit"
   else
@@ -126,14 +128,14 @@ report="$(awk -F'\t' -v update="$update" '
     unit = ($1 == "swift-type") ? "type " $2 " spans" : $2 " has"
     if (!(key in base_lines)) {
       if (over) {
-        printf "FAIL\t%s: %s %d lines, %d fns (limit %d lines, %s fns; not in baseline)\n", what, unit, lines, fns, llim, (flim > 0 ? flim : "no")
+        printf "FAIL\t%s\t%s\t%s: %s %d lines, %d fns (limit %d lines, %s fns; not in baseline: split it)\n", $1, $2, what, unit, lines, fns, llim, (flim > 0 ? flim : "no")
       }
       next
     }
     seen[key] = 1
     bl = base_lines[key]; bf = base_fns[key]
     if (lines > bl || fns > bf) {
-      printf "FAIL\t%s: %s %d lines, %d fns; baseline allows %d lines, %d fns (shrink it, never grow it)\n", what, unit, lines, fns, bl, bf
+      printf "FAIL\t%s\t%s\t%s: %s %d lines, %d fns; baseline allows %d lines, %d fns (+%d lines, +%d fns over; move new code to a new module or type)\n", $1, $2, what, unit, lines, fns, bl, bf, (lines > bl ? lines - bl : 0), (fns > bf ? fns - bf : 0)
       keep_lines[key] = bl; keep_fns[key] = bf
     } else if (!over) {
       printf "NOTE\t%s now meets the budget; run --update-baseline to drop it\n", $2
@@ -148,8 +150,49 @@ report="$(awk -F'\t' -v update="$update" '
   }
 ' "$baseline" "$measurements")"
 
+# Each Rust failure names the commit that pushed the file over its allowance
+# (the oldest commit of the newest run of over-budget versions), so an agent
+# can tell a failure it caused from one already on the branch. Everything is
+# measured in this checkout's tree; history needs a non-shallow clone.
+allowance() { # kind key -> "lines fns" from the baseline, else the budget
+  local found
+  found="$(awk -F'\t' -v k="$1" -v p="$2" '$1==k && $2==p {print $3, $4; exit}' "$baseline")"
+  if [[ -n "$found" ]]; then echo "$found"
+  elif [[ "$2" =~ /(tests|benches|examples)/ || "$2" =~ (^|/|_)tests\.rs$ ]]; then echo "$rust_test_file_limit $rust_test_fn_limit"
+  else echo "$rust_file_limit $rust_fn_limit"; fi
+}
+grower() { # key allowed_lines allowed_fns
+  local key="$1" allow_lines="$2" allow_fns="$3" commit lines fns culprit=""
+  if [[ "$(git -C "$repo" rev-parse --is-shallow-repository 2>/dev/null)" == true ]]; then
+    echo "unknown in a shallow checkout; run the check in a full clone"
+    return
+  fi
+  lines=$(git -C "$repo" show "HEAD:$key" 2>/dev/null | wc -l | tr -d ' ')
+  fns=$(git -C "$repo" show "HEAD:$key" 2>/dev/null | grep -cE "$rust_fn_re" || true)
+  if (( lines <= allow_lines && fns <= allow_fns )); then
+    echo "uncommitted changes in this checkout"
+    return
+  fi
+  while IFS= read -r commit; do
+    lines=$(git -C "$repo" show "$commit:$key" 2>/dev/null | wc -l | tr -d ' ')
+    fns=$(git -C "$repo" show "$commit:$key" 2>/dev/null | grep -cE "$rust_fn_re" || true)
+    if (( lines > allow_lines || fns > allow_fns )); then culprit="$commit"; else break; fi
+  done < <(git -C "$repo" log --format=%H -n 40 HEAD -- "$key")
+  if [[ -n "$culprit" ]]; then
+    git -C "$repo" log -1 --format='%h %an %ad: %s' --date=short "$culprit"
+  else
+    echo "unknown"
+  fi
+}
 if grep -q '^FAIL' <<<"$report"; then
-  grep '^FAIL' <<<"$report" | cut -f2-
+  while IFS=$'\t' read -r _ kind key message; do
+    if [[ "$kind" == rust-file ]]; then
+      read -r allow_lines allow_fns <<<"$(allowance "$kind" "$key")"
+      echo "$message [grown past it by: $(grower "$key" "$allow_lines" "$allow_fns")]"
+    else
+      echo "$message"
+    fi
+  done < <(grep '^FAIL' <<<"$report")
   status=1
 fi
 if (( update )); then

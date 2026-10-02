@@ -1,0 +1,15 @@
+Browser tab: 1, Title: "Dynamic Fixture", URL: "http://localhost:18765/dynamic.html?peer=http%3A%2F%2F127.0.0.1%3A18766".
+0 AXWebArea Dynamic Fixture, URL: localhost:18765/dynamic.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+	1 heading Dynamic, Value: 1
+		2 text Dynamic
+	3 button Load later, ID: later
+	4 button Push state, ID: push
+	5 link Description: Open new tab, Value: localhost:18765/aria.html, ID: blank
+	6 button Open popup, ID: popup
+	7 button Slow navigate, ID: nav
+	8 button Fetch, ID: fetch
+	9 text idle
+	10 button Log, ID: log
+	11 button Store, ID: storage
+
+The focused UI element is 0 AXWebArea Dynamic Fixture, URL: localhost:18765/dynamic.html?peer=http%3A%2F%2F127.0.0.1%3A18766
