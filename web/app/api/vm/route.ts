@@ -288,13 +288,6 @@ export async function POST(request: Request): Promise<Response> {
         captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
       });
 
-      const connectionInit = await connectionInitDuration;
-      timing.record("connection_init", connectionInit.durationMs, { endedAtMs: connectionInit.endedAtMs });
-      // Admission starts after connection readiness. Its budget describes only
-      // request validation; the durable begin_create phase is recorded inside
-      // the workflow and remains a separate authoritative boundary.
-      admissionStartedAt = performance.now();
-
       const parsed = await parseCreateRequest(request, span, timing);
       if (!parsed.ok) return parsed.response;
       const { candidate, body, idempotencyKey } = parsed;
@@ -331,6 +324,18 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.vm.image_size": imageSelection.size?.name ?? "size-less",
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
+
+      // Only Freestyle creation needs this probe. Other providers must not
+      // wait behind an unrelated connection check, while the Freestyle path
+      // still overlaps the probe with authentication and request parsing.
+      if (provider === "freestyle") {
+        const connectionInit = await connectionInitDuration;
+        timing.record("connection_init", connectionInit.durationMs, { endedAtMs: connectionInit.endedAtMs });
+      }
+      // Admission starts after provider-specific connection readiness. Its
+      // budget describes only request validation; the durable begin_create
+      // phase is recorded inside the workflow and remains authoritative.
+      admissionStartedAt = performance.now();
       recordAdmission();
 
       // Wire the machine to coderouter inside the workflow: the route token

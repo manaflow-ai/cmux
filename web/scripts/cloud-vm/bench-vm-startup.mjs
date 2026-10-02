@@ -925,7 +925,7 @@ function emitReport({ results, listMs, startedAt, runError, cleanup }) {
     succeeded: ok.length,
     failed: results.length - ok.length,
     stages: summarizeFields(measured, ["createMs", "rowReadyMs", "createToRowReadyMs", "attachEndpointMs", "createToAttachEndpointMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
-    attachAttempts: summarizeFields(measured.map((trial) => ({ attempts: trial.attachAttempts?.length })), ["attempts"]).attempts,
+    attachAttempts: summarizeFields(measured.map((trial) => ({ attempts: trial.attachEndpointAttempts?.length })), ["attempts"]).attempts,
     createServerTiming: summarizeStages(measured.map((trial) => trial.createStages)),
     results,
   };
