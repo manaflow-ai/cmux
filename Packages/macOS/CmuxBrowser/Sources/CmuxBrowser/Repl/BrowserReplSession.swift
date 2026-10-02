@@ -44,6 +44,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     private let driver: any BrowserReplDriver
     private let thread: BrowserReplJSThread
     private let fetcher: BrowserReplFetcher
+    /// Secrets, the domain policy and redaction (see BrowserReplBoundary).
+    private let boundary = BrowserReplBoundary()
     private let sleeper: any BrowserReplSleeping
     private let gate = BrowserReplEvalGate()
     private var scheduler: BrowserReplTimerScheduler<ContinuousClock>!
@@ -68,6 +70,8 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     // JS-thread state.
     private var context: JSContext?
+    /// The `__cmuxNative` object; the runtime deletes the global.
+    private var nativeHost: JSValue?
     private var loadError: String?
     private var fileSystem: BrowserReplFileSystem
 
@@ -180,6 +184,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock()) { [weak self] id in
             self?.fireTimer(id)
         }
+        let boundary = self.boundary
+        fetcher.setBlockReason { url in boundary.blockReason(url) }
     }
 
     /// Creates `<temporaryRoot>/cmux-browser-repl/<id>-<random>` for a
@@ -295,6 +301,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         inFlight.removeAll()
         watchdog.requestTermination()
         thread.perform { [self] in
+            self.nativeHost = nil
             self.context = nil
         }
         thread.stop()
@@ -315,7 +322,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         stateLock.withLock {
             if currentEval === state { currentEval = nil }
         }
-        state.finish(error: error)
+        state.finish(error: error.map(boundary.secrets.redact))
     }
 
     /// The evaluation timeout: the caller gets the timeout error now, from
@@ -380,7 +387,9 @@ public final class BrowserReplSession: @unchecked Sendable {
             var sandbox = BrowserReplFileSandbox(root: cwd)
             sandbox.inheritReadableFiles(from: fileSystem.sandbox)
             fileSystem = BrowserReplFileSystem(sandbox: sandbox, temporaryDirectory: fileSystem.temporaryRoot)
-            context?.objectForKeyedSubscript("__cmuxNative")?.setObject(cwd, forKeyedSubscript: "cwd" as NSString)
+            // The runtime removes the `__cmuxNative` global before agent code
+            // runs; the session keeps its own reference.
+            nativeHost?.setObject(cwd, forKeyedSubscript: "cwd" as NSString)
         }
 
         guard let context = ensureContext() else {
@@ -493,7 +502,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             guard let self, let state = self.stateLock.withLock({ self.currentEval }) else { return }
             state.append(BrowserReplOutputLine(
                 level: level?.toString() ?? "log",
-                text: text?.toString() ?? ""
+                text: self.boundary.secrets.redact(text?.toString() ?? "")
             ))
         }
         let setTimer: @convention(block) (JSValue?, JSValue?, JSValue?) -> Void = { [weak self] id, delay, repeating in
@@ -508,10 +517,18 @@ public final class BrowserReplSession: @unchecked Sendable {
         let driverCall: @convention(block) (JSValue?, JSValue?, JSValue?) -> Void = { [weak self] callID, method, params in
             guard let self, let callID = callID?.toInt32() else { return }
             let methodName = method?.toString() ?? ""
-            let paramsJSON = params.flatMap { $0.isString ? $0.toString() : nil } ?? "{}"
+            let raw = params.flatMap { $0.isString ? $0.toString() : nil } ?? "{}"
+            let boundary = self.boundary
+            let paramsJSON: String
+            switch boundary.prepare(method: methodName, paramsJSON: raw) {
+            case .success(let prepared): paramsJSON = prepared
+            case .failure(let error):
+                self.resolveCall(Int(callID), .failure(boundary.redact(error)))
+                return
+            }
             let driver = self.driver
             let started = self.track { [weak self] in
-                let result = await driver.call(method: methodName, paramsJSON: paramsJSON)
+                let result = boundary.redact(method: methodName, await driver.call(method: methodName, paramsJSON: paramsJSON))
                 self?.thread.perform { self?.resolveCall(Int(callID), result) }
             }
             if !started { self.resolveCall(Int(callID), .failure(Self.closedError)) }
@@ -520,18 +537,23 @@ public final class BrowserReplSession: @unchecked Sendable {
             guard let self, let callID = callID?.toInt32() else { return }
             let requestJSON = request?.toString() ?? "{}"
             let fetcher = self.fetcher
+            let boundary = self.boundary
             let started = self.track { [weak self] in
-                let result = await fetcher.fetch(requestJSON: requestJSON)
+                let result = boundary.redactFetch(await fetcher.fetch(requestJSON: requestJSON))
                 self?.thread.perform { self?.resolveCall(Int(callID), result) }
             }
             if !started { self.resolveCall(Int(callID), .failure(Self.closedError)) }
         }
         let fs: @convention(block) (JSValue?, JSValue?) -> String = { [weak self] operation, arguments in
             guard let self else { return #"{"error":{"code":"EINVAL","message":"closed"}}"# }
-            let result = self.fileSystem.perform(
-                operation?.toString() ?? "",
-                arguments: JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
-            )
+            let op = operation?.toString() ?? ""
+            var args = JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
+            // Text the runtime writes (output spill files, traces, any file)
+            // is redacted like output.
+            if op == "writeFile", let base64 = args["base64"] as? String {
+                args["base64"] = self.boundary.redactFileContents(base64)
+            }
+            let result = self.fileSystem.perform(op, arguments: args)
             switch result {
             case .success(let value):
                 return JSONSerialization.browserReplString(["ok": value]) ?? #"{"ok":null}"#
@@ -539,6 +561,35 @@ public final class BrowserReplSession: @unchecked Sendable {
                 return JSONSerialization.browserReplString(["error": ["code": error.code, "message": error.message]])
                     ?? #"{"error":{"code":"EIO","message":"error"}}"#
             }
+        }
+        let secrets: @convention(block) (JSValue?, JSValue?) -> String = { [weak self] operation, arguments in
+            guard let self else { return #"{"error":{"code":"closed","message":"closed"}}"# }
+            let op = operation?.toString() ?? ""
+            var args = JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
+            // secrets.load(path) reads the file here, so its values never
+            // reach JavaScript.
+            if op == "load", let path = args["path"] as? String {
+                switch self.fileSystem.perform("readFile", arguments: ["path": path]) {
+                case .failure(let error):
+                    return Self.hostResult(.failure(BrowserReplDriverError(code: error.code, message: "secrets.load: \(error.message)")))
+                case .success(let base64):
+                    guard let data = Data(base64Encoded: base64 as? String ?? ""),
+                          let object = try? JSONSerialization.jsonObject(with: data) else {
+                        return Self.hostResult(.failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) is not JSON")))
+                    }
+                    args["object"] = object
+                }
+            }
+            return Self.hostResult(self.boundary.secretsOperation(op, args))
+        }
+        let policy: @convention(block) (JSValue?, JSValue?) -> String = { [weak self] operation, arguments in
+            guard let self else { return #"{"error":{"code":"closed","message":"closed"}}"# }
+            let (result, updated) = self.boundary.policyOperation(
+                operation?.toString() ?? "",
+                JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
+            )
+            if let updated { self.driver.setDomainPolicy(updated) }
+            return Self.hostResult(result)
         }
         let readResource: @convention(block) (JSValue?) -> String? = { [weak self] path in
             guard let self, let path = path?.toString() else { return nil }
@@ -552,10 +603,25 @@ public final class BrowserReplSession: @unchecked Sendable {
         native.setObject(unsafeBitCast(fetch, to: AnyObject.self), forKeyedSubscript: "fetch" as NSString)
         native.setObject(unsafeBitCast(fs, to: AnyObject.self), forKeyedSubscript: "fs" as NSString)
         native.setObject(unsafeBitCast(readResource, to: AnyObject.self), forKeyedSubscript: "readResource" as NSString)
+        native.setObject(unsafeBitCast(secrets, to: AnyObject.self), forKeyedSubscript: "secrets" as NSString)
+        native.setObject(unsafeBitCast(policy, to: AnyObject.self), forKeyedSubscript: "policy" as NSString)
         context.setObject(native, forKeyedSubscript: "__cmuxNative" as NSString)
+        nativeHost = native
     }
 
     private static let closedError = BrowserReplDriverError(code: "closed", message: "the REPL session was closed")
+
+    /// `{"ok": value}` or `{"error": {code, message}}`, as the host's
+    /// synchronous functions return.
+    private static func hostResult(_ result: Result<Any, BrowserReplDriverError>) -> String {
+        switch result {
+        case .success(let value):
+            return JSONSerialization.browserReplString(["ok": value]) ?? #"{"ok":null}"#
+        case .failure(let error):
+            return JSONSerialization.browserReplString(["error": ["code": error.code, "message": error.message]])
+                ?? #"{"error":{"code":"invalid","message":"error"}}"#
+        }
+    }
 
     /// The longest timer delay, 2^31-1 ms (about 24.8 days), as browsers and
     /// Node cap `setTimeout`.
@@ -605,7 +671,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             self.watchdog.absorbTermination(in: context)
             guard let handler = context.objectForKeyedSubscript("__cmuxHostOnEvent"),
                   !handler.isUndefined else { return }
-            handler.call(withArguments: [name, payloadJSON])
+            handler.call(withArguments: [name, self.boundary.secrets.redactJSON(payloadJSON)])
             context.exception = nil
         }
     }

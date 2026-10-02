@@ -23,7 +23,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
-import { createDevBrowser, createNodeHost, loadRuntime } from "../lib/dev-driver.mjs";
+import { createDevBrowser, createNodeHost, createDevRepl, loadRuntime } from "../lib/dev-driver.mjs";
 import { tokens } from "../compare/metrics.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -189,7 +189,7 @@ async function cmuxDevBackend() {
     const lines = [];
     const driver = browser.driver();
     const host = createNodeHost({ workDir, sessionId: `perf-${Date.now()}`, print: (_l, t) => lines.push(t) });
-    const repl = ns.replHost.createBrowserRepl({ host, driver });
+    const repl = createDevRepl({ host, driver });
     return {
       lines,
       async eval(code) {

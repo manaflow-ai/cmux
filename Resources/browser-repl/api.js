@@ -560,25 +560,32 @@
       }
     }
 
-    const redact = (text) => (session.agentTools ? session.agentTools.redactText(text) : text);
     // Standard fetch that sends, and stores, the current tab's cookies.
+    // `credentials`: "include" (the default here: cookies for every URL),
+    // "same-origin" (only for the current tab's origin) or "omit" (none sent,
+    // none stored). The native session checks the domain policy on every
+    // redirect hop, caps the body at 64 MiB and masks secrets in text bodies.
     async function fetchWithCookies(input, init = {}) {
       const page = state.current && !state.current.isClosed() ? state.current : null;
       const base = page && /^https?:/.test(page.url()) ? page.url() : undefined;
       const url = new core.URL(String(input && input.url ? input.url : input), base).href;
+      const credentials = init.credentials === undefined ? "include" : init.credentials;
+      if (!["include", "same-origin", "omit"].includes(credentials)) throw new TypeError(`fetch: credentials: expected "include", "same-origin" or "omit", got ${JSON.stringify(credentials)}`);
+      const origin = base ? new core.URL(base).origin : undefined;
       if (session.agentTools) session.agentTools.checkURL("fetch", url);
       const headers = {};
       const src = init.headers || {};
       if (typeof src.forEach === "function" && !Array.isArray(src)) src.forEach((v, k) => (headers[k] = v));
       else if (Array.isArray(src)) for (const [k, v] of src) headers[k] = v;
       else Object.assign(headers, src);
-      if (!host.fetchHandlesCookies && init.credentials !== "omit" && !Object.keys(headers).some((k) => k.toLowerCase() === "cookie")) {
+      const sendsCookies = credentials === "include" || (credentials === "same-origin" && origin === new core.URL(url).origin);
+      if (!host.fetchHandlesCookies && sendsCookies && !Object.keys(headers).some((k) => k.toLowerCase() === "cookie")) {
         const cookies = await session.call("cookies.get", { urls: [url] }).catch(() => []);
         if (cookies.length) headers.cookie = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
       }
       const body = init.body === undefined || init.body === null ? undefined : Buffer.from(init.body).toString("base64");
       const targetId = page && !String(page._targetId).startsWith("lazy:") ? page._targetId : undefined;
-      const r = await host.fetch(url, { method: (init.method || "GET").toUpperCase(), headers, body, targetId });
+      const r = await host.fetch(url, { method: (init.method || "GET").toUpperCase(), headers, body, targetId, credentials, origin });
       const bytes = Buffer.from(r.base64 || "", "base64");
       return {
         ok: r.status >= 200 && r.status < 300,
@@ -587,9 +594,8 @@
         url: r.url || url,
         redirected: !!r.redirected,
         headers: new Headers(r.headers),
-        // Registered secrets are masked in text, as in every page read.
-        text: async () => redact(bytes.toString("utf8")),
-        json: async () => JSON.parse(redact(bytes.toString("utf8"))),
+        text: async () => bytes.toString("utf8"),
+        json: async () => JSON.parse(bytes.toString("utf8")),
         arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
         bytes: async () => new Uint8Array(bytes),
       };

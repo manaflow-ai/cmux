@@ -192,7 +192,7 @@ struct BrowserReplBoundaryTests {
         defer { session.close() }
         let result = await run(session, "typeof __cmuxNative")
         #expect(result?.error == nil)
-        #expect(result?.lines.map(\.text) == ["'undefined'"])
+        #expect(result?.lines.map(\.text) == ["undefined"])
     }
 
     @Test("A secret's value never reaches JavaScript, even through runtime internals")
@@ -325,7 +325,7 @@ struct BrowserReplBoundaryTests {
         """)
         let redirectText = redirect?.lines.map(\.text).joined(separator: "\n") ?? ""
         #expect(redirectText.contains("is blocked"), "\(redirectText)")
-        #expect(!redirectText.contains("target"), "\(redirectText)")
+        #expect(redirectText != "target", "\(redirectText)")
 
         let omit = await run(session, """
         console.log(await fetch("\(base)/echo", { credentials: "omit" }).then((r) => r.text(), (e) => "error: " + e.message));

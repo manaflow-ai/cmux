@@ -331,28 +331,17 @@
     const session = new core.Session({ driver, host });
     let gate = null;
     // Everything the runtime prints goes through the current call's gate.
-    // Registered secrets (agent-tools.js) never reach output, the output
-    // spill file or an error message.
-    const redact = (text) => (session.agentTools ? session.agentTools.redactText(text) : text);
+    // The native session masks registered secrets in output, files and
+    // errors (BrowserReplBoundary).
     const gatedHost = Object.create(host, {
-      print: { value: (level, text) => (gate ? gate.print(level, redact(text)) : host.print(level, redact(text))) },
+      print: { value: (level, text) => (gate ? gate.print(level, text) : host.print(level, text)) },
     });
     const api = ns.api.createGlobals(session, gatedHost);
     const repl = createReplSession({ host: gatedHost, globals: [timerGlobals(gatedHost, api.importModule), api.globals] });
-    const redactError = (r) => {
-      if (r.ok || !session.agentTools) return r;
-      if (r.exception instanceof Error) {
-        try {
-          r.exception.message = redact(r.exception.message);
-        } catch {}
-      }
-      return Object.assign(r, { error: redact(r.error) });
-    };
     return {
       session,
       api,
       scope: repl.scope,
-      redact,
       async evaluate(code, { maxOutput } = {}) {
         const own = createOutputGate(host, { maxOutput });
         gate = own;
@@ -362,10 +351,10 @@
             try {
               api.show(r.value);
             } catch (e) {
-              return redactError({ ok: false, error: formatError(e), exception: e, ms: r.ms });
+              return { ok: false, error: formatError(e), exception: e, ms: r.ms };
             }
           }
-          return redactError(r);
+          return r;
         } finally {
           own.finish();
           if (gate === own) gate = null;
@@ -392,6 +381,19 @@
   function installNativeHost() {
     const native = root.__cmuxNative;
     if (!native || root.__cmuxReplEval) return;
+    // Agent code runs in this context. The native host stays in these
+    // closures only: the global goes before any agent code runs, so a cell
+    // cannot call it directly (the guards behind it are native anyway).
+    delete root.__cmuxNative;
+    const hostCall = (fn, op, args) => {
+      const r = JSON.parse(fn(op, JSON.stringify(args || {})));
+      if (r.error) {
+        const e = new Error(r.error.message);
+        e.code = r.error.code;
+        throw e;
+      }
+      return r.ok;
+    };
     const pending = new Map();
     const timers = new Map();
     const listeners = new Map();
@@ -455,6 +457,8 @@
         return r.ok;
       },
       fetchHandlesCookies: true,
+      secrets: (op, args) => hostCall(native.secrets, op, args),
+      policy: (op, args) => hostCall(native.policy, op, args),
       async fetch(url, init) {
         const r = await callAsync((id) => native.fetch(id, JSON.stringify({
           url,
@@ -462,11 +466,14 @@
           headers: Object.entries(init.headers || {}),
           bodyBase64: init.body,
           targetId: init.targetId,
+          credentials: init.credentials,
+          origin: init.origin,
         })));
         return { url: r.url, status: r.status, statusText: r.statusText, headers: Object.fromEntries(r.headers || []), base64: r.bodyBase64 || "", redirected: r.redirected };
       },
     };
-    host.console = { error: (text) => native.print("error", text) };
+    host.console = Object.freeze({ error: (text) => native.print("error", text) });
+    Object.freeze(host);
     const driver = {
       call: (method, params) => callAsync((id) => native.driverCall(id, method, JSON.stringify(params || {}))),
       on(event, handler) {
@@ -476,6 +483,7 @@
       },
       capabilities: () => native.capabilities || [],
     };
+    Object.freeze(driver);
     let repl = null;
     // `optionsJSON` (optional): { "maxOutput": characters, 0 for no limit }.
     root.__cmuxReplEval = async (code, optionsJSON) => {
@@ -486,7 +494,11 @@
       return undefined;
     };
     root.__cmuxReplCancel = (message) => (repl ? repl.cancel(message) : false);
-    root.__cmuxFormatError = (e) => (repl ? repl.redact(formatError(e)) : formatError(e));
+    root.__cmuxFormatError = (e) => formatError(e);
+    // The entry points the app calls stay what they are.
+    for (const name of ["__cmuxHostOnResult", "__cmuxHostOnTimer", "__cmuxHostOnEvent", "__cmuxReplEval", "__cmuxReplCancel", "__cmuxFormatError"]) {
+      Object.defineProperty(root, name, { value: root[name], writable: false, configurable: false, enumerable: false });
+    }
   }
 
   ns.replHost = { timerDelay, rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, formatError, installNativeHost };

@@ -17,6 +17,7 @@ import crypto from "node:crypto";
 import os from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { createBoundary } from "./native-boundary.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -375,13 +376,28 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   const RESOURCE_TYPES = { image: "image", stylesheet: "style-sheet", script: "script", font: "font", media: "media", fetch: "fetch", xhr: "fetch", websocket: "websocket", ping: "ping", other: "other" };
   let contentRules = [];
   let routed = false;
+  // A main-frame navigation of a tab a session opened, to a URL that
+  // session's domain policy blocks, is cancelled and reported, as the app's
+  // navigation delegate does.
+  function cancelsNavigation(request) {
+    const tab = tabOf.get(request.frame().page());
+    if (!tab) return false;
+    for (const d of drivers) {
+      if (!d.blockReason || !d.opened.has(tab.targetId)) continue;
+      const reason = d.blockReason(request.url());
+      if (!reason) continue;
+      for (const h of d.listeners.get("navigation.blocked") ?? []) h({ targetId: tab.targetId, url: request.url(), reason });
+      return true;
+    }
+    return false;
+  }
   async function setContentRules(rules) {
     contentRules = rules.map((r) => ({ re: new RegExp(r.trigger["url-filter"], "i"), types: r.trigger["resource-type"] || null, child: (r.trigger["load-context"] || []).includes("child-frame"), type: r.action.type }));
     if (routed || !contentRules.length) return;
     routed = true;
     await context.route("**/*", (route, request) => {
       const isDocument = request.resourceType() === "document";
-      if (isDocument && request.frame().parentFrame() === null) return route.fallback();
+      if (isDocument && request.frame().parentFrame() === null) return cancelsNavigation(request) ? route.abort("blockedbyclient") : route.fallback();
       const type = isDocument ? "document" : RESOURCE_TYPES[request.resourceType()] || "other";
       let blocked = false;
       for (const r of contentRules) {
@@ -574,7 +590,24 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         }, cmd);
       }
     },
-    "input.insertText": async ({ targetId, text }) => tabFor(targetId).page.keyboard.insertText(text),
+    "input.insertText": async ({ targetId, text, secretName, secretDomains }) => {
+      const tab = tabFor(targetId);
+      if (secretName) {
+        // As the app's driver: the frame that has focus must be on one of
+        // the secret's domains, by its own origin.
+        let focused = tab.page.mainFrame();
+        for (const f of tab.page.frames()) {
+          const own = await f.evaluate(() => document.hasFocus() && !!document.activeElement && !/^(IFRAME|FRAME)$/.test(document.activeElement.tagName)).catch(() => false);
+          if (own) focused = f;
+        }
+        const origin = new URL(focused.url()).origin;
+        const T = loadRuntime().agentTools;
+        if (!secretDomains.some((d) => T.urlMatches(origin + "/", d, true))) {
+          throw new DriverError("invalid", `secret ${JSON.stringify(secretName)} may not be typed into ${origin}; its domains are ${secretDomains.map((d) => d.raw).join(", ")}`);
+        }
+      }
+      await tab.page.keyboard.insertText(text);
+    },
     "input.drag": async ({ targetId, path: points, button = "left", modifiers }) => {
       const page = tabFor(targetId).page;
       await withModifiers(page, modifiers, async () => {
@@ -613,14 +646,20 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       if (!d) throw new DriverError("not_found", `Download ${downloadId} is gone`);
       return { path: await d.path() };
     },
-    "tab.screenshot": async ({ targetId, clip, fullPage, format = "png", quality }) => {
+    "tab.screenshot": async ({ targetId, clip, fullPage, format = "png", quality, secretMasks }) => {
       const type = format === "jpeg" ? "jpeg" : "png";
-      const buf = await tabFor(targetId).page.screenshot({ clip, fullPage, type, quality: type === "jpeg" ? quality : undefined });
-      return { base64: buf.toString("base64"), ...pngSize(buf) };
+      const page = tabFor(targetId).page;
+      return withSecretMasks(page, secretMasks, async () => {
+        const buf = await page.screenshot({ clip, fullPage, type, quality: type === "jpeg" ? quality : undefined });
+        return { base64: buf.toString("base64"), ...pngSize(buf) };
+      });
     },
-    "tab.pdf": async ({ targetId }) => {
-      const text = await tabFor(targetId).page.evaluate(() => document.body ? document.body.innerText : "");
-      return { base64: textPdf(text).toString("base64") };
+    "tab.pdf": async ({ targetId, secretMasks }) => {
+      const page = tabFor(targetId).page;
+      return withSecretMasks(page, secretMasks, async () => {
+        const text = await page.evaluate(() => document.body ? document.body.innerText : "");
+        return { base64: textPdf(text).toString("base64") };
+      });
     },
     "cookies.get": async ({ urls } = {}) => context.cookies(urls),
     "cookies.set": async ({ cookies }) => context.addCookies(cookies),
@@ -631,15 +670,94 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     },
   };
 
+  // Captures hide secrets as the app's driver does: in frames whose origin
+  // is on a secret's domains (the only frames it can be typed into), fields
+  // and text holding its value render as password dots for the length of the
+  // capture. Other frames never receive a value. Concurrent captures share a
+  // per-element count, so one capture ending does not unmask another's.
+  async function withSecretMasks(page, masks, capture) {
+    const T = loadRuntime().agentTools;
+    const frames = page.frames();
+    const plan = frames.map((f) => {
+      let origin = "";
+      try {
+        origin = new URL(f.url()).origin;
+      } catch {}
+      return { f, values: (masks || []).filter((m) => m.domains.some((d) => T.urlMatches(origin + "/", d, true))).map((m) => m.value) };
+    });
+    const MASK = ([values, on]) => {
+      const key = Symbol.for("cmux.dev.secretMask");
+      const counts = (globalThis[key] ||= new Map());
+      const prop = "-webkit-text-security";
+      if (!on) {
+        for (const [el, entry] of [...counts]) {
+          if (--entry.count > 0) continue;
+          counts.delete(el);
+          if (entry.value) el.style.setProperty(prop, entry.value, entry.priority);
+          else el.style.removeProperty(prop);
+        }
+        return 0;
+      }
+      const hits = new Set();
+      const has = (t) => typeof t === "string" && values.some((v) => t.includes(v));
+      const visit = (root) => {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        for (let n = walker.currentNode; n; n = walker.nextNode()) {
+          if (n.nodeType === 3) {
+            if (n.parentElement && has(n.data)) hits.add(n.parentElement);
+            continue;
+          }
+          if ((n instanceof HTMLInputElement && n.type !== "password") || n instanceof HTMLTextAreaElement) {
+            if (has(n.value)) hits.add(n);
+          }
+          if (n.shadowRoot) visit(n.shadowRoot);
+        }
+      };
+      visit(document.documentElement || document);
+      for (const el of hits) {
+        const entry = counts.get(el);
+        if (entry) entry.count++;
+        else {
+          counts.set(el, { count: 1, value: el.style.getPropertyValue(prop), priority: el.style.getPropertyPriority(prop) });
+          el.style.setProperty(prop, "disc", "important");
+        }
+      }
+      return hits.size;
+    };
+    const masked = plan.filter((p) => p.values.length);
+    for (const { f, values } of masked) await f.evaluate(MASK, [values, true]).catch(() => {});
+    try {
+      return await capture();
+    } finally {
+      for (const { f, values } of masked) await f.evaluate(MASK, [values, false]).catch(() => {});
+    }
+  }
+
+  // Reads and input on a tab whose page the session's policy blocks are
+  // refused, as the app's driver does.
+  const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond)/;
+
   function createDriver() {
     const driver = {
       name: "dev",
       listeners: new Map(),
       opened: new Set(),
       sessionName: null,
+      blockReason: null,
+      // Called by the native-boundary emulation, never by the runtime.
+      async setDomainPolicy(policy, blockReason) {
+        const active = !!(policy.allowed || policy.prohibited.length || policy.blockIPs);
+        driver.blockReason = active ? blockReason : null;
+        await setContentRules(loadRuntime().agentTools.policyContentRules(policy));
+      },
       async call(method, params = {}) {
         const fn = methods[method];
         if (!fn) throw new DriverError("unsupported", `Unsupported driver method ${method}`);
+        if (driver.blockReason && params.targetId && GUARDED.test(method) && tabs.has(params.targetId)) {
+          const url = tabs.get(params.targetId).page.url();
+          const reason = driver.blockReason(url);
+          if (reason) throw new DriverError("blocked", `the tab shows ${url}, which the domain policy blocks: ${reason}`);
+        }
         return fn(params, driver);
       },
       on(event, handler) {
@@ -838,10 +956,58 @@ export function createNodeHost({ workDir, sessionId = "dev", print, readable = n
       return file.startsWith(runtimeDir + "/") && fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
     },
     fsOp: createFsOp({ workDir, tmpdir, readable }),
+    // As the app's fetcher: every redirect hop is checked against the
+    // domain policy (init.blockReason, from the native-boundary emulation)
+    // and a body over 64 MiB fails.
     async fetch(url, init = {}) {
-      const res = await fetch(url, { method: init.method, headers: init.headers, body: init.body === undefined ? undefined : Buffer.from(init.body, "base64") });
-      const body = Buffer.from(await res.arrayBuffer());
-      return { status: res.status, statusText: res.statusText, url: res.url, headers: Object.fromEntries(res.headers), base64: body.toString("base64"), redirected: res.redirected };
+      let current = url;
+      let method = init.method;
+      let body = init.body === undefined ? undefined : Buffer.from(init.body, "base64");
+      let res;
+      for (let hop = 0; ; hop++) {
+        res = await fetch(current, { method, headers: init.headers, body, redirect: "manual" });
+        const location = res.status >= 300 && res.status < 400 && res.headers.get("location");
+        if (!location || hop >= 20) break;
+        const next = new URL(location, current).href;
+        const reason = init.blockReason && init.blockReason(next);
+        if (reason) throw Object.assign(new Error(`fetch: redirect to ${next} is blocked: ${reason}`), { code: "blocked" });
+        if (res.status === 303 || ((res.status === 301 || res.status === 302) && method === "POST")) {
+          method = "GET";
+          body = undefined;
+        }
+        current = next;
+      }
+      const limit = init.maxBodyBytes || 64 * 1024 * 1024;
+      if (Number(res.headers.get("content-length")) > limit) throw new Error(`fetch: the response body is larger than ${limit >> 20} MiB; download it in a tab (page.waitForEvent("download")) instead`);
+      const bytes = Buffer.from(await res.arrayBuffer());
+      if (bytes.length > limit) throw new Error(`fetch: the response body is larger than ${limit >> 20} MiB; download it in a tab (page.waitForEvent("download")) instead`);
+      return { status: res.status, statusText: res.statusText, url: current, headers: Object.fromEntries(res.headers), base64: bytes.toString("base64"), redirected: current !== url };
+    },
+  };
+}
+
+// A REPL session on the dev backend, with the native session's guards
+// (secrets, domain policy, redaction) emulated around the host and driver,
+// as the app's BrowserReplSession puts them around its JavaScriptCore
+// context. Use it wherever the app would run a session.
+export function createDevRepl({ host, driver }) {
+  const ns = loadRuntime();
+  const boundary = createBoundary(ns.agentTools, { now: () => (host.now ? host.now() : Date.now()) });
+  const repl = ns.replHost.createBrowserRepl({ host: boundary.wrapHost(host), driver: boundary.wrapDriver(driver) });
+  return {
+    ...repl,
+    boundary,
+    async evaluate(code, options) {
+      const r = await repl.evaluate(code, options);
+      if (!r.ok) {
+        r.error = boundary.redact(r.error);
+        if (r.exception instanceof Error) {
+          try {
+            r.exception.message = boundary.redact(r.exception.message);
+          } catch {}
+        }
+      }
+      return r;
     },
   };
 }
@@ -867,7 +1033,7 @@ export async function runDevCells(cells, { workDir } = {}) {
         driver.on("download.finished", (p) => p.path && readable.add(fs.realpathSync(p.path)));
         let current = print;
         const host = createNodeHost({ workDir: dir, sessionId: cell.session || `oneshot-${outputs.length + 1}`, print: (l, t) => current(l, t), readable });
-        entry = { driver, repl: ns.replHost.createBrowserRepl({ host, driver }), setPrint: (p) => (current = p) };
+        entry = { driver, repl: createDevRepl({ host, driver }), setPrint: (p) => (current = p) };
         if (cell.session) named.set(cell.session, entry);
       }
       entry.setPrint(print);

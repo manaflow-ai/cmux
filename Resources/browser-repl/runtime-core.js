@@ -784,6 +784,9 @@
       route("filechooser.opened", (p) => this._forward(p, "_onFileChooser"));
       route("download.started", (p) => this._forward(p, "_onDownload"));
       route("download.finished", (p) => this._forward(p, "_onDownloadFinished"));
+      // The driver cancelled a navigation the domain policy blocks; agent-tools.js
+      // logs it and fails the action that caused it.
+      route("navigation.blocked", () => {});
       route("console", (p) => this._forward(p, "_onConsole"));
       route("pageerror", (p) => this._forward(p, "_onPageError"));
       for (const event of ["request", "response", "requestfailed", "requestfinished"]) {
@@ -836,7 +839,8 @@
     reportError(e) {
       this.errors.push(e);
       const text = String((e && e.stack) || e);
-      if (this.host.console && this.host.console.error) this.host.console.error(this.agentTools ? this.agentTools.redactText(text) : text);
+      // The native session masks registered secrets in everything printed.
+      if (this.host.console && this.host.console.error) this.host.console.error(text);
     }
     _page(targetId, create = true) {
       let page = this.pages.get(targetId);
@@ -1371,9 +1375,18 @@
       });
     }
     async fill(value, options = {}) {
-      if (typeof value !== "string" && !this._page._isSecret(value)) throw new Error(`locator.fill: value: expected string, got ${typeof value}`);
+      const secret = this._page._isSecret(value) ? value : null;
+      if (typeof value !== "string" && !secret) throw new Error(`locator.fill: value: expected string, got ${typeof value}`);
       await this._withElement(options, "locator.fill", ["visible", "enabled", "editable"], async (frame, handle) => {
-        value = await this._page._inputText(frame, value, "locator.fill");
+        if (secret) {
+          // Select the field's text with a stand-in value that passes the
+          // field checks, then let the session type the secret over it.
+          const r = await frame._agent("fill", handle, "0");
+          if (r === "error:notconnected") throw Object.assign(new Error("Element is not attached to the DOM"), { code: "stale" });
+          if (r !== "needsinput") throw new Error(`locator.fill: a secret can only be typed into a text field`);
+          await this._page._insertSecret(secret, "locator.fill");
+          return;
+        }
         const r = await frame._agent("fill", handle, value);
         if (r === "error:notconnected") throw Object.assign(new Error("Element is not attached to the DOM"), { code: "stale" });
         if (r === "needsinput") {
@@ -1399,7 +1412,8 @@
     // that receives it.
     async _typeInto(text, options, title) {
       if (typeof text !== "string" && !this._page._isSecret(text)) throw new Error(`${title}: text: expected string, got ${typeof text}`);
-      return this._focusThen(options, title, async (frame) => this._page.keyboard.type(await this._page._inputText(frame, text, title), options));
+      if (this._page._isSecret(text)) return this._focusThen(options, title, () => this._page._insertSecret(text, title));
+      return this._focusThen(options, title, () => this._page.keyboard.type(text, options));
     }
     async type(text, options = {}) {
       return this._typeInto(text, options, "locator.type");
@@ -2320,11 +2334,17 @@
     _isSecret(value) {
       return !!(this._session.agentTools && this._session.agentTools.isSecret(value));
     }
-    // A secret(name) value becomes its text only here, for the frame it is
-    // typed into, after its domain check; other values pass through.
-    async _inputText(frame, value, title) {
-      if (typeof value === "string" || !this._isSecret(value)) return value;
-      return this._session.agentTools.resolveSecret(value, frame, title);
+    // Types a secret(name) into the focused element. The value never
+    // enters this context: the native session substitutes it and the
+    // driver types it only when the focused frame's own origin matches the
+    // secret's domains, checked again on every call (so on every retry).
+    async _insertSecret(secret, title) {
+      try {
+        await this._input("input.insertText", { targetId: this._targetId, secret: secret.name });
+      } catch (e) {
+        if (e && /^secret /.test(e.message || "")) throw new Error(`${title}: ${e.message}`);
+        throw e;
+      }
     }
     async _syncInfo() {
       if (this._closed) throw new Error("Target page, context or browser has been closed");

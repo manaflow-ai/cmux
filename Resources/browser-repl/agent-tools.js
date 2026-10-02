@@ -27,6 +27,68 @@
   // drops it). Multiple wildcards, wildcard TLDs and embedded wildcards are
   // refused when set, where browser-use logs and ignores them.
 
+  // Host names as the policy compares them: lower case, no trailing dot,
+  // internationalized labels in Punycode, as the native session does
+  // (BrowserReplHostName).
+  function punycode(input) {
+    const cps = [...input].map((c) => c.codePointAt(0));
+    let out = cps.filter((c) => c < 0x80).map((c) => String.fromCharCode(c)).join("");
+    const basic = out.length;
+    let handled = basic;
+    if (basic) out += "-";
+    let n = 128;
+    let delta = 0;
+    let bias = 72;
+    const digit = (d) => String.fromCharCode(d < 26 ? d + 97 : d + 22);
+    const adapt = (d, count, first) => {
+      d = first ? Math.floor(d / 700) : d >> 1;
+      d += Math.floor(d / count);
+      let k = 0;
+      while (d > 455) {
+        d = Math.floor(d / 35);
+        k += 36;
+      }
+      return k + Math.floor((36 * d) / (d + 38));
+    };
+    while (handled < cps.length) {
+      const m = Math.min(...cps.filter((c) => c >= n));
+      delta += (m - n) * (handled + 1);
+      n = m;
+      for (const c of cps) {
+        if (c < n) delta++;
+        if (c === n) {
+          let q = delta;
+          for (let k = 36; ; k += 36) {
+            const t = k <= bias ? 1 : k >= bias + 26 ? 26 : k - bias;
+            if (q < t) break;
+            out += digit(t + ((q - t) % (36 - t)));
+            q = Math.floor((q - t) / (36 - t));
+          }
+          out += digit(q);
+          bias = adapt(delta, handled + 1, handled === basic);
+          delta = 0;
+          handled++;
+        }
+      }
+      delta++;
+      n++;
+    }
+    return out;
+  }
+  function normalizeHost(raw) {
+    let host = String(raw || "").trim();
+    if (host.includes(":") && !host.startsWith("[")) host = `[${host}]`;
+    if (host.startsWith("[")) return host.toLowerCase();
+    host = host.replace(/\.+$/, "");
+    return host
+      .split(".")
+      .map((label) => {
+        const l = label.normalize("NFC").toLowerCase();
+        return /[^\x00-\x7f]/.test(l) ? "xn--" + punycode(l) : l;
+      })
+      .join(".");
+  }
+
   function parsePattern(raw, title) {
     if (typeof raw !== "string" || !raw.trim()) throw new Error(`${title}: expected domain patterns as non-empty strings, got ${JSON.stringify(raw)}`);
     let p = raw.trim().toLowerCase();
@@ -50,7 +112,9 @@
       if (host.includes("*") && !host.startsWith("*.")) throw new Error(`${title}: ${JSON.stringify(raw)}: use *.example.com; other wildcards are not allowed`);
       if (!host || /[\s/]/.test(host)) throw new Error(`${title}: ${JSON.stringify(raw)}: expected a domain`);
     }
-    return { raw, scheme, host, port };
+    const normalized = host === "*" ? host : host.startsWith("*.") ? "*." + normalizeHost(host.slice(2)) : normalizeHost(host);
+    if (!normalized || normalized === "*.") throw new Error(`${title}: ${JSON.stringify(raw)}: expected a domain`);
+    return { raw, scheme, host: normalized, port };
   }
 
   // WebKit content-blocker rules for a domain policy. Content-blocker regular
@@ -67,8 +131,8 @@
   function schemeFilters(p, scheme) {
     let host;
     if (p.host === "*") host = "[^/@:]+";
-    else if (p.host.startsWith("*.")) host = "([^/@:]*\\.)?" + cbEscape(p.host.slice(2));
-    else host = cbEscape(p.host);
+    else if (p.host.startsWith("*.")) host = "([^/@:]*\\.)?" + cbEscape(p.host.slice(2)) + "\\.?";
+    else host = cbEscape(p.host) + "\\.?";
     const head = "^" + scheme + "://([^/@]*@)?" + host;
     if (p.port === null) return [head + "(:[0-9]+)?/"];
     const out = [head + ":" + p.port + "/"];
@@ -92,7 +156,7 @@
     }
     for (const p of policy.prohibited) for (const f of patternFilters(p)) add(f, "block");
     if (policy.blockIPs) {
-      add("^[a-z][a-z0-9+.-]*://([^/@]*@)?[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+[:/]", "block");
+      add("^[a-z][a-z0-9+.-]*://([^/@]*@)?[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+\\.?[:/]", "block");
       add("^[a-z][a-z0-9+.-]*://([^/@]*@)?\\[", "block");
     }
     return rules;
@@ -112,7 +176,7 @@
       return false;
     }
     const scheme = String(u.protocol || "").replace(/:$/, "").toLowerCase();
-    const host = String(u.hostname || "").toLowerCase();
+    const host = normalizeHost(u.hostname || "");
     if (!host) return false;
     if (pattern.scheme) {
       if (!globRe(pattern.scheme).test(scheme)) return false;
@@ -136,7 +200,9 @@
 
   // IPv4 in any form the URL parser accepts (it normalizes decimal, hex and
   // octal to dotted form) and bracketed IPv6.
-  const isIPHost = (host) => /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || /^\[[0-9a-f:.]+\]$/i.test(host);
+  // An IP host: bracketed IPv6, or a name whose last label is a number,
+  // which URL parsers read as IPv4 (127.1, 0x7f.0.0.1).
+  const isIPHost = (host) => /^\[[0-9a-f:.]+\]$/i.test(host) || /(^|\.)(\d+|0x[0-9a-f]*)$/i.test(normalizeHost(host));
 
   // ---------------------------------------------------------------------------
   // TOTP (RFC 6238) for secrets registered with { totp: true }: browser-use's
@@ -767,8 +833,13 @@
     };
 
     // ---- secrets -------------------------------------------------------------
-    const secretStore = new Map(); // name -> { value, domains: [pattern], totp }
-    let masks = []; // [[variant, mask]] longest first
+    // Values live in the native session (BrowserReplSecretStore), never in
+    // this context: secret(name) is a handle, the session substitutes the
+    // value into input.insertText for the driver, which types it only into a
+    // frame whose own origin matches the secret's domains, and the session
+    // masks every value in output, errors, driver results, events, fetch
+    // bodies and written files. Agent code runs in this context, so nothing
+    // here is the guard; these functions only shape the API.
     const SecretBrand = new WeakSet();
     class Secret {
       constructor(name) {
@@ -783,186 +854,64 @@
         return this.toString();
       }
     }
+    Object.freeze(Secret.prototype);
     const isSecret = (v) => v !== null && typeof v === "object" && SecretBrand.has(v);
-    const htmlEscape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    function rebuildMasks() {
-      const list = [];
-      for (const [name, s] of secretStore) {
-        const mask = `<secret:${name}>`;
-        const variants = new Set([s.value, encodeURIComponent(s.value), encodeURIComponent(s.value).replace(/%20/g, "+"), JSON.stringify(s.value).slice(1, -1), htmlEscape(s.value)]);
-        for (const v of variants) if (v) list.push([v, mask]);
-      }
-      masks = list.sort((a, b) => b[0].length - a[0].length);
-    }
-    function redactText(text) {
-      if (!masks.length || typeof text !== "string") return text;
-      for (const [v, mask] of masks) if (text.includes(v)) text = text.split(v).join(mask);
-      return text;
-    }
-    function redactValue(value, depth = 0) {
-      if (!masks.length) return value;
-      if (typeof value === "string") return redactText(value);
-      if (!value || typeof value !== "object" || depth > 64) return value;
-      if (Array.isArray(value)) return value.map((v) => redactValue(v, depth + 1));
-      if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) return value;
-      const out = {};
-      for (const k of Object.keys(value)) out[k] = redactValue(value[k], depth + 1);
-      return out;
-    }
-    function redactError(e) {
-      if (masks.length && e && typeof e.message === "string") {
-        try {
-          e.message = redactText(e.message);
-        } catch {}
-      }
-      return e;
-    }
-    function addSecret(name, value, options, title) {
-      if (typeof name !== "string" || !/^[\w.-]{1,64}$/.test(name)) throw new Error(`${title}: name: expected letters, digits, _, . or - (at most 64), got ${JSON.stringify(name)}`);
-      if (typeof value !== "string" || !value) throw new Error(`${title}: ${name}: value: expected a non-empty string`);
-      const domains = options && options.domains;
-      if (!Array.isArray(domains) || !domains.length) throw new Error(`${title}: ${name}: domains: expected the domains it may be typed into, such as ["example.com"]; a secret without domains is not accepted`);
-      const totpOn = !!(options.totp || /bu_2fa_code$/.test(name));
-      if (totpOn) base32Decode(value);
-      secretStore.set(name, { value, domains: domains.map((d) => parsePattern(d, title)), totp: totpOn });
-      rebuildMasks();
-    }
-    const describeSecret = (name) => {
-      const s = secretStore.get(name);
-      return { name, domains: s.domains.map((d) => d.raw), totp: s.totp };
-    };
-    const secrets = {
+    const secretsHost = (op, args) => host.secrets(op, args || {});
+    const secrets = Object.freeze({
       // set(name, value, { domains, totp }): the value is typed only into
       // frames on those domains and is masked as <secret:name> everywhere.
       set(name, value, options) {
-        addSecret(name, value, options, "secrets.set");
-        return describeSecret(name);
+        return secretsHost("set", { name, value, domains: options && options.domains, totp: !!(options && options.totp) });
       },
       // browser-use's sensitive_data shape: { "<domain pattern>": { name: value } },
-      // as an object or a JSON file path. A value { value, totp } is accepted.
+      // as an object or a JSON file path (read by the native session, so the
+      // values never enter this context). A value { value, totp } is accepted.
       load(source) {
-        let data = source;
-        if (typeof source === "string") {
-          const text = fs.readFileSync(source, "utf8");
-          try {
-            data = JSON.parse(text);
-          } catch (e) {
-            throw new Error(`secrets.load: ${source} is not JSON`);
-          }
-        }
-        if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("secrets.load: expected { \"<domain pattern>\": { name: value } }");
-        const names = [];
-        for (const [pattern, entries] of Object.entries(data)) {
-          if (!entries || typeof entries !== "object") throw new Error(`secrets.load: ${JSON.stringify(pattern)}: a secret needs domains; expected { "<domain pattern>": { name: value } }`);
-          for (const [name, v] of Object.entries(entries)) {
-            const prior = secretStore.get(name);
-            const value = v && typeof v === "object" ? v.value : v;
-            const domains = prior && prior.value === value ? [...prior.domains.map((d) => d.raw), pattern] : [pattern];
-            addSecret(name, value, { domains, totp: !!(v && typeof v === "object" && v.totp) || (prior && prior.totp) }, "secrets.load");
-            names.push(name);
-          }
-        }
-        return [...new Set(names)].map(describeSecret);
+        if (typeof source === "string") return secretsHost("load", { path: source });
+        if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("secrets.load: expected { \"<domain pattern>\": { name: value } }");
+        return secretsHost("load", { object: source });
       },
-      list: () => [...secretStore.keys()].map(describeSecret),
-      has: (name) => secretStore.has(name),
-      delete(name) {
-        const had = secretStore.delete(name);
-        rebuildMasks();
-        return had;
+      list: () => secretsHost("list"),
+      has: (name) => secretsHost("has", { name }),
+      delete: (name) => secretsHost("delete", { name }),
+      clear: () => {
+        secretsHost("clear");
       },
-      clear() {
-        secretStore.clear();
-        rebuildMasks();
-      },
-    };
+    });
     function secret(name) {
-      if (!secretStore.has(name)) throw new Error(`secret(${JSON.stringify(name)}): no such secret; register it with secrets.set(name, value, { domains }) or secrets.load(file)`);
+      if (!secretsHost("has", { name })) throw new Error(`secret(${JSON.stringify(name)}): no such secret; register it with secrets.set(name, value, { domains }) or secrets.load(file)`);
       return new Secret(name);
     }
-    async function resolveSecret(s, frame, title) {
-      const entry = secretStore.get(s.name);
-      if (!entry) throw new Error(`${title}: secret ${JSON.stringify(s.name)} was deleted`);
-      const where = await frame._call("agent", "() => location.href", []);
-      if (!entry.domains.some((d) => urlMatches(where, d, true))) {
-        throw new Error(`${title}: secret ${JSON.stringify(s.name)} may not be typed into ${String(where).replace(/[?#].*$/, "")}; its domains are ${entry.domains.map((d) => d.raw).join(", ")}`);
-      }
-      return entry.totp ? totp(entry.value, session.now()) : entry.value;
-    }
+    const anySecrets = () => secretsHost("list").length > 0;
 
     // ---- domain policy -------------------------------------------------------
-    const policy = { allowed: null, prohibited: [], blockIPs: false, locked: false, log: [], blocking: new Map(), navigating: new Map() };
-    const policyActive = () => !!(policy.allowed || policy.prohibited.length || policy.blockIPs);
-    function urlReason(url) {
-      if (!policyActive()) return null;
-      const s = String(url);
-      if (/^(about:|data:|blob:)/i.test(s)) return null;
-      let target = s;
-      if (!/^[a-z][a-z0-9+.-]*:/i.test(target)) target = "https://" + target;
-      let u;
-      try {
-        u = new core.URL(target);
-      } catch {
-        return "not a valid URL";
-      }
-      const host = String(u.hostname || "").toLowerCase();
-      if (!host) return `its scheme ${u.protocol} has no host`;
-      if (policy.blockIPs && isIPHost(host)) return "IP addresses are blocked (session.blockIPAddresses)";
-      if (policy.allowed && !policy.allowed.some((p) => urlMatches(target, p, false))) return `not in session.allowedDomains (${policy.allowed.map((p) => p.raw).join(", ")})`;
-      const hit = policy.prohibited.find((p) => urlMatches(target, p, false));
-      if (hit) return `prohibited by ${hit.raw} (session.prohibitedDomains)`;
-      return null;
-    }
+    // The policy lives in the native session, which checks navigations, new
+    // tabs, every fetch hop and subresources (content rules) itself, and
+    // refuses reads and input on a tab whose page it blocks. These wrappers
+    // give early errors and keep the log of blocked navigations.
+    const policyHost = (op, args) => host.policy(op, args || {});
+    const policyLog = [];
+    const blockedTabs = new Map(); // targetId -> { url, reason } reported by the driver
+    const policyActive = () => {
+      const p = policyHost("get");
+      return !!(p.allowed || p.prohibited.length || p.blockIPs);
+    };
+    const urlReason = (url) => policyHost("check", { url: String(url) });
     function checkURL(title, url) {
       const reason = urlReason(url);
       if (reason) {
-        policy.log.push({ url: String(url), reason, at: new Date(session.now()).toISOString(), blocked: "before" });
+        policyLog.push({ url: String(url), reason, at: new Date(session.now()).toISOString(), blocked: "before" });
         throw new Error(`${title}: ${url} is blocked: ${reason}`);
       }
     }
-    // A tab that reached a blocked URL (a redirect, a link, a script) goes to
-    // about:blank; the action that took it there fails.
-    function blockPage(targetId, url, reason) {
-      if (policy.blocking.has(targetId)) return policy.blocking.get(targetId);
-      policy.log.push({ url, reason, at: new Date(session.now()).toISOString(), blocked: "after" });
-      const p = session.call("tab.navigate", { targetId, url: "about:blank", waitUntil: "load", timeoutMs: 10000 })
-        .catch(() => {})
-        .then(async () => {
-          const page = session.pages.get(targetId);
-          if (page) await page._syncInfo().catch(() => {});
-        })
-        .finally(() => policy.blocking.delete(targetId));
-      policy.blocking.set(targetId, p);
-      return p;
-    }
-    const lockedError = (title) => new Error(`${title}: the domain policy is locked for this session`);
     function setPatterns(kind, title, list, options) {
-      if (list === undefined) return kind === "allowed" ? (policy.allowed ? policy.allowed.map((p) => p.raw) : null) : policy.prohibited.map((p) => p.raw);
-      if (policy.locked) throw lockedError(title);
+      if (list === undefined) {
+        const p = policyHost("get");
+        return kind === "allowed" ? p.allowed : p.prohibited;
+      }
       if (list !== null && !Array.isArray(list)) throw new Error(`${title}: expected an array of domain patterns or null, got ${JSON.stringify(list)}`);
-      const parsed = list === null ? null : list.map((d) => parsePattern(d, title));
-      if (kind === "allowed") policy.allowed = parsed && parsed.length ? parsed : null;
-      else policy.prohibited = parsed || [];
-      if (options && options.lock) policy.locked = true;
-      syncPolicyRules();
-      return setPatterns(kind, title, undefined);
-    }
-
-    // The policy also blocks subresources (images, scripts, styles, fonts,
-    // media, XHR and fetch, WebSockets, iframes) through the driver's content
-    // rules. The next driver call waits for the rules to apply.
-    let policySync = null;
-    function syncPolicyRules() {
-      const contentRules = policyContentRules(policy);
-      const p = session.driver.call("session.configure", { contentRules })
-        .catch((e) => {
-          if (e && e.code === "unsupported") return;
-          print("warn", `# subresource blocking is off: ${(e && e.message) || e}`);
-        })
-        .finally(() => {
-          if (policySync === p) policySync = null;
-        });
-      policySync = p;
+      const p = policyHost("set", { [kind]: list, lock: !!(options && options.lock), title });
+      return kind === "allowed" ? p.allowed : p.prohibited;
     }
 
     // ---- browser-context options (session.configure) -------------------------------
@@ -992,7 +941,6 @@
         if (px !== null && (typeof px !== "object" || typeof px.server !== "string" || !px.server)) throw new Error("session.configure: proxy: expected { server, username?, password?, bypass? } or null");
         params.proxy = px;
       }
-      if (policySync) await policySync;
       const result = await session.driver.call("session.configure", params);
       for (const [k, v] of Object.entries(params)) {
         if (v === null || (Array.isArray(v) && !v.length) || (k === "extraHTTPHeaders" && !Object.keys(v).length)) delete contextConfig[k];
@@ -1016,12 +964,15 @@
       const o = {};
       if (p.url !== undefined) o.url = p.url;
       if (method === "input.mouse") Object.assign(o, { type: p.type, x: p.x, y: p.y, button: p.button, deltaX: p.deltaX, deltaY: p.deltaY });
-      if (method === "input.key") Object.assign(o, { type: p.type, modifiers: p.modifiers }, masks.length ? {} : { key: p.key });
-      if (method === "input.insertText") o.text = masks.length ? `<${String(p.text).length} characters>` : p.text;
+      // With secrets registered, keys and inserted text stay out of the trace
+      // (a secret typed key by key would otherwise be spelled out there).
+      const quiet = anySecrets();
+      if (method === "input.key") Object.assign(o, { type: p.type, modifiers: p.modifiers }, quiet ? {} : { key: p.key });
+      if (method === "input.insertText") o.text = p.secret ? `<secret:${p.secret}>` : quiet ? `<${String(p.text).length} characters>` : p.text;
       if (method === "input.setFiles") o.files = (p.files || []).map((f) => f.name);
       if (method === "tab.history") o.delta = p.delta;
       if (method === "dialog.respond") o.accept = p.accept;
-      return redactValue(o);
+      return o;
     }
     async function recordFrame(page) {
       if (!recorder || !recorder.screenshots || page._closed || recorder.busy) return;
@@ -1041,121 +992,28 @@
     function trace(entry) {
       if (!recorder) return;
       recorder.actions++;
-      fs.appendFileSync(recorder.trace, JSON.stringify(redactValue(entry)) + "\n");
-    }
-
-    // ---- secrets in captures ---------------------------------------------------------
-    // Screenshots, recordings and PDFs show pixels, so a secret typed into a
-    // text field (or echoed in page text) would be readable in them. For the
-    // length of one capture, every field whose value holds a registered
-    // secret, and every element whose own text holds one, renders with
-    // -webkit-text-security: disc, as a password field does.
-    const CAPTURES = new Set(["tab.screenshot", "tab.pdf"]);
-    const masked = new WeakMap(); // params -> page
-    const MASK_SOURCE = `(values, on) => {
-      const key = Symbol.for("cmux.browserRepl.secretMask");
-      const prop = "-webkit-text-security";
-      if (!on) {
-        for (const [el, value, priority] of globalThis[key] || []) {
-          if (value) el.style.setProperty(prop, value, priority);
-          else el.style.removeProperty(prop);
-        }
-        globalThis[key] = null;
-        return 0;
-      }
-      const hits = new Set();
-      const has = (text) => typeof text === "string" && values.some((v) => text.includes(v));
-      const visit = (root) => {
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-        for (let n = walker.currentNode; n; n = walker.nextNode()) {
-          if (n.nodeType === 3) {
-            if (n.parentElement && has(n.data)) hits.add(n.parentElement);
-            continue;
-          }
-          if ((n instanceof HTMLInputElement && n.type !== "password") || n instanceof HTMLTextAreaElement) {
-            if (has(n.value)) hits.add(n);
-          }
-          if (n.shadowRoot) visit(n.shadowRoot);
-        }
-      };
-      visit(document.documentElement || document);
-      const saved = [];
-      for (const el of hits) {
-        saved.push([el, el.style.getPropertyValue(prop), el.style.getPropertyPriority(prop)]);
-        el.style.setProperty(prop, "disc", "important");
-      }
-      globalThis[key] = saved;
-      return saved.length;
-    }`;
-    async function maskSecretsInCapture(page, on) {
-      const values = [...secretStore.values()].filter((s) => !s.totp && s.value).map((s) => s.value);
-      if (!values.length && on) return;
-      for (const frame of [page._mainFrame, ...page._frames.values()]) {
-        if (frame._detached) continue;
-        await frame._call("agent", MASK_SOURCE, [values, on]).catch(() => {});
-      }
+      fs.appendFileSync(recorder.trace, JSON.stringify(entry) + "\n");
     }
 
     // ---- hooks -------------------------------------------------------------------
-    const BINARY = new Set(["tab.screenshot", "tab.pdf", "clipboard.read"]);
+    // Secrets in captures are masked by the driver: it hides the fields it
+    // typed a secret into, and text holding a value in frames on that
+    // secret's domains, for the length of the capture.
     const TITLES = { "tab.navigate": "page.goto", "tabs.open": "tabs.open" };
-    const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond)/;
-    session.agentTools = {
+    const blockedMessage = (b) => `navigation to ${b.url} was blocked: ${b.reason}`;
+    const hooks = {
       isSecret,
-      resolveSecret,
-      redactText,
       checkURL,
       async beforeCall(method, params) {
-        if (policySync && method !== "session.configure") await policySync;
-        if (CAPTURES.has(method) && secretStore.size && params && params.targetId) {
-          const page = session.pages.get(params.targetId);
-          if (page && !page._closed) {
-            masked.set(params, page);
-            await maskSecretsInCapture(page, true);
-          }
-        }
-        if ((method === "tab.navigate" || method === "tabs.open") && params && params.url) {
-          checkURL(TITLES[method], params.url);
-          if (method === "tab.navigate" && params.targetId) policy.navigating.set(params.targetId, (policy.navigating.get(params.targetId) || 0) + 1);
-          return;
-        }
-        // With a domain policy, nothing reads or acts on a tab before its live
-        // URL is checked: a link, redirect or script may have left the allowed
-        // domains without a navigation event reaching the runtime.
-        if (policyActive() && params && params.targetId && GUARDED.test(method)) {
-          const pending = policy.blocking.get(params.targetId);
-          if (pending) await pending;
-          const info = await session.driver.call("tab.info", { targetId: params.targetId }).catch(() => null);
-          const reason = info && info.url && urlReason(info.url);
-          if (reason) {
-            await blockPage(params.targetId, info.url, reason);
-            throw new Error(`${method === "frame.evaluate" ? "page" : method}: navigation to ${info.url} was blocked: ${reason}; the tab now shows about:blank`);
-          }
-        }
+        // A cancelled navigation is reported to the action that caused it; a
+        // report that came in after that action ended is dropped when the
+        // tab's next action starts.
+        if (params && params.targetId && /^(tab\.(navigate|history|reload)|input\.)/.test(method)) blockedTabs.delete(params.targetId);
+        if ((method === "tab.navigate" || method === "tabs.open") && params && params.url) checkURL(TITLES[method], params.url);
       },
       afterCall(method, params, promise) {
-        const maskedPage = params && masked.get(params);
-        if (maskedPage) {
-          masked.delete(params);
-          promise = promise.finally(() => maskSecretsInCapture(maskedPage, false));
-        }
-        const nav = method === "tab.navigate" && params && params.url && params.targetId;
-        const done = () => {
-          if (!nav) return;
-          const n = (policy.navigating.get(params.targetId) || 1) - 1;
-          if (n) policy.navigating.set(params.targetId, n);
-          else policy.navigating.delete(params.targetId);
-        };
-        if (!masks.length && !recorder && !policyActive() && !nav) return promise;
+        if (!recorder && !(NAVIGATIONS.has(method) || method === "tabs.open")) return promise;
         return promise.then(async (r) => {
-          done();
-          if (policyActive() && NAVIGATIONS.has(method) && r && r.url && params.url !== "about:blank") {
-            const reason = urlReason(r.url);
-            if (reason) {
-              await blockPage(params.targetId, r.url, reason);
-              throw new Error(`${TITLES[method] || method}: navigation to ${r.url} was blocked: ${reason}; the tab now shows about:blank`);
-            }
-          }
           if (recorder && RECORDED.has(method) && !(method === "input.mouse" && params.type === "move") && !(method === "input.key" && params.type === "up")) {
             const entry = { t: new Date(session.now()).toISOString(), tab: params.targetId, method, ...traceParams(method, params) };
             if (NAVIGATIONS.has(method) || method === "tabs.open") {
@@ -1164,14 +1022,18 @@
             }
             trace(entry);
           }
-          return BINARY.has(method) ? r : redactValue(r);
+          return r;
         }, (e) => {
-          done();
-          throw redactError(e);
+          // The driver refused a navigation the policy blocks.
+          if (e && e.code === "blocked") {
+            policyLog.push({ url: String(params.url || ""), reason: String(e.message).replace(/^.* is blocked: /, ""), at: new Date(session.now()).toISOString(), blocked: "before" });
+            throw new Error(`${TITLES[method] || method}: ${e.message}`);
+          }
+          throw e;
         });
       },
       onEvent(event, payload) {
-        return masks.length ? redactValue(payload) : payload;
+        return payload;
       },
       afterEvent(event, p) {
         if (event === "download.started") {
@@ -1182,42 +1044,37 @@
         } else if (event === "download.finished") {
           const d = downloadsById.get(p.downloadId);
           if (d) Object.assign(d, { state: p.error ? "failed" : "finished", path: p.path || null, error: p.error || null });
-        } else if (event === "tab.navigated" && policyActive() && p.url && !policy.navigating.has(p.targetId)) {
-          const page = session.pages.get(p.targetId);
-          if (!page || page._frameFor(p.frameId) !== page._mainFrame) return;
+        } else if (event === "navigation.blocked") {
+          // The driver cancelled a navigation of a tab the session opened (a
+          // link, redirect or script): the tab stays where it was.
+          policyLog.push({ url: p.url, reason: p.reason, at: new Date(session.now()).toISOString(), blocked: "cancelled" });
+          blockedTabs.set(p.targetId, { url: p.url, reason: p.reason });
+          print("warn", `# ${blockedMessage(p)}; the tab stayed on its page`);
+        } else if (event === "tab.created" && p.url && p.openerTargetId) {
           const reason = urlReason(p.url);
           if (reason) {
-            print("warn", `# navigation to ${p.url} was blocked: ${reason}; the tab now shows about:blank`);
-            blockPage(p.targetId, p.url, reason);
+            policyLog.push({ url: p.url, reason, at: new Date(session.now()).toISOString(), blocked: "popup" });
+            print("warn", `# a new tab for ${p.url} was closed: ${reason}`);
+            session.call("tabs.close", { targetId: p.targetId }).catch(() => {});
           }
-        } else if (event === "tab.created" && policyActive() && p.url && urlReason(p.url)) {
-          const reason = urlReason(p.url);
-          policy.log.push({ url: p.url, reason, at: new Date(session.now()).toISOString(), blocked: "popup" });
-          print("warn", `# a new tab for ${p.url} was closed: ${reason}`);
-          session.call("tabs.close", { targetId: p.targetId }).catch(() => {});
         }
       },
       async afterAction(page) {
-        const pending = policy.blocking.get(page._targetId);
-        if (pending) await pending;
-        if (policyActive() && !page._closed) {
-          const url = page.url();
-          const reason = url && urlReason(url);
-          if (reason) {
-            await blockPage(page._targetId, url, reason);
-            throw new Error(`navigation to ${url} was blocked: ${reason}; the tab now shows about:blank`);
-          }
-          if (pending) {
-            const last = policy.log[policy.log.length - 1];
-            throw new Error(`navigation to ${last.url} was blocked: ${last.reason}; the tab now shows about:blank`);
-          }
+        const blocked = blockedTabs.get(page._targetId);
+        if (blocked) {
+          blockedTabs.delete(page._targetId);
+          throw new Error(`${blockedMessage(blocked)}; the tab stayed on ${page.url()}`);
         }
         if (recorder) {
           const file = await recordFrame(page);
-          if (file) trace({ t: new Date(session.now()).toISOString(), tab: page._targetId, event: "after-action", url: redactText(page.url()), frame: file });
+          if (file) trace({ t: new Date(session.now()).toISOString(), tab: page._targetId, event: "after-action", url: page.url(), frame: file });
         }
       },
     };
+    // Agent code can reach the session object; the hooks stay fixed. They
+    // are conveniences: the guards are native and do not depend on them.
+    Object.freeze(hooks);
+    Object.defineProperty(session, "agentTools", { value: hooks, writable: false, configurable: false, enumerable: false });
 
     // ---- storage state -------------------------------------------------------------
     // Default scope: the sites (registrable domains) of one tab, so a saved
@@ -1289,13 +1146,10 @@
       allowedDomains: (list, options) => setPatterns("allowed", "session.allowedDomains", list, options),
       prohibitedDomains: (list, options) => setPatterns("prohibited", "session.prohibitedDomains", list, options),
       blockIPAddresses(on) {
-        if (on === undefined) return policy.blockIPs;
-        if (policy.locked) throw lockedError("session.blockIPAddresses");
-        policy.blockIPs = !!on;
-        syncPolicyRules();
-        return policy.blockIPs;
+        if (on === undefined) return policyHost("get").blockIPs;
+        return policyHost("set", { blockIPs: !!on, title: "session.blockIPAddresses" }).blockIPs;
       },
-      blockedNavigations: () => policy.log.map((e) => ({ ...e })),
+      blockedNavigations: () => policyLog.map((e) => ({ ...e })),
       // Playwright browser-context options for the tabs this session drives:
       // { userAgent, extraHTTPHeaders, permissions, proxy }. null clears one.
       configure,
@@ -1669,5 +1523,5 @@
     return labels.slice(-2).join(".");
   }
 
-  ns.agentTools = { install, urlMatches, parsePattern, totp, base32Decode, sha1, crc32, buildApng, pngChunks, parseResults, markdownOfFrame, registrableDomain };
+  ns.agentTools = { install, urlMatches, parsePattern, normalizeHost, policyContentRules, isIPHost, totp, base32Decode, sha1, crc32, buildApng, pngChunks, parseResults, markdownOfFrame, registrableDomain };
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -43,6 +43,16 @@ public protocol BrowserReplDriver: AnyObject, Sendable {
 
     /// Stops events and releases held dialogs, file choosers and input state.
     func detach()
+
+    /// The session's domain policy changed. The driver refuses navigations
+    /// the policy blocks (redirects too), blocks subresources and frames with
+    /// content rules built from it, and refuses reads and input on a tab
+    /// whose page is blocked. The session calls this, never JavaScript.
+    func setDomainPolicy(_ policy: BrowserReplDomainPolicy)
+}
+
+extension BrowserReplDriver {
+    public func setDomainPolicy(_ policy: BrowserReplDomainPolicy) {}
 }
 
 /// JSON helpers for values crossing the JavaScriptCore bridge.

@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
-import { loadRuntime, createDevBrowser, createNodeHost } from "../lib/dev-driver.mjs";
+import { loadRuntime, createDevBrowser, createNodeHost, createDevRepl } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 
 const ns = loadRuntime();
@@ -128,7 +128,7 @@ async function withRepl(fn, { maxOutput } = {}) {
   const driver = browser.driver();
   const lines = [];
   const host = createNodeHost({ workDir: dir, sessionId, print: (level, text) => lines.push(text) });
-  const repl = ns.replHost.createBrowserRepl({ host, driver });
+  const repl = createDevRepl({ host, driver });
   const outputs = [];
   const run = async (code) => {
     const start = lines.length;
@@ -194,11 +194,12 @@ test("secrets: a registered value never appears in output, errors, page reads or
       assert.equal(r.error, null);
       assert.match(r.output, /<secret:apikey>/);
       assert.match(r.output, /password 18 chars/);
-      // Typed one key at a time, the password's characters are not in the trace.
+      // A secret is inserted by the native session in one piece; the trace
+      // names it, and other typed text and keys stay out of it.
       const traceFile = filesUnder(sessionTmp).find((f) => f.endsWith("trace.jsonl"));
       const trace = fs.readFileSync(traceFile, "utf8").trim().split("\n").map((l) => JSON.parse(l));
-      assert.ok(trace.some((e) => e.method === "input.key"));
-      assert.ok(trace.every((e) => e.key === undefined && (e.text === undefined || /^<\d+ characters>$/.test(e.text))));
+      assert.ok(trace.some((e) => e.method === "input.insertText" && e.text === "<secret:pw>"));
+      assert.ok(trace.every((e) => e.key === undefined && (e.text === undefined || /^<(\d+ characters|secret:\w+)>$/.test(e.text))));
       // Reading the secrets file and printing it, throwing it, logging it from
       // a listener and spilling a large output all mask it.
       r = await run(`
@@ -215,9 +216,9 @@ test("secrets: a registered value never appears in output, errors, page reads or
       assert.match(r.output, /# output continues in .*output-\d+\.txt/);
       // A secret is refused outside its domains, also in a frame of another site.
       r = await run(`await page.frameLocator("#peer-frame").locator("#frame-pass").fill(secret("pw"))`);
-      assert.match(r.error, /may not be typed into http:\/\/127\.0\.0\.1:\d+\/agent-frame\.html; its domains are localhost/);
+      assert.match(r.error, /may not be typed into http:\/\/127\.0\.0\.1:\d+; its domains are localhost/);
       r = await run(`secrets.set("other", "elsewhere-value-1", { domains: ["example.com"] }); await page.fill("#user", secret("other"))`);
-      assert.match(r.error, /may not be typed into http:\/\/localhost:\d+\/agent-tools\.html; its domains are example\.com/);
+      assert.match(r.error, /may not be typed into http:\/\/localhost:\d+; its domains are example\.com/);
       assert.equal(await run(`await page.locator("#user").inputValue()`).then((o) => o.output), "ada");
 
       const texts = outputs.flatMap((o) => [o.output, o.error || "", o.formatted || ""]);

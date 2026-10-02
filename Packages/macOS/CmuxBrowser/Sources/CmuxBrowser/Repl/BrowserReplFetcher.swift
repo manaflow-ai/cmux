@@ -7,24 +7,58 @@ public import Foundation
 /// `cookies.set`, so a download fetched from the REPL behaves like one the tab
 /// made. The URL session itself stores no cookies; each redirect hop gets the
 /// cookies for its own URL instead of inheriting the first hop's header.
+///
+/// `credentials` follows the Fetch standard's values: `include` (the
+/// default, cookies for every URL), `same-origin` (only for URLs on the
+/// requesting page's origin) and `omit` (none sent, none stored). The
+/// session's domain policy is checked for the first URL and for every
+/// redirect hop. A body larger than `maxBodyBytes` fails the fetch.
 public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    /// The largest response body a fetch returns, 64 MiB.
+    public static let defaultMaxBodyBytes = 64 << 20
+
+    private struct TaskInfo {
+        let targetID: String?
+        let credentials: String
+        let origin: String?
+        var blocked: String?
+    }
+
     private let driver: any BrowserReplDriver
+    private let maxBodyBytes: Int
     private var session: URLSession!
     private let lock = NSLock()
-    private var targetIDs: [Int: String] = [:]
+    private var tasks: [Int: TaskInfo] = [:]
+    private var blockReason: (@Sendable (String) -> String?)?
     /// Set by `invalidate()`. A task is created only under `lock` while this
     /// is false, so no task is ever created on an invalidated URL session.
     private var isInvalidated = false
 
-    public init(driver: any BrowserReplDriver) {
+    /// - Parameters:
+    ///   - maxBodyBytes: The largest body returned.
+    ///   - protocolClasses: URL protocols to try first (tests stub the network).
+    public init(driver: any BrowserReplDriver, maxBodyBytes: Int = defaultMaxBodyBytes, protocolClasses: [AnyClass]? = nil) {
         self.driver = driver
+        self.maxBodyBytes = maxBodyBytes
         super.init()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = 60
+        if let protocolClasses {
+            configuration.protocolClasses = protocolClasses + (configuration.protocolClasses ?? [])
+        }
         session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+    }
+
+    /// The domain policy check: why a URL is blocked, or nil.
+    public func setBlockReason(_ check: @escaping @Sendable (String) -> String?) {
+        lock.withLock { blockReason = check }
+    }
+
+    private func reason(_ url: URL) -> String? {
+        lock.withLock { blockReason }?(url.absoluteString)
     }
 
     /// Cancels in-flight requests and breaks the session's strong reference
@@ -42,7 +76,10 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
 
     private static let closedError = BrowserReplDriverError(code: "closed", message: "fetch: the REPL session was closed")
 
-    /// Performs one request described by the host contract's `requestJSON`.
+    /// Performs one request described by the host contract's `requestJSON`:
+    /// `{ url, method, headers: [[k, v]], bodyBase64?, targetId?,
+    /// credentials?: "include" | "same-origin" | "omit", origin? }`, where
+    /// `origin` is the requesting page's origin for `same-origin`.
     public func fetch(requestJSON: String) async -> Result<String, BrowserReplDriverError> {
         let request = JSONSerialization.browserReplObject(requestJSON)
         guard let urlString = request["url"] as? String,
@@ -51,7 +88,14 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
               scheme == "http" || scheme == "https" else {
             return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: only http(s) URLs are supported"))
         }
-        let targetID = request["targetId"] as? String
+        if let reason = reason(url) {
+            return .failure(BrowserReplDriverError(code: "blocked", message: "fetch: \(urlString) is blocked: \(reason)"))
+        }
+        let credentials = request["credentials"] as? String ?? "include"
+        guard ["include", "same-origin", "omit"].contains(credentials) else {
+            return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: credentials: expected include, same-origin or omit, got \(credentials)"))
+        }
+        let info = TaskInfo(targetID: request["targetId"] as? String, credentials: credentials, origin: request["origin"] as? String)
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = (request["method"] as? String)?.uppercased() ?? "GET"
         if let headers = request["headers"] as? [[String]] {
@@ -62,8 +106,8 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         if let body = request["bodyBase64"] as? String, let data = Data(base64Encoded: body) {
             urlRequest.httpBody = data
         }
-        if urlRequest.value(forHTTPHeaderField: "Cookie") == nil,
-           let cookie = await cookieHeader(for: url, targetID: targetID) {
+        if urlRequest.value(forHTTPHeaderField: "Cookie") == nil, Self.sendsCookies(info, to: url),
+           let cookie = await cookieHeader(for: url, targetID: info.targetID) {
             urlRequest.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
 
@@ -71,7 +115,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         let created: URLSessionDataTask? = lock.withLock {
             guard !isInvalidated else { return nil }
             let task = session.dataTask(with: urlRequest)
-            targetIDs[task.taskIdentifier] = targetID
+            tasks[task.taskIdentifier] = info
             return task
         }
         guard let task = created else { return .failure(Self.closedError) }
@@ -80,7 +124,9 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             guard let http = response as? HTTPURLResponse else {
                 return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: non-HTTP response"))
             }
-            await storeCookies(from: http, targetID: targetID)
+            if Self.sendsCookies(info, to: http.url ?? url) {
+                await storeCookies(from: http, targetID: info.targetID)
+            }
             let headers: [[String]] = http.allHeaderFields.compactMap { key, value in
                 guard let key = key as? String else { return nil }
                 return [key.lowercased(), "\(value)"]
@@ -94,14 +140,31 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
                 "redirected": http.url != url,
             ]
             return .success(JSONSerialization.browserReplString(result) ?? "null")
+        } catch let error as BrowserReplDriverError {
+            return .failure(error)
         } catch {
             if lock.withLock({ isInvalidated }) { return .failure(Self.closedError) }
             return .failure(BrowserReplDriverError(code: "invalid", message: "fetch failed: \(error.localizedDescription)"))
         }
     }
 
+    private static func origin(of url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), let host = url.host?.lowercased() else { return nil }
+        let isDefault = (scheme == "https" && url.port == 443) || (scheme == "http" && url.port == 80)
+        if let port = url.port, !isDefault { return "\(scheme)://\(host):\(port)" }
+        return "\(scheme)://\(host)"
+    }
+
+    private static func sendsCookies(_ info: TaskInfo, to url: URL) -> Bool {
+        switch info.credentials {
+        case "omit": return false
+        case "same-origin": return info.origin != nil && origin(of: url) == info.origin?.lowercased()
+        default: return true
+        }
+    }
+
     private func data(for task: URLSessionDataTask) async throws -> (Data, URLResponse) {
-        let collector = FetchCollector()
+        let collector = FetchCollector(limit: maxBodyBytes)
         lock.withLock { collectors[task.taskIdentifier] = collector }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -122,15 +185,20 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        collector(for: dataTask)?.append(data)
+        guard let collector = collector(for: dataTask) else { return }
+        if !collector.append(data) { dataTask.cancel() }
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
         lock.lock()
         let collector = collectors.removeValue(forKey: task.taskIdentifier)
-        targetIDs.removeValue(forKey: task.taskIdentifier)
+        let info = tasks.removeValue(forKey: task.taskIdentifier)
         lock.unlock()
-        collector?.finish(response: task.response, error: error)
+        if let blocked = info?.blocked {
+            collector?.fail(BrowserReplDriverError(code: "blocked", message: blocked))
+        } else {
+            collector?.finish(response: task.response, error: error)
+        }
     }
 
     public func urlSession(
@@ -140,15 +208,27 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         newRequest request: URLRequest,
         completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
-        lock.lock()
-        let targetID = targetIDs[task.taskIdentifier]
-        lock.unlock()
+        // Every hop is checked against the domain policy; a blocked hop fails
+        // the fetch instead of returning the redirect.
+        if let url = request.url, let reason = reason(url) {
+            lock.withLock { tasks[task.taskIdentifier]?.blocked = "fetch: redirect to \(url.absoluteString) is blocked: \(reason)" }
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
+        guard let info = lock.withLock({ tasks[task.taskIdentifier] }) else {
+            completionHandler(nil)
+            return
+        }
         let redirected = request
         Task {
-            await self.storeCookies(from: response, targetID: targetID)
+            if let from = response.url, Self.sendsCookies(info, to: from) {
+                await self.storeCookies(from: response, targetID: info.targetID)
+            }
             var next = redirected
             next.setValue(nil, forHTTPHeaderField: "Cookie")
-            if let url = next.url, let cookie = await self.cookieHeader(for: url, targetID: targetID) {
+            if let url = next.url, Self.sendsCookies(info, to: url),
+               let cookie = await self.cookieHeader(for: url, targetID: info.targetID) {
                 next.setValue(cookie, forHTTPHeaderField: "Cookie")
             }
             completionHandler(next)
@@ -188,12 +268,34 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
 private final class FetchCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
+    private let limit: Int
+    private var tooLarge = false
     var continuation: CheckedContinuation<(Data, URLResponse), any Error>?
 
-    func append(_ chunk: Data) {
+    init(limit: Int) {
+        self.limit = limit
+    }
+
+    /// Appends a chunk; false once the body is over the limit.
+    func append(_ chunk: Data) -> Bool {
         lock.lock()
+        defer { lock.unlock() }
+        guard !tooLarge else { return false }
+        if data.count + chunk.count > limit {
+            tooLarge = true
+            data = Data()
+            return false
+        }
         data.append(chunk)
+        return true
+    }
+
+    func fail(_ error: any Error) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
         lock.unlock()
+        continuation?.resume(throwing: error)
     }
 
     func finish(response: URLResponse?, error: (any Error)?) {
@@ -201,8 +303,16 @@ private final class FetchCollector: @unchecked Sendable {
         let continuation = self.continuation
         self.continuation = nil
         let body = data
+        let tooLarge = self.tooLarge
+        let limit = self.limit
         lock.unlock()
-        if let error {
+        if tooLarge {
+            let mebibytes = limit >= 1 << 20 ? "\(limit >> 20) MiB" : "\(limit) bytes"
+            continuation?.resume(throwing: BrowserReplDriverError(
+                code: "invalid",
+                message: "fetch: the response body is larger than \(mebibytes); download it in a tab (page.waitForEvent(\"download\")) instead"
+            ))
+        } else if let error {
             continuation?.resume(throwing: error)
         } else if let response {
             continuation?.resume(returning: (body, response))
