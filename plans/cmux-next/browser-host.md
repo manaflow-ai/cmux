@@ -1,6 +1,6 @@
 # cmux next: browser host (agent browser use, WebKit and Chromium)
 
-Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: cmux-next-spec `spec/browser-use.md` (draft 2), `decisions.md` D12 and D20, `references/browser-use.md`, `references/browser-repl-inventory.md`; OWNERSHIP-PRINCIPLES.md; browser.md (CEF fork, shim, R2). Base implementation: PR https://github.com/manaflow-ai/cmux/pull/15570 (`cmux browser repl`, owner session feat-browser-repl-parity-8c, called "the REPL session" below). Its `docs/browser-repl/driver-protocol.md` is the contract this note builds on; its `tests/browser-parity` is the conformance suite. This note does not change either; changes to them go to the REPL session through the coordinator.
+Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: cmux-next-spec `spec/browser-use.md` (draft 2), `decisions.md` D12 and D20, `references/browser-use.md`, `references/browser-repl-inventory.md`; OWNERSHIP-PRINCIPLES.md; browser.md (CEF fork, shim, R2). Base implementation: PR https://github.com/manaflow-ai/cmux/pull/15570 (`cmux browser repl`, owner session feat-browser-repl-parity-8c, called "the REPL session" below). Its driver protocol ([browser-repl/driver-protocol.md](browser-repl/driver-protocol.md), moved from `docs/browser-repl`) is the contract this note builds on; its `tests/browser-parity` is the conformance suite. This note does not change either; changes to them go to the REPL session through the coordinator.
 
 ## Decisions (Lawrence, 2026-10-01, via the coordinator)
 
