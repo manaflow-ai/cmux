@@ -64,7 +64,8 @@ impl Tx<'_> {
         if self.state.sessions.contains_key(&p.session) {
             return Err(conflict(format!("session id already used: {}", p.session)));
         }
-        let harness = harness_slug(&p.harness).ok_or_else(|| invalid(format!("bad harness: {}", p.harness)))?;
+        let harness = harness_slug(&p.harness)
+            .ok_or_else(|| invalid(format!("bad harness: {}", p.harness)))?;
         let person = self.actor.human().to_owned();
         let principal = match &p.agent {
             Some(agent) if is_valid_id(agent, prefix::AGENT) => agent.clone(),
@@ -82,7 +83,9 @@ impl Tx<'_> {
             super::tasks::validate_text(prompt, "prompt")?;
         }
         if self.state.active_sessions(&task_id).any(|s| s.agent.principal == principal) {
-            return Err(conflict(format!("{principal} already has an active session on this task")));
+            return Err(conflict(format!(
+                "{principal} already has an active session on this task"
+            )));
         }
         let agent = AgentRef {
             principal,
@@ -137,7 +140,10 @@ impl Tx<'_> {
         if session.status != SessionStatus::Pending {
             return Err(conflict(format!(
                 "session already {}",
-                session.claimed_by.as_deref().map_or("started".to_owned(), |h| format!("claimed by {h}"))
+                session
+                    .claimed_by
+                    .as_deref()
+                    .map_or("started".to_owned(), |h| format!("claimed by {h}"))
             )));
         }
         let s = self.state.sessions.get_mut(&p.session).expect("validated session");
@@ -157,7 +163,10 @@ impl Tx<'_> {
             return Err(invalid("acp_session must be 1..=200 bytes"));
         }
         if !matches!(session.status, SessionStatus::Pending | SessionStatus::Claimed) {
-            return Err(conflict(format!("session is {:?}; attach needs pending or claimed", session.status)));
+            return Err(conflict(format!(
+                "session is {:?}; attach needs pending or claimed",
+                session.status
+            )));
         }
         if let (Some(claimed), Some(host)) = (&session.claimed_by, &p.host)
             && claimed != host
@@ -191,11 +200,15 @@ impl Tx<'_> {
                 return Err(invalid("use task.session.cancel"));
             }
             if !transition_allowed(session.status, status) {
-                return Err(invalid(format!("session cannot go from {:?} to {status:?}", session.status)));
+                return Err(invalid(format!(
+                    "session cannot go from {:?} to {status:?}",
+                    session.status
+                )));
             }
         }
         if let Some(plan) = &p.plan
-            && (plan.len() > 200 || plan.iter().any(|s| s.content.is_empty() || s.content.len() > 2000))
+            && (plan.len() > 200
+                || plan.iter().any(|s| s.content.is_empty() || s.content.len() > 2000))
         {
             return Err(invalid("plan: at most 200 steps of 1..=2000 bytes"));
         }
@@ -225,14 +238,21 @@ impl Tx<'_> {
             self.push_session_status(snapshot, from);
             self.flow_after(&p.session, new_status);
         } else {
-            self.events.push(EventKind::upsert("task.agent_session.updated", Entity::Session(snapshot), serde_json::Value::Null));
+            self.events.push(EventKind::upsert(
+                "task.agent_session.updated",
+                Entity::Session(snapshot),
+                serde_json::Value::Null,
+            ));
         }
         Ok(self.session_result(&p.session))
     }
 
     pub(super) fn session_cancel(&mut self, id: &str) -> Result<OpResult, Reject> {
         let session = self.session(id)?;
-        if !(self.actor.is_user() || self.actor.is_mux() || self.actor.id() == session.agent.principal) {
+        if !(self.actor.is_user()
+            || self.actor.is_mux()
+            || self.actor.id() == session.agent.principal)
+        {
             return Err(forbidden("only a person, a mux or the session's agent may cancel it"));
         }
         if session.status.is_terminal() {
@@ -288,7 +308,8 @@ impl Tx<'_> {
             }
             _ => None,
         };
-        let drop_delegate = status == SessionStatus::Canceled && task.delegate.as_ref() == Some(&session.agent);
+        let drop_delegate =
+            status == SessionStatus::Canceled && task.delegate.as_ref() == Some(&session.agent);
         let attention = match attention {
             None if drop_delegate => Some(task.attention),
             other => other,
@@ -302,7 +323,11 @@ impl Tx<'_> {
                     t.delegate = None;
                 }
                 let snapshot = t.clone();
-                self.events.push(EventKind::upsert("task.updated", Entity::Task(Box::new(snapshot)), json!({"fields": ["attention"], "by_agent_flow": true})));
+                self.events.push(EventKind::upsert(
+                    "task.updated",
+                    Entity::Task(Box::new(snapshot)),
+                    json!({"fields": ["attention"], "by_agent_flow": true}),
+                ));
             }
         }
         if self.state.settings.agent_flow == AgentFlow::Off {
@@ -320,7 +345,9 @@ impl Tx<'_> {
         let Some(current) = self.state.category_of(&task) else { return };
         let to = self.state.statuses[&target].category;
         let forward = to.rank() > current.rank()
-            || (status == SessionStatus::Done && to == Category::Started && current == Category::Started);
+            || (status == SessionStatus::Done
+                && to == Category::Started
+                && current == Category::Started);
         if forward && to.rank() >= current.rank() && task.status != target {
             self.set_status(&task.id, &target, true);
         }

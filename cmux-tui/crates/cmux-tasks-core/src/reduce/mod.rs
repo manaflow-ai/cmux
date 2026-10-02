@@ -138,7 +138,12 @@ pub fn reduce(state: &mut State, envelope: &Envelope, ctx: Ctx) -> Result<Commit
                 format!("key {} was used for a different op", envelope.key),
             ));
         }
-        return Ok(Commit { result: entry.result.clone(), events: Vec::new(), seq: entry.seq, replay: true });
+        return Ok(Commit {
+            result: entry.result.clone(),
+            events: Vec::new(),
+            seq: entry.seq,
+            replay: true,
+        });
     }
     if envelope.actor.is_ordinary_agent()
         && needs_grant_for_ordinary_agent(&envelope.op)
@@ -162,10 +167,8 @@ pub fn reduce(state: &mut State, envelope: &Envelope, ctx: Ctx) -> Result<Commit
 
 fn prune_ledger(state: &mut State, now: i64) {
     while let Some(oldest) = state.ledger_order.front() {
-        let expired = state
-            .ledger
-            .get(oldest)
-            .is_none_or(|entry| now - entry.at > LEDGER_RETENTION_MS);
+        let expired =
+            state.ledger.get(oldest).is_none_or(|entry| now - entry.at > LEDGER_RETENTION_MS);
         if !expired {
             break;
         }

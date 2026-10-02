@@ -23,7 +23,10 @@ fn numbers(state: &State, out: &mut Vec<String>) {
     let mut seen = BTreeSet::new();
     for task in state.tasks.values() {
         if task.number == 0 || task.number >= state.settings.next_number {
-            out.push(format!("{}: number {} outside 1..{}", task.id, task.number, state.settings.next_number));
+            out.push(format!(
+                "{}: number {} outside 1..{}",
+                task.id, task.number, state.settings.next_number
+            ));
         }
         if !seen.insert(task.number) {
             out.push(format!("{}: number {} reused", task.id, task.number));
@@ -133,7 +136,11 @@ fn workflow(state: &State, out: &mut Vec<String>) {
         }
     }
     let settings = &state.settings;
-    for (name, id) in [("default_status", Some(&settings.default_status)), ("started_status", Some(&settings.started_status)), ("review_status", settings.review_status.as_ref())] {
+    for (name, id) in [
+        ("default_status", Some(&settings.default_status)),
+        ("started_status", Some(&settings.started_status)),
+        ("review_status", settings.review_status.as_ref()),
+    ] {
         if let Some(id) = id
             && !state.statuses.contains_key(id)
         {

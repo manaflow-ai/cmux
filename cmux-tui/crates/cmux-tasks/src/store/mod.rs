@@ -81,7 +81,8 @@ impl Store {
         fs::create_dir_all(dir.join("log"))?;
         fs::create_dir_all(dir.join("snapshots"))?;
         restrict_dir(dir)?;
-        let lock = OpenOptions::new().create(true).truncate(false).write(true).open(dir.join("LOCK"))?;
+        let lock =
+            OpenOptions::new().create(true).truncate(false).write(true).open(dir.join("LOCK"))?;
         match fs4::FileExt::try_lock(&lock) {
             Ok(()) => {}
             Err(fs4::TryLockError::WouldBlock) => return Err(OpenError::Locked),
@@ -101,17 +102,36 @@ impl Store {
                 continue;
             }
             if record.seq != state.seq + 1 {
-                return Err(OpenError::Corrupt(format!("gap: expected seq {}, found {}", state.seq + 1, record.seq)));
+                return Err(OpenError::Corrupt(format!(
+                    "gap: expected seq {}, found {}",
+                    state.seq + 1,
+                    record.seq
+                )));
             }
-            let commit = reduce(&mut state, &record.envelope, Ctx { now: record.at })
-                .map_err(|r| OpenError::Corrupt(format!("seq {} no longer commits: {}", record.seq, r.message)))?;
+            let commit =
+                reduce(&mut state, &record.envelope, Ctx { now: record.at }).map_err(|r| {
+                    OpenError::Corrupt(format!(
+                        "seq {} no longer commits: {}",
+                        record.seq, r.message
+                    ))
+                })?;
             if commit.result != record.result || commit.replay {
-                return Err(OpenError::Corrupt(format!("seq {} replays to a different result", record.seq)));
+                return Err(OpenError::Corrupt(format!(
+                    "seq {} replays to a different result",
+                    record.seq
+                )));
             }
             recovered.push((record, commit.events));
         }
         let writer = segment::Writer::open(&dir.join("log"), state.seq + 1, SEGMENT_BYTES)?;
-        let store = Self { dir: dir.to_owned(), _lock: lock, state, writer, pending: Vec::new(), last_snapshot };
+        let store = Self {
+            dir: dir.to_owned(),
+            _lock: lock,
+            state,
+            writer,
+            pending: Vec::new(),
+            last_snapshot,
+        };
         Ok((store, recovered))
     }
 
@@ -128,7 +148,13 @@ impl Store {
     pub fn stage(&mut self, envelope: &Envelope, now: i64) -> Result<Commit, Reject> {
         let commit = reduce(&mut self.state, envelope, Ctx { now })?;
         if !commit.replay {
-            self.pending.push(Record { v: FORMAT, seq: commit.seq, at: now, envelope: envelope.clone(), result: commit.result.clone() });
+            self.pending.push(Record {
+                v: FORMAT,
+                seq: commit.seq,
+                at: now,
+                envelope: envelope.clone(),
+                result: commit.result.clone(),
+            });
         }
         Ok(commit)
     }
@@ -157,14 +183,19 @@ fn load_or_create_meta(dir: &Path, team: &str, key_prefix: &str) -> Result<Meta,
     let path = dir.join("meta.json");
     match fs::read(&path) {
         Ok(bytes) => {
-            let meta: Meta = serde_json::from_slice(&bytes).map_err(|e| OpenError::Corrupt(format!("meta.json: {e}")))?;
+            let meta: Meta = serde_json::from_slice(&bytes)
+                .map_err(|e| OpenError::Corrupt(format!("meta.json: {e}")))?;
             if meta.format != FORMAT {
-                return Err(OpenError::Corrupt(format!("unsupported store format {}", meta.format)));
+                return Err(OpenError::Corrupt(format!(
+                    "unsupported store format {}",
+                    meta.format
+                )));
             }
             Ok(meta)
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            let meta = Meta { format: FORMAT, team: team.to_owned(), key_prefix: key_prefix.to_owned() };
+            let meta =
+                Meta { format: FORMAT, team: team.to_owned(), key_prefix: key_prefix.to_owned() };
             let bytes = serde_json::to_vec_pretty(&meta).map_err(io::Error::other)?;
             snapshot::write_atomic(&path, &bytes)?;
             Ok(meta)

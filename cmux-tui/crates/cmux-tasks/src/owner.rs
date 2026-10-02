@@ -22,7 +22,9 @@ pub struct LocalOwner {
 pub enum Owner {
     Local(LocalOwner),
     /// Routed through the API Worker and `TeamVmDO` (not implemented here).
-    TeamVm { team: String },
+    TeamVm {
+        team: String,
+    },
 }
 
 pub const DEFAULT_TEAM: &str = "local";
@@ -42,7 +44,9 @@ fn state_root() -> PathBuf {
 }
 
 fn valid_team(team: &str) -> bool {
-    !team.is_empty() && team.len() <= 64 && team.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    !team.is_empty()
+        && team.len() <= 64
+        && team.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// Resolve the owner of `team` (default `local`). `data_dir` overrides the
