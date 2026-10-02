@@ -5723,6 +5723,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "agent activity",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "agentActivity.open",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
       "cli" : "focusMove",
       "cli_name" : "agent focus-computer-use",
       "context_menu" : "focusMove",

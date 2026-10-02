@@ -98,6 +98,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], cliName: "agent grant-screen-recording-access"
             ),
             ActionDescriptor(
+                id: "agentActivity.open",
+                title: String(localized: "action.agentActivity.open", defaultValue: "Agent Activity", bundle: .module),
+                keywords: ["agent", "computer use", "cua", "timeline", "screenshots", "automation"], category: .agents,
+                symbol: "cursorarrow.click.2", surfaces: [.palette, .menu], cliName: "agent activity", mainMenu: .window
+            ),
+            ActionDescriptor(
                 id: "computerUseFocus",
                 title: String(localized: "action.computerUseFocus", defaultValue: "Focus Computer Use", bundle: .module),
                 keywords: ["agent", "automation"], category: .agents, symbol: "cursorarrow.rays", surfaces: [.menu],

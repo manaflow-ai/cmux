@@ -70,6 +70,8 @@ final class AppServices {
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
     private(set) lazy var historyPage = HistoryPageService(services: self)
+    /// `cmux://agent-activity`: the computer use sessions page.
+    private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     /// Recently closed workspaces (history lists).
     private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).

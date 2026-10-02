@@ -24,6 +24,7 @@ enum AgentHandlers {
         for (id, placement) in forks {
             registry.bind(id, run: { try fork(placement, invocation: $0, context: context) })
         }
+        registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindAgentPane { invocation in
