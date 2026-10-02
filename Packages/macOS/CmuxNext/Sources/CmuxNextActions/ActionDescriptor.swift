@@ -12,8 +12,9 @@ public nonisolated enum ShortcutFamily: Sendable, Hashable {
 /// descriptor; the App binds one handler per ID. Every entrypoint is
 /// generated from it: palette row (arguments collected inline from
 /// `arguments`), key binding (`defaultShortcut`, user-overridable by `id`),
-/// right-click menus (`ContextMenuCatalog`), main menu (`mainMenu`), and the
-/// CLI verb (`cliName`).
+/// right-click menus (`ContextMenuCatalog`, from `surfacePlan` placements),
+/// main menu (`mainMenu`), and the CLI verb (`cliName`). `surfacePlan`
+/// declares which surfaces offer the action, or why one does not.
 public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     public let id: ActionID
     public var title: String
@@ -27,8 +28,12 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// SF Symbol name.
     public var symbol: String
     /// Where the old app exposed the action (inventory legend). Historical;
-    /// under the action contract every action reaches every entrypoint.
+    /// `surfacePlan` is the declaration the registry and tests use.
     public var surfaces: ActionSurfaces
+    /// Which surfaces offer the action, with a reason for each that does
+    /// not (plans/cmux-next/actions.md). Palette, CLI verb, right-click
+    /// placements and MCP; the keyboard binds every action by `id`.
+    public var surfacePlan: ActionSurfacePlan
     /// Availability predicate: context facts that must all be present.
     public var requires: ActionContext
     /// Typed argument schema, collected in order.
@@ -80,7 +85,8 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
         mainMenu: ActionMainMenu? = nil,
         isDebugOnly: Bool = false,
         destructive: Bool = false,
-        startsTerminal: Bool = false
+        startsTerminal: Bool = false,
+        surfacePlan: ActionSurfacePlan = ActionSurfacePlan()
     ) {
         self.id = id
         self.title = title
@@ -102,11 +108,13 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
         self.cliName = cliName ?? Self.defaultCLIName(for: id)
         self.mainMenu = mainMenu
         self.isDebugOnly = isDebugOnly
+        self.surfacePlan = surfacePlan
+        if requires.contains(.paletteOpen) { self.surfacePlan.palette = .exempt(.paletteInternal) }
     }
 
-    /// Whether the palette lists the action. Everything is listed except
-    /// palette-internal navigation (actions that require the palette open).
-    public var isPaletteVisible: Bool { !requires.contains(.paletteOpen) }
+    /// Whether the palette lists the action (`surfacePlan.palette`).
+    /// Everything is listed except palette-internal navigation.
+    public var isPaletteVisible: Bool { surfacePlan.palette.isOffered }
 
     /// CLI verb for actions registered without one: `action <kebab-id>`.
     public static func defaultCLIName(for id: ActionID) -> String {

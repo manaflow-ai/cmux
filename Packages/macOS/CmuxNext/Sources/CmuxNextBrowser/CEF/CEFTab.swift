@@ -35,16 +35,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     /// DevTools of this page (docked in `contentView` or in a window).
     public internal(set) var devTools: BrowserDevToolsState
-    @ObservationIgnored var devToolsLayout: CEFDevToolsLayout
-    @ObservationIgnored var devToolsBrowserID: Int32?
-    /// Between `DEVTOOLS_WILL_OPEN` and `OPENED`: the layout keeps room.
-    @ObservationIgnored var devToolsOpening = false
-    /// Runs once DevTools closed (a move into or out of a window reopens).
-    @ObservationIgnored var devToolsAfterClose: BrowserDevToolsCommand?
-    /// The docked DevTools' parent view and the divider, while docked.
-    @ObservationIgnored var devToolsViews: (host: CEFHostView, divider: CEFDevToolsDivider)?
-    /// The window that holds `devToolsViews.host` while DevTools is not docked.
-    @ObservationIgnored var devToolsWindow: CEFDevToolsWindow?
+    /// DevTools placement (layout, docked views, window); writes `devTools`.
+    @ObservationIgnored let devToolsController: CEFDevToolsController
     /// cmux's header over Chromium's side panel, while it is open.
     @ObservationIgnored var sidePanelHeader: SidePanelHeaderView?
     @ObservationIgnored var sidePanelState: CEFSidePanelState?
@@ -103,8 +95,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         self.host = host
         self.runtime = runtime
         let layout = CEFDevToolsLayout.remembered
-        devToolsLayout = layout
+        devToolsController = CEFDevToolsController(layout: layout)
         devTools = BrowserDevToolsState(dock: layout.dock)
+        devToolsController.tab = self
     }
 
     public var contentView: NSView { container }
@@ -319,7 +312,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard visible == isOccluded else { return }
         isOccluded = !visible
         if host.visibleTab === self { host.hostView.isHidden = !visible }
-        devToolsViews?.host.isHidden = !visible
+        devToolsController.views?.host.isHidden = !visible
     }
 
     /// Whether the content lifecycle hid this page (read by the pane host

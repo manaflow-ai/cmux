@@ -34,8 +34,8 @@ enum DebugStickyColumns {
         for controller in services.windows.controllers {
             guard let content = controller.content, content.paneController(key: key) != nil,
                   let column = content.layoutModel.stickyColumn(containing: CmuxNextLayout.PaneID(key)) else { continue }
-            let edge = params["edge"]?.stringValue.flatMap(StickyEdge.init(rawValue:)) ?? column.sticky?.edge ?? .right
-            let mode = params["mode"]?.stringValue.flatMap(StickyMode.init(rawValue:)) ?? column.sticky?.mode ?? .docked
+            let edge = params["edge"]?.stringValue.flatMap(StickyEdge.init(rawValue:)) ?? column.sticky?.edge ?? StickyColumnHandlers.defaultEdge
+            let mode = params["mode"]?.stringValue.flatMap(StickyMode.init(rawValue:)) ?? column.sticky?.mode ?? StickyColumnHandlers.defaultMode
             do {
                 try StickyColumnHandlers.apply(flag ? StickyColumn(edge: edge, mode: mode) : nil, to: column, in: content)
                 return nil

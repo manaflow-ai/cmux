@@ -79,6 +79,8 @@ extension LayoutStyle {
         style.attention = DesignSettings.shared.attention
         style.paneBorderColor = DesignSettings.shared.paneChrome.borderColor
         style.paneBorderWidth = Metrics.paneBorderWidth
+        // cmux.json `layout.minimumPaneWidth` / `layout.minimumPaneHeight`.
+        style.minimumPaneContentSize = DesignSettings.shared.minimumPaneContentSize
         // Debug Settings overrides only (no override keeps the base style's
         // value; the tunables' defaults equal the literals above).
         if let value = LayoutTunables.inactivePaneDimming.override { style.inactivePaneDimming = value }
