@@ -13,6 +13,33 @@ import Testing
 @MainActor
 @Suite("Cloud drag validation and feedback", .serialized)
 struct CloudSurfaceDragFeedbackTests {
+    @Test("Cloud pane forwarding stays stable while the pointer remains in one pane")
+    func destinationStaysValidDuringPortalHitTestChurn() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 240),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        let root = NSView(frame: window.contentLayoutRect)
+        let destination = NSView(frame: NSRect(x: 20, y: 20, width: 120, height: 120))
+        destination.registerForDraggedTypes([DragOverlayRoutingPolicy.bonsplitTabTransferType])
+        root.addSubview(destination)
+        let gate = CloudSurfaceDropGateView(frame: root.bounds)
+        root.addSubview(gate)
+        window.contentView = root
+        window.orderFront(nil)
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cloud-drag-stability-\(UUID())"))
+        pasteboard.setData(Data([1]), forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+        let sender = CloudSidebarDraggingInfo(source: NSOutlineView(), pasteboard: pasteboard, location: NSPoint(x: 80, y: 80))
+
+        #expect(gate.destinationContainsDragLocation(destination, sender: sender))
+        sender.location = NSPoint(x: 200, y: 200)
+        #expect(!gate.destinationContainsDragLocation(destination, sender: sender))
+    }
+
     @Test("The pure rule rejects unknown/local/foreign owners and preserves local destinations")
     func policy() {
         let policy = SurfaceOwnershipPolicy(cloudMachine: .cloud("b"))
