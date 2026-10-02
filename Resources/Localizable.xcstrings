@@ -609828,6 +609828,242 @@
           }
         }
       }
+    },
+    "cli.waitFor.error.createLock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for could not create its lock file: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على wait-for إنشاء ملف القفل: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for konnte seine Sperrdatei nicht erstellen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for no pudo crear su archivo de bloqueo: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for n’a pas pu créer son fichier de verrouillage : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for がロックファイルを作成できませんでした: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for에서 잠금 파일을 만들 수 없습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 无法创建锁定文件：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 無法建立鎖定檔案：%@"
+          }
+        }
+      }
+    },
+    "cli.waitFor.error.removeLock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for could not remove its lock file: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على wait-for إزالة ملف القفل: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for konnte seine Sperrdatei nicht entfernen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for no pudo eliminar su archivo de bloqueo: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for n’a pas pu supprimer son fichier de verrouillage : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for がロックファイルを削除できませんでした: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for에서 잠금 파일을 제거할 수 없습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 无法移除锁定文件：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 無法移除鎖定檔案：%@"
+          }
+        }
+      }
+    },
+    "cli.help.wait-for": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\nWait for or signal a named synchronization token, or lock/unlock it.\n\nFlags:\n  -S, --signal           Signal the token instead of waiting\n  -L                     Take the token's lock, waiting up to the timeout\n  -U                     Release the token's lock\n  --timeout <seconds>    Wait timeout (default: 30)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\nانتظار رمز مزامنة مسمّى أو إرسال إشارة إليه أو قفله أو إلغاء قفله.\n\nالخيارات:\n  -S, --signal           إرسال إشارة إلى الرمز بدلًا من الانتظار\n  -L                     قفل الرمز مع الانتظار حتى انتهاء المهلة\n  -U                     إلغاء قفل الرمز\n  --timeout <seconds>    مهلة الانتظار (الافتراضي: 30)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\nAuf ein benanntes Synchronisationstoken warten, es signalisieren oder sperren/entsperren.\n\nOptionen:\n  -S, --signal           Das Token signalisieren, statt darauf zu warten\n  -L                     Das Token sperren und dabei bis zur Zeitüberschreitung warten\n  -U                     Die Sperre des Tokens aufheben\n  --timeout <seconds>    Wartezeitlimit (Standard: 30)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\nEsperar o señalar un token de sincronización con nombre, o bloquearlo/desbloquearlo.\n\nOpciones:\n  -S, --signal           Señalar el token en lugar de esperar\n  -L                     Bloquear el token, esperando hasta que se agote el tiempo\n  -U                     Liberar el bloqueo del token\n  --timeout <seconds>    Tiempo de espera (predeterminado: 30)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\nAttendre ou signaler un jeton de synchronisation nommé, ou le verrouiller/déverrouiller.\n\nOptions :\n  -S, --signal           Signaler le jeton au lieu d’attendre\n  -L                     Verrouiller le jeton en attendant jusqu’à expiration du délai\n  -U                     Déverrouiller le jeton\n  --timeout <seconds>    Délai d’attente (par défaut : 30)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\n名前付き同期トークンを待機するか、シグナルを送るか、ロック／ロック解除します。\n\nオプション:\n  -S, --signal           待機せずにトークンにシグナルを送る\n  -L                     タイムアウトまで待機してトークンのロックを取得する\n  -U                     トークンのロックを解除する\n  --timeout <seconds>    待機のタイムアウト（既定値: 30）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\n이름이 있는 동기화 토큰을 기다리거나 신호를 보내거나 잠금/잠금 해제합니다.\n\n옵션:\n  -S, --signal           기다리는 대신 토큰에 신호 보내기\n  -L                     제한 시간까지 기다리며 토큰 잠금 획득\n  -U                     토큰 잠금 해제\n  --timeout <seconds>    대기 제한 시간(기본값: 30)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\n等待命名同步令牌、向其发送信号，或锁定／解锁令牌。\n\n选项：\n  -S, --signal           向令牌发送信号，而不是等待\n  -L                     锁定令牌，并等待直到超时\n  -U                     解除令牌锁定\n  --timeout <seconds>    等待超时时间（默认：30）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\n等待具名同步權杖、向其發出訊號，或鎖定／解鎖權杖。\n\n旗標：\n  -S, --signal           向權杖發出訊號，而不是等待\n  -L                     鎖定權杖，並等待直到逾時\n  -U                     解除權杖鎖定\n  --timeout <seconds>    等待逾時時間（預設：30）"
+          }
+        }
+      }
+    },
+    "cli.waitFor.error.lockTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for timed out waiting to lock '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة wait-for أثناء انتظار قفل '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for: Zeitüberschreitung beim Warten auf die Sperre für '%@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for agotó el tiempo de espera al intentar bloquear '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for : délai dépassé en attendant le verrouillage de « %@ »"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for が '%@' のロックを待機中にタイムアウトしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for에서 '%@' 잠금을 기다리는 시간이 초과되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 等待锁定“%@”超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 等待鎖定「%@」逾時"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

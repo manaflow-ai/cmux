@@ -20512,7 +20512,7 @@ struct CMUXCLI {
               --command <command>    Shell command to run (or pass as trailing text)
             """
         case "wait-for":
-            return """
+            return String(localized: "cli.help.wait-for", defaultValue: """
             Usage: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]
 
             Wait for or signal a named synchronization token, or lock/unlock it.
@@ -20522,7 +20522,7 @@ struct CMUXCLI {
               -L                     Take the token's lock, waiting up to the timeout
               -U                     Release the token's lock
               --timeout <seconds>    Wait timeout (default: 30)
-            """
+            """)
         case "swap-pane":
             return """
             Usage: cmux swap-pane --pane <id|ref|index> --target-pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
@@ -28163,7 +28163,7 @@ struct CMUXCLI {
             }
             if lock {
                 guard try waitForSignal.lock(timeout: timeout) else {
-                    throw CLIError(message: "wait-for timed out waiting to lock '\(name)'")
+                    throw CLIError(message: String(format: String(localized: "cli.waitFor.error.lockTimeout", defaultValue: "wait-for timed out waiting to lock '%@'"), name))
                 }
                 print("OK")
                 return

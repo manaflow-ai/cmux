@@ -76,7 +76,8 @@ struct TmuxWaitForSignal {
         defer { Darwin.close(directory) }
         let removed = lockFileName.withCString { Darwin.unlinkat(directory, $0, 0) }
         if removed != 0, errno != ENOENT {
-            throw CLIError(message: "wait-for could not remove its lock file: \(Self.errorDescription())")
+            let errorDescription = Self.errorDescription()
+            throw CLIError(message: String(format: String(localized: "cli.waitFor.error.removeLock", defaultValue: "wait-for could not remove its lock file: %@"), errorDescription))
         }
     }
 
@@ -96,7 +97,8 @@ struct TmuxWaitForSignal {
             return true
         }
         guard errno == EEXIST else {
-            throw CLIError(message: "wait-for could not create its lock file: \(Self.errorDescription())")
+            let errorDescription = Self.errorDescription()
+            throw CLIError(message: String(format: String(localized: "cli.waitFor.error.createLock", defaultValue: "wait-for could not create its lock file: %@"), errorDescription))
         }
         return false
     }
