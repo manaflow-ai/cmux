@@ -28,9 +28,14 @@ fn validate_color(color: Option<u8>) -> Result<u8, Reject> {
 }
 
 fn validate_prefix(prefix: &str) -> Result<(), Reject> {
-    let ok = (1..=8).contains(&prefix.len()) && prefix.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+    let ok = (1..=8).contains(&prefix.len())
+        && prefix.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
         && prefix.as_bytes()[0].is_ascii_uppercase();
-    if ok { Ok(()) } else { Err(invalid("key prefix must be 1..=8 of A-Z0-9, starting with a letter")) }
+    if ok {
+        Ok(())
+    } else {
+        Err(invalid("key prefix must be 1..=8 of A-Z0-9, starting with a letter"))
+    }
 }
 
 impl Tx<'_> {
@@ -52,9 +57,14 @@ impl Tx<'_> {
         if self.label_name_taken(&name, &p.id) {
             return Err(conflict(format!("label name already used: {name}")));
         }
-        let label = Label { id: p.id.clone(), name, color: validate_color(p.color)?, archived: false };
+        let label =
+            Label { id: p.id.clone(), name, color: validate_color(p.color)?, archived: false };
         self.state.labels.insert(label.id.clone(), label.clone());
-        self.events.push(EventKind::upsert("task.label.created", Entity::Label(label), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.label.created",
+            Entity::Label(label),
+            serde_json::Value::Null,
+        ));
         Ok(OpResult { id: p.id.clone(), key: None })
     }
 
@@ -75,13 +85,18 @@ impl Tx<'_> {
             label.color = color;
         }
         let snapshot = label.clone();
-        self.events.push(EventKind::upsert("task.label.updated", Entity::Label(snapshot), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.label.updated",
+            Entity::Label(snapshot),
+            serde_json::Value::Null,
+        ));
         Ok(OpResult { id, key: None })
     }
 
     /// Archive the label and remove it from every task in the same commit.
     pub(super) fn label_delete(&mut self, reference: &str) -> Result<OpResult, Reject> {
-        let id = self.state.resolve_label(reference).ok_or_else(|| not_found("label", reference))?;
+        let id =
+            self.state.resolve_label(reference).ok_or_else(|| not_found("label", reference))?;
         let holders: Vec<String> = self
             .state
             .tasks
@@ -94,12 +109,20 @@ impl Tx<'_> {
             task.labels.remove(&id);
             task.updated_at = self.now;
             let snapshot = task.clone();
-            self.events.push(EventKind::upsert("task.labeled", Entity::Task(Box::new(snapshot)), json!({"added": [], "removed": [id], "cascade": true})));
+            self.events.push(EventKind::upsert(
+                "task.labeled",
+                Entity::Task(Box::new(snapshot)),
+                json!({"added": [], "removed": [id], "cascade": true}),
+            ));
         }
         let label = self.state.labels.get_mut(&id).expect("validated label");
         label.archived = true;
         let snapshot = label.clone();
-        self.events.push(EventKind::upsert("task.label.deleted", Entity::Label(snapshot), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.label.deleted",
+            Entity::Label(snapshot),
+            serde_json::Value::Null,
+        ));
         Ok(OpResult { id, key: None })
     }
 
@@ -114,15 +137,28 @@ impl Tx<'_> {
         if self.state.statuses.values().any(|s| s.name.eq_ignore_ascii_case(&name)) {
             return Err(conflict(format!("status name already used: {name}")));
         }
-        let position = p.position.unwrap_or_else(|| self.state.statuses.values().map(|s| s.position).max().unwrap_or(0) + 1);
-        let status = Status { id: p.id.clone(), name, category: p.category, position, color: validate_color(p.color)? };
+        let position = p.position.unwrap_or_else(|| {
+            self.state.statuses.values().map(|s| s.position).max().unwrap_or(0) + 1
+        });
+        let status = Status {
+            id: p.id.clone(),
+            name,
+            category: p.category,
+            position,
+            color: validate_color(p.color)?,
+        };
         self.state.statuses.insert(status.id.clone(), status.clone());
-        self.events.push(EventKind::upsert("task.status.created", Entity::Status(status), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.status.created",
+            Entity::Status(status),
+            serde_json::Value::Null,
+        ));
         Ok(OpResult { id: p.id.clone(), key: None })
     }
 
     pub(super) fn status_update(&mut self, p: &StatusUpdate) -> Result<OpResult, Reject> {
-        let id = self.state.resolve_status(&p.status).ok_or_else(|| not_found("status", &p.status))?;
+        let id =
+            self.state.resolve_status(&p.status).ok_or_else(|| not_found("status", &p.status))?;
         let name = p.name.as_deref().map(|n| validate_name(n, "status")).transpose()?;
         if let Some(name) = &name
             && self.state.statuses.values().any(|s| s.id != id && s.name.eq_ignore_ascii_case(name))
@@ -141,33 +177,54 @@ impl Tx<'_> {
             status.position = position;
         }
         let snapshot = status.clone();
-        self.events.push(EventKind::upsert("task.status.updated", Entity::Status(snapshot), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.status.updated",
+            Entity::Status(snapshot),
+            serde_json::Value::Null,
+        ));
         Ok(OpResult { id, key: None })
     }
 
     /// Delete a status: its tasks move to `replacement` in the same commit;
     /// every required category keeps a status; settings never point at it.
     pub(super) fn status_delete(&mut self, p: &StatusDelete) -> Result<OpResult, Reject> {
-        let id = self.state.resolve_status(&p.status).ok_or_else(|| not_found("status", &p.status))?;
-        let replacement = self.state.resolve_status(&p.replacement).ok_or_else(|| not_found("status", &p.replacement))?;
+        let id =
+            self.state.resolve_status(&p.status).ok_or_else(|| not_found("status", &p.status))?;
+        let replacement = self
+            .state
+            .resolve_status(&p.replacement)
+            .ok_or_else(|| not_found("status", &p.replacement))?;
         if id == replacement {
             return Err(invalid("replacement must be another status"));
         }
         let category = self.state.statuses[&id].category;
-        let remaining = self.state.statuses.values().filter(|s| s.id != id && s.category == category).count();
+        let remaining =
+            self.state.statuses.values().filter(|s| s.id != id && s.category == category).count();
         if Category::REQUIRED.contains(&category) && remaining == 0 {
-            return Err(invalid(format!("the team needs at least one {} status", category.as_str())));
+            return Err(invalid(format!(
+                "the team needs at least one {} status",
+                category.as_str()
+            )));
         }
         let settings = &self.state.settings;
-        if settings.default_status == id || settings.started_status == id || settings.review_status.as_deref() == Some(id.as_str()) {
+        if settings.default_status == id
+            || settings.started_status == id
+            || settings.review_status.as_deref() == Some(id.as_str())
+        {
             return Err(invalid("status is used by team settings; change them first"));
         }
-        let movers: Vec<String> = self.state.tasks.values().filter(|t| t.status == id).map(|t| t.id.clone()).collect();
+        let movers: Vec<String> =
+            self.state.tasks.values().filter(|t| t.status == id).map(|t| t.id.clone()).collect();
         for task in movers {
             self.set_status(&task, &replacement, false);
         }
         self.state.statuses.remove(&id);
-        self.events.push(EventKind::remove("task.status.deleted", "status", &id, json!({"replacement": replacement})));
+        self.events.push(EventKind::remove(
+            "task.status.deleted",
+            "status",
+            &id,
+            json!({"replacement": replacement}),
+        ));
         Ok(OpResult { id, key: None })
     }
 
@@ -187,12 +244,19 @@ impl Tx<'_> {
             archived: false,
         };
         self.state.projects.insert(project.id.clone(), project.clone());
-        self.events.push(EventKind::upsert("task.project.created", Entity::Project(project), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.project.created",
+            Entity::Project(project),
+            serde_json::Value::Null,
+        ));
         Ok(OpResult { id: p.id.clone(), key: None })
     }
 
     pub(super) fn project_update(&mut self, p: &ProjectUpdate) -> Result<OpResult, Reject> {
-        let id = self.state.resolve_project(&p.project).ok_or_else(|| not_found("project", &p.project))?;
+        let id = self
+            .state
+            .resolve_project(&p.project)
+            .ok_or_else(|| not_found("project", &p.project))?;
         let name = p.name.as_deref().map(|n| validate_name(n, "project")).transpose()?;
         let project = self.state.projects.get_mut(&id).expect("validated project");
         if let Some(name) = name {
@@ -202,25 +266,44 @@ impl Tx<'_> {
             project.state = state;
         }
         let snapshot = project.clone();
-        self.events.push(EventKind::upsert("task.project.updated", Entity::Project(snapshot), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.project.updated",
+            Entity::Project(snapshot),
+            serde_json::Value::Null,
+        ));
         Ok(OpResult { id, key: None })
     }
 
     /// Archive the project and detach its tasks in the same commit.
     pub(super) fn project_archive(&mut self, reference: &str) -> Result<OpResult, Reject> {
-        let id = self.state.resolve_project(reference).ok_or_else(|| not_found("project", reference))?;
-        let members: Vec<String> = self.state.tasks.values().filter(|t| t.project.as_deref() == Some(id.as_str())).map(|t| t.id.clone()).collect();
+        let id =
+            self.state.resolve_project(reference).ok_or_else(|| not_found("project", reference))?;
+        let members: Vec<String> = self
+            .state
+            .tasks
+            .values()
+            .filter(|t| t.project.as_deref() == Some(id.as_str()))
+            .map(|t| t.id.clone())
+            .collect();
         for task_id in members {
             let task = self.state.tasks.get_mut(&task_id).expect("task exists");
             task.project = None;
             task.updated_at = self.now;
             let snapshot = task.clone();
-            self.events.push(EventKind::upsert("task.updated", Entity::Task(Box::new(snapshot)), json!({"fields": ["project"], "cascade": true})));
+            self.events.push(EventKind::upsert(
+                "task.updated",
+                Entity::Task(Box::new(snapshot)),
+                json!({"fields": ["project"], "cascade": true}),
+            ));
         }
         let project = self.state.projects.get_mut(&id).expect("validated project");
         project.archived = true;
         let snapshot = project.clone();
-        self.events.push(EventKind::upsert("task.project.archived", Entity::Project(snapshot), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.project.archived",
+            Entity::Project(snapshot),
+            serde_json::Value::Null,
+        ));
         Ok(OpResult { id, key: None })
     }
 
@@ -239,7 +322,8 @@ impl Tx<'_> {
             }
         };
         if let Some(r) = &p.default_status {
-            next.default_status = status_in(self, r, &[Category::Triage, Category::Backlog, Category::Unstarted])?;
+            next.default_status =
+                status_in(self, r, &[Category::Triage, Category::Backlog, Category::Unstarted])?;
         }
         if let Some(r) = &p.started_status {
             next.started_status = status_in(self, r, &[Category::Started])?;
@@ -256,7 +340,11 @@ impl Tx<'_> {
             next.agent_flow = flow;
         }
         self.state.settings = next.clone();
-        self.events.push(EventKind::upsert("task.settings.updated", Entity::Settings(next), serde_json::Value::Null));
+        self.events.push(EventKind::upsert(
+            "task.settings.updated",
+            Entity::Settings(next),
+            serde_json::Value::Null,
+        ));
         Ok(OpResult { id: self.state.settings.team.clone(), key: None })
     }
 }

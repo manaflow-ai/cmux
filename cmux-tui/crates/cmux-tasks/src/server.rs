@@ -43,7 +43,9 @@ pub fn serve(owner: &LocalOwner, engine: Engine, on_ready: impl FnOnce()) -> io:
         std::fs::set_permissions(&owner.socket, std::fs::Permissions::from_mode(0o600))?;
     }
     let (tx, rx) = mpsc::channel::<Msg>();
-    let writer = thread::Builder::new().name("tasks-writer".to_owned()).spawn(move || writer_loop(engine, rx))?;
+    let writer = thread::Builder::new()
+        .name("tasks-writer".to_owned())
+        .spawn(move || writer_loop(engine, rx))?;
     on_ready();
     let mut next_conn = 0u64;
     for stream in listener.incoming() {
@@ -54,7 +56,9 @@ pub fn serve(owner: &LocalOwner, engine: Engine, on_ready: impl FnOnce()) -> io:
         next_conn += 1;
         let conn = next_conn;
         let tx = tx.clone();
-        thread::Builder::new().name(format!("tasks-conn-{conn}")).spawn(move || connection(conn, stream, tx))?;
+        thread::Builder::new()
+            .name(format!("tasks-conn-{conn}"))
+            .spawn(move || connection(conn, stream, tx))?;
         if writer.is_finished() {
             return Err(io::Error::other("tasks writer stopped"));
         }
@@ -71,7 +75,11 @@ fn connection(conn: u64, stream: UnixStream, tx: Sender<Msg>) {
     let pump = thread::spawn(move || {
         let mut write_half = write_half;
         for text in out_rx {
-            if write_half.write_all(text.as_bytes()).and_then(|()| write_half.write_all(b"\n")).is_err() {
+            if write_half
+                .write_all(text.as_bytes())
+                .and_then(|()| write_half.write_all(b"\n"))
+                .is_err()
+            {
                 break;
             }
         }
@@ -90,7 +98,10 @@ fn connection(conn: u64, stream: UnixStream, tx: Sender<Msg>) {
                 }
             }
             Err(e) => {
-                let err = ServerLine::Err { id: 0, err: ErrorBody::new(ErrorCode::Usage, format!("bad line: {e}")) };
+                let err = ServerLine::Err {
+                    id: 0,
+                    err: ErrorBody::new(ErrorCode::Usage, format!("bad line: {e}")),
+                };
                 let _ = out_tx.send(line(&err));
             }
         }
@@ -122,20 +133,23 @@ fn writer_loop(mut engine: Engine, rx: Receiver<Msg>) {
                     outs.remove(&conn);
                     subscribers.remove(&conn);
                 }
-                Msg::Request { conn, actor, request } if request.op == "task.subscribe" => subscribes.push((conn, actor, request)),
+                Msg::Request { conn, actor, request } if request.op == "task.subscribe" => {
+                    subscribes.push((conn, actor, request))
+                }
                 Msg::Request { conn, actor, request } => requests.push((conn, actor, request)),
             }
         }
         let conns: Vec<u64> = requests.iter().map(|(c, _, _)| *c).collect();
-        let outcomes = match engine.handle_batch(requests.into_iter().map(|(_, a, r)| (a, r)).collect()) {
-            Ok(outcomes) => outcomes,
-            Err(e) => {
-                // The log write failed: memory is ahead of disk. Exit and
-                // let the supervisor restart from disk (crash-only).
-                eprintln!("cmux-tasks: log write failed, exiting: {e}");
-                std::process::exit(70);
-            }
-        };
+        let outcomes =
+            match engine.handle_batch(requests.into_iter().map(|(_, a, r)| (a, r)).collect()) {
+                Ok(outcomes) => outcomes,
+                Err(e) => {
+                    // The log write failed: memory is ahead of disk. Exit and
+                    // let the supervisor restart from disk (crash-only).
+                    eprintln!("cmux-tasks: log write failed, exiting: {e}");
+                    std::process::exit(70);
+                }
+            };
         for (conn, outcome) in conns.into_iter().zip(outcomes) {
             for event in &outcome.events {
                 let text = line(&ServerLine::Event { event: event.clone() });
@@ -171,7 +185,8 @@ fn subscribe(
         None => {
             let _ = out.send(line(&ServerLine::Ok { id: request.id, ok: json!({"seq": seq}) }));
             let _ = out.send(line(&settled));
-            let _ = out.send(line(&ServerLine::Snapshot { snapshot: engine.snapshot_value(actor) }));
+            let _ =
+                out.send(line(&ServerLine::Snapshot { snapshot: engine.snapshot_value(actor) }));
         }
         Some(after) => match engine.events_after(after) {
             Ok(events) => {

@@ -20,13 +20,20 @@ fn clock() -> Clock {
 }
 
 fn create(engine: &mut Engine, i: usize) {
-    let request = Request { id: i as u64, op: "task.create".to_owned(), params: json!({"id": format!("task_{i}"), "title": format!("Task {i}")}), key: Some(format!("k{i}")), origin: None };
+    let request = Request {
+        id: i as u64,
+        op: "task.create".to_owned(),
+        params: json!({"id": format!("task_{i}"), "title": format!("Task {i}")}),
+        key: Some(format!("k{i}")),
+        origin: None,
+    };
     let outcome = engine.handle(&Principal::user("usr_a"), request).unwrap();
     assert!(outcome.reply.is_ok(), "{:?}", outcome.reply.err());
 }
 
 fn segment(dir: &Path) -> std::path::PathBuf {
-    let mut files: Vec<_> = fs::read_dir(dir.join("log")).unwrap().map(|e| e.unwrap().path()).collect();
+    let mut files: Vec<_> =
+        fs::read_dir(dir.join("log")).unwrap().map(|e| e.unwrap().path()).collect();
     files.sort();
     files.pop().unwrap()
 }
