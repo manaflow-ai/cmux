@@ -1508,7 +1508,7 @@ public actor VMClient {
         return result
     }
 
-    public func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, idempotencyKey: String) async throws -> VMSummary {
+    public func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, networkPolicy: CloudNetworkPolicy? = nil, agentUpdates: CloudAgentUpdates? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]
             if let image { body["image"] = image }
@@ -1518,6 +1518,8 @@ public actor VMClient {
             if perMachineHome { body["perMachineHome"] = true }
             if let memoryMb { body["memoryMb"] = memoryMb }
             if let displayName { body["displayName"] = displayName }
+            if let networkPolicy { body["networkPolicy"] = networkPolicy.foundationObject }
+            if let agentUpdates { body["agentUpdates"] = agentUpdates.rawValue }
             // The CLI owns key stability across command retries. VMClient only forwards the
             // key so the backend can short-circuit duplicate paid provider creates.
             let headers = ["Idempotency-Key": idempotencyKey]
@@ -1568,6 +1570,7 @@ public actor VMClient {
                 summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             }
             summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.agentUpdates = CloudAgentUpdates(wireValue: obj["agentUpdates"])
             machineCache.record(hasAnyMachine: true)
             return summary
         }
