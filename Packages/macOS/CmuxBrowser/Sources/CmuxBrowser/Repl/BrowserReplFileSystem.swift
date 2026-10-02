@@ -139,6 +139,12 @@ public struct BrowserReplFileSystem: Sendable {
             // replaces an existing destination atomically.
             let from = try path(.write, key: "from", followingLastLink: false)
             let to = try path(.write, key: "to", followingLastLink: false)
+            // Like rm: the working directory and the temporary root are never
+            // moved away or replaced.
+            let roots = [sandbox.root, temporaryRoot]
+            guard !roots.contains(from), !roots.contains(to) else {
+                throw BrowserReplFileSystemError(code: "EACCES", message: "EACCES: refusing to move or replace the REPL working directory")
+            }
             guard Darwin.rename(from, to) == 0 else {
                 throw Self.posixError(errno, syscall: "rename", display: "\(display("from", from))' -> '\(display("to", to))")
             }
