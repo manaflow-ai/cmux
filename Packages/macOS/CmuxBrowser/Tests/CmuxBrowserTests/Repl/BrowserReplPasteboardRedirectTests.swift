@@ -190,6 +190,85 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(await secondRun.value == .completed)
         }
 
+        /// A caller that stops waiting (its REPL call was cancelled) does not
+        /// shorten the command: the web content is ended at the timeout, not
+        /// at the cancellation, so the timeout the error names is the one
+        /// that happened.
+        @Test func aCancelledCallerDoesNotEndTheWebContentBeforeTheTimeout() async throws {
+            #expect(BrowserReplPasteboardRedirect.install())
+            let tab = NSPasteboard.withUniqueName()
+            defer { tab.releaseGlobally() }
+            let clock = ManualClock()
+            var ended = false
+            let run = Task { @MainActor in
+                await BrowserReplPasteboardRedirect.run(
+                    on: tab,
+                    timeout: .seconds(5),
+                    clock: clock,
+                    endWebContent: {
+                        ended = true
+                        return true
+                    }
+                ) { _ in }
+            }
+            try await settle { BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) === tab }
+            run.cancel()
+            await settleTurns()
+            #expect(!ended, "a cancelled caller ended the web content before the timeout")
+            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) === tab)
+
+            clock.advance(by: .seconds(5))
+            #expect(await run.value == .timedOut)
+            #expect(ended)
+            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+        }
+
+        /// A command whose web content could not be ended at the timeout
+        /// (another tab no session created shares its process) keeps the
+        /// redirect for at most one more timeout: then the web content is
+        /// ended regardless and the redirect ends, so another web view's
+        /// copies and pastes reach the system pasteboard again and nothing
+        /// the page writes later does.
+        @Test func aCommandStillRunningAfterItsTimeoutIsEndedOneTimeoutLater() async throws {
+            #expect(BrowserReplPasteboardRedirect.install())
+            let tab = NSPasteboard.withUniqueName()
+            defer { tab.releaseGlobally() }
+            let clock = ManualClock()
+            var asked = 0
+            var finished = 0
+            let run = Task { @MainActor in
+                await BrowserReplPasteboardRedirect.run(
+                    on: tab,
+                    tab: "tab A",
+                    timeout: .seconds(5),
+                    clock: clock,
+                    endWebContent: {
+                        asked += 1
+                        return asked > 1
+                    },
+                    whenFinished: { finished += 1 }
+                ) { _ in }
+            }
+            await clock.waitForSleepers(1)
+            clock.advance(by: .seconds(5))
+            #expect(await run.value == .timedOutStillRunning)
+            #expect(asked == 1)
+            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) === tab)
+
+            await clock.waitForSleepers(1)
+            clock.advance(by: .seconds(4))
+            await settleTurns()
+            #expect(asked == 1, "the web content was ended before its second timeout")
+            clock.advance(by: .seconds(1))
+            try await settle { asked == 2 }
+            #expect(
+                BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil,
+                "the redirect outlived the command's second timeout"
+            )
+            #expect(finished == 1)
+            #expect(tab.types?.isEmpty ?? true)
+        }
+
         /// Lets main-actor work queued by the test run, until `condition`.
         private func settle(_ condition: @MainActor () -> Bool) async throws {
             for _ in 0..<1_000 where !condition() { await Task.yield() }
