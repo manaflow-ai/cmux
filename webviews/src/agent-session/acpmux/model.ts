@@ -13,6 +13,9 @@ export type AcpmuxRow = {
   status?: string;
   error?: string;
   permission?: AcpmuxPermission;
+  /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
+  /// footer need not repeat the time and count.
+  folded?: boolean;
 };
 
 export type AcpmuxActivity = {

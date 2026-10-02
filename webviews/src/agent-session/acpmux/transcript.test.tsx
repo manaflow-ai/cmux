@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { layoutConversation, type AcpmuxRow } from "./model";
+import { turnView } from "./conversation/turns";
 
 // A silent console: jsdom has no canvas, so text measurement logs and falls back to row estimates.
 const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
@@ -149,7 +150,8 @@ describe("acpmux transcript accessibility", () => {
       expect(mounted.find(({ row }) => row.kind === "user")?.article.getAttribute("aria-label")).toBe("You");
       expect(mounted.find(({ row }) => row.kind === "assistant")?.article.getAttribute("aria-label")).toBe("Agent");
       expect(last.hasAttribute("aria-label")).toBe(false);
-      const summary = last.querySelector(".acpmux-summary")!;
+      // Without a "Worked for" line above it, the footer says the turn's time and count.
+      const summary = last.querySelector(".cv-turn-summary")!;
       expect(summary.childNodes.length).toBe(1);
       expect(summary.textContent).toBe("Worked for 3s · 2 tool calls");
       // Older history still in acpmux: the conversation's size is unknown.
@@ -616,7 +618,8 @@ describe("acpmux composer", () => {
 });
 
 describe("acpmux turn counts", () => {
-  /// The fold and the turn summary read "1 tool calls".
+  /// The fold and the turn summary read "1 tool calls". A finished turn folds its work under
+  /// one "Worked for" line that carries the count.
   test("one tool call is counted in the singular", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
@@ -626,9 +629,9 @@ describe("acpmux turn counts", () => {
       { id: "s", version: 1, at: 3, kind: "turnSummary", durationMs: 3000, toolCount: 1 },
     ];
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: turn, onToggleActivity: () => {}, expanded: new Set<string>() })));
-      expect(dom.window.document.querySelector(".acpmux-activity-toggle")?.textContent).toBe("› Worked with 1 tool call");
-      expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("Worked for 3s · 1 tool call");
+      await act(async () => root.render(createElement(VirtualTranscript, { rows: turnView(turn, new Set()), onToggleActivity: () => {}, expanded: new Set<string>() })));
+      expect(dom.window.document.querySelector(".cv-worked")?.textContent).toBe("Worked for 3s · 1 tool call");
+      expect(dom.window.document.querySelector(".cv-turn-summary")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       restore();
@@ -641,7 +644,7 @@ describe("acpmux turn counts", () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
       await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "s", version: 1, at: 3, kind: "turnSummary", toolCount: 2 }], onToggleActivity: () => {}, expanded: new Set<string>() })));
-      expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("2 tool calls");
+      expect(dom.window.document.querySelector(".cv-turn-summary")?.textContent).toBe("2 tool calls");
     } finally {
       await act(async () => root.unmount());
       restore();
