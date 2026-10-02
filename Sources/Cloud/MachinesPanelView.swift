@@ -224,7 +224,16 @@ struct MachinesPanelView: View {
         } else if isTeamChangePending {
             teamScopeLoading
         } else {
-            content
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer(minLength: 0)
+                    cloudAgentMenu
+                }
+                .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+                .padding(.vertical, 2)
+                .accessibilityIdentifier("CloudMachinesAgentActionsRow")
+                content
+            }
         }
     }
 
