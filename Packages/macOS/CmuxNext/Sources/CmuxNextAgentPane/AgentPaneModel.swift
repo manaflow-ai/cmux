@@ -11,6 +11,9 @@ public final class AgentPaneModel {
     public private(set) var sessionId: String?
     /// The last handshake failure shown to the page, for diagnostics.
     public private(set) var lastError: String?
+    /// Page projection of its single session-host Git capability read, never an authorization grant.
+    public private(set) var checkpointAvailable = false
+    @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
 
     /// Called when the page switches to or creates a session, so the App can
     /// keep it with the tab.
@@ -49,6 +52,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         case .ready, .reconnect:
+            setCheckpointAvailable(false)
             do {
                 var handshake = request == .ready
                     ? try await host.handshake(sessionId: sessionId)
@@ -79,6 +83,9 @@ public final class AgentPaneModel {
                 onSessionChange?(id)
             }
             return AgentPaneReply.success()
+        case .checkpointAvailability(let available):
+            setCheckpointAvailable(available)
+            return AgentPaneReply.success()
         case .framePacing(let intervals):
             onFramePacing?(intervals)
             return AgentPaneReply.success()
@@ -107,5 +114,11 @@ public final class AgentPaneModel {
 
     private static func unsupported(_ method: String) -> [String: Any] {
         AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
+    }
+
+    private func setCheckpointAvailable(_ available: Bool) {
+        guard checkpointAvailable != available else { return }
+        checkpointAvailable = available
+        onCheckpointAvailability?(available)
     }
 }
