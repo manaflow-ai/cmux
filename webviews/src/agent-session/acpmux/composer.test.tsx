@@ -192,7 +192,10 @@ describe("acpmux composer slash menu", () => {
     await type("look again");
     await plus();
     await settle();
-    await act(async () => { textarea().dispatchEvent(new dom.window.FocusEvent("focusout", { bubbles: true, relatedTarget: dom.window.document.body })); });
+    // Called directly for the same reason as typeInto: react-dom may load before the DOM exists.
+    const form = dom.window.document.querySelector("form")!;
+    const props = (form as unknown as Record<string, { onBlur(event: { currentTarget: Element; relatedTarget: Element }): void }>)[Object.keys(form).find((key) => key.startsWith("__reactProps$"))!]!;
+    await act(async () => props.onBlur({ currentTarget: form, relatedTarget: dom.window.document.body }));
     expect(textarea().value).toBe("look again");
     expect(menu()).toBeNull();
     await type("/comp");
