@@ -653,9 +653,16 @@ Goal: a person texts the cmux line and talks to their Chief; Chief replies in th
   (`textAuthority`). Never in a text: secrets, tokens, passwords, codes, other people's invite
   secrets; anything that would show one opens the app. Strongest objection: with the full
   default, a SIM swap, a stolen phone or a recycled number gives full Chief power by text.
-  DECISION (not built): require an in-app confirmation for destructive or irreversible actions
-  requested by text. RECOMMEND yes, because it closes the worst case of the full default at
-  the cost of one tap.
+  Decided (Lawrence, 2026-10-02) and built (`mux/text-confirm.ts`): an in-app confirmation for
+  destructive or irreversible actions requested by text. Rule `needsConfirmation`: channel text
+  and risk `destructive` or `money` or an irreversible action, unless the owner set
+  `text_confirm: off` (`mux.text_confirm.set`, owner's app only). MuxDO ops (idempotency keys
+  from the caller): `mux.confirm.request {op, params_hash, risk, summary, source}` by the chief
+  (row in table `confirm`, 15 minutes, at most 20 live pending); `mux.confirm.decide {confirm,
+  approve}` only by a session or install of the chief's owner (never a text, the chief or
+  another user); `mux.confirm.consume {confirm, op, params_hash}` by the chief, once, for exactly
+  the approved op and params. The adapter posts the request as an `approval` part in the chief
+  conversation and pushes it to the owner's devices.
 
 Decisions (Lawrence, 2026-10-02): T1 a texted Stack sign-in link (above), not reverse
 verification; T2 texts land in the main chief conversation marked `via: sms`; T3 full Chief
@@ -664,8 +671,15 @@ default (`?v=` keeps the others), `?s=square` renders 1200x1200.
 
 ## 20. One op vocabulary: reconciling home-core with `cmux-conversation`
 
-Contract: `backend/packages/home-core/conformance/conversation-cases.json` (64 cases) is the
-op-level contract both owners run; `conversation-cloud-cases.json` (84) covers cloud-only rules.
+Contract: `backend/packages/home-core/conformance/conversation-cases.json` (73 cases) is the
+op-level contract both owners run, and a REQUIRED check for the Rust owner (decision
+2026-10-02). Every head now carries `agent_text_streak` and `last_agent_text_at` (local heads
+too); the cases named "loop guard:" are the work-card bypass that a row window misses.
+`conversation-search-cases.json` (12 cases) is the contract for `conversation-search {query,
+limit 1-100} -> {hits: [{conversation, title, seq, message_id, author, created_at, snippet}]}`
+(read model `searchConversations`: current participants only, `since_join` honored, retracted
+messages never match, case-insensitive substring per code point, newest first, snippets of 120
+characters centered on the match); the cloud `home.search` returns the same hit shape. `conversation-cloud-cases.json` (84) covers cloud-only rules.
 The Rust owner adds a cargo test that replays the local file (on a testbox). Framing stays per
 transport (daemon line commands, `cmux.wire/1` frames); the op names, params, commits and reject
 reasons are the same.
@@ -677,7 +691,7 @@ reasons are the same.
 | 3 | Ledger scope | `op_ledger (conversation, idempotency_key)`: two actors with one key collide | engine ledger per (identity, key) inside the conversation's object | Rust adds the actor to the ledger key (bug: one participant can block another's `client_msg_id`) |
 | 4 | `client_msg_id == idempotency_key` | required | required when the engine passes the key (owner and own intent preview) | Same rule; corpus covers it |
 | 5 | Reject transport | `error_code: conversation_rejected`, reason in the message text | `code` = the reason | Rust adds a structured `reason` field (same 20 local codes); cloud keeps `code` = reason; corpus asserts reasons |
-| 6 | Agent budget | window of the newest 5 rows; text-less work cards fill the window, so two agents can loop forever with work cards | head counters `agent_text_streak`, `last_agent_text_at`, O(1) | Rust adopts the head counters (fixes the loop bypass); the local corpus notes describe the two edge differences until then |
+| 6 | Agent budget | window of the newest 5 rows; text-less work cards fill the window, so two agents can loop forever with work cards | head counters `agent_text_streak`, `last_agent_text_at`, O(1), in every head | Decided: Rust adopts the head counters; the local corpus now requires them |
 | 7 | Typing | `conversation-typing` command, ephemeral event | ConversationDO memory broadcast | One non-op frame `typing {conversation, on}` and event `conversation-typing` on both; never stored, not in the corpus |
 | 8 | Agent identity | `conversation-agent-token` + `conversation-bind` (local token) | principal from the Worker (agent token, grant) | Transport auth, not ops; stays local-only; not in the corpus |
 | 9 | Participants | `user_local`, `user_<id>`, `agent_<name>` | plus `addr_<26>` (kind `address`), roles, `joined_seq`, `left_at` | Local stays a subset; `conversation.promote` maps `user_local` to the account's `user_<id>` |
