@@ -12,6 +12,9 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     private var session: URLSession!
     private let lock = NSLock()
     private var targetIDs: [Int: String] = [:]
+    /// Set by `invalidate()`. A task is created only under `lock` while this
+    /// is false, so no task is ever created on an invalidated URL session.
+    private var isInvalidated = false
 
     public init(driver: any BrowserReplDriver) {
         self.driver = driver
@@ -27,8 +30,17 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     /// Cancels in-flight requests and breaks the session's strong reference
     /// to this delegate. The fetcher is unusable afterwards.
     public func invalidate() {
+        lock.lock()
+        guard !isInvalidated else {
+            lock.unlock()
+            return
+        }
+        isInvalidated = true
+        lock.unlock()
         session.invalidateAndCancel()
     }
+
+    private static let closedError = BrowserReplDriverError(code: "closed", message: "fetch: the REPL session was closed")
 
     /// Performs one request described by the host contract's `requestJSON`.
     public func fetch(requestJSON: String) async -> Result<String, BrowserReplDriverError> {
@@ -55,8 +67,14 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             urlRequest.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
 
-        let task = session.dataTask(with: urlRequest)
-        lock.withLock { targetIDs[task.taskIdentifier] = targetID }
+        // The cookie lookup above awaited; the session may have closed since.
+        let created: URLSessionDataTask? = lock.withLock {
+            guard !isInvalidated else { return nil }
+            let task = session.dataTask(with: urlRequest)
+            targetIDs[task.taskIdentifier] = targetID
+            return task
+        }
+        guard let task = created else { return .failure(Self.closedError) }
         do {
             let (data, response) = try await data(for: task)
             guard let http = response as? HTTPURLResponse else {
@@ -77,6 +95,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             ]
             return .success(JSONSerialization.browserReplString(result) ?? "null")
         } catch {
+            if lock.withLock({ isInvalidated }) { return .failure(Self.closedError) }
             return .failure(BrowserReplDriverError(code: "invalid", message: "fetch failed: \(error.localizedDescription)"))
         }
     }
