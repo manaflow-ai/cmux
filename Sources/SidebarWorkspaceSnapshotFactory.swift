@@ -27,6 +27,8 @@ struct SidebarWorkspaceSnapshotFactory {
         let showsPullRequestRows = detailVisibility.showsPullRequests && !settings.compactsAgentStatus
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
         let cloud = CloudWorkspaceSidebarPresentation(workspace: workspace, orderedPanelIDs: orderedPanelIds, usesLastSegmentPath: settings.usesLastSegmentPath)
+        let hasCloudProjection = workspace.cloudVMID != nil
+            || workspace.cloudBindingState.projectedResources.values.contains { $0.machine.cloudMachineID != nil }
         let taskStatusInput = SidebarWorkspaceTaskStatusSnapshot.capture(workspace: workspace, orderedPanelIds: orderedPanelIds)
         let compactGitBranchSummaryText: String? = {
             guard showsBranchDirectoryRows,
@@ -41,7 +43,7 @@ struct SidebarWorkspaceSnapshotFactory {
                   settings.branchDirectory.branchLayout == .inline else {
                 return []
             }
-            return cloud?.directoryCandidates ?? compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)
+            return cloud?.directoryCandidates ?? (hasCloudProjection ? [] : compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds))
         }()
         let compactBranchDirectoryCandidates = compactBranchDirectoryCandidatesList(
             gitSummary: compactGitBranchSummaryText,
@@ -53,6 +55,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 return []
             }
             if let cloud { return [.init(branch: nil, directoryCandidates: cloud.directoryCandidates)] }
+            if hasCloudProjection { return [] }
             return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
         }()
         let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
@@ -95,7 +98,7 @@ struct SidebarWorkspaceSnapshotFactory {
                 // The directory toggle itself, like the branch and PR ones, so
                 // the tooltip keeps it under Hide All Details.
                 directory: settings.details.showBranchDirectory
-                    ? (cloud?.directoryCandidates ?? compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)).first
+                    ? (cloud?.directoryCandidates ?? (hasCloudProjection ? [] : compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds))).first
                     : nil,
                 orderedPanelIds: orderedPanelIds
             ))

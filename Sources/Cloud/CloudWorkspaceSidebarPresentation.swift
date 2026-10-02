@@ -60,6 +60,19 @@ struct CloudWorkspaceSidebarPresentation {
             let name = state.machineNames[id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
             return (id, name.isEmpty ? id : name)
         })
+        // A restored Cloud terminal can publish its projection before the
+        // catalog has finished loading machine metadata. Do not turn that
+        // transient state into user-visible identity or directory copy: the
+        // raw VM id and "Directory unavailable" are loading placeholders, not
+        // the values the sidebar is meant to present.
+        let projectedCloudMachineIDs = Set(state.projectedResources.values.compactMap { resource in
+            resource.machine.cloudMachineID
+        })
+        guard projectedCloudMachineIDs.allSatisfy({ id in
+            guard let name = state.machineNames[id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty else { return false }
+            return name != id
+        }) else { return nil }
         // Keep stable IDs in badge help/accessibility; width-dependent rows use
         // them only when friendly names collide across machines.
         let identities = machineIDs.sorted().map { id -> String in
