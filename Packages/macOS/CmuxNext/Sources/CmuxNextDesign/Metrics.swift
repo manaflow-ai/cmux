@@ -71,7 +71,7 @@ public struct Metrics {
 
     /// Inset between the window edge and floating glass panels.
     public static var panelInset: CGFloat { MetricTunables.panelInset.value }
-    /// Gap between niri columns.
+    /// Gap between strip columns.
     public static var columnGap: CGFloat { MetricTunables.columnGap.value }
     /// Divider thickness between split panes (hit area is wider).
     /// A room dot at the bottom of the sidebar (drawn size; its hit target
@@ -127,8 +127,12 @@ public struct Metrics {
     public static var densityPaneCornerRadius: CGFloat { MetricTunables.densityPaneCornerRadius.value }
     /// Pane border (`layout.paneBorder`). The line is one device pixel wide.
     public static var paneBorder: PaneBorderStyle {
-        DesignSettings.shared.paneChrome.border ?? .subtle
+        Borders.drawsLines ? DesignSettings.shared.paneChrome.border ?? .subtle : .none
     }
+
+    /// A border, hairline or stroke of `width` points: 0 under
+    /// `appearance.borders` none (`Borders`).
+    public static func lineWidth(_ width: CGFloat) -> CGFloat { Borders.width(width) }
     /// Pane border width in points (`layout.paneBorderWidth`); nil is one
     /// device pixel.
     public static var paneBorderWidth: CGFloat? { DesignSettings.shared.paneChrome.borderWidth }

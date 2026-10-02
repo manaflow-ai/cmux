@@ -1186,6 +1186,19 @@ class SizingIdentity:
 
 
 @dataclass(frozen=True)
+class SplitRespawn:
+    __cmux_schema_path__: ClassVar[str] = 'types/SplitRespawn'
+    kind: str
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    engine: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    profile_id: Union[str, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SurfaceResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SurfaceResult'
     surface: Id
@@ -1705,10 +1718,88 @@ class CloseWorkspaceRequest:
 
 
 @dataclass(frozen=True)
+class ConversationAgentTokenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/request'
+    participant: str
+
+
+@dataclass(frozen=True)
+class ConversationBindRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-bind/request'
+    participant: str
+    token: str
+
+
+@dataclass(frozen=True)
+class ConversationCreateRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-create/request'
+    idempotency_key: str
+    participants: Union[JsonValue, None]
+    title: str
+    actor: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationHistoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/request'
+    before_seq: int
+    conversation: str
+    limit: int
+
+
+@dataclass(frozen=True)
+class ConversationListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-list/request'
+    pass
+
+
+@dataclass(frozen=True)
+class ConversationOpRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-op/request'
+    conversation: str
+    idempotency_key: str
+    op: Union[JsonValue, None]
+    actor: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationSnapshotRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-snapshot/request'
+    conversation: str
+    tail: int
+
+
+@dataclass(frozen=True)
+class ConversationTypingRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-typing/request'
+    conversation: str
+    on: bool
+    actor: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CopyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/copy/request'
     surface: Id
     mode: Literal['screen', 'selection', 'scrollback']
+
+
+@dataclass(frozen=True)
+class CreateBookmarkRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/create-bookmark/request'
+    browser_profile_id: str
+    kind: str
+    parent: str
+    title: str
+    bookmark: Union[str, None, MissingType] = field(default=MISSING)
+    created_ms: Union[int, None, MissingType] = field(default=MISSING)
+    favicon_key: Union[str, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+    source_key: Union[str, None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1825,6 +1916,14 @@ class CreateWorkspaceGroupRequest:
     color: Union[str, None, MissingType] = field(default=MISSING)
     group: Union[str, None, MissingType] = field(default=MISSING)
     index: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class DeleteBookmarkRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-bookmark/request'
+    bookmark: str
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1945,6 +2044,19 @@ class IdsRequest:
 
 
 @dataclass(frozen=True)
+class ImportBookmarksRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/import-bookmarks/request'
+    browser_profile_id: str
+    nodes: List[JsonValue]
+    parent: str
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+    replace: Union[bool, MissingType] = field(default=MISSING)
+    source_key: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ImportSessionOrganizationRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/import-session-organization/request'
     session_id: str
@@ -1969,6 +2081,12 @@ class ListAgentsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-agents/request'
     surface: Union[Id, None, MissingType] = field(default=MISSING)
     state: Union[AgentState, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ListBookmarksRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-bookmarks/request'
+    browser_profile_id: str
 
 
 @dataclass(frozen=True)
@@ -2055,6 +2173,16 @@ class MintTerminalRendererByTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer-by-terminal/request'
     terminal: str
     ttl_ms: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveBookmarkRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-bookmark/request'
+    bookmark: str
+    index: int
+    parent: str
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2171,6 +2299,7 @@ class MoveTabToSplitRequest:
     pane: Id
     edge: str
     ratio: Union[float, None, MissingType] = field(default=MISSING)
+    respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -2948,6 +3077,18 @@ class UnsaveTabGroupRequest:
 
 
 @dataclass(frozen=True)
+class UpdateBookmarkRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/update-bookmark/request'
+    bookmark: str
+    favicon_key: Union[str, None, MissingType] = field(default=MISSING)
+    last_used_ms: Union[int, None, MissingType] = field(default=MISSING)
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+    title: Union[str, None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class UpdateBrowserProfileRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/update-browser-profile/request'
     browser_profile: str
@@ -3084,6 +3225,15 @@ class BellEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class BookmarksChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/bookmarks-changed/payload'
+    bookmarks_revision: int
+    browser_profile_id: str
+    event: Literal['bookmarks-changed']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class BrowserStateEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/browser-state/payload'
     surface: Id
@@ -3156,6 +3306,27 @@ class ColorsChangedEvent(EventBase):
 class ConfigReloadRequestedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/config-reload-requested/payload'
     event: Literal['config-reload-requested']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class ConversationChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/conversation-changed/payload'
+    change: Union[JsonValue, None]
+    conversation: str
+    event: Literal['conversation-changed']
+    rev: int
+    transaction: Union[str, None]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class ConversationTypingEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/conversation-typing/payload'
+    conversation: str
+    event: Literal['conversation-typing']
+    on: bool
+    participant: str
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -3694,7 +3865,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -3822,6 +3993,7 @@ __all__ = [
     'SizePolicy',
     'SizeState',
     'SizingIdentity',
+    'SplitRespawn',
     'SurfaceResult',
     'Tab',
     'TerminalColorOverrides',
@@ -3878,7 +4050,16 @@ __all__ = [
     'CloseTabsRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
+    'ConversationAgentTokenRequest',
+    'ConversationBindRequest',
+    'ConversationCreateRequest',
+    'ConversationHistoryRequest',
+    'ConversationListRequest',
+    'ConversationOpRequest',
+    'ConversationSnapshotRequest',
+    'ConversationTypingRequest',
     'CopyRequest',
+    'CreateBookmarkRequest',
     'CreateBrowserProfileRequest',
     'CreatePersonalGroupRequest',
     'CreateProfileRequest',
@@ -3888,6 +4069,7 @@ __all__ = [
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
     'CreateWorkspaceGroupRequest',
+    'DeleteBookmarkRequest',
     'DeleteBrowserProfileRequest',
     'DeletePersonalGroupRequest',
     'DeleteProfileRequest',
@@ -3906,10 +4088,12 @@ __all__ = [
     'GetSizeStateRequest',
     'IdentifyRequest',
     'IdsRequest',
+    'ImportBookmarksRequest',
     'ImportSessionOrganizationRequest',
     'JournalFrontendEventRequest',
     'JournalFrontendEventResult',
     'ListAgentsRequest',
+    'ListBookmarksRequest',
     'ListClientsRequest',
     'ListNotificationsRequest',
     'ListPersonalRequest',
@@ -3924,6 +4108,7 @@ __all__ = [
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
+    'MoveBookmarkRequest',
     'MoveBrowserProfileRequest',
     'MovePersonalGroupRequest',
     'MoveProfileRequest',
@@ -4027,6 +4212,7 @@ __all__ = [
     'UnregisterBrowserProviderRequest',
     'UnsaveScreenGroupRequest',
     'UnsaveTabGroupRequest',
+    'UpdateBookmarkRequest',
     'UpdateBrowserProfileRequest',
     'UpdateFrontendBrowserTabRequest',
     'UpdatePersonalGroupRequest',
@@ -4043,6 +4229,7 @@ __all__ = [
     'ZoomPaneRequest',
     'AgentChangedEvent',
     'BellEvent',
+    'BookmarksChangedEvent',
     'BrowserStateEvent',
     'ClientAttachedEvent',
     'ClientChangedEvent',
@@ -4050,6 +4237,8 @@ __all__ = [
     'ClientListInvalidatedEvent',
     'ColorsChangedEvent',
     'ConfigReloadRequestedEvent',
+    'ConversationChangedEvent',
+    'ConversationTypingEvent',
     'DaemonShutdownEvent',
     'DetachedEvent',
     'EmptyEvent',

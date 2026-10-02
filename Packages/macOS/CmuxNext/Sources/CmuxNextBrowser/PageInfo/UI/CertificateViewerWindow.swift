@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import UniformTypeIdentifiers
 
-/// Chrome's certificate viewer: a General tab (Issued To, Issued By,
+/// The certificate viewer: a General tab (Issued To, Issued By,
 /// Validity Period, SHA-256 Fingerprints) and a Details tab (hierarchy,
 /// fields, field value, Export).
 final class CertificateViewerWindow: PageInfoWindow {

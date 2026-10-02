@@ -205,19 +205,19 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "layout.centerFocusedColumn.never",
                 title: String(localized: "action.layout.centerFocusedColumn.never", defaultValue: "Scroll Columns Minimally", bundle: .module),
-                keywords: ["niri", "column", "center", "scroll", "reveal", "never", "minimal", "layout"], category: .settings,
+                keywords: ["column", "center", "scroll", "reveal", "never", "minimal", "layout"], category: .settings,
                 symbol: "arrow.left.and.right", surfaces: [.palette], cliName: "settings scroll-columns-minimally"
             ),
             ActionDescriptor(
                 id: "layout.centerFocusedColumn.always",
                 title: String(localized: "action.layout.centerFocusedColumn.always", defaultValue: "Always Center Focused Column", bundle: .module),
-                keywords: ["niri", "column", "center", "scroll", "always", "layout"], category: .settings,
+                keywords: ["column", "center", "scroll", "always", "layout"], category: .settings,
                 symbol: "align.horizontal.center", surfaces: [.palette], cliName: "settings always-center-focused-column"
             ),
             ActionDescriptor(
                 id: "layout.centerFocusedColumn.onOverflow",
                 title: String(localized: "action.layout.centerFocusedColumn.onOverflow", defaultValue: "Center Focused Column on Overflow", bundle: .module),
-                keywords: ["niri", "column", "center", "scroll", "overflow", "layout"], category: .settings,
+                keywords: ["column", "center", "scroll", "overflow", "layout"], category: .settings,
                 symbol: "align.horizontal.center.fill", surfaces: [.palette], cliName: "settings center-focused-column-on-overflow"
             ),
             ActionDescriptor(

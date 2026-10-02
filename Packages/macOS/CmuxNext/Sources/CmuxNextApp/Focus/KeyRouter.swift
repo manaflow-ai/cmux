@@ -53,8 +53,8 @@ final class KeyRouter: BrowserKeyRouting {
     }
 
     /// Like ``allows(_:focus:)`` for action `id`. The DevTools actions
-    /// (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C) are not editing chords: as in
-    /// Chrome they run from the page, the address bar, the find bar and
+    /// (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C) are not editing chords: they run
+    /// from the page, the address bar, the find bar and
     /// DevTools itself (where other content chords belong to DevTools).
     /// Browser focus mode still gives them to the page.
     nonisolated static func allows(_ tier: ActionKeyTier, id: ActionID, focus: FocusState) -> Bool {
@@ -193,13 +193,13 @@ final class KeyRouter: BrowserKeyRouting {
         let isBrowser = BrowserChordTable.isBrowserContext(focus.resolved)
         // Page Back/Forward chords never fall back to a Ghostty keybind.
         if !isBrowser, BrowserChordTable.isBrowserOnlyChord(event, registry: registry) { return nil }
-        // Chrome's tab-switching chords (Ctrl-Tab, Ctrl-PageDown...) are
+        // Browser tab-switching chords (Ctrl-Tab, Ctrl-PageDown...) are
         // cmux's next/previous tab in a browser context. Unbinding the
         // action in cmux.json removes these aliases too.
         if isBrowser, let id = BrowserChordTable.tabNavigationAction(for: event), registry.effectiveShortcut(for: id) != nil {
             return Candidate(id: id, tier: registry.keyTier(for: id), source: .registry(argument: nil))
         }
-        // Ghostty fallback: never for a chord Chrome defines while a page,
+        // Ghostty fallback: never for a browser chord while a page,
         // the address bar or the find bar has the keyboard (Cmd-[ is Back
         // there, not Ghostty's `goto_split:previous`); see BrowserChordTable.
         if isBrowser, BrowserChordTable.isChromeChord(event) { return nil }
@@ -221,7 +221,7 @@ final class KeyRouter: BrowserKeyRouting {
         return runExtensionShortcut(event, focus: focus)
     }
 
-    /// Chromium dispatches extension shortcuts from the Chrome toolbar that
+    /// Chromium dispatches extension shortcuts from the Chromium toolbar that
     /// cmux hides, and never sees keys while the omnibar or find bar has the
     /// keyboard, so cmux routes them for the focused Chromium tab.
     private func runExtensionShortcut(_ event: NSEvent, focus: FocusState) -> Bool {
@@ -301,7 +301,7 @@ final class KeyRouter: BrowserKeyRouting {
     }
 
     /// Before a docked or undocked DevTools sees a key: only the DevTools
-    /// actions (Cmd-Opt-I closes it, Cmd-Opt-J, Cmd-Opt-C), as in Chrome.
+    /// actions (Cmd-Opt-I closes it, Cmd-Opt-J, Cmd-Opt-C).
     /// Tiers 0 and 1 ran app-wide already; content chords (Copy, Reload)
     /// belong to the DevTools frontend.
     func browserTab(_ tab: any BrowserTab, devToolsKeyEquivalent event: NSEvent) -> BrowserKeyDisposition {

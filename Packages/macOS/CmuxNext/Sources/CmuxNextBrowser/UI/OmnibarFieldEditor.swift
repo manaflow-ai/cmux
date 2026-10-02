@@ -10,7 +10,7 @@ import AppKit
     /// `word`: the word under the press in the text shown now.
     func fieldEditorMouseDown(clickCount: Int, button: OmnibarInput.MouseButton, word: NSRange?)
     func fieldEditorMouseUp()
-    /// Copy and Cut text for the selection (Chrome's copy adjustments).
+    /// Copy and Cut text for the selection, with the omnibox copy adjustments.
     var copyContent: OmnibarCopy? { get }
     var canUndo: Bool { get }
     var canRedo: Bool { get }
@@ -108,7 +108,7 @@ final class OmnibarFieldEditor: NSTextView {
             return
         }
         // Shift-Delete (forward delete) removes the highlighted history row
-        // (Chrome `VKEY_DELETE` with Shift); otherwise it deletes forward.
+        // (Chromium `VKEY_DELETE` with Shift); otherwise it deletes forward.
         if event.keyCode == 117, event.modifierFlags.contains(.shift), !hasMarkedText(),
            sink?.fieldEditorKey(.deleteSuggestion) == true {
             return
@@ -150,9 +150,9 @@ final class OmnibarFieldEditor: NSTextView {
 
     // MARK: Copy
 
-    /// Chrome copies the page URL for the whole untouched URL, elided or
-    /// not, and completes a same-host URL with the page's scheme
-    /// (`OmniboxViewViews::OnBeforeCutOrCopy`).
+    /// Copies the page URL for the whole untouched URL, elided or not, and
+    /// completes a same-host URL with the page's scheme (Chromium
+    /// `OmniboxViewViews::OnBeforeCutOrCopy`).
     override func copy(_ sender: Any?) {
         guard let content = sink?.copyContent else { return super.copy(sender) }
         write(content)
@@ -198,7 +198,7 @@ final class AddressFieldCell: NSTextFieldCell {
 }
 
 extension OmnibarInput.Disposition {
-    /// Chrome on macOS: Cmd background tab, Shift-Cmd or Option foreground
+    /// Cmd background tab, Shift-Cmd or Option foreground
     /// tab, Shift new window.
     init(_ flags: NSEvent.ModifierFlags) {
         let flags = flags.intersection([.command, .shift, .option])

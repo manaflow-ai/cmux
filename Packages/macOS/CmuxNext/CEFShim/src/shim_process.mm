@@ -127,7 +127,7 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
   // Not persisted: in Chrome style this flag also sets the profile's
   // "restore on startup" to the last session, and with tabbed windows
   // Chromium then restores old tabs into the first new window. The daemon
-  // owns tabs; session cookies end with the app, as in Chrome's default.
+  // owns tabs; session cookies end when the app quits.
   settings.persist_session_cookies = false;
   // Each profile is its own request context with its own default list.
   if (!g_accept_languages.empty()) {
@@ -181,6 +181,8 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(tab_add, "cmux_tab_add");
   CMUX_BIND(tab_activate, "cmux_tab_activate");
   CMUX_BIND(tab_go_to_offset, "cmux_tab_go_to_offset");
+  CMUX_BIND(password_import, "cmux_password_import");
+  CMUX_BIND(tab_set_password_fill, "cmux_tab_set_password_fill");
   CMUX_BIND(tab_window_id, "cmux_tab_window_id");
   CMUX_BIND(ext_actions, "cmux_ext_actions");
   CMUX_BIND(ext_action_run, "cmux_ext_action_run");

@@ -1,9 +1,10 @@
 import AppKit
+import CmuxNextDesign
 
 /// The line between a CEF page and its docked DevTools. Drag it to resize
 /// (the page and DevTools windows punch a hole for its grab area, so the
 /// mouse reaches it over both); its menu moves DevTools like the dock
-/// side items of Chrome's DevTools menu.
+/// side items of the DevTools menu.
 final class CEFDevToolsDivider: NSView {
     weak var devTools: CEFDevToolsController?
     private var dragging = false
@@ -13,7 +14,7 @@ final class CEFDevToolsDivider: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let devTools else { return }
-        NSColor.separatorColor.setFill()
+        Borders.color(NSColor.separatorColor).setFill()
         let line = devTools.layout.dock.isSide
             ? NSRect(x: bounds.midX - CEFDevToolsLayout.lineThickness / 2, y: 0, width: CEFDevToolsLayout.lineThickness, height: bounds.height)
             : NSRect(x: 0, y: bounds.midY - CEFDevToolsLayout.lineThickness / 2, width: bounds.width, height: CEFDevToolsLayout.lineThickness)

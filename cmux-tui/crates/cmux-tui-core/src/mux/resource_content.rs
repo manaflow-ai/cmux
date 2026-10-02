@@ -8,16 +8,18 @@ use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::{Node, State};
 use crate::resource::{
     ContentPublicId, PanePublicId, SplitPublicId, TabPublicId, TabResourceIdentity,
-    TerminalPublicId, WorkspacePublicId,
+    TerminalPublicId,
 };
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource, RegistryBrowserStatus,
-    RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
-    RegistryViewportColumn, RegistryWorkspace, ResourceChange, ResourcePatch, ResourcePatchCommit,
-    WorkspaceMutation, WorkspaceRegistry,
+    RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryWorkspace,
+    ResourceChange, ResourcePatch, ResourcePatchCommit, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
+use live_screen::registry_screen_from_live;
+
+mod live_screen;
 
 impl Mux {
     pub(crate) fn resource_project_terminal_selected(
@@ -406,8 +408,7 @@ impl Mux {
                         target_tabs.get(new_index).map(|tab| tab.public_id.clone());
                 }
 
-                let mut changes = Vec::new();
-                changes.push(ResourceChange::UpsertPane(source_pane.clone()));
+                let mut changes = vec![ResourceChange::UpsertPane(source_pane.clone())];
                 if target_pane_id != source_pane_id {
                     changes.push(ResourceChange::UpsertPane(target_pane.clone()));
                 }
@@ -545,7 +546,8 @@ impl Mux {
                     order_entries: source_delta_tabs.len() + target_delta_tabs.len(),
                     terminal_queries: 0,
                     changed_rows: source_delta_tabs.len() + target_delta_tabs.len() + 3,
-                }))
+                })
+                .moving_tab(surface, target_pane_slot, index))
             },
         )?;
 
@@ -1161,54 +1163,6 @@ fn ordered_terminal_tab_ids(
         }
     }
     Ok(terminal_tab_ids_in_canonical_order(tabs))
-}
-
-fn registry_screen_from_live(
-    state: &State,
-    workspace_id: &WorkspacePublicId,
-    position: usize,
-    screen: &crate::model::Screen,
-) -> anyhow::Result<RegistryScreen> {
-    let layout = registry_layout_node(state, &screen.root)?;
-    let viewport = if screen.layout_columns.is_empty() {
-        RegistryViewport::default()
-    } else {
-        RegistryViewport {
-            base_width: screen.viewport_base_width,
-            columns: screen
-                .layout_columns
-                .iter()
-                .map(|column| {
-                    Ok(RegistryViewportColumn {
-                        id: split_public_id(state, column.id)?,
-                        width: column.width,
-                        layout: registry_layout_node(state, &column.root)?,
-                        auto_layout: column
-                            .zellij_auto_layout
-                            .as_ref()
-                            .map(|panes| pane_public_ids(state, panes))
-                            .transpose()?,
-                        sticky: column.sticky,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?,
-        }
-    };
-    Ok(RegistryScreen {
-        public_id: screen.public_id.clone(),
-        workspace_id: workspace_id.clone(),
-        position,
-        name: screen.name.clone(),
-        layout,
-        active_pane: pane_public_id(state, screen.active_pane)?,
-        zoomed_pane: screen.zoomed_pane.map(|pane| pane_public_id(state, pane)).transpose()?,
-        auto_layout: screen
-            .zellij_auto_layout
-            .as_ref()
-            .map(|panes| pane_public_ids(state, panes))
-            .transpose()?,
-        viewport,
-    })
 }
 
 fn ensure_split_public_ids(state: &mut State) -> anyhow::Result<()> {

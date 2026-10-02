@@ -25,8 +25,12 @@ enum AgentPaneTheme {
             // translucent window's backdrop shows through it as much as
             // through the terminal.
             "inputBackground": css(tokens.hoverFill),
-            "border": css(tokens.separator),
-            "borderStrong": css(tokens.paneBorder),
+            // appearance.borders none: every border in the page is transparent.
+            "border": Borders.drawsLines ? css(tokens.separator) : "transparent",
+            "borderStrong": Borders.drawsLines ? css(tokens.paneBorder) : "transparent",
+            // The page's own edges (composer, menus, code and tool cards) are
+            // mixed from the text color, so it also gets the mode itself.
+            "borders": Borders.current.mode.rawValue,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),

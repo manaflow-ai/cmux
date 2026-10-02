@@ -35,7 +35,7 @@ public nonisolated struct BrowserNavigationList: Hashable, Sendable {
 }
 
 /// A tab that can list its back/forward entries and jump to one in a
-/// single navigation (Chrome's long-press / right-click Back and Forward
+/// single navigation (the long-press / right-click Back and Forward
 /// menus, plans/cmux-next/history.md 4.1). WebKit always; Chromium from
 /// fork API 14.
 public protocol BrowserBackForwardListing: AnyObject {

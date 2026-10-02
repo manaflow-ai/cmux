@@ -1,0 +1,26 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/running-agents",
+  "name": { "en": "Running Agents", "ja": "実行中のエージェント" },
+  "version": "1.0.0",
+  "description": "Every coding agent in your terminals, grouped by what it is doing. Click one to jump to its terminal.",
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": ["sidebar", "agents"],
+  "engines": { "cmux": "^1.0" },
+  "main": "dist/main.js",
+  "scopes": {
+    "agent:read": "List the agents running in your terminals.",
+    "terminal:read": "Find the tab of an agent's terminal.",
+    "workspace:write": "Show an agent's tab when you click it."
+  },
+  "contributes": {
+    "sidebarSections": [{ "id": "agents", "title": { "en": "Agents", "ja": "エージェント" }, "symbol": "sparkles", "defaultRegion": "middle", "render": "renderAgents", "maxRows": 12 }],
+    "settings": { "type": "object", "properties": { "showIdle": { "type": "boolean", "default": true, "title": "Show idle agents" } } }
+  },
+  "activation": ["onSidebarSection:agents"],
+  "files": ["dist/", "assets/"]
+}

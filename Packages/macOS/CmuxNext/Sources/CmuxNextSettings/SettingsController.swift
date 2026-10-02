@@ -25,12 +25,25 @@ public final class SettingsController {
     public private(set) var snapshot: CmuxConfigSnapshot = .empty
     /// Number of completed loads; tests and the App can await changes by it.
     public private(set) var loadCount = 0
+    /// Keys an MDM profile or the team policy manages (dotted key -> manager).
+    public private(set) var managedKeys: [String: ManagedSource] = [:]
+    /// Managed policy keys that are not settings (`EnrollmentToken`, `DisabledFeatures`, ...).
+    public private(set) var managedPolicy: [String: JSONValue] = [:]
+    /// The user's own cmux.json document; `snapshot.root` is the effective one.
+    public private(set) var fileRoot: JSONValue = .object([:])
+    /// Device-scoped values of the managing team's policy; set with `setTeamPolicy`.
+    public internal(set) var teamPolicy: TeamPolicyLayer = .none
 
     @ObservationIgnored private let applier: SettingsApplier
     @ObservationIgnored private var watcher: ConfigFileWatcher?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
     @ObservationIgnored private var reloadRequested = false
-    @ObservationIgnored private var lastSource: String?
+    @ObservationIgnored private var lastSource: LoadInputs?
+    @ObservationIgnored let managedReader: any ManagedPreferenceReader
+    @ObservationIgnored let managedWatchFiles: [URL]
+    @ObservationIgnored var managedWatchers: [ConfigFileWatcher] = []
+    @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
+    @ObservationIgnored var lastStatusBody: JSONValue?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
 
     private struct LoadWaiter {
@@ -39,13 +52,24 @@ public final class SettingsController {
         let continuation: CheckedContinuation<Void, Never>
     }
 
+    /// Everything a load depends on; an unchanged input skips the apply.
+    private struct LoadInputs: Equatable {
+        let source: String
+        let managed: ManagedPreferences
+        let team: TeamPolicyLayer
+    }
+
     public init(
         registry: ActionRegistry,
         design: DesignSettings = .shared,
-        fileURL: URL = CmuxConfigFile.defaultURL()
+        fileURL: URL = CmuxConfigFile.defaultURL(),
+        managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
+        managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles()
     ) {
         self.file = CmuxConfigFile(url: fileURL)
         self.applier = SettingsApplier(design: design, registry: registry)
+        self.managedReader = managedReader
+        self.managedWatchFiles = managedWatchFiles
     }
 
     /// Loads the file now and starts watching it.
@@ -56,12 +80,14 @@ public final class SettingsController {
         }
         self.watcher = watcher
         watcher.start()
+        startManagedWatchers()
         requestReload()
     }
 
     public func stop() {
         watcher?.stop()
         watcher = nil
+        stopManagedWatchers()
         reloadTask?.cancel()
         reloadTask = nil
     }
@@ -194,7 +220,7 @@ public final class SettingsController {
     // MARK: - Loading
 
     /// Coalesces bursts of file events into one load of the latest content.
-    private func requestReload() {
+    func requestReload() {
         reloadRequested = true
         guard reloadTask == nil else { return }
         reloadTask = Task { [weak self] in
@@ -211,31 +237,42 @@ public final class SettingsController {
         let validDensities = SettingsApplier.validDensities
         let validMetrics = SettingsApplier.validMetrics
         let configDirectory = file.url.deletingLastPathComponent()
-        let loaded: (source: String, snapshot: CmuxConfigSnapshot) = await Task.detached {
+        let reader = managedReader
+        let team = teamPolicy
+        let lastGood = fileRoot
+        let loaded: (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot) = await Task.detached {
+            let managed = reader.read()
+            var source = ""
+            var problem: String?
+            var root = lastGood
             do {
-                let source = try await file.source()
-                do {
-                    let root = try JSONC.parse(source)
-                    return (source, CmuxConfigSnapshot.parse(
-                        root, validDensities: validDensities, validMetrics: validMetrics, configDirectory: configDirectory
-                    ))
-                } catch {
-                    var snapshot = CmuxConfigSnapshot.empty
-                    snapshot.diagnostics = [SettingsDiagnostic(kind: .unreadableFile, path: "", message: String(describing: error))]
-                    return (source, snapshot)
-                }
+                source = try await file.source()
+                let parsed = try JSONC.parse(source)
+                if case .object = parsed { root = parsed } else { problem = "root is not an object" }
             } catch {
-                var snapshot = CmuxConfigSnapshot.empty
-                snapshot.diagnostics = [SettingsDiagnostic(kind: .unreadableFile, path: "", message: String(describing: error))]
-                return ("", snapshot)
+                problem = String(describing: error)
             }
+            // Managed layers always merge, over the last good file when this one
+            // is unreadable, so MDM forced values apply even while the user's
+            // file is broken (spec/enterprise.md 5.2).
+            let effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+            var snapshot = CmuxConfigSnapshot.parse(
+                effective.root, validDensities: validDensities, validMetrics: validMetrics, configDirectory: configDirectory
+            )
+            if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
+            snapshot.diagnostics += effective.diagnostics
+            return (LoadInputs(source: source, managed: managed, team: team), effective, snapshot)
         }.value
-        if loaded.source != lastSource || loadCount == 0 {
-            lastSource = loaded.source
+        if loaded.inputs != lastSource || loadCount == 0 {
+            lastSource = loaded.inputs
             diagnostics = applier.apply(loaded.snapshot)
-            if !loaded.snapshot.diagnostics.contains(where: { $0.kind == .unreadableFile }) {
-                snapshot = loaded.snapshot
-            }
+            let effective = loaded.effective
+            snapshot = loaded.snapshot
+            fileRoot = effective.fileRoot
+            managedKeys = effective.managedKeys
+            managedPolicy = effective.policy
+            file.managedGuard.update(effective.managedKeys)
+            reportManagedStatus(managed: loaded.inputs.managed, team: loaded.inputs.team, effective: effective)
         }
         loadCount += 1
         let ready = loadWaiters.filter { $0.count <= loadCount }

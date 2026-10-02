@@ -63,7 +63,7 @@ public typealias WorkspaceGroupID = DaemonStringID<StringIDKind.WorkspaceGroup>
 /// Client-chosen tab-drag `transaction`, echoed in the moved tab's `tab-changed`.
 public typealias ClientTransactionID = DaemonStringID<StringIDKind.ClientTransaction>
 
-/// Chrome-style tab group id (`tab-groups-v1`): 1-64 of `[A-Za-z0-9_.:-]`;
+/// Tab group id (`tab-groups-v1`): 1-64 of `[A-Za-z0-9_.:-]`;
 /// the daemon generates `tgrp_<32 hex>` when the caller omits it.
 public typealias TabGroupID = DaemonStringID<StringIDKind.TabGroup>
 /// Session-wide saved tab group record (`saved-tab-groups-v1`).

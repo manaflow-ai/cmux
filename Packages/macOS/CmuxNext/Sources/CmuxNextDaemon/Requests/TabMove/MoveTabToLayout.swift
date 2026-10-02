@@ -25,7 +25,7 @@ public enum ColumnDropTarget: Sendable, Hashable {
     case pane(PaneID)
 }
 
-/// Drop between niri columns: new viewport column holding the tab.
+/// Drop between strip columns: new viewport column holding the tab.
 public struct MoveTabToColumnRequest: DaemonRequest {
     public typealias Response = TabMoveResult
     public static let command = "move-tab-to-column"

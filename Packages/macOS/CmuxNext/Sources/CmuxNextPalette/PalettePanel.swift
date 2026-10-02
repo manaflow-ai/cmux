@@ -37,9 +37,14 @@ final class PalettePanel: ActiveAppKeyPanel {
     /// True while the shortcut recorder listens: every chord is its input,
     /// so no main-menu item or responder sees it.
     var capturesKeyEquivalents: (() -> Bool)?
+    /// One chord the palette takes before any main-menu item: Cmd-W on a
+    /// row with a close command closes that row's object, never the tab
+    /// behind the palette.
+    var capturesKeyEquivalent: ((NSEvent) -> Bool)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.type == .keyDown, capturesKeyEquivalents?() == true, keyHandler?(event) == true { return true }
+        if event.type == .keyDown, capturesKeyEquivalents?() == true || capturesKeyEquivalent?(event) == true,
+           keyHandler?(event) == true { return true }
         return super.performKeyEquivalent(with: event)
     }
 

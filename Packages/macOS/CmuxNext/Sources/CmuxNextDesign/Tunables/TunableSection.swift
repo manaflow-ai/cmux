@@ -32,4 +32,5 @@ public nonisolated struct TunableSection: Sendable, Hashable, Identifiable {
     public static let hover = TunableSection(id: "hover", title: "Hover and Marquee", symbol: "cursorarrow.rays", order: 9)
     public static let glass = TunableSection(id: "glass", title: "Glass and Overlays", symbol: "drop", order: 10)
     public static let focus = TunableSection(id: "focus", title: "Focus and Scroll", symbol: "scope", order: 11)
+    public static let status = TunableSection(id: "status", title: "Status Indicators", symbol: "progress.indicator", order: 12)
 }

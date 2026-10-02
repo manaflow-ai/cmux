@@ -31,6 +31,7 @@ final class PaneOverlayView: NSView {
     private var cornerRadius: CGFloat = 0
     private var headerHeight: CGFloat = 0
     private var focusRing = FocusRingSettings()
+    private var ringAlphaOverride: CGFloat?
     private var attentionSettings = AttentionSettings()
     private var attentionMark: AttentionMark?
     private var borderStyle = Border(shows: false)
@@ -104,6 +105,10 @@ final class PaneOverlayView: NSView {
     /// The rect the focus ring and glow trace, in this view's coordinates
     /// (for tests and `debug.layers`).
     var ringFrame: CGRect { ring.frame }
+    /// The color the focus ring strokes with (for tests).
+    var ringColor: CGColor? { ring.borderColor }
+    /// The inactive dim's opacity (for tests).
+    var dimOpacity: Float { dimLayer.opacity }
     /// The border's line width in points and color override (for tests).
     var borderWidth: CGFloat { border.borderWidth }
     var borderColor: ThemeRGB? { borderStyle.color }
@@ -170,13 +175,14 @@ final class PaneOverlayView: NSView {
         if layer.mask !== mask { layer.mask = mask }
     }
 
-    func update(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, border borderStyle: Border,
+    func update(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil, border borderStyle: Border,
                 attention mark: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings
             || borderStyle.width != self.borderStyle.width
         let showsBorder = borderStyle.shows
         self.borderStyle = borderStyle
         self.focusRing = focusRing
+        self.ringAlphaOverride = ringAlphaOverride
         self.attentionSettings = attentionSettings
         if shapeChanged { layoutLayers() }
         let style = showsRing ? focusRing.effectiveStyle : .none
@@ -214,7 +220,7 @@ final class PaneOverlayView: NSView {
 
     private func applyColors() {
         performWithTheme {
-            let ringColor = focusRing.color?.nsColor ?? Palette.focusRing.withAlphaComponent(LayoutTunables.focusRingAlpha.value)
+            let ringColor = Palette.paneFocusRing(focusRing, override: ringAlphaOverride)
             ring.borderColor = ringColor.cgColor
             glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value).cgColor
             glow.shadowColor = ringColor.cgColor

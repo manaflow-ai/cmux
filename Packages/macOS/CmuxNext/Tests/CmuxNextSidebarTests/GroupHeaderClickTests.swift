@@ -54,8 +54,8 @@ import Testing
         h.click(point, count: 1)
         h.click(point, count: 2)
         #expect(h.toggles == 0)
-        #expect(h.list.rename?.key == .group(g1))
-        h.list.endRename(commit: false)
+        #expect(h.list.inlineRename.session?.key == .group(g1))
+        h.list.inlineRename.end(commit: false)
     }
 
     @Test func singleClickOnGroupNameTogglesOnceAfterTheDoubleClickInterval() async {

@@ -194,7 +194,7 @@ extension ShortcutAction {
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
         case .fileExplorerOpenSelection: return ShortcutStroke(key: "\r")
         case .fileExplorerOpenSelectionFinderAlias: return ShortcutStroke(key: "↓", command: true)
-        case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)
+        case .openDiffViewer: return ShortcutStroke(key: "g", command: true, shift: true, control: true)
         case .saveFilePreview: return ShortcutStroke(key: "s", command: true)
         case .toggleFileEditorWordWrap: return ShortcutStroke(key: "z", option: true)
         case .openBrowser: return ShortcutStroke(key: "l", command: true, shift: true)

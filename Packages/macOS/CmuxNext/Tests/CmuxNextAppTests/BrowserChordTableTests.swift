@@ -5,7 +5,7 @@ import CmuxNextTerminal
 import Testing
 
 /// Browser context chord resolution (focus.md section 5, "Browser
-/// context"): Chrome's chords beat the Ghostty keybind fallback in a page,
+/// context"): browser chords beat the Ghostty keybind fallback in a page,
 /// the address bar and the find bar; cmux's own bindings still win first.
 @MainActor
 struct BrowserChordTableTests {
@@ -77,7 +77,7 @@ struct BrowserChordTableTests {
         }
     }
 
-    /// Chrome chords without a cmux action (Cmd-Shift-J, downloads) go
+    /// Browser chords without a cmux action (Cmd-Shift-J, downloads) go
     /// to the page, never to a Ghostty keybind; chords neither defines
     /// (Cmd-Ctrl-H) still take the Ghostty fallback in a page.
     @Test func ghosttyFallbackOnlyForChordsNeitherDefines() throws {
@@ -88,7 +88,7 @@ struct BrowserChordTableTests {
         for focus in [K.page, K.omnibar, K.find] {
             #expect(services.keyRouter.candidate(for: devtools, focus: focus) == nil)
         }
-        // Cmd-Y is Show History in a page (Chrome's History, history.md 5.1).
+        // Cmd-Y is Show History in a page (history.md 5.1).
         let history = try K.key("y", keyCode: 16, [.command])
         #expect(services.keyRouter.candidate(for: history, focus: K.page)?.id == "browserShowHistory")
         // In a terminal (no browser context) the terminal's Ghostty keybind runs.
@@ -105,7 +105,7 @@ struct BrowserChordTableTests {
     static let pageUp = String(UnicodeScalar(NSPageUpFunctionKey)!)
     static let pageDown = String(UnicodeScalar(NSPageDownFunctionKey)!)
 
-    /// Chrome's tab-switching chords as AppKit delivers them: Ctrl-Tab,
+    /// The browser tab-switching chords as AppKit delivers them: Ctrl-Tab,
     /// Ctrl-Shift-Tab (Shift turns Tab into back-tab, U+0019), and
     /// Ctrl-PageDown / Ctrl-PageUp (function keys; Ctrl-Fn-Down/Up on a
     /// laptop keyboard).
@@ -119,7 +119,7 @@ struct BrowserChordTableTests {
     }
 
     /// Ctrl-Tab and its siblings switch cmux tabs in a page, the omnibar
-    /// and the find bar, like in Chrome, whatever the user's Ghostty
+    /// and the find bar, whatever the user's Ghostty
     /// keybinds say (this router binds none for them). They are tier 1, so
     /// the app-wide interceptor runs them before Chromium or a field sees
     /// the key.
@@ -131,7 +131,7 @@ struct BrowserChordTableTests {
         }
         services.registry.context.insert(.browserFocused)
         for chord in try Self.tabSwitchChords() {
-            #expect(BrowserChordTable.isChromeChord(chord.event), "\(chord.name) is a Chrome chord")
+            #expect(BrowserChordTable.isChromeChord(chord.event), "\(chord.name) is a browser chord")
             for focus in [K.page, K.omnibar, K.find] {
                 let candidate = try #require(services.keyRouter.candidate(for: chord.event, focus: focus), "\(chord.name)")
                 #expect(candidate.id == chord.action, "\(chord.name)")
@@ -155,7 +155,7 @@ struct BrowserChordTableTests {
         }
     }
 
-    /// Unbinding the action in cmux.json also removes its Chrome aliases:
+    /// Unbinding the action in cmux.json also removes its browser chord aliases:
     /// the chord goes to the page.
     @Test func unboundTabActionLeavesTheChordToThePage() throws {
         let services = Self.services()

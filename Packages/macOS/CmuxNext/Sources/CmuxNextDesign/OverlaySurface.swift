@@ -1,49 +1,24 @@
 public import AppKit
 
-/// How an app overlay that floats over content (the tab drag's drop
-/// target) is drawn. One decision for every OS and accessibility setting.
-public enum OverlayMaterial: Equatable, Sendable {
-    /// Real Liquid Glass (`NSGlassEffectView`, macOS 26 and later).
-    case liquidGlass
-    /// Before Liquid Glass: a behind-window blur (`NSVisualEffectView`)
-    /// with a Ghostty-derived tint and a hairline border.
-    case vibrancy
-    /// Reduce Transparency: an opaque Ghostty-derived fill with a hairline
-    /// border, no blur and no glass.
-    case opaque
-
-    /// The material for an OS that has (or lacks) Liquid Glass and the
-    /// user's Reduce Transparency setting.
-    public static func select(liquidGlassAvailable: Bool, reduceTransparency: Bool) -> OverlayMaterial {
-        if reduceTransparency { return .opaque }
-        return liquidGlassAvailable ? .liquidGlass : .vibrancy
-    }
-
-    /// Whether this OS has Liquid Glass (macOS 26 and later). A runtime
-    /// check, so the selection stays testable for every OS.
-    public static var liquidGlassAvailable: Bool {
-        ProcessInfo.processInfo.isOperatingSystemAtLeast(OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
-    }
-
-    /// The material for this Mac now.
-    @MainActor public static var current: OverlayMaterial {
-        select(liquidGlassAvailable: liquidGlassAvailable,
-               reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
-    }
-}
-
 /// An overlay surface drawn in an `OverlayMaterial`, with one shape (a
 /// continuous rounded rect of `cornerRadius`) whatever the material, so the
 /// overlay's frame, corners and motion are the same on every path. It
-/// follows Reduce Transparency live and re-reads theme colors in
-/// `applyTheme()`. Content goes in `contentView`, above the material.
+/// follows Reduce Transparency live (`ReduceTransparency`) and re-reads
+/// theme colors whenever its effective appearance or theme scope changes.
+/// Content goes in `contentView`, above the material, and may size the
+/// surface through constraints. Every floating glass panel (palette, hover
+/// card, find and prompt bars, drop overlay) is one of these, made with
+/// `Glass.makeOverlayPanel`; raw `Glass.makePanel` has no fallback.
 @MainActor
 public final class OverlaySurfaceView: NSView {
     public private(set) var material: OverlayMaterial
     public let contentView = NSView()
+    /// Panels take clicks and hovers; a pure overlay (the drop target, a
+    /// HUD) lets them through to the views beneath.
+    public let isInteractive: Bool
     private var materialView: NSView?
     private var tintView: NSView?
-    private var observer: (any NSObjectProtocol)?
+    private let reduceTransparency: ReduceTransparency
     /// Pins one material (tests, `debug.drop_highlight`); nil follows this Mac.
     public var materialOverride: OverlayMaterial? {
         didSet { refreshMaterial() }
@@ -53,34 +28,34 @@ public final class OverlaySurfaceView: NSView {
         didSet { if cornerRadius != oldValue { applyShape() } }
     }
 
-    /// `material` pins one material (tests, previews); nil follows this Mac.
-    public init(material: OverlayMaterial? = nil) {
+    /// `material` pins one material (tests, previews); nil follows
+    /// `reduceTransparency` on this Mac.
+    public init(material: OverlayMaterial? = nil, interactive: Bool = false,
+                cornerRadius: CGFloat = Metrics.panelCornerRadius,
+                reduceTransparency: ReduceTransparency = .shared) {
         materialOverride = material
-        self.material = material ?? OverlayMaterial.current
+        isInteractive = interactive
+        self.cornerRadius = cornerRadius
+        self.reduceTransparency = reduceTransparency
+        self.material = material ?? OverlayMaterial.current(in: reduceTransparency)
         super.init(frame: .zero)
         wantsLayer = true
         contentView.translatesAutoresizingMaskIntoConstraints = true
         contentView.autoresizingMask = [.width, .height]
         rebuild()
-        observer = NSWorkspace.shared.notificationCenter.addObserver(
-                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: nil
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshMaterial() }
-            }
+        reduceTransparency.register(self)
     }
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    isolated deinit {
-        if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
-    }
-
     /// The view that draws the material (an `NSGlassEffectView`,
     /// `NSVisualEffectView` or a plain layer-backed view).
     public var materialDrawingView: NSView? { materialView }
 
-    public override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    public override func hitTest(_ point: NSPoint) -> NSView? {
+        isInteractive ? super.hitTest(point) : nil
+    }
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -94,7 +69,7 @@ public final class OverlaySurfaceView: NSView {
 
     /// Re-reads the material from this Mac's settings (Reduce Transparency).
     public func refreshMaterial() {
-        let next = materialOverride ?? OverlayMaterial.current
+        let next = materialOverride ?? OverlayMaterial.current(in: reduceTransparency)
         guard next != material else { return }
         material = next
         rebuild()
@@ -144,6 +119,9 @@ public final class OverlaySurfaceView: NSView {
         materialView = view
         applyShape()
         applyTheme()
+        // Content colors may depend on the material (a veil that only
+        // glass needs): the content re-resolves them like on a theme change.
+        ThemeScope.invalidate(contentView)
     }
 
     private func applyShape() {
@@ -153,7 +131,7 @@ public final class OverlaySurfaceView: NSView {
             layer.cornerRadius = cornerRadius
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
-            layer.borderWidth = 1 / max(window?.backingScaleFactor ?? 2, 1)
+            layer.borderWidth = Metrics.lineWidth(1 / max(window?.backingScaleFactor ?? 2, 1))
         }
     }
 
@@ -168,10 +146,9 @@ public final class OverlaySurfaceView: NSView {
                 tintView?.layer?.backgroundColor = overlayTint.cgColor
                 materialView?.layer?.borderColor = Palette.separator.cgColor
             case .opaque:
-                let base = Palette.windowBackground.usingColorSpace(.sRGB) ?? Palette.windowBackground
-                let fill = base.withAlphaComponent(1).blended(withFraction: ChromeTunables.opaqueOverlayLift.value, of: Palette.textPrimary.withAlphaComponent(1)) ?? base
+                let fill = themeTokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value)
                 materialView?.layer?.backgroundColor = fill.cgColor
-                materialView?.layer?.borderColor = Palette.separator.withAlphaComponent(1).cgColor
+                materialView?.layer?.borderColor = Borders.color(Palette.separator.withAlphaComponent(1)).cgColor
             }
         }
         applyShape()
@@ -184,5 +161,19 @@ public final class OverlaySurfaceView: NSView {
         let strength = ChromeTunables.glassOverlayTintStrength.value
         guard strength != 1 else { return tint }
         return tint.withAlphaComponent(min(max(tint.alphaComponent * strength, 0), 1))
+    }
+}
+
+extension NSView {
+    /// The material of the overlay surface this view sits in, or nil
+    /// outside one. Content that only glass needs (a legibility veil)
+    /// checks it in its color hook, which reruns when the material changes.
+    public var enclosingOverlayMaterial: OverlayMaterial? {
+        var current = superview
+        while let view = current {
+            if let surface = view as? OverlaySurfaceView { return surface.material }
+            current = view.superview
+        }
+        return nil
     }
 }

@@ -8,7 +8,7 @@ import CmuxNextActions
 /// (catalog default or `cmux.json`), then, only when the registry has none,
 /// the user's Ghostty keybinds for window, tab and split actions. In a
 /// browser context that fallback is refused for every chord listed here,
-/// because Chrome (and Safari) give it a meaning users expect in a page:
+/// because browsers give it a meaning users expect in a page:
 /// Ghostty's default `super+[` (`goto_split:previous`) must not replace
 /// Back. Chords cmux itself binds (Cmd-D split, Cmd-T new tab, Cmd-W close,
 /// Cmd-1..9 tab select) are resolved by the registry before this table is
@@ -19,8 +19,8 @@ enum BrowserChordTable {
     private static let pageUp = String(Character(UnicodeScalar(UInt32(NSPageUpFunctionKey))!))
     private static let pageDown = String(Character(UnicodeScalar(UInt32(NSPageDownFunctionKey))!))
 
-    /// Chrome for Mac shortcuts (support.google.com/chrome/answer/157179,
-    /// "Mac keyboard shortcuts"), limited to Command and Control chords.
+    /// The standard browser shortcuts on macOS, limited to Command and
+    /// Control chords.
     static let chromeReserved: Set<Shortcut> = {
         var set: Set<Shortcut> = [
             // Navigation: Back, Forward.
@@ -56,7 +56,7 @@ enum BrowserChordTable {
         return set
     }()
 
-    /// Chrome's next/previous tab chords. cmux tabs are the browser's tabs,
+    /// The browser's next/previous tab chords. cmux tabs are the browser's tabs,
     /// so in a browser context each one runs cmux's own next or previous
     /// tab action, whatever the user's Ghostty keybinds say (a terminal
     /// keeps its own keybinds, `ctrl+tab=next_tab` by default). The router
@@ -74,7 +74,7 @@ enum BrowserChordTable {
         Shortcut("[", modifiers: [.command, .shift]): "prevSurface",
     ]
 
-    /// Whether `event` is a chord Chrome defines.
+    /// Whether `event` is a chord in `chromeReserved`.
     static func isChromeChord(_ event: NSEvent) -> Bool {
         shortcuts(of: event).contains { chromeReserved.contains($0) }
     }
@@ -92,7 +92,7 @@ enum BrowserChordTable {
         return shortcuts(of: event).contains { chords.contains($0) }
     }
 
-    /// The cmux tab action for a Chrome tab-switching chord, or nil.
+    /// The cmux tab action for a browser tab-switching chord, or nil.
     static func tabNavigationAction(for event: NSEvent) -> ActionID? {
         shortcuts(of: event).lazy.compactMap { tabNavigation[$0] }.first
     }

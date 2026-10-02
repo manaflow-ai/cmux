@@ -1,7 +1,7 @@
 public import AppKit
 
-/// Where an opened bookmark goes (Chrome: click, Cmd-click or middle-click,
-/// Cmd-Shift-click). Shift-click (Chrome: new window) opens a new tab.
+/// Where an opened bookmark goes (click, Cmd-click or middle-click,
+/// Cmd-Shift-click). Shift-click opens a new tab, not a new window.
 public enum BookmarkOpenDisposition: String, Sendable, CaseIterable {
     case currentTab
     case newTab

@@ -1,8 +1,8 @@
-//! Screen metadata (color, icon, pin), screen order, and Chrome-style screen
+//! Screen metadata (color, icon, pin), screen order, and screen
 //! groups (`screen-metadata-v1`, `screen-groups-v1`).
 //!
 //! A screen group lives in one workspace: an id, a name (may be empty), one
-//! of Chrome's nine colors, and a shared collapsed flag. Each screen belongs
+//! of nine named colors, and a shared collapsed flag. Each screen belongs
 //! to at most one group and members are contiguous in the workspace's screen
 //! order, after the pinned screens. Every command keeps that invariant by
 //! normalizing the order (pinned first, then each group gathered at its
@@ -113,7 +113,7 @@ pub(crate) fn workspace_screen_groups(
     runs
 }
 
-fn locate_screen(state: &State, screen: ScreenId) -> Option<(usize, usize)> {
+pub(super) fn locate_screen(state: &State, screen: ScreenId) -> Option<(usize, usize)> {
     state.workspaces.iter().enumerate().find_map(|(wi, workspace)| {
         workspace.screens.iter().position(|candidate| candidate.id == screen).map(|si| (wi, si))
     })
@@ -324,11 +324,11 @@ impl Mux {
                     tab_drag::retarget_terminal_workspace(&mut projection.patch, terminal, key);
                 }
                 output = Some(result);
-                let mut plan = ResourceMutationPlan::new(
+                let mut plan = ResourceMutationPlan::replacing(
                     projection.patch,
                     projection.result,
                     projection.changes,
-                    move |state| *state = projected,
+                    projected,
                 )
                 .with_screen_state(screens);
                 if let Some(ledger) = ledger {
@@ -369,50 +369,6 @@ impl Mux {
         };
         self.publish_journal_event();
         Ok(result)
-    }
-
-    /// Emit `screen-changed` (full screen and its index) for each screen.
-    pub(crate) fn emit_screen_changed(&self, screens: &[ScreenId]) {
-        self.emit_screen_changed_for_transaction(screens, None);
-    }
-
-    /// [`Self::emit_screen_changed`] for a request that carried a client
-    /// transaction, which every delta it causes echoes.
-    pub(crate) fn emit_screen_changed_for_transaction(
-        &self,
-        screens: &[ScreenId],
-        transaction: Option<Arc<str>>,
-    ) {
-        let decorations = self.tree_decorations();
-        let deltas = {
-            let state = self.state.lock().unwrap();
-            screens
-                .iter()
-                .filter_map(|screen| {
-                    let (wi, si) = locate_screen(&state, *screen)?;
-                    let entity = crate::server::tree_entity_json(
-                        &state,
-                        &decorations,
-                        TreeDeltaKind::ScreenChanged,
-                        *screen,
-                    )?;
-                    Some(TreeDelta {
-                        kind: TreeDeltaKind::ScreenChanged,
-                        workspace: state.workspaces[wi].id,
-                        screen: Some(*screen),
-                        pane: None,
-                        surface: None,
-                        index: Some(si),
-                        entity,
-                        workspace_revision: None,
-                        transaction: transaction.clone(),
-                    })
-                })
-                .collect::<Vec<_>>()
-        };
-        for delta in deltas {
-            self.emit(MuxEvent::TreeDelta(delta));
-        }
     }
 
     /// The group's record, workspace, and members (for command results).

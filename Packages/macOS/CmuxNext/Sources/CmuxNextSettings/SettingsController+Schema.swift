@@ -14,16 +14,18 @@ extension SettingsController {
     /// watcher then applies the change to every window and the Settings
     /// window reads it back from `snapshot`.
     public func setSetting(_ descriptor: SettingDescriptor, to value: JSONValue?) async throws {
+        if let source = managedKeys[descriptor.id] { throw SettingManaged(key: descriptor.id, source: source) }
         guard let value else { return try await removePruning(descriptor.path) }
         guard descriptor.accepts(value) else { throw SettingRefused(key: descriptor.id, value: value) }
         try await file.set(value, at: descriptor.path)
     }
 
     /// Advanced > Reset All Settings: removes every key the schema lists and
-    /// every shortcut override. Custom actions, tab bar buttons and keys the
-    /// schema does not know stay.
+    /// every shortcut override. Custom actions, tab bar buttons, keys the
+    /// schema does not know, and managed keys (edits refused) stay.
     public func resetAllSettings() async throws {
-        for descriptor in SettingsSchema.all {
+        let managed = file.managedGuard.managedKeys
+        for descriptor in SettingsSchema.all where managed[descriptor.id] == nil {
             try await removePruning(descriptor.path)
         }
         try await file.remove(["shortcuts", "bindings"])
