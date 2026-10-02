@@ -236,6 +236,17 @@ describe("direct client session state", () => {
     client.close();
   });
 
+  test("a new chat opens in the chosen project's folder, and without one leaves the folder to the daemon", async () => {
+    const client = await connect();
+    await client.create("codex", "/Users/me/code/notes");
+    await client.create();
+    const created = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(created.map((request) => request.params.cwd)).toEqual(["/Users/me/code/notes", undefined]);
+    expect(created.map((request) => "cwd" in request.params)).toEqual([true, false]);
+    expect(created[0]!.params._meta).toEqual({ acpmux: { harness: "codex" } });
+    client.close();
+  });
+
   test("connect attaches without waiting on the harness catalog, which the pane queries itself", async () => {
     ScriptedSocket.held = new Set(["_acpmux/harnesses"]);
     const client = await connect();

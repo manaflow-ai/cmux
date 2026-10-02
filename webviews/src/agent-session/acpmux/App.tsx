@@ -873,7 +873,8 @@ function AcpmuxPane() {
           "chat.mode": ({ modeId }) => client.setMode(String(modeId)),
           "chat.effort": ({ configId, value }) => client.setConfig(String(configId), String(value)),
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
-          "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
+          "chat.new": async ({ harness, cwd }) =>
+            persistSession(await client.create(harness ? String(harness) : undefined, cwd ? String(cwd) : undefined)),
           "chat.history": () => client.loadOlder(),
         };
         client.snapshot();
@@ -970,6 +971,7 @@ function AcpmuxPane() {
           chips={ComposerChips}
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
+          onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
         />
       </div>
     </section>

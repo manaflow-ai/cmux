@@ -1,0 +1,198 @@
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+
+/// Chooser copy. English defaults until the host passes localized labels, as the rest of the pane does today.
+export const PROJECT_LABELS = {
+  project: "Project",
+  choose: "Choose project",
+  search: "Search projects",
+  none: "No matching projects",
+};
+
+export type Project = { cwd: string; label: string };
+
+/// The project pill on the composer's tray, after Codex's (codex-atlas-clone reference
+/// project-chooser-open): it opens a menu above the tray with a search field over the
+/// projects the user has chats in, newest first. Picking one other than the current
+/// project starts a new chat there. The search field keeps focus; arrows move the
+/// highlight, Enter picks and Escape closes back to the pill.
+export function ProjectChooser({
+  projects,
+  current,
+  currentLabel,
+  icon,
+  onPick,
+}: {
+  projects: Project[];
+  current?: string;
+  currentLabel?: string;
+  icon: React.ReactNode;
+  onPick(cwd: string): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const root = useRef<HTMLSpanElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const menuId = useId();
+
+  const shown = useMemo(() => {
+    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return projects.filter((project) => {
+      const text = `${project.label} ${project.cwd}`.toLowerCase();
+      return words.every((word) => text.includes(word));
+    });
+  }, [projects, query]);
+  const selected = Math.min(active, Math.max(shown.length - 1, 0));
+
+  const show = () => {
+    setQuery("");
+    setActive(
+      Math.max(
+        0,
+        projects.findIndex((project) => project.cwd === current),
+      ),
+    );
+    setOpen(true);
+  };
+  const close = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) trigger.current?.focus();
+  };
+  const pick = (project: Project | undefined) => {
+    if (!project) return;
+    close(true);
+    if (project.cwd !== current) onPick(project.cwd);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    search.current?.focus();
+    const away = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const blur = () => setOpen(false);
+    document.addEventListener("pointerdown", away);
+    window.addEventListener("blur", blur);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      window.removeEventListener("blur", blur);
+    };
+  }, [open]);
+
+  const keyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      close(true);
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (shown.length > 0) setActive((selected + (event.key === "ArrowDown" ? 1 : -1) + shown.length) % shown.length);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      pick(shown[selected]);
+    }
+  };
+
+  return (
+    <span
+      ref={root}
+      className="acpmux-picker acpmux-project"
+      onBlur={(event) => {
+        if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
+      <button
+        ref={trigger}
+        type="button"
+        className="acpmux-context-chip acpmux-project-button"
+        aria-label={PROJECT_LABELS.project}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        title={current ? `${PROJECT_LABELS.project}: ${current}` : undefined}
+        onClick={() => (open ? close(true) : show())}
+      >
+        {icon}
+        <span>{currentLabel ?? PROJECT_LABELS.choose}</span>
+      </button>
+      {open && (
+        <div className="acpmux-menu acpmux-menu-start acpmux-project-menu">
+          <div className="acpmux-project-search">
+            <SearchIcon />
+            <input
+              ref={search}
+              type="text"
+              // A combobox that owns the project list: the role carries aria-expanded and aria-controls.
+              // oxlint-disable-next-line jsx-a11y/no-redundant-roles
+              role="combobox"
+              aria-label={PROJECT_LABELS.search}
+              aria-expanded="true"
+              aria-controls={menuId}
+              aria-autocomplete="list"
+              aria-activedescendant={shown.length > 0 ? `${menuId}-${selected}` : undefined}
+              placeholder={PROJECT_LABELS.search}
+              value={query}
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActive(0);
+              }}
+              onKeyDown={keyDown}
+            />
+          </div>
+          <div
+            id={menuId}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+            role="listbox"
+            aria-label={PROJECT_LABELS.project}
+          >
+            {shown.map((project, index) => (
+              <div
+                key={project.cwd}
+                id={`${menuId}-${index}`}
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="option"
+                tabIndex={-1}
+                aria-selected={index === selected}
+                aria-checked={project.cwd === current}
+                className={`acpmux-menu-item${index === selected ? " acpmux-menu-active" : ""}`}
+                title={project.cwd}
+                onPointerMove={() => setActive(index)}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  pick(project);
+                }}
+              >
+                {icon}
+                <span className="acpmux-menu-label">{project.label}</span>
+              </div>
+            ))}
+            {shown.length === 0 && <div className="acpmux-project-empty">{PROJECT_LABELS.none}</div>}
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg
+      className="acpmux-icon"
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.25}
+      strokeLinecap="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="7" cy="7" r="4.25" />
+      <path d="m10.25 10.25 3 3" />
+    </svg>
+  );
+}

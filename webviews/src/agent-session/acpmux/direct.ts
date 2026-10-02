@@ -891,8 +891,13 @@ export class AcpmuxDirectClient {
     await this.attach(sessionId, generation);
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
-  async create(harness?: string): Promise<string | undefined> {
-    const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } });
+  /// A new session, in `cwd` when given; otherwise the daemon picks the folder.
+  async create(harness?: string, cwd?: string): Promise<string | undefined> {
+    const result = await this.request("session/new", {
+      ...(cwd ? { cwd } : {}),
+      mcpServers: [],
+      _meta: { acpmux: { harness } },
+    });
     if (result?.sessionId) return this.select(String(result.sessionId));
     return undefined;
   }
