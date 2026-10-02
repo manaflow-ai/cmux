@@ -74,11 +74,13 @@ const MessageRow = memo(function MessageRow({ row }: RowProps) {
   return <div className={`acpmux-markdown ${row.kind === "user" ? "acpmux-user-bubble" : ""}`}><MarkdownBlocks source={row.text ?? ""} /></div>;
 }, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version);
 
+const toolCalls = (count = 0) => count === 1 ? "1 tool call" : `${count} tool calls`;
+
 const ToolActivityRow = memo(function ToolActivityRow({ row, onToggleActivity, expanded }: RowProps) {
-  return <div className="acpmux-activity"><button className="acpmux-activity-toggle" aria-expanded={expanded} onClick={() => onToggleActivity(row.id)}>{expanded ? "⌄" : "›"} Worked with {row.toolCount ?? 0} tool calls</button>{expanded && <div className="acpmux-activity-items">{(row.items ?? []).map((item) => <div className="acpmux-activity-item" key={`${row.id}-${item.text}`}><span className="acpmux-glyph">{item.kind === "tool" ? "▣" : "✦"}</span>{item.text}{item.tool?.output && <pre>{item.tool.output}</pre>}</div>)}</div>}</div>;
+  return <div className="acpmux-activity"><button className="acpmux-activity-toggle" aria-expanded={expanded} onClick={() => onToggleActivity(row.id)}>{expanded ? "⌄" : "›"} Worked with {toolCalls(row.toolCount)}</button>{expanded && <div className="acpmux-activity-items">{(row.items ?? []).map((item) => <div className="acpmux-activity-item" key={`${row.id}-${item.text}`}><span className="acpmux-glyph">{item.kind === "tool" ? "▣" : "✦"}</span>{item.text}{item.tool?.output && <pre>{item.tool.output}</pre>}</div>)}</div>}</div>;
 }, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version && previous.expanded === next.expanded);
 
-const SummaryRow = memo(function SummaryRow({ row }: RowProps) { return <div className="acpmux-summary">{`Worked for ${Math.round((row.durationMs ?? 0) / 1000)}s · ${row.toolCount ?? 0} tool calls`}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
+const SummaryRow = memo(function SummaryRow({ row }: RowProps) { return <div className="acpmux-summary">{`Worked for ${Math.round((row.durationMs ?? 0) / 1000)}s · ${toolCalls(row.toolCount)}`}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const NoticeRow = memo(function NoticeRow({ row }: RowProps) { return <div className="acpmux-muted">{row.text}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const PermissionRow = memo(function PermissionRow({ row }: RowProps) { const permission = row.permission; return <div className="acpmux-permission-card"><strong>{permission?.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission?.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const EditedFilesRow = memo(function EditedFilesRow({ row, onOpenDiff }: RowProps) {
