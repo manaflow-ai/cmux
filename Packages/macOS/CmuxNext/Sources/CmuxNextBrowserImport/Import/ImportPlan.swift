@@ -82,9 +82,4 @@ public struct ImportCounts: Sendable, Equatable, Codable {
         ImportCounts(bookmarks: lhs.bookmarks - rhs.bookmarks, history: lhs.history - rhs.history, openTabs: lhs.openTabs - rhs.openTabs,
                      extensions: lhs.extensions - rhs.extensions, cookies: lhs.cookies - rhs.cookies, passwords: lhs.passwords - rhs.passwords)
     }
-
-    public static func - (lhs: ImportCounts, rhs: ImportCounts) -> ImportCounts {
-        ImportCounts(bookmarks: lhs.bookmarks - rhs.bookmarks, history: lhs.history - rhs.history, openTabs: lhs.openTabs - rhs.openTabs,
-                     extensions: lhs.extensions - rhs.extensions, cookies: lhs.cookies - rhs.cookies)
-    }
 }
