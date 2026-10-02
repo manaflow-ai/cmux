@@ -1,12 +1,11 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
-import type { Token, Tokens } from "marked";
 import { applyAgentTheme } from "../shared/theme";
-import { diffRows, layoutConversation, markdownBlocks, paneHeader, placeRows, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
+import { diffRows, layoutConversation, paneHeader, placeRows, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
-import { startMockHost } from "./mock";
+import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
@@ -15,6 +14,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { SessionSidebar } from "./SessionSidebar";
 import { turnFiles, turnRows } from "./diff";
 import { DiffPanel } from "./DiffPanel";
+import { Markdown } from "./conversation/Markdown";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -32,6 +32,8 @@ declare global {
     cmuxAcpmuxRegistry?: { register(kind: string, renderer: MeasurableRenderer, options?: { measure?: (row: AcpmuxRow, width: number) => number }): void; configure(options: Record<string, unknown>): void };
     cmuxAcpmuxDebug?: AcpmuxDebug;
     cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    /// Mock mode only: a recorded turn the in-page daemon replays (webviews/scripts/agent-pane).
+    cmuxAcpmuxMockScript?: MockScript;
     React?: typeof React;
   }
 }
@@ -47,40 +49,10 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   });
 }
 
-/// `measuredText` in model.ts mirrors this walk; keep them drawing and measuring the same text.
-function renderInline(tokens: Token[] | undefined, fallback: string): React.ReactNode {
-  if (!tokens?.length) return fallback;
-  return tokens.map((token, index) => {
-    if (token.type === "codespan") return <code key={index}>{token.text}</code>;
-    if (token.type === "link") {
-      const href = safeHref(token.href);
-      return href ? <a key={index} href={href} rel="noreferrer">{renderInline(token.tokens, token.text)}</a> : token.text;
-    }
-    if ("tokens" in token) return <React.Fragment key={index}>{renderInline(token.tokens, "text" in token ? token.text : token.raw ?? "")}</React.Fragment>;
-    return token.raw ?? ("text" in token ? token.text : "");
-  });
-}
-
-/// `listHeight` in model.ts measures the same items: inline text, then any nested list.
-function MarkdownList({ list }: { list: Tokens.List }) {
-  const items = list.items.map((item, index) => <li key={index}>{item.tokens.map((token, tokenIndex) => token.type === "list" ? <MarkdownList key={tokenIndex} list={token as Tokens.List} /> : <React.Fragment key={tokenIndex}>{renderInline([token], "")}</React.Fragment>)}</li>);
-  return list.ordered ? <ol start={typeof list.start === "number" && list.start !== 1 ? list.start : undefined}>{items}</ol> : <ul>{items}</ul>;
-}
-
-function MarkdownBlocks({ source }: { source: string }) {
-  return <>{markdownBlocks(source).map((token, index) => {
-    if (token.type === "code") return <pre key={index}><code>{token.text}</code></pre>;
-    if (token.type === "heading") return <div className={`acpmux-heading acpmux-heading-${token.depth}`} key={index}>{renderInline(token.tokens, token.text)}</div>;
-    if (token.type === "paragraph" || token.type === "text") return <p key={index}>{renderInline(token.tokens, token.text)}</p>;
-    if (token.type === "list") return <MarkdownList key={index} list={token as Tokens.List} />;
-    if (token.type === "blockquote") return <blockquote key={index}>{renderInline(token.tokens, token.text)}</blockquote>;
-    if (token.type === "hr") return <hr key={index} />;
-    return <p key={index}>{token.raw}</p>;
-  })}</>;
-}
-
+/// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(function MessageRow({ row }: RowProps) {
-  return <div className={`acpmux-markdown ${row.kind === "user" ? "acpmux-user-bubble" : ""}`}><MarkdownBlocks source={row.text ?? ""} /></div>;
+  if (row.kind === "user") return <div className="cv-user"><div className="cv-user__bubble">{row.text ?? ""}</div></div>;
+  return <Markdown>{row.text ?? ""}</Markdown>;
 }, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version);
 
 const toolCalls = (count = 0) => count === 1 ? "1 tool call" : `${count} tool calls`;
@@ -391,12 +363,10 @@ function AcpmuxPane() {
       try {
         const host = await callNative<{ protocolVersion: number; transport?: string; endpoint?: string; token?: string; sessionId?: string; newSession?: boolean }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
-        if (host.transport === "mock") {
-          window.cmuxAcpmuxActions = startMockHost((next) => { rowsRef.current = new Map(next.rows.map((row) => [row.id, row])); setSnapshot(next); });
-          return;
-        }
-        if (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token) return;
-        const client = await AcpmuxDirectClient.connect(host as AcpmuxHostConfig, (next) => {
+        // Mock mode runs this same client against an in-page daemon.
+        const mock = host.transport === "mock";
+        if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
+        const client = await AcpmuxDirectClient.connect(mock ? mockHost : host as AcpmuxHostConfig, (next) => {
           rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
           setSnapshot(next);
         }, () => {
@@ -407,13 +377,14 @@ function AcpmuxPane() {
           delete window.cmuxAcpmuxActions;
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
-        });
+        }, mock ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket : undefined);
         if (cancelled) { client.close(); return; }
         directClient.current = client;
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
         retryDelay = 250;
-        const persistSession = (sessionId?: string) => sessionId ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
+        // A mock session is not one the host can reopen.
+        const persistSession = (sessionId?: string) => sessionId && !mock ? callNative("chat.persistSession", { sessionId }).catch(() => undefined) : Promise.resolve();
         window.cmuxAcpmuxActions = {
           "chat.send": async ({ text }) => { const sessionId = await client.ensureSession(); await persistSession(sessionId); return client.send(String(text ?? "")); },
           "chat.cancel": () => client.cancel(),

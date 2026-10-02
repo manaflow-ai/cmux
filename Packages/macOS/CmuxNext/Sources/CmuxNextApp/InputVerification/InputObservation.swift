@@ -101,6 +101,8 @@ nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterab
     case chromiumGeometry = "G1"
     // Tab conservation (after settle, no drag in flight).
     case stripShowsPaneTabs = "DP1"
+    // Projection (debug builds): the confirmed mirror has one writer.
+    case mirrorSingleWriter = "M1"
 
     var summary: String {
         switch self {
@@ -133,6 +135,7 @@ nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, CaseIterab
         case .presentationSettles: "the focused pane presents the targeted tab within a settle"
         case .chromiumGeometry: "every Chromium page window covers its pane in screen coordinates (ChildPageGeometry)"
         case .stripShowsPaneTabs: "with no tab drag in flight, every tab strip shows exactly its pane's tabs (tab conservation)"
+        case .mirrorSingleWriter: "only daemon events, snapshots and the intent overlay write the mirror, and the overlay keeps every tab"
         }
     }
 }

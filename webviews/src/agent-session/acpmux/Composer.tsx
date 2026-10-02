@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
-import { ArrowUpIcon, StopIcon } from "./ComposerPickers";
+import { ArrowUpIcon, PlusIcon, StopIcon } from "./ComposerPickers";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -24,15 +24,16 @@ type Props = {
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   onSend(text: string): void;
   onStop(): void;
-  /// A button at the bar's left edge, such as attach.
+  /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
 };
 
-/// The prompt box with the agent's `/` command menu: one rounded bar holding
-/// the prompt and a round Send button, which turns into Stop while a turn runs
-/// and the prompt is empty, with the mode and model as small muted text below. Enter sends and
+/// The prompt box with the agent's `/` command menu, drawn as Codex's composer:
+/// the prompt over a bar with + at the left, the mode and model chips, and a
+/// round Send button at the right, which turns into Stop while a turn runs and
+/// the prompt is empty. Enter sends and
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
@@ -46,6 +47,9 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
+  /// What + wrote over the draft, so Escape can put the draft back.
+  const plusDraft = useRef<{ written: string; original: string } | undefined>(undefined);
+  const composing = useRef(false);
   // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
   const refocusSend = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
@@ -78,14 +82,34 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     edit(next.text, next.caret);
     textarea.current?.focus();
   };
+  /// The draft without what + wrote over it, while the text is still exactly that.
+  const unwrapped = () => {
+    const plus = plusDraft.current;
+    return plus && plus.written === text ? plus.original : text;
+  };
   const submit = (event: React.SyntheticEvent) => {
     event.preventDefault();
-    const prompt = text.trim();
+    const prompt = unwrapped().trim();
+    plusDraft.current = undefined;
     if (!prompt) return;
     edit("", 0);
     sentAt.current = Date.now();
     refocusSend.current = document.activeElement?.classList.contains("acpmux-send") ?? false;
     onSend(prompt);
+  };
+  // Until attachments land, + opens the agent's commands: the menu reads the
+  // text before the caret, so "/" ahead of the draft opens it and a pick keeps
+  // the draft as arguments. A draft that already starts a command keeps its "/",
+  // so a pick replaces that command; anything else (a pasted path) is kept whole.
+  const openCommands = () => {
+    if (composing.current) return;
+    const first = /^\/(\S*)/.exec(text)?.[1];
+    const named = first !== undefined && (commands ?? []).some((command) => command.name.startsWith(first));
+    const next = named ? text : text ? `/ ${text}` : "/";
+    plusDraft.current = { written: next, original: text };
+    pendingCaret.current = 1;
+    edit(next, 1);
+    textarea.current?.focus();
   };
   const stopTurn = () => { if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop(); };
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -98,7 +122,15 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     const typedInFull = matches[selected]?.command.name === query && !matches[selected]?.command.hint;
     if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) { submit(event); return; }
     if (!open) return;
-    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setDismissed(text); return; }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      const plus = plusDraft.current;
+      plusDraft.current = undefined;
+      if (plus && plus.written === text) { edit(plus.original, plus.original.length); pendingCaret.current = plus.original.length; return; }
+      setDismissed(text);
+      return;
+    }
     if (matches.length === 0) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -112,25 +144,38 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   const track = (event: React.SyntheticEvent<HTMLTextAreaElement>) => setCaret(event.currentTarget.selectionStart);
 
   const stop = snapshot.isWorking && !text.trim();
-  return <form className="acpmux-composer" onSubmit={submit}>
+  // Focus leaving the composer closes the menu and takes back what + wrote.
+  const blur = (event: React.FocusEvent<HTMLFormElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    const original = unwrapped();
+    plusDraft.current = undefined;
+    if (original !== text) edit(original, original.length);
+    else if (open) setDismissed(text);
+  };
+  return <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
     {open && <SlashMenu matches={matches} active={selected} empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands} onHover={setActive} onPick={pick} />}
     {snapshot.queue.length > 0 && <ol className="acpmux-queue" aria-label={COMPOSER_LABELS.queue}>
       {snapshot.queue.map((entry) => <li className="acpmux-queued" key={entry.id} title={entry.prompt}><span className="acpmux-queued-label">{COMPOSER_LABELS.queued}</span><span className="acpmux-queued-text">{entry.prompt}</span></li>)}
     </ol>}
     <div className="acpmux-composer-box">
-      {leading}
       {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
       <textarea ref={textarea} className="acpmux-composer-field" aria-label={COMPOSER_LABELS.prompt} name="prompt" rows={1} placeholder={COMPOSER_LABELS.placeholder} value={text}
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="combobox" aria-expanded={open} aria-controls={open ? "acpmux-slash-menu" : undefined} aria-autocomplete="list"
         aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
-        onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown} />
-      {accessory}
-      {stop
-        ? <button key="stop" ref={sendButton} type="button" className="acpmux-send acpmux-cancel" aria-label={COMPOSER_LABELS.stop} title={COMPOSER_LABELS.stop} onClick={stopTurn}><StopIcon /></button>
-        : <button key="send" ref={sendButton} type="submit" className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`} aria-label={COMPOSER_LABELS.send} title={COMPOSER_LABELS.send}><ArrowUpIcon /></button>}
+        onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown}
+        onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} />
+      <div className="acpmux-composer-bar">
+        {leading !== undefined ? leading : <button type="button" className="acpmux-composer-plus" aria-label={COMPOSER_LABELS.commands} title={COMPOSER_LABELS.commands} disabled={!commands?.length} onClick={openCommands}><PlusIcon /></button>}
+        <Chips snapshot={snapshot} />
+        <span className="acpmux-composer-actions">
+        {accessory}
+        {stop
+          ? <button key="stop" ref={sendButton} type="button" className="acpmux-send acpmux-cancel" aria-label={COMPOSER_LABELS.stop} title={COMPOSER_LABELS.stop} onClick={stopTurn}><StopIcon /></button>
+          : <button key="send" ref={sendButton} type="submit" className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`} aria-label={COMPOSER_LABELS.send} title={COMPOSER_LABELS.send}><ArrowUpIcon /></button>}
+        </span>
+      </div>
     </div>
-    <div className="acpmux-composer-meta"><Chips snapshot={snapshot} /></div>
   </form>;
 }
 

@@ -8,7 +8,7 @@ import Testing
 @MainActor
 struct WindowActivationTests {
     @Test func noActivateNeverMakesAWindowKeyOrActivatesTheApp() {
-        for intent in [WindowActivation.Intent.present, .raise, .focus] {
+        for intent in [WindowActivation.Intent.present, .presentBehind, .raise, .focus] {
             for testScreen in [false, true] {
                 let plan = WindowActivation.plan(intent, noActivate: true, testScreen: testScreen)
                 #expect(plan.order != .makeKeyAndOrderFront, "\(intent), test screen \(testScreen)")
@@ -17,6 +17,19 @@ struct WindowActivationTests {
         }
         #expect(WindowActivation.plan(.present, noActivate: true, testScreen: false).order == .orderBack)
         #expect(WindowActivation.plan(.present, noActivate: true, testScreen: true).order == .orderFrontRegardless)
+    }
+
+    /// A window the user did not ask for (automation, Option on a
+    /// tear-off) never takes the key window, in any launch.
+    @Test func aWindowPresentedBehindIsNeverKey() {
+        for noActivate in [false, true] {
+            for testScreen in [false, true] {
+                let plan = WindowActivation.plan(.presentBehind, noActivate: noActivate, testScreen: testScreen)
+                #expect(plan.order != .makeKeyAndOrderFront)
+                #expect(!plan.activatesApp)
+            }
+        }
+        #expect(WindowActivation.plan(.presentBehind, noActivate: false, testScreen: false).order == .orderBack)
     }
 
     @Test func aNormalLaunchFocusesAndOnlyFocusActivates() {

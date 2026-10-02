@@ -60,7 +60,24 @@ enum DebugMouse {
         case "move":
             events = [mouse(.mouseMoved, at: point, in: window, flags: flags, clicks: 0)]
         case "scroll":
-            events = [scroll(at: point, in: window, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0)]
+            guard let event = scroll(at: point, in: window, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0) else {
+                return .object(["error": .string("could not synthesize events")])
+            }
+            guard event.window == nil else {
+                events = [event]
+                break
+            }
+            // NSEvent(cgEvent:) leaves a synthesized scroll's window nil, so
+            // the app would hit-test the screen point as a window point and
+            // the wheel would reach no view. Deliver it to the view under
+            // the point instead; its responder chain finds the scroll view.
+            guard let frameView = window.contentView?.superview,
+                  let target = frameView.hitTest(frameView.convert(baseLocation(point, in: window), from: nil)) else {
+                return .object(["error": .string("no view under the point")])
+            }
+            target.scrollWheel(with: event)
+            return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
+                            "delivered_to": .string(String(describing: type(of: target)))])
         case "hover":
             // Hover: tracking-area owners get the events at once (DebugHover).
             let delivered = DebugHover.move(to: baseLocation(point, in: window), in: window)
