@@ -52,6 +52,9 @@ public final class DesignSettings {
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`: the unread pane's attention ring.
     public var attention = AttentionSettings()
+    /// `appearance.statusIndicator.*`: loading and status indicators on
+    /// sidebar rows, tabs, sections and pane headers.
+    public var statusIndicator = StatusIndicatorSettings()
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default

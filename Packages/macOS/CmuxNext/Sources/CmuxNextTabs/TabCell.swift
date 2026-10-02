@@ -40,7 +40,8 @@ final class TabCell {
     var scale: CGFloat = 1 {
         didSet {
             guard oldValue != scale else { return }
-            for sublayer in [titleLayer, iconLayer, spinnerLayer, closeGlyphLayer, machineLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
+            for sublayer in [titleLayer, iconLayer, closeGlyphLayer, machineLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
+            spinnerLayer?.contentsScale = scale
             updateColors(animated: false)
             layoutLayers()
         }
@@ -69,7 +70,7 @@ final class TabCell {
     // Created on first need and removed when unused, so 100 idle tabs cost
     // five layers each (architecture.md 3): spinner while busy, badge while
     // unread or showing status, close button on the selected/hovered tab.
-    var spinnerLayer: CAShapeLayer?
+    var spinnerLayer: StatusIndicatorLayer?
     var badgeLayer: CALayer?
     var closeBackgroundLayer: CALayer?
     var closeGlyphLayer: CAShapeLayer?
@@ -145,7 +146,9 @@ final class TabCell {
             measuredTitle = nil
             titleLayer.string = displayTitle
         }
-        if previous?.isBusy != item.isBusy { updateSpinner() }
+        if previous?.indicator != item.indicator || previous?.busyStyle != item.busyStyle {
+            updateSpinner()
+        }
         if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
@@ -189,20 +192,6 @@ final class TabCell {
         updateColors(animated: true)
     }
 
-    private func updateSpinner() {
-        let key = "spin"
-        if item.isBusy {
-            let spinnerLayer = makeSpinner()
-            if spinnerLayer.animation(forKey: key) == nil, let spin = Motion.spinAnimation() {
-                spinnerLayer.add(spin, forKey: key)
-            }
-        } else {
-            spinnerLayer?.removeFromSuperlayer()
-            spinnerLayer = nil
-        }
-        layoutLayers()
-    }
-
     func updateColors(animated: Bool) {
         Motion.transaction(animated ? .hover : nil) { applyColors() }
     }
@@ -220,7 +209,7 @@ final class TabCell {
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = Palette.textTertiary.cgColor
             applyProfileDotColors()
-            spinnerLayer?.strokeColor = Palette.textSecondary.cgColor
+            spinnerLayer?.colors = .current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             separatorLayer.backgroundColor = Palette.separator.cgColor
             iconLayer.contents = iconImage(tint: item.tint?.swatch ?? text)
         }
@@ -310,19 +299,14 @@ final class TabCell {
                 : (bounds.width - iconSide) / 2
         }
         let iconFrame = CGRect(x: pixel(iconX), y: pixel(midY - iconSide / 2), width: iconSide, height: iconSide)
-        let showsIconArt = visibility.showsIcon && !item.isBusy
+        let showsIconArt = visibility.showsIcon && spinnerLayer == nil
         iconLayer.frame = iconFrame
         layoutThemeBadge(iconFrame: iconFrame, visible: visibility.showsIcon)
         // A hibernated page's icon is dimmed until it is selected.
         iconLayer.opacity = showsIconArt ? (item.isDormant && !isSelected ? 0.55 : 1) : 0
         if let spinnerLayer {
-            spinnerLayer.opacity = visibility.showsIcon ? 1 : 0
-            let spinnerRect = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
-            if spinnerLayer.bounds.size != spinnerRect.size {
-                spinnerLayer.bounds = CGRect(origin: .zero, size: spinnerRect.size)
-                spinnerLayer.path = CGPath(ellipseIn: spinnerLayer.bounds, transform: nil)
-            }
-            spinnerLayer.position = CGPoint(x: spinnerRect.midX, y: spinnerRect.midY)
+            spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0
+            spinnerLayer.frame = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
         }
 
         if visibility.showsIcon, badgeColor != nil {

@@ -109,7 +109,7 @@ final class SidebarListView: NSView {
     /// Pauses (or resumes) every row's activity animation.
     func setWindowVisible(_ visible: Bool) {
         for row in subviews {
-            for case let indicator as ActivityIndicatorView in row.subviews { indicator.isWindowVisible = visible }
+            for case let indicator as StatusIndicatorView in row.subviews { indicator.isWindowVisible = visible }
         }
     }
 
